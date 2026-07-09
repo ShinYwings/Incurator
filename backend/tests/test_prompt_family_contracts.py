@@ -61,6 +61,16 @@ def test_knowledge_unit_v3_declares_minimal_support_formula_centrality_and_engli
     assert "English" in contract.system_template
 
 
+def test_synthesis_prompts_preserve_central_equations_and_code() -> None:
+    for pid in (
+        "curator.community_report_write",
+        "curator.query_local_answer",
+        "curator.query_global_reduce",
+    ):
+        template = prompting.REGISTRY.get(pid).system_template
+        assert "Preserve central equations, formulas, and code expressions exactly" in template
+
+
 def test_backprop_classify_contract_has_classification_model() -> None:
     contract = prompting.REGISTRY.get("curator.backprop_classify")
     fields = contract.output_model.model_fields

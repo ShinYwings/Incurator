@@ -64,18 +64,54 @@ def test_timestamp_key_rejects_non_string_values() -> None:
     assert _timestamp_key(42) == _timestamp_key("")
 
 
-@pytest.mark.parametrize("legacy_timestamp", ["", "not-a-timestamp"])
-def test_import_source_without_revision_uses_valid_current_timestamp(
+@pytest.mark.parametrize("updated_at", ["", "not-a-timestamp"])
+def test_import_source_without_valid_revision_is_rejected(
     db_path: Path,
     tmp_path: Path,
-    legacy_timestamp: str,
+    updated_at: str,
 ) -> None:
-    export = tmp_path / "legacy.jsonl"
+    export = tmp_path / "malformed-source.jsonl"
     records = [
         {
             "type": "header",
             "schema_version": db.SCHEMA_VERSION,
-            "export_id": "exp-legacy-source",
+            "export_id": "exp-malformed-source",
+            "exported_at": "2026-01-01T00:00:00Z",
+        },
+        {
+            "type": "row",
+            "table": "sources",
+            "row": {
+                "id": 1,
+                "relpath": "04_Resources/legacy.md",
+                "sync_key": "vault:04_Resources/legacy.md",
+                "content_hash": "legacy-hash",
+                "file_type": "md",
+                "bytes": 1,
+                "added_at": "2026-01-01T00:00:00Z",
+                "updated_at": updated_at,
+            },
+        },
+    ]
+    export.write_text(
+        "\n".join(json.dumps(record) for record in records) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="valid updated_at"):
+        import_knowledge(db_path, export)
+
+
+def test_import_source_without_sync_key_is_rejected(
+    db_path: Path,
+    tmp_path: Path,
+) -> None:
+    export = tmp_path / "missing-sync-key.jsonl"
+    records = [
+        {
+            "type": "header",
+            "schema_version": db.SCHEMA_VERSION,
+            "export_id": "exp-missing-sync-key",
             "exported_at": "2026-01-01T00:00:00Z",
         },
         {
@@ -87,7 +123,8 @@ def test_import_source_without_revision_uses_valid_current_timestamp(
                 "content_hash": "legacy-hash",
                 "file_type": "md",
                 "bytes": 1,
-                "added_at": legacy_timestamp,
+                "added_at": "2026-01-01T00:00:00Z",
+                "updated_at": "2026-01-01T00:00:00.000Z",
             },
         },
     ]
@@ -96,14 +133,8 @@ def test_import_source_without_revision_uses_valid_current_timestamp(
         encoding="utf-8",
     )
 
-    import_knowledge(db_path, export)
-
-    with db.connect(db_path) as conn:
-        updated_at = conn.execute(
-            "SELECT updated_at FROM sources WHERE id = 1"
-        ).fetchone()[0]
-    assert updated_at
-    assert _timestamp_key(updated_at) > _timestamp_key("")
+    with pytest.raises(ValueError, match="missing sync_key"):
+        import_knowledge(db_path, export)
 
 
 class TestTombstone:

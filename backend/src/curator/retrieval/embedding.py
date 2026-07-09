@@ -24,7 +24,15 @@ from .. import db
 from .chunking import chunk_text
 from .providers import Embedder
 
-__all__ = ["ChunkResult", "EmbedResult", "materialize_chunks", "embed_corpus", "pack_vector", "unpack_vector"]
+__all__ = [
+    "ChunkResult",
+    "EmbedResult",
+    "current_embedding_coverage",
+    "materialize_chunks",
+    "embed_corpus",
+    "pack_vector",
+    "unpack_vector",
+]
 
 
 @dataclass(frozen=True)
@@ -41,6 +49,31 @@ class EmbedResult:
     degraded: bool = False
     warning: str = ""
     fingerprint: str = ""
+
+
+def current_embedding_coverage(
+    db_path: Path,
+    provider: str,
+    model: str,
+) -> tuple[int, int]:
+    """Return ``(total_chunks, ready_current_embeddings)`` for provider/model."""
+    with db.connect(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT
+                COUNT(c.chunk_id) AS total,
+                SUM(CASE WHEN e.chunk_id IS NULL THEN 0 ELSE 1 END) AS ready
+            FROM search_chunks c
+            LEFT JOIN search_embeddings e
+              ON e.chunk_id = c.chunk_id
+             AND e.provider = ?
+             AND e.model = ?
+             AND e.status = 'ready'
+             AND e.input_hash = c.input_hash
+            """,
+            (provider, model),
+        ).fetchone()
+    return int(row["total"] or 0), int(row["ready"] or 0)
 
 
 def _sha8(text: str) -> str:
@@ -77,7 +110,7 @@ def materialize_chunks(db_path: Path, search_config: dict | None = None) -> Chun
     """Chunk every search document into ``search_chunks`` (content-addressed)."""
     params = _chunk_config(search_config or {})
     docs = db.list_search_documents(db_path)
-    total_chunks = 0
+    rows: list[tuple] = []
     for doc in docs:
         body = "\n".join(part for part in (doc.get("title") or "", doc.get("body") or "") if part).strip()
         chunks = chunk_text(body, **params)
@@ -85,23 +118,61 @@ def materialize_chunks(db_path: Path, search_config: dict | None = None) -> Chun
         for index, chunk in enumerate(chunks):
             ihash = _input_hash(chunk.text)
             chunk_id = f"CHK-{doc['doc_id']}-{index}-{_sha8(ihash)}"
-            db.upsert_search_chunk(
-                db_path,
-                chunk_id=chunk_id,
-                doc_id=doc["doc_id"],
-                record_type=doc["record_type"],
-                record_id=doc["record_id"],
-                chunk_index=index,
-                char_start=chunk.char_start,
-                char_end=chunk.char_end,
-                text=chunk.text,
-                input_hash=ihash,
-                source_span_ids=[str(s) for s in span_ids],
-                provenance={"dependency_hash": doc.get("dependency_hash", "")},
+            rows.append(
+                (
+                    chunk_id,
+                    doc["doc_id"],
+                    doc["record_type"],
+                    doc["record_id"],
+                    index,
+                    chunk.char_start,
+                    chunk.char_end,
+                    chunk.text,
+                    ihash,
+                    json.dumps([str(s) for s in span_ids]),
+                    json.dumps({"dependency_hash": doc.get("dependency_hash", "")}),
+                )
             )
-            total_chunks += 1
-    db.set_index_meta(db_path, "search_chunk_count", str(total_chunks))
-    return ChunkResult(documents=len(docs), chunks=total_chunks)
+    if rows:
+        with db.connect(db_path) as conn:
+            conn.execute("CREATE TEMP TABLE current_search_chunks(chunk_id TEXT PRIMARY KEY)")
+            conn.executemany(
+                "INSERT INTO current_search_chunks(chunk_id) VALUES (?)",
+                [(row[0],) for row in rows],
+            )
+            conn.executemany(
+                """
+                INSERT INTO search_chunks
+                    (chunk_id, doc_id, record_type, record_id, chunk_index, char_start,
+                     char_end, text, input_hash, source_span_ids, provenance_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(chunk_id) DO UPDATE SET
+                    doc_id = excluded.doc_id,
+                    record_type = excluded.record_type,
+                    record_id = excluded.record_id,
+                    chunk_index = excluded.chunk_index,
+                    char_start = excluded.char_start,
+                    char_end = excluded.char_end,
+                    text = excluded.text,
+                    input_hash = excluded.input_hash,
+                    source_span_ids = excluded.source_span_ids,
+                    provenance_json = excluded.provenance_json
+                """,
+                rows,
+            )
+            conn.execute(
+                "DELETE FROM search_chunks "
+                "WHERE NOT EXISTS ("
+                "SELECT 1 FROM current_search_chunks c "
+                "WHERE c.chunk_id = search_chunks.chunk_id"
+                ")"
+            )
+            conn.execute("DROP TABLE current_search_chunks")
+    else:
+        with db.connect(db_path) as conn:
+            conn.execute("DELETE FROM search_chunks")
+    db.set_index_meta(db_path, "search_chunk_count", str(len(rows)))
+    return ChunkResult(documents=len(docs), chunks=len(rows))
 
 
 def embed_corpus(

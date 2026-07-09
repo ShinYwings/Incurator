@@ -11,6 +11,19 @@ from curator import search
 from curator.retrieval import providers
 
 
+class _FakeEmbedder:
+    provider = "test"
+    model = "embed"
+    dim = 2
+
+    @property
+    def fingerprint(self) -> str:
+        return f"{self.provider}::{self.model}::{self.dim}"
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        return [[float(len(text)), 1.0] for text in texts]
+
+
 class SearchIndexFallbackTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -74,6 +87,68 @@ class SearchIndexFallbackTests(unittest.TestCase):
             search.update_index(self.paths, embed=True)
 
         unload.assert_called_once_with(config)
+
+    def test_embed_skips_model_load_when_embeddings_are_current(self) -> None:
+        config = cfg.DEFAULT_CONFIG.copy()
+        config["search"] = {
+            **cfg.DEFAULT_CONFIG["search"],
+            "embedding": "test::embed",
+        }
+        with (
+            patch.object(cfg, "load_config", return_value=config),
+            patch.object(providers, "build_embedder", return_value=_FakeEmbedder()) as build,
+            patch.object(providers, "embedding_identity_available", return_value=True),
+        ):
+            first = search.update_index(self.paths, embed=True)
+        self.assertTrue(first.embedded)
+        self.assertEqual(build.call_count, 1)
+
+        with (
+            patch.object(cfg, "load_config", return_value=config),
+            patch.object(providers, "embedding_identity_available", return_value=True),
+            patch.object(
+                providers,
+                "build_embedder",
+                side_effect=AssertionError("embedder should not load"),
+            ),
+        ):
+            second = search.update_index(self.paths, embed=True)
+
+        self.assertTrue(second.embedded)
+        self.assertFalse(second.degraded)
+
+    def test_embed_reuse_degrades_when_configured_embedder_is_unavailable(self) -> None:
+        config = cfg.DEFAULT_CONFIG.copy()
+        config["search"] = {
+            **cfg.DEFAULT_CONFIG["search"],
+            "embedding": "llama-cpp::qwen3-embedding-0.6b",
+            "embedding_model_path": "/missing/embed.gguf",
+        }
+        search.update_index(self.paths, embed=False)
+        with db.connect(self.paths.state_db) as conn:
+            chunks = conn.execute(
+                "SELECT chunk_id, input_hash FROM search_chunks"
+            ).fetchall()
+        self.assertTrue(chunks)
+        for row in chunks:
+            db.upsert_search_embedding(
+                self.paths.state_db,
+                chunk_id=row["chunk_id"],
+                provider="llama-cpp",
+                model="qwen3-embedding-0.6b",
+                dim=2,
+                vector=b"00000000",
+                input_hash=row["input_hash"],
+                dependency_hash="",
+            )
+
+        with patch.object(cfg, "load_config", return_value=config):
+            result = search.update_index(self.paths, embed=True)
+
+        self.assertTrue(result.updated)
+        self.assertFalse(result.embedded)
+        self.assertTrue(result.degraded)
+        self.assertIn("FTS5-only", result.warning)
 
 
 if __name__ == "__main__":

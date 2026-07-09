@@ -17,7 +17,7 @@ from curator import db
 # Graceful imports
 # ---------------------------------------------------------------------------
 try:
-    from curator.sync import _find_changed_nodes, update_all_page_hashes
+    from curator.sync import _find_changed_nodes, scan_for_changes, update_all_page_hashes
     SYNC_HELPERS_AVAILABLE = True
 except ImportError:
     SYNC_HELPERS_AVAILABLE = False
@@ -90,6 +90,14 @@ class TestFindChangedNodes(unittest.TestCase):
         )
         changed = _find_changed_nodes(self.paths)
         self.assertIn("ATM-legacy01", changed)
+
+    def test_deleted_page_hashes_are_pruned_after_update(self) -> None:
+        path = self._write_atom("ATM-delete01", "Temporary body.")
+        update_all_page_hashes(self.paths)
+        path.unlink()
+        self.assertIn("02_Atoms/ATM-delete01.md", scan_for_changes(self.paths).deleted)
+        update_all_page_hashes(self.paths)
+        self.assertNotIn("02_Atoms/ATM-delete01.md", scan_for_changes(self.paths).deleted)
 
     def test_empty_collections_returns_empty_list(self) -> None:
         changed = _find_changed_nodes(self.paths)

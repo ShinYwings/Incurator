@@ -313,7 +313,15 @@ def test_compile_global_l3_writes_concepts(vault) -> None:
 
     con_files = list(paths.concepts.glob("CON-*.md"))
     assert len(con_files) == len(concept_ids)
-    assert "community_report_id" in con_files[0].read_text(encoding="utf-8")
+    con_text = con_files[0].read_text(encoding="utf-8")
+    assert "community_report_id" in con_text
+    assert "## Relations" in con_text
+    assert "[[02_Atoms/" in con_text
+    syn_files = list(paths.synthesis.glob("SYN-*.md"))
+    assert syn_files
+    syn_text = syn_files[0].read_text(encoding="utf-8")
+    assert "concept_ids:" in syn_text
+    assert any(concept_id in syn_text for concept_id in concept_ids)
 
     with db.connect(paths.state_db) as conn:
         n_rep = conn.execute(
@@ -335,6 +343,11 @@ def test_compile_global_l3_marks_l4_done_when_synthesis_is_generated(vault) -> N
             "context_id, l1_status) VALUES (?, ?, ?, ?, datetime('now'), ?, 'done')",
             ("04_Resources/resnet2.md", "h2", "md", len(SOURCE_MD), "CTX-test5678"),
         )
+        conn.execute(
+            "INSERT INTO sources (relpath, content_hash, file_type, bytes, added_at, "
+            "context_id, l1_status, l2_status) VALUES (?, ?, ?, ?, datetime('now'), ?, 'done', 'done')",
+            ("04_Resources/unrelated.md", "h3", "md", 1, "CTX-unrelated"),
+        )
 
     compile_mod.compile_source_l2(paths, client, 1)
     compile_mod.compile_source_l2(paths, client, 2)
@@ -343,6 +356,7 @@ def test_compile_global_l3_marks_l4_done_when_synthesis_is_generated(vault) -> N
     assert db.list_synthesis_nodes(paths.state_db)
     assert _layer_status(paths, 1, "l4") == "done"
     assert _layer_status(paths, 2, "l4") == "done"
+    assert _layer_status(paths, 3, "l4") == "skipped"
 
 
 def test_compile_global_l3_marks_l3_and_l4_skipped_when_no_reports_exist(vault) -> None:

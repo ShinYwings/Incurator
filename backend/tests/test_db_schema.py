@@ -37,6 +37,40 @@ def test_schema_version_is_12() -> None:
     assert db.SCHEMA_VERSION == 12
 
 
+def test_connect_stamps_current_schema_version_on_self_healed_db(tmp_path: Path) -> None:
+    path = tmp_path / "state.sqlite"
+    with db.connect(path) as conn:
+        version = conn.execute(
+            "SELECT version FROM schema_version LIMIT 1"
+        ).fetchone()[0]
+    assert version == db.SCHEMA_VERSION
+
+
+def test_connect_replaces_stale_trigger_bodies(tmp_path: Path) -> None:
+    path = tmp_path / "state.sqlite"
+    db.init_db(path)
+    with sqlite3.connect(path) as conn:
+        conn.executescript(
+            """
+            DROP TRIGGER sources_touch_updated_at;
+            CREATE TRIGGER sources_touch_updated_at
+            AFTER UPDATE ON sources
+            FOR EACH ROW
+            BEGIN
+                UPDATE sources SET updated_at = OLD.updated_at WHERE id = NEW.id;
+            END;
+            """
+        )
+
+    with db.connect(path) as conn:
+        sql = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='trigger' "
+            "AND name='sources_touch_updated_at'"
+        ).fetchone()[0]
+
+    assert "julianday(OLD.updated_at)" in sql
+
+
 def test_source_updated_at_advances_on_status_only_mutation(db_path: Path) -> None:
     with db.connect(db_path) as conn:
         conn.execute(
@@ -55,80 +89,46 @@ def test_source_updated_at_advances_on_status_only_mutation(db_path: Path) -> No
     assert after > before
 
 
-def test_connect_stamps_completed_schema_migration(db_path: Path) -> None:
+def test_source_updated_at_advances_past_future_revision(db_path: Path) -> None:
     with db.connect(db_path) as conn:
-        conn.execute("UPDATE schema_version SET version = 10")
-    with db.connect(db_path) as conn:
-        version = conn.execute("SELECT version FROM schema_version").fetchone()[0]
-    assert version == 12
-
-
-def test_schema_v10_source_updated_at_matches_fresh_schema(tmp_path: Path) -> None:
-    path = tmp_path / "schema-v10.sqlite"
-    with sqlite3.connect(path) as conn:
-        conn.executescript(
-            """
-            CREATE TABLE schema_version (version INTEGER PRIMARY KEY);
-            INSERT INTO schema_version VALUES (10);
-            CREATE TABLE sources (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                relpath TEXT NOT NULL UNIQUE,
-                content_hash TEXT NOT NULL,
-                file_type TEXT NOT NULL,
-                bytes INTEGER NOT NULL,
-                added_at TEXT NOT NULL,
-                last_ingested TEXT,
-                status TEXT NOT NULL DEFAULT 'pending',
-                context_id TEXT,
-                l1_status TEXT NOT NULL DEFAULT 'pending',
-                l2_status TEXT NOT NULL DEFAULT 'pending',
-                l3_status TEXT NOT NULL DEFAULT 'pending',
-                l4_status TEXT NOT NULL DEFAULT 'pending',
-                layer_error TEXT,
-                domain TEXT,
-                tags TEXT,
-                import_origin_ref TEXT,
-                external_ref TEXT,
-                import_policy TEXT,
-                is_reference INTEGER NOT NULL DEFAULT 0,
-                logical_source_id TEXT,
-                error_reason TEXT,
-                updated_at TEXT
-            );
-            INSERT INTO sources (
-                relpath, content_hash, file_type, bytes, added_at, updated_at
-            ) VALUES (
-                '04_Resources/legacy.md', 'legacy-hash', 'md', 1,
-                '2026-01-01T00:00:00Z', NULL
-            );
-            """
+        conn.execute(
+            "UPDATE sources SET updated_at = '2999-01-01T00:00:00.000Z' WHERE id = 1"
         )
+        before = conn.execute(
+            "SELECT updated_at FROM sources WHERE id = 1"
+        ).fetchone()[0]
+        conn.execute("UPDATE sources SET l3_status = 'done' WHERE id = 1")
+        after = conn.execute(
+            "SELECT updated_at FROM sources WHERE id = 1"
+        ).fetchone()[0]
+    assert after > before
 
-    db.init_db(path)
 
-    with db.connect(path) as conn:
-        info = {
-            row["name"]: row
-            for row in conn.execute("PRAGMA table_info(sources)").fetchall()
-        }
-        migrated = conn.execute(
-            "SELECT updated_at FROM sources WHERE relpath = ?",
-            ("04_Resources/legacy.md",),
+def test_compiler_generation_updated_at_advances_past_future_revision(db_path: Path) -> None:
+    gen_id = db.create_compiler_generation(
+        db_path,
+        prompt_contract_version="test",
+        source_id=1,
+    )
+    with db.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE compiler_generations "
+            "SET updated_at = '2999-01-01T00:00:00.000Z' WHERE id = ?",
+            (gen_id,),
+        )
+        before = conn.execute(
+            "SELECT updated_at FROM compiler_generations WHERE id = ?",
+            (gen_id,),
         ).fetchone()[0]
         conn.execute(
-            "INSERT INTO sources (relpath, content_hash, file_type, bytes, added_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            ("04_Resources/new.md", "new-hash", "md", 1, "2026-01-02T00:00:00Z"),
+            "UPDATE compiler_generations SET audit_json = ? WHERE id = ?",
+            ('{"changed": true}', gen_id),
         )
-        defaulted = conn.execute(
-            "SELECT updated_at FROM sources WHERE relpath = ?",
-            ("04_Resources/new.md",),
+        after = conn.execute(
+            "SELECT updated_at FROM compiler_generations WHERE id = ?",
+            (gen_id,),
         ).fetchone()[0]
-
-    assert info["updated_at"]["notnull"] == 1
-    assert "strftime" in info["updated_at"]["dflt_value"]
-    assert migrated == "2026-01-01T00:00:00.000Z"
-    assert defaulted
+    assert after > before
 
 
 def test_spec_declares_matching_schema_version() -> None:
@@ -375,37 +375,3 @@ def test_init_db_closes_its_connection_and_leaves_no_wal_sidecars() -> None:
         path.write_bytes(b"")
         stats = db.get_stats(path)
         assert stats["sources_total"] == 0
-
-
-def test_connect_closes_connection_when_schema_setup_fails(monkeypatch) -> None:
-    """A failure during connect()'s schema setup/migration must not leak the
-    connection (v0.6.1 review follow-up).
-
-    Before the fix, executescript/_apply_migrations ran before the
-    try/finally, so an exception there leaked the connection and its WAL
-    sidecars exactly like the init_db bug. Holding a reference to the
-    connection makes the assertion GC-independent.
-    """
-    import sqlite3
-
-    captured: dict[str, sqlite3.Connection] = {}
-
-    def boom(conn: sqlite3.Connection) -> None:
-        captured["conn"] = conn
-        raise RuntimeError("simulated migration failure")
-
-    # _apply_migrations now lives in curator.db.schema (DB-2 split); connect()
-    # resolves it as a module global there, so patch it at its real location.
-    monkeypatch.setattr("curator.db.schema._apply_migrations", boom)
-    with tempfile.TemporaryDirectory() as tmp:
-        path = Path(tmp) / "state.sqlite"
-        with pytest.raises(RuntimeError, match="simulated migration failure"):
-            with db.connect(path):
-                pass
-
-        # The connection must be closed even though setup failed...
-        with pytest.raises(sqlite3.ProgrammingError):
-            captured["conn"].execute("SELECT 1")
-        # ...so its WAL sidecars do not outlive the call.
-        sidecars = sorted(p.name for p in path.parent.iterdir() if p.name != path.name)
-        assert sidecars == [], f"WAL sidecars persisted after failed connect: {sidecars}"

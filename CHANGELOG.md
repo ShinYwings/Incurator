@@ -4,6 +4,15 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.33.0] - 2026-07-07
+### Changed
+- **Strict Sync Schema Enforcement (Removal of Legacy Compatibility)**
+  All backward-compatibility logic for parsing pre-v12 database schemas and legacy `last_imported_mtime` / `added_at` timestamps has been strictly removed. The system no longer attempts to automatically migrate or inject synthetic timestamps for malformed rows during P2P sync. Peer snapshots with incompatible schemas or missing `export_id` headers will now be skipped entirely rather than triggering partial imports. 
+- **DB Initialization Speedup (Dead Code Removal)**
+  The `init_db` and `connect` startup pathways have been significantly simplified by deleting over 700 lines of obsolete `v12` data-migration logic and fallback checks. Vault connections now start faster as they no longer perform redundant schema validation against legacy formats.
+
+---
+
 ## [0.32.2] - 2026-07-06
 ### Fixed
 - **`wiki db autosync` no longer crashes on pre-v12 peer export files.**

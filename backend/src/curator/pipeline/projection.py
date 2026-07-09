@@ -11,6 +11,8 @@ import uuid
 
 import yaml
 
+from .. import constants as consts
+
 __all__ = [
     "new_atom_id",
     "new_concept_id",
@@ -89,7 +91,13 @@ def emit_concept_markdown(report: dict, concept_id: str) -> str:
     summary = report.get("summary") or ""
     full = report.get("full_content") or ""
     findings = report.get("findings") or []
+    atom_ids = list(report.get("atom_ids") or [])
     parts = [f"{_frontmatter(fm)}", f"# {title}", "", summary, ""]
+    if atom_ids:
+        parts += ["## Relations", ""]
+        for atom_id in atom_ids:
+            parts.append(f"- [[02_Atoms/{atom_id}]]")
+        parts.append("")
     if full:
         parts += ["## Report", "", full, ""]
     if findings:
@@ -113,7 +121,10 @@ def emit_synthesis_markdown(node: dict) -> str:
         "id": node["id"],
         "type": "synthesis",
         "community_report_ids": list(node.get("community_report_ids") or []),
-        "concept_ids": list(node.get("concept_ids") or []),
+        "concept_ids": [
+            cid if "/" in str(cid) else f"{consts.LAYER_L3}/{cid}"
+            for cid in list(node.get("concept_ids") or [])
+        ],
         "source_span_ids": list(node.get("source_span_ids") or []),
         "confidence_score": float(node.get("confidence") or 0.0),
     }

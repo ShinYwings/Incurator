@@ -833,6 +833,10 @@ Incurator MCP tool discovery 없이 JSON 결과만 받습니다. 이 plugin plum
 Source layer 상태는 source row 전용 `updated_at` revision을 사용하므로 L1-L4
 상태만 바뀐 경우도 LWW 동기화에 포함됩니다. Dashboard Knowledge Graph 수치는
 stale Collection projection 파일이 아니라 serving DB record에서 계산합니다.
+기기 로컬 backend 설정(`llm`, `search`, `external` root/model path)은 현재
+기기의 repo-local `.cache/config/config.yml`에서만 읽습니다. synced
+`.curator/settings.yml`에 해당 block이 남아 있으면 backend가 무시하므로
+Linux/macOS 경로가 서로를 덮어쓰지 않습니다.
 Zotero profile 저장은 직렬화되며 매 write 직전에 최신 파일을 다시 읽고
 병합하므로 stale 기기의 무관한 설정 저장이 peer-only profile을 지우지 않습니다.
 부분적으로 손상된 decoded payload에 `profiles` 또는 `recentItems`가 없으면,

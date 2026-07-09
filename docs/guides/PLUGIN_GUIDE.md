@@ -942,6 +942,11 @@ no manual export/import.
 Source layer statuses use the source row's dedicated `updated_at` revision, so
 L1-L4 status-only changes participate in LWW sync. Dashboard Knowledge Graph
 counts come from serving DB records, never stale Collection projection files.
+Machine-local backend settings (`llm`, `search`, and `external` roots/model
+paths) are loaded only from the current device's repo-local
+`.cache/config/config.yml`; if those blocks are present in synced
+`.curator/settings.yml`, the backend ignores them so Linux and macOS paths do
+not overwrite each other.
 Zotero profile saves are serialized and re-read/merged immediately before each
 write, so a stale device cannot erase peer-only profiles during an unrelated
 settings save. If a partially damaged decoded payload is missing `profiles` or

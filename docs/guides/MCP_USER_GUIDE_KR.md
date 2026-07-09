@@ -129,9 +129,11 @@ wiki mcp install
 - **v0.8.0**: 리포트에 Compiler Integrity 감사가 추가됩니다 —
   unsupported/failed/stale 클레임 수, evidence hash 불일치, broad-fallback
   발견 사항, formula status 불일치. 도구의 입력 스키마는 변경되지 않으며
-  리포트 내용만 풍부해집니다. 에이전트는 릴리스를 막아야 하는 감사 발견
-  사항을 끊어진 링크와 동일하게 취급해야 합니다: 수정하거나 에스컬레이션하고,
-  절대 무시하지 않습니다. 또한 query/search 도구가 반환하는 증거는 이제
+  리포트 내용만 풍부해집니다. 에이전트는 serving DAG를 깨는 release-blocking
+  구조 감사 발견 사항을 끊어진 링크와 동일하게 취급해야 합니다: 수정하거나
+  에스컬레이션하고, 절대 무시하지 않습니다. `failed`/`stale`/`unchecked`
+  클레임은 serving에서 제외되는 telemetry이며 sync review blocker가 아닙니다.
+  또한 query/search 도구가 반환하는 증거는 이제
   200자 미리보기 대신 (소스와 해시 검증된) 전체 span 텍스트를 하이드레이션하며,
   클레임에는 `support_status`/`formula_status` 라벨이 포함됩니다 —
   `unchecked`, `failed`, `stale` 또는 retired 클레임을 검증된 지식으로

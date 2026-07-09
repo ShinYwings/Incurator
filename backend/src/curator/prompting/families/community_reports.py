@@ -49,6 +49,8 @@ Hard rules:
   assert certainty the evidence does not support.
 - Include representative findings, each backed by source_span_ids from the
   allowed list. Never invent span ids.
+- Preserve central equations, formulas, and code expressions exactly when they
+  are needed for a finding or explanation.
 - Record disagreements in "contradictions".
 - If evidence is thin, say so explicitly in the summary.
 - rank fields are importance in [0,1].

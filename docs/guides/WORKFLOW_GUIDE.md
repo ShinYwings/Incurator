@@ -217,8 +217,11 @@ fixtures, and `wiki devices ...` for launcher diagnostics.
 > section markers, and coarse Atom Candidates instantly from parser structure
 > without an LLM call (structural L1). Starting in v0.2.2, this step uses
 > **AST-based chunking** to preserve math formula blocks such as `$$...$$`
-> during text splitting. Same-document parser heading wikilinks are rendered as
+> during text splitting. Source-derived parser heading wikilinks are rendered as
 > plain text in CTX projections so generated files do not create broken links.
+> Downstream extraction, community-report synthesis, and query answers must
+> preserve central equations, formulas, and code expressions exactly when they
+> are needed for the claim or answer.
 > Deep L2/L3 extraction is separated from `wiki add`
 > and performed by the distinct `wiki build` command. By default this queues
 > background work; `--wait` requests synchronous execution. In MCP flows,
@@ -426,9 +429,11 @@ disposable Obsidian projection, not the search corpus.
   candidates.
 - **`.curator/Collections/` L1–L4 markdown (CTX/ATM/CON/SYN) is emitted FROM the
   DB** for Obsidian inspection. It is not authoritative and can be re-emitted at
-  any time — no DB↔file drift.
+  any time — no DB↔file drift. No-op re-emits do not advance L4 synthesis
+  revisions.
 - **Search is DB-native**: FTS5 over authoritative records, chunk-level vectors,
-  typed query expansion, RRF, and configured reranking.
+  typed query expansion, RRF, and configured reranking. Current chunk embeddings
+  are reused only when the configured embedding identity is available.
 - **L4 Synthesis is a generated search projection**, not an editable human
   artifact. Durable human-reviewed results are written only by explicit
   promotion to `02_Wiki/`.
@@ -509,8 +514,11 @@ atomic publishes (specs: SCHEMA.md §20, SYSTEM_BEHAVIOR.md §26):
 - **Full-span evidence**: evidence packs hydrate the exact span text from the
   source file (hash-verified) instead of presenting the 200-character preview
   as the evidence.
-- **Audit in lint**: `wiki lint` reports the Compiler Integrity findings and
-  fails on release-blocking violations, so CI and testbeds can gate on it.
+- **Audit in lint**: `wiki lint` reports Compiler Integrity telemetry.
+  Failed/stale/unchecked claims are excluded from serving and do not create sync
+  review blockers by themselves; lint fails only on structural violations in
+  the served DAG, such as dangling support references or inconsistent formula
+  evidence.
 
 ---
 

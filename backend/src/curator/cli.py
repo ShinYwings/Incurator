@@ -5202,18 +5202,34 @@ def reindex(
     console.print("[dim]Rebuilding DB-native search index...[/dim]")
     try:
         result = materializer.materialize_search_documents(paths.state_db, search_config)
-        embedded = 0
+        embedding_summary = ""
         if embed:
+            identity = providers.embedding_identity(search_config)
+            if identity is not None:
+                provider, model = identity
+                total, ready = embedding.current_embedding_coverage(
+                    paths.state_db, provider, model
+                )
+            else:
+                total, ready = 0, -1
             ollama_host = (config.get("llm", {}).get("ollama", {}) or {}).get("host")
-            embedder = providers.build_embedder(search_config, ollama_host=ollama_host)
-            emb = embedding.embed_corpus(paths.state_db, embedder)
-            embedded = emb.embedded
-            if emb.degraded or emb.warning:
-                _warn(emb.warning or "vector embeddings unavailable (FTS5-only)")
+            if total == ready and providers.embedding_identity_available(
+                search_config,
+                ollama_host=ollama_host,
+            ):
+                embedding_summary = f", 0 new embeddings, {ready} reused"
+            else:
+                embedder = providers.build_embedder(search_config, ollama_host=ollama_host)
+                emb = embedding.embed_corpus(paths.state_db, embedder)
+                embedding_summary = (
+                    f", {emb.embedded} new embeddings, {emb.skipped} reused"
+                )
+                if emb.degraded or emb.warning:
+                    _warn(emb.warning or "vector embeddings unavailable (FTS5-only)")
         _ok(
             "Search index rebuilt: "
-            f"{result.documents} documents, {result.chunks} chunks, "
-            f"{embedded} embeddings"
+            f"{result.documents} documents, {result.chunks} chunks"
+            f"{embedding_summary}"
         )
     except Exception as e:
         _err(f"Index rebuild failed: {e}")

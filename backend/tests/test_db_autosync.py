@@ -249,6 +249,7 @@ class TestReferenceModePreservation:
             _json.dumps({"type": "header", "schema_version": db_sync.SCHEMA_VERSION, "export_id": "exp-reference", "exported_at": "x"}) + "\n"
             + _json.dumps({"type": "row", "table": "sources", "row": {
                 "id": sid, "relpath": "04_Resources/p.pdf", "content_hash": "h2",
+                "sync_key": "vault:04_Resources/p.pdf",
                 "file_type": "pdf", "bytes": 10, "added_at": "2026-06-01T00:00:00Z",
                 "last_ingested": "2026-06-09T00:00:00Z", "status": "curated",
                 "updated_at": "2026-08-09T00:00:00.000Z",

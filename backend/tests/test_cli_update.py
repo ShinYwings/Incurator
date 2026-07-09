@@ -10,11 +10,14 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import click
 from typer.testing import CliRunner
 
+from curator import config as cfg
+from curator import db
 from curator.cli import app
 
 
@@ -107,6 +110,74 @@ def test_build_wait_with_no_pending_sources_runs_global_l3_and_embeds(
     client.close.assert_called_once()
     refresh.assert_called_once()
     assert refresh.call_args.kwargs.get("embed") is True
+
+
+def test_modified_source_add_then_build_reprocesses_pending_source(tmp_path: Path) -> None:
+    runner = CliRunner()
+    vault = _init_vault(runner, tmp_path)
+    note = vault / "03_Notes" / "mutable.md"
+    note.parent.mkdir(parents=True, exist_ok=True)
+    note.write_text("# Mutable\n\nOriginal source text for the first pass.", encoding="utf-8")
+
+    first_add = runner.invoke(app, ["add", "--no-sync"], env={"VAULT_ROOT": str(vault)})
+    assert first_add.exit_code == 0, first_add.output
+    paths = cfg.WikiPaths(vault)
+    with db.connect(paths.state_db) as conn:
+        source_id = conn.execute(
+            "SELECT id FROM sources WHERE relpath = ?",
+            ("03_Notes/mutable.md",),
+        ).fetchone()["id"]
+        conn.execute(
+            "UPDATE sources SET l2_status='done', l3_status='done', l4_status='done' WHERE id = ?",
+            (source_id,),
+        )
+
+    note.write_text(
+        "# Mutable\n\nChanged source text that must invalidate downstream layers.",
+        encoding="utf-8",
+    )
+    second_add = runner.invoke(app, ["add", "--no-sync"], env={"VAULT_ROOT": str(vault)})
+    assert second_add.exit_code == 0, second_add.output
+    assert "1 new/changed file(s)" in second_add.output
+    with db.connect(paths.state_db) as conn:
+        row = conn.execute(
+            "SELECT l1_status, l2_status, l3_status, l4_status FROM sources WHERE id = ?",
+            (source_id,),
+        ).fetchone()
+    assert tuple(row) == ("done", "pending", "pending", "pending")
+
+    processed_pending = False
+
+    def fake_run_l1_to_l3(paths_arg, client, callbacks, *, mode, auto_discover, force=False):
+        nonlocal processed_pending
+        with db.connect(paths_arg.state_db) as conn:
+            pending = conn.execute(
+                "SELECT id FROM sources WHERE id = ? AND l2_status = 'pending' AND l3_status = 'pending'",
+                (source_id,),
+            ).fetchone()
+        processed_pending = pending is not None
+        db.set_source_layer_status(paths_arg.state_db, source_id, "l2", "done")
+        db.set_source_layer_status(paths_arg.state_db, source_id, "l3", "done")
+        db.set_source_layer_status(paths_arg.state_db, source_id, "l4", "done")
+        return [SimpleNamespace(ok=True, fragments_created=0, fragments_updated=1, changes=[])]
+
+    with patch("curator.cli._start_client", return_value=MagicMock()), patch(
+        "curator.ingest_llm.run_l1_to_l3", side_effect=fake_run_l1_to_l3
+    ), patch("curator.cli._refresh_search_index"):
+        build = runner.invoke(
+            app,
+            ["build", "--wait", "--no-sync"],
+            env={"VAULT_ROOT": str(vault)},
+        )
+
+    assert build.exit_code == 0, build.output
+    assert processed_pending
+    with db.connect(paths.state_db) as conn:
+        row = conn.execute(
+            "SELECT l2_status, l3_status, l4_status FROM sources WHERE id = ?",
+            (source_id,),
+        ).fetchone()
+    assert tuple(row) == ("done", "done", "done")
 
 
 def test_update_orchestrates_add_build_sync_in_order(tmp_path: Path) -> None:

@@ -811,19 +811,16 @@ _LOCAL_HEADING_WIKILINK_RE = re.compile(
 
 
 def _plain_local_heading_wikilinks(text: str, source_stems: frozenset[str] = frozenset()) -> str:
-    """Plaintext parser-generated same-document heading wikilinks in CTX output.
+    """Plaintext parser-generated heading wikilinks in CTX output.
 
-    When ``source_stems`` is provided (e.g. ``frozenset({"mvg", "multipleviewgeometry"})``),
-    only wikilinks whose target note name matches one of the stems are converted
-    to plain text; cross-document heading links are preserved.
+    CTX pages are generated projections. Source-derived ``[[Note#Heading]]``
+    links are not reliable DAG edges, so render their display text as plain text
+    while leaving the original source file untouched.
     """
     if not text:
         return ""
 
     def _replace(match: re.Match) -> str:
-        target = match.group(1).strip()
-        if source_stems and target.lower() not in source_stems:
-            return match.group(0)  # preserve cross-document links
         alias = (match.group(3) or "").strip()
         heading = (match.group(2) or "").strip()
         return alias or heading

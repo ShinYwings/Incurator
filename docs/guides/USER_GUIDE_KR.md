@@ -164,6 +164,10 @@ PDF text parsing은 pymupdf4llm의 host Tesseract OCR을 암묵적으로 실행�
   migration 명령을 제공하지 않으며, `wiki status` 같은 일반 명령에서 v0.29
   이전 absolute source row를 변환하지 않습니다. 이런 구형 device-local DB는
   현재 source/sync state로 다시 구성한 뒤 이 버전을 사용해야 합니다.
+- v0.33.0은 pre-v12 `state.sqlite` 자동 migration shim도 제거합니다. peer
+  JSONL snapshot은 `export_id`, source `sync_key`, source `updated_at`을 가진
+  current-schema export여야 하며, malformed legacy snapshot은 부분 import하지
+  않고 거부합니다.
 - 자동 생성된 reference stub에는 기본적으로 PDF 절대 경로를 쓰지 않습니다.
   따라서 외부 PDF 라이브러리의 로컬 위치가 다른 기기에도 안전하게 동기화할 수 있습니다.
 - iPad 필기나 외부 앱 수정으로 PDF hash가 바뀌면 backend는 이를 Hash Drift로 감지해야 합니다.
@@ -467,9 +471,10 @@ span id를 인용한다는 이유만으로 신뢰되지 않고, 명시적인 **s
 
 실제 사용에서 의미하는 바:
 
-- **업그레이드는 안전하고 정직합니다**: v0.8.0 마이그레이션은 기존 클레임을
-  모두 `unchecked`로 표시합니다 — 어떤 것도 조용히 "verified"로 승격되지
-  않습니다. 일반적인 `wiki build` 실행이 새 계약에 따라 재컴파일합니다.
+- **업그레이드는 명시적입니다**: 현재 릴리스는 오래된 클레임을 조용히
+  "verified"로 승격하지 않습니다. 지원되지 않는 pre-v12 state database는
+  current export에서 다시 생성하거나 rebuild해야 하며, 이후 일반적인
+  `wiki build` 실행이 현재 support contract에 따라 컴파일합니다.
 - **수식은 1급 시민입니다**: 핵심 수식에 의존하는 클레임은 수식을 본문에
   온전히 유지하거나, 정확한 수식 증거를 링크합니다. 소스 추출에 존재하는
   수식을 증류(distillation) 과정에서 조용히 누락시키는 것은 요약 선택이
@@ -664,8 +669,8 @@ status/history/push입니다.
 | :--- | :--- | :--- |
 | `wiki build` | L2 Atom, L3 Concept, 공유 L4 Synthesis 레이어를 정제합니다. | 지식 그래프 구축/갱신 |
 | `wiki sync` | 무결성 검증 및 자가 치유를 수행합니다. | 노드 수정 후 일관성 회복 시 |
-| `wiki sync --reemit` | DB 레코드에서 파생 L2/L3/L4 마크다운 projection(ATM/CON/SYN)을 재생성하고 DB-native search row를 갱신합니다. | DB 레벨 정정 후 projection 갱신 시 |
-| `wiki reindex` | 권위 레코드에서 DB-native 검색 인덱스(FTS5 + chunk)를 재구축합니다. `--embed`를 추가하면 chunk 벡터 임베딩도 (재)생성합니다. 평상시에는 `wiki build`가 이미 자동으로 임베딩하므로, `--embed`는 주로 모델/임베더 변경 후의 수동 복구 경로입니다. | 모델/설정 변경 후, 또는 검색이 어긋날 때 |
+| `wiki sync --reemit` | DB 레코드에서 파생 L2/L3/L4 마크다운 projection(ATM/CON/SYN)을 재생성하고 DB-native search row를 갱신합니다. 변경되지 않은 L4 concept link를 재발행할 때는 synthesis revision을 올리지 않습니다. | DB 레벨 정정 후 projection 갱신 시 |
+| `wiki reindex` | 권위 레코드에서 DB-native 검색 인덱스(FTS5 + chunk)를 재구축합니다. `--embed`를 추가하면 누락되었거나 stale인 chunk 벡터 임베딩만 생성하며, 변경되지 않은 chunk embedding은 설정된 embedder identity가 사용 가능할 때만 재사용합니다. 사용할 수 없으면 명시적으로 FTS5-only로 degrade합니다. 평상시에는 `wiki build`가 이미 자동으로 임베딩하므로, `--embed`는 주로 모델/임베더 변경 후의 수동 복구 경로입니다. | 모델/설정 변경 후, 또는 검색이 어긋날 때 |
 
 > **v0.3.1**: 고정 staging 명령은 제거되었습니다. L4는 이제 공유 **Synthesis**
 > 레이어(‎`wiki build`가 자동 생성)이며, 큐레이션은 쿼리 시점의 동적 렌즈(`wiki query`)입니다.
@@ -769,6 +774,10 @@ wiki db import ~/Desktop/kb.jsonl --skip-reindex  # reindex 없이 가져오기�
 
 > [!NOTE]
 > 기기 로컬 데이터(벡터 임베딩, 백그라운드 잡 상태)는 내보내기 파일에 **절대 포함되지 않습니다**. 가져오기 후 `wiki reindex`가 자동으로 로컬 검색 인덱스를 재구축합니다.
+> 기기 로컬 설정(`llm`, `search`, `external` root/model path)은 현재 기기의
+> repo-local `.cache/config/config.yml`에서만 읽습니다. synced
+> `.curator/settings.yml`에 해당 block이 남아 있으면 backend가 무시하므로
+> macOS 경로가 Linux 경로를 덮거나 그 반대가 발생하지 않습니다.
 
 ### `wiki db autosync` — Syncthing 기반 자동 동기화
 

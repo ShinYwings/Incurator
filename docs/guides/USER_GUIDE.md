@@ -199,6 +199,10 @@ Syncthing, browser download folders, or other external locations.
   `wiki paths` migration command and normal commands such as `wiki status` do
   not convert pre-v0.29 absolute source rows. Rebuild an unsupported legacy
   device-local DB from current source/sync state before using this release.
+- v0.33.0 also removes automatic pre-v12 `state.sqlite` migration shims. Peer
+  JSONL snapshots must be current-schema exports with an `export_id`, source
+  `sync_key`, and source `updated_at`; malformed legacy snapshots are rejected
+  instead of being partially imported.
 - Automatically generated reference stubs do not include absolute PDF paths by
   default, so they can safely synchronize to another device whose external PDF
   library lives elsewhere.
@@ -505,9 +509,10 @@ real span id:
 
 What this means in practice:
 
-- **Upgrading is safe and honest**: the v0.8.0 migration marks all your
-  existing claims `unchecked` — nothing is silently promoted to "verified".
-  A normal `wiki build` re-compiles them under the new contract.
+- **Upgrading is explicit**: current releases do not silently promote old
+  claims to "verified". Unsupported pre-v12 state databases should be rebuilt or
+  regenerated from a current export; a normal `wiki build` then compiles under
+  the current support contract.
 - **Formulas are first-class**: a claim that depends on a central formula
   either keeps the formula intact in its text or links the exact formula
   evidence. Distillation that silently drops a formula present in the source
@@ -699,8 +704,8 @@ and the CLI prints a warning; the dashboard can refresh again later.
 | :--- | :--- | :--- |
 | `wiki build` | Refines L2 Atoms, L3 Concepts, and the shared L4 Synthesis layer. | Building/refreshing the knowledge graph |
 | `wiki sync` | Verifies integrity and performs self-healing. | Restoring consistency after edits |
-| `wiki sync --reemit` | Re-emits the derived L2/L3/L4 markdown projection (ATM/CON/SYN) from the authoritative DB records and refreshes DB-native search rows. | Refreshing projections after DB-level corrections |
-| `wiki reindex` | Rebuilds the DB-native search index (FTS5 + chunks) from the authoritative records. Add `--embed` to also (re)generate chunk vector embeddings. In normal use `wiki build` already embeds automatically, so `--embed` is mainly a manual recovery path after a model/embedder change. | After model/config changes, or if search drifts |
+| `wiki sync --reemit` | Re-emits the derived L2/L3/L4 markdown projection (ATM/CON/SYN) from the authoritative DB records and refreshes DB-native search rows. Re-emitting unchanged L4 concept links does not advance synthesis revisions. | Refreshing projections after DB-level corrections |
+| `wiki reindex` | Rebuilds the DB-native search index (FTS5 + chunks) from the authoritative records. Add `--embed` to also generate missing/stale chunk vector embeddings; unchanged chunk embeddings are reused only when the configured embedder identity is available, otherwise search degrades explicitly to FTS5-only. In normal use `wiki build` already embeds automatically, so `--embed` is mainly a manual recovery path after a model/embedder change. | After model/config changes, or if search drifts |
 
 > **v0.3.1**: The frozen-staging commands were removed. L4 is now the shared
 > **Synthesis** layer (built automatically by
@@ -804,6 +809,10 @@ wiki db import ~/Desktop/kb.jsonl --skip-reindex  # import without reindexing
 
 > [!NOTE]
 > Device-local data (vector embeddings, background job state) is **never** included in export files. After import, `wiki reindex` rebuilds the local search index automatically.
+> Machine-local configuration (`llm`, `search`, and `external` roots/model paths)
+> is read only from this device's repo-local `.cache/config/config.yml`. If those
+> blocks appear in synced `.curator/settings.yml`, the backend ignores them so a
+> macOS path cannot override a Linux path, and vice versa.
 
 ### `wiki db autosync` — automatic sync over Syncthing
 

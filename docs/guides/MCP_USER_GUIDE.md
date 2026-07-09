@@ -130,9 +130,10 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
   unsupported/failed/stale claim counts, evidence-hash mismatches,
   broad-fallback findings, and formula-status inconsistencies. The tool's
   input schema is unchanged; only the report content is richer. Agents should
-  treat release-blocking audit findings the same way as broken links: fix or
-  escalate, never ignore. Evidence returned by query/search tools now hydrates
-  full span text (hash-verified against the source) instead of a
+  treat release-blocking structural audit findings the same way as broken links:
+  fix or escalate, never ignore. Failed/stale/unchecked claims are excluded from
+  serving and are telemetry, not sync review blockers. Evidence returned by
+  query/search tools now hydrates full span text (hash-verified against the source) instead of a
   200-character preview, and claims carry `support_status`/`formula_status`
   labels — `unchecked`, `failed`, `stale`, or retired claims must not be
   presented as verified knowledge.

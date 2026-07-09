@@ -144,7 +144,7 @@ class InstantL1Tests(unittest.TestCase):
         self.assertNotIn("[[MultipleViewGeometry#", parsed.body)
         self.assertIn("Equation 19.11", parsed.body)
 
-    def test_structural_l1_preserves_cross_document_heading_wikilinks(self) -> None:
+    def test_structural_l1_plaintexts_cross_document_heading_wikilinks(self) -> None:
         relpath = "03_Notes/MultipleViewGeometry.md"
         source = self.root / relpath
         source.parent.mkdir(parents=True, exist_ok=True)
@@ -169,8 +169,10 @@ class InstantL1Tests(unittest.TestCase):
         # Self-referential wikilink stripped (MultipleViewGeometry matches file stem).
         self.assertNotIn("[[MultipleViewGeometry#", parsed.body)
         self.assertIn("Equation 19.11", parsed.body)
-        # Cross-document wikilink preserved.
-        self.assertIn("[[OtherNote#Key Lemma]]", parsed.body)
+        # Cross-document heading links are also source-derived projection text,
+        # not generated DAG edges.
+        self.assertNotIn("[[OtherNote#Key Lemma]]", parsed.body)
+        self.assertIn("Key Lemma", parsed.body)
 
 
 if __name__ == "__main__":

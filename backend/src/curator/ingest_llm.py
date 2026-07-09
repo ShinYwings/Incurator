@@ -264,7 +264,12 @@ def _mark_existing_l3_done_if_present(paths: cfg.WikiPaths) -> None:
 
 
 def _auto_discover_pending(paths: cfg.WikiPaths) -> tuple[int, int]:
-    """Scan raw_dirs for files not yet tracked. 
+    """Scan raw_dirs for new or changed files.
+
+    Existing files must still flow through ``ingest_raw.add_file`` because that
+    is the content-hash authority that resets downstream layer status after a
+    source edit.
+
     Returns (discovered_count, removed_count).
     """
     from . import ingest_raw
@@ -303,7 +308,7 @@ def _auto_discover_pending(paths: cfg.WikiPaths) -> tuple[int, int]:
         for relpath in [k for k, v in tracked.items() if v in orphans]:
             del tracked[relpath]
 
-    discovered = 0
+    changed = 0
     for raw_dir in paths.raw_dirs:
         if not raw_dir.exists():
             continue
@@ -316,12 +321,11 @@ def _auto_discover_pending(paths: cfg.WikiPaths) -> tuple[int, int]:
                 relpath = str(file_path.relative_to(paths.root))
             except ValueError:
                 continue
-            if relpath in tracked:
-                continue
             outcome = ingest_raw.add_file(paths, file_path)
             if outcome.result == ingest_raw.AddResult.ADDED:
-                discovered += 1
-    return discovered, removed
+                changed += 1
+                tracked[relpath] = outcome.source_id or tracked.get(relpath)
+    return changed, removed
 
 
 

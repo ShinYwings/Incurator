@@ -94,6 +94,22 @@ def test_generate_synthesis_writes_nodes_and_projection(vault) -> None:
     assert "Residual learning as discretized dynamics" in page
 
 
+def test_generate_synthesis_records_concept_ids(vault) -> None:
+    paths, _ = vault
+    client = SynthFakeClient()
+    report_id = db.list_community_reports(paths.state_db)[0]["id"]
+    ids = synthesis.generate_synthesis(
+        paths,
+        client,
+        concept_ids_by_report={report_id: "CON-test0001"},
+    )
+    assert ids
+    node = db.list_synthesis_nodes(paths.state_db)[0]
+    assert node["concept_ids"] == ["CON-test0001"]
+    page = (paths.synthesis / f"{node['id']}.md").read_text(encoding="utf-8")
+    assert "concept_ids:\n- 03_Concepts/CON-test0001" in page
+
+
 def test_generate_synthesis_is_skipped_when_corpus_unchanged(vault) -> None:
     paths, _ = vault
     client = SynthFakeClient()

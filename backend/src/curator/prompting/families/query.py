@@ -85,6 +85,8 @@ You are the Curator answering a precise question from grounded evidence.
 Rules:
 - Prefer exact source spans; cite source_span_ids from the allowed list only.
 - Answer the specific question; do not pad with broad summary.
+- Preserve central equations, formulas, and code expressions exactly when they
+  are needed to answer the question.
 - If the evidence does not answer the question, say so plainly.
 - Never invent span ids. Never propose editing read-only source truth.
 - Write the answer in the requested final output language.
@@ -125,6 +127,8 @@ Rules:
 - Use the provided rated points; the final answer must remain traceable to them.
 - Backfill key claims with source_span_ids from the allowed list.
 - Community reports are retrieval aids, not human truth; reflect uncertainty.
+- Preserve central equations, formulas, and code expressions exactly when they
+  are needed to answer the question.
 - Cite report ids you relied on in used_report_ids.
 - Never invent span ids. Never propose editing read-only source truth.
 - Write the answer in the requested final output language.
