@@ -38,8 +38,10 @@ No urgent items currently tracked.
    - Briefing: `.agents/plans/system_stability_overhaul_arena/00_problem.md`
    - Delivered as a chain of incremental release PRs (starting from v0.34.0+).
    - **Shipped stability & hardening releases (v0.25.0 → v0.34.0)**: diagnosis G17–G19, XC-1/XC-4 robustness slices, DB-2 slices 1–2, CLI/MCP warning visibility, portable paths v0.29–v0.32, cross-device LWW sync v0.30, strict v12 schema/reindex speedup v0.33.0, and CM-1 command module decomposition v0.34.0.
-   - **Remaining Scope for Upcoming Releases (v0.35.0+)**:
-     - **Plugin God-file Decomposition (PL-1)**: decompose plugin god-files `chatSidebar.ts`, `llmClient.ts`, `externalPdfView.ts`.
+   - **Release Candidate (v0.35.0 — PL-1 Plugin God-file Decomposition)**:
+     - Decompose plugin god-files `chatSidebar.ts`, `llmClient.ts`, `externalPdfView.ts` into a cleaner package structure.
+     - Briefing: A draft will be created or plans will be directly generated.
+   - **Remaining Scope for Upcoming Releases (v0.36.0+)**:
      - **Exception Handling Hardening (XC-1 Slices 2+)**: narrow broad exception blocks in `cli.py`, `mcp_server.py`, `plugin_api.py`.
      - **Performance & UX Refinements**: RAG/DAG benchmark harness & retrieval hotspot optimization; chat/popover UX friction cleanup.
 
@@ -207,6 +209,6 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: IDLE (Master Branch).
-- **Active Milestone**: None (System IDLE).
-- **Next actionable item**: Wait for new user request.
+- **Roadmap state**: WAITING FOR DRAFT on branch `release/v0.35.0`.
+- **Active Milestone**: System Stability Overhaul — PL-1 Plugin God-file Decomposition (`chatSidebar.ts`, `llmClient.ts`, `externalPdfView.ts`).
+- **Next actionable item**: Executors must read the problem statement from `ROADMAP.md`/`USER_REPORT.md` (or drafts if present) and run the Arena debate to draft `PLAN_TEMPLATE.md`.
