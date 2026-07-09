@@ -669,8 +669,8 @@ status/history/push입니다.
 | :--- | :--- | :--- |
 | `wiki build` | L2 Atom, L3 Concept, 공유 L4 Synthesis 레이어를 정제합니다. | 지식 그래프 구축/갱신 |
 | `wiki sync` | 무결성 검증 및 자가 치유를 수행합니다. | 노드 수정 후 일관성 회복 시 |
-| `wiki sync --reemit` | DB 레코드에서 파생 L2/L3/L4 마크다운 projection(ATM/CON/SYN)을 재생성하고 DB-native search row를 갱신합니다. | DB 레벨 정정 후 projection 갱신 시 |
-| `wiki reindex` | 권위 레코드에서 DB-native 검색 인덱스(FTS5 + chunk)를 재구축합니다. `--embed`를 추가하면 누락되었거나 stale인 chunk 벡터 임베딩만 생성하며, 변경되지 않은 chunk embedding은 재사용합니다. 평상시에는 `wiki build`가 이미 자동으로 임베딩하므로, `--embed`는 주로 모델/임베더 변경 후의 수동 복구 경로입니다. | 모델/설정 변경 후, 또는 검색이 어긋날 때 |
+| `wiki sync --reemit` | DB 레코드에서 파생 L2/L3/L4 마크다운 projection(ATM/CON/SYN)을 재생성하고 DB-native search row를 갱신합니다. 변경되지 않은 L4 concept link를 재발행할 때는 synthesis revision을 올리지 않습니다. | DB 레벨 정정 후 projection 갱신 시 |
+| `wiki reindex` | 권위 레코드에서 DB-native 검색 인덱스(FTS5 + chunk)를 재구축합니다. `--embed`를 추가하면 누락되었거나 stale인 chunk 벡터 임베딩만 생성하며, 변경되지 않은 chunk embedding은 설정된 embedder identity가 사용 가능할 때만 재사용합니다. 사용할 수 없으면 명시적으로 FTS5-only로 degrade합니다. 평상시에는 `wiki build`가 이미 자동으로 임베딩하므로, `--embed`는 주로 모델/임베더 변경 후의 수동 복구 경로입니다. | 모델/설정 변경 후, 또는 검색이 어긋날 때 |
 
 > **v0.3.1**: 고정 staging 명령은 제거되었습니다. L4는 이제 공유 **Synthesis**
 > 레이어(‎`wiki build`가 자동 생성)이며, 큐레이션은 쿼리 시점의 동적 렌즈(`wiki query`)입니다.

@@ -429,9 +429,11 @@ disposable Obsidian projection, not the search corpus.
   candidates.
 - **`.curator/Collections/` L1–L4 markdown (CTX/ATM/CON/SYN) is emitted FROM the
   DB** for Obsidian inspection. It is not authoritative and can be re-emitted at
-  any time — no DB↔file drift.
+  any time — no DB↔file drift. No-op re-emits do not advance L4 synthesis
+  revisions.
 - **Search is DB-native**: FTS5 over authoritative records, chunk-level vectors,
-  typed query expansion, RRF, and configured reranking.
+  typed query expansion, RRF, and configured reranking. Current chunk embeddings
+  are reused only when the configured embedding identity is available.
 - **L4 Synthesis is a generated search projection**, not an editable human
   artifact. Durable human-reviewed results are written only by explicit
   promotion to `02_Wiki/`.

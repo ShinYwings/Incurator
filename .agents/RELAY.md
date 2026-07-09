@@ -231,3 +231,36 @@ Commit the review fixes and push the branch if the user wants the PR updated.
   - full `scripts/backend-check pytest`: `1199 passed, 6 skipped, 5 xfailed`;
   - `git diff --check`: clean;
   - real `wiki status` for `/Users/shin/shinywings/second_brain`: clean.
+
+### Update (2026-07-09, Codex) — review follow-up fixes
+
+- User asked whether the latest review findings were actually fixed and pushed.
+  They were not yet fixed at that moment; this follow-up fixed both findings.
+- Fixed embedding reuse fast path:
+  - `search.update_index(embed=True)` and `wiki reindex --embed` now only skip
+    embedder construction when current DB vectors are complete AND the configured
+    embedding identity is available.
+  - llama-cpp availability is checked without loading the GGUF: package presence
+    plus configured/cache model-file existence.
+  - If the configured embedder is unavailable, reindex degrades explicitly to
+    FTS5-only instead of reporting reused vectors as ready.
+- Fixed L4 projection re-emit churn:
+  - `reemit_projections()` now updates `synthesis_nodes.concept_ids` and
+    `updated_at` only when the computed concept ids actually change.
+  - No-op re-emits no longer advance synthesis LWW revisions or create sync
+    dirtiness.
+- Added regression coverage:
+  - current vectors + missing llama-cpp model path degrade instead of falsely
+    succeeding;
+  - repeated L4 re-emit with unchanged concept ids preserves `updated_at`.
+- Updated `SYSTEM_BEHAVIOR.md`, `USER_GUIDE.md`/`_KR`, and
+  `WORKFLOW_GUIDE.md`/`_KR` to match.
+- Verification:
+  - focused search/reemit/materializer/embedding suite: `28 passed`;
+  - D2 holdout check: `1 passed`;
+  - `scripts/backend-check ruff`: passed;
+  - `scripts/backend-check mypy`: passed;
+  - full `scripts/backend-check pytest`: `1201 passed, 6 skipped, 5 xfailed`;
+  - `git diff --check`: clean;
+  - real `second_brain` `wiki reindex --embed`: `3255 documents, 3259 chunks,
+    0 new embeddings, 3259 reused` in `real 1.17s`.

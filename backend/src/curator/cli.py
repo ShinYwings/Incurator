@@ -5212,10 +5212,13 @@ def reindex(
                 )
             else:
                 total, ready = 0, -1
-            if total == ready:
+            ollama_host = (config.get("llm", {}).get("ollama", {}) or {}).get("host")
+            if total == ready and providers.embedding_identity_available(
+                search_config,
+                ollama_host=ollama_host,
+            ):
                 embedding_summary = f", 0 new embeddings, {ready} reused"
             else:
-                ollama_host = (config.get("llm", {}).get("ollama", {}) or {}).get("host")
                 embedder = providers.build_embedder(search_config, ollama_host=ollama_host)
                 emb = embedding.embed_corpus(paths.state_db, embedder)
                 embedding_summary = (

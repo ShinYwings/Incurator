@@ -9,6 +9,7 @@ to FTS5-only (no embeddings) or RRF order (no rerank) rather than hard-failing.
 
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -25,6 +26,7 @@ __all__ = [
     "build_embedder",
     "build_reranker",
     "embedding_identity",
+    "embedding_identity_available",
 ]
 
 
@@ -81,6 +83,46 @@ def embedding_identity(search_config: dict) -> tuple[str, str] | None:
     elif not model:
         return None
     return provider, model
+
+
+def _llama_cpp_embedding_model_path(search_config: dict) -> Path | None:
+    model_path = str((search_config or {}).get("embedding_model_path") or "").strip()
+    if model_path:
+        path = Path(model_path)
+        return path if path.exists() else None
+
+    from ..model_setup import models_cache_dir
+
+    cached = models_cache_dir() / str(
+        (search_config or {}).get("embedding_gguf_file") or consts.DEFAULT_EMBED_GGUF_FILE
+    )
+    if cached.exists() and cached.stat().st_size > 0:
+        return cached
+    return None
+
+
+def embedding_identity_available(
+    search_config: dict,
+    *,
+    ollama_host: str | None = None,
+) -> bool:
+    """Return whether the configured embedding identity is constructible now.
+
+    This is intentionally lighter than ``build_embedder`` for llama-cpp: it
+    checks package + model-file availability without loading the GGUF into memory.
+    """
+    identity = embedding_identity(search_config)
+    if identity is None:
+        return False
+    provider, _model = identity
+    if provider == consts.BACKEND_OLLAMA:
+        return build_embedder(search_config, ollama_host=ollama_host) is not None
+    if provider == "llama-cpp":
+        return (
+            importlib.util.find_spec("llama_cpp") is not None
+            and _llama_cpp_embedding_model_path(search_config) is not None
+        )
+    return build_embedder(search_config, ollama_host=ollama_host) is not None
 
 
 class OllamaEmbedder:
@@ -214,20 +256,15 @@ def build_embedder(search_config: dict, *, ollama_host: str | None = None) -> Em
             dim=dim,
         )
     if provider == "llama-cpp":
-        model_path = str((search_config or {}).get("embedding_model_path") or "").strip()
-        if not model_path:
-            from ..model_setup import models_cache_dir
-
-            cached = models_cache_dir() / str(
-                (search_config or {}).get("embedding_gguf_file") or consts.DEFAULT_EMBED_GGUF_FILE
-            )
-            if not (cached.exists() and cached.stat().st_size > 0):
-                return None
-            model_path = str(cached)
-        elif not Path(model_path).exists():
+        model_path = _llama_cpp_embedding_model_path(search_config)
+        if model_path is None:
             return None
         try:
-            return LlamaCppEmbedder(model or consts.DEFAULT_EMBED_MODEL, model_path, dim=dim)
+            return LlamaCppEmbedder(
+                model or consts.DEFAULT_EMBED_MODEL,
+                str(model_path),
+                dim=dim,
+            )
         except Exception:
             return None
     # Other providers (e.g. openai-api text-embedding-3-small) plug in here later.

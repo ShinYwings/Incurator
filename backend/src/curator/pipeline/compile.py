@@ -872,10 +872,11 @@ def reemit_projections(paths: cfg.WikiPaths) -> dict[str, int]:
                     if report_id in report_concept_ids
                 }
             )
-            conn.execute(
-                "UPDATE synthesis_nodes SET concept_ids = ?, updated_at = ? WHERE id = ?",
-                (json.dumps(concept_ids), db._now_iso(), node["id"]),
-            )
+            if list(node.get("concept_ids") or []) != concept_ids:
+                conn.execute(
+                    "UPDATE synthesis_nodes SET concept_ids = ?, updated_at = ? WHERE id = ?",
+                    (json.dumps(concept_ids), db._now_iso(), node["id"]),
+                )
 
     n_synthesis = synthesis.reemit_synthesis(paths)
     materializer.materialize_search_documents(paths.state_db)

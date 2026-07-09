@@ -150,17 +150,20 @@ def update_index(paths: cfg.WikiPaths, *, embed: bool = False) -> IndexUpdateRes
     result = materializer.materialize_search_documents(paths.state_db, search_config)
     outcome = IndexUpdateResult(updated=True, embed_requested=embed)
     if embed:
+        ollama_host = (config.get("llm", {}).get("ollama", {}) or {}).get("host")
         identity = providers.embedding_identity(search_config)
         if identity is not None:
             provider, model = identity
             total, ready = embedding.current_embedding_coverage(
                 paths.state_db, provider, model
             )
-            if total == ready:
+            if total == ready and providers.embedding_identity_available(
+                search_config,
+                ollama_host=ollama_host,
+            ):
                 outcome.embedded = ready > 0
                 return outcome
         _free_ollama_vram_before_llama_cpp(config, search_config, include_reranker=False)
-        ollama_host = (config.get("llm", {}).get("ollama", {}) or {}).get("host")
         embedder = providers.build_embedder(search_config, ollama_host=ollama_host)
         emb = embedding.embed_corpus(paths.state_db, embedder)
         outcome.embedded = (emb.embedded + emb.skipped) > 0

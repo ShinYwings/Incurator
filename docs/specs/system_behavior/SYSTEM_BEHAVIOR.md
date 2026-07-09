@@ -238,7 +238,10 @@ Rules:
   has an automatic path back to vector search instead of staying FTS5-only until
   a manual `wiki reindex --embed`. The embed refresh is idempotent: `update_index`
   fingerprints chunk input/dependency hashes, so already-current embeddings are
-  not recomputed. `wiki build --wait` performs the same embed refresh inline.
+  not recomputed. The fast reuse path still validates that the currently
+  configured embedding identity is available; otherwise it degrades explicitly to
+  FTS5-only instead of reporting stale vectors as ready. `wiki build --wait`
+  performs the same embed refresh inline.
 - The `wiki build --wait` embed refresh runs **unconditionally** — it is no
   longer gated on `atoms_created or atoms_updated`. A `--wait` build that finds
   no pending sources (the global-L3 path) and a build that produces zero atom
@@ -2409,7 +2412,9 @@ migration may touch a real vault DB, encoded as tests in P3:
   audit discards the staged graph/report generation; the prior authoritative
   graph generation, its projections, and its search materialization remain
   untouched and continue serving. Disposable projections/search re-emit from the
-  authoritative DB after commit.
+  authoritative DB after commit. Re-emitting unchanged L4 synthesis concept links
+  is a no-op for `synthesis_nodes.updated_at`; only real concept-link changes
+  advance the LWW revision clock.
 
 ### 27.9 GQ07 Relation-Confidence Calibration Gate
 

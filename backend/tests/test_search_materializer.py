@@ -256,9 +256,10 @@ def test_cli_reindex_embed_reports_new_and_reused_embeddings(tmp_path: Path) -> 
     _seed_authoritative_records(paths.state_db)
     runner = CliRunner()
 
-    with patch(
-        "curator.retrieval.providers.build_embedder", return_value=_FakeEmbedder()
-    ) as build_embedder:
+    with (
+        patch("curator.retrieval.providers.build_embedder", return_value=_FakeEmbedder()) as build_embedder,
+        patch("curator.retrieval.providers.embedding_identity_available", return_value=True),
+    ):
         first = runner.invoke(
             app, ["reindex", "--embed"], env={"VAULT_ROOT": str(vault)}
         )

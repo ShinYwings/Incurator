@@ -136,6 +136,44 @@ def test_reemit_does_not_touch_source(vault) -> None:
     assert db.list_source_spans(paths.state_db, 1)  # spans still present
 
 
+def test_reemit_does_not_churn_synthesis_updated_at_when_concepts_unchanged(vault) -> None:
+    paths = vault
+    with db.connect(paths.state_db) as conn:
+        report_id = conn.execute("SELECT id FROM community_reports").fetchone()[0]
+    syn_id = db.upsert_synthesis_node(
+        paths.state_db,
+        title="Synthesis",
+        statement="Stable statement.",
+        full_content="Stable content.",
+        dependency_hash="syn-deps",
+        community_report_ids=[report_id],
+        source_span_ids=[],
+        confidence=0.9,
+    )
+
+    compile_mod.reemit_projections(paths)
+    with db.connect(paths.state_db) as conn:
+        concept_ids = conn.execute(
+            "SELECT concept_ids FROM synthesis_nodes WHERE id = ?",
+            (syn_id,),
+        ).fetchone()[0]
+        assert compile_mod.json.loads(concept_ids)
+        conn.execute(
+            "UPDATE synthesis_nodes SET updated_at = 'SENTINEL' WHERE id = ?",
+            (syn_id,),
+        )
+
+    compile_mod.reemit_projections(paths)
+
+    with db.connect(paths.state_db) as conn:
+        row = conn.execute(
+            "SELECT concept_ids, updated_at FROM synthesis_nodes WHERE id = ?",
+            (syn_id,),
+        ).fetchone()
+    assert row["concept_ids"] == concept_ids
+    assert row["updated_at"] == "SENTINEL"
+
+
 def test_reemit_chunks_more_than_999_report_span_ids(vault, monkeypatch) -> None:
     paths = vault
     span_ids = [

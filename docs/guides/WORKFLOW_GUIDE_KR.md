@@ -455,9 +455,10 @@ v0.3.2는 Curator를 **컴파일러**로 만듭니다. 중간 표현(IR)은 DB�
   `memory_paths`, 의존성, 프롬프트 실행, 인사이트 후보.
 - **`.curator/Collections/`의 L1–L4 마크다운(CTX/ATM/CON/SYN)은 DB에서 emit**되어
   Obsidian에서 확인할 수 있는 projection으로 쓰입니다. 권위가 없고 언제든 재생성 가능 →
-  DB↔파일 드리프트 없음.
+  DB↔파일 드리프트 없음. no-op reemit은 L4 synthesis revision을 올리지 않습니다.
 - **검색은 DB-native**입니다: authoritative record에 대한 FTS5, chunk-level
-  vector, typed query expansion, RRF, configured reranking을 사용합니다.
+  vector, typed query expansion, RRF, configured reranking을 사용합니다. 현재 chunk
+  embedding은 설정된 embedding identity가 사용 가능할 때만 재사용됩니다.
 - **L4 Synthesis는 생성된 검색 projection**이며 사람이 직접 편집하는 산출물이
   아닙니다. 지속적인 human-reviewed 결과는 명시적 승격으로만 `02_Wiki/`에 기록됩니다.
 

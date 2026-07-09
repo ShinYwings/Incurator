@@ -704,8 +704,8 @@ and the CLI prints a warning; the dashboard can refresh again later.
 | :--- | :--- | :--- |
 | `wiki build` | Refines L2 Atoms, L3 Concepts, and the shared L4 Synthesis layer. | Building/refreshing the knowledge graph |
 | `wiki sync` | Verifies integrity and performs self-healing. | Restoring consistency after edits |
-| `wiki sync --reemit` | Re-emits the derived L2/L3/L4 markdown projection (ATM/CON/SYN) from the authoritative DB records and refreshes DB-native search rows. | Refreshing projections after DB-level corrections |
-| `wiki reindex` | Rebuilds the DB-native search index (FTS5 + chunks) from the authoritative records. Add `--embed` to also generate missing/stale chunk vector embeddings; unchanged chunk embeddings are reused. In normal use `wiki build` already embeds automatically, so `--embed` is mainly a manual recovery path after a model/embedder change. | After model/config changes, or if search drifts |
+| `wiki sync --reemit` | Re-emits the derived L2/L3/L4 markdown projection (ATM/CON/SYN) from the authoritative DB records and refreshes DB-native search rows. Re-emitting unchanged L4 concept links does not advance synthesis revisions. | Refreshing projections after DB-level corrections |
+| `wiki reindex` | Rebuilds the DB-native search index (FTS5 + chunks) from the authoritative records. Add `--embed` to also generate missing/stale chunk vector embeddings; unchanged chunk embeddings are reused only when the configured embedder identity is available, otherwise search degrades explicitly to FTS5-only. In normal use `wiki build` already embeds automatically, so `--embed` is mainly a manual recovery path after a model/embedder change. | After model/config changes, or if search drifts |
 
 > **v0.3.1**: The frozen-staging commands were removed. L4 is now the shared
 > **Synthesis** layer (built automatically by
