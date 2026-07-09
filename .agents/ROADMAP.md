@@ -37,13 +37,7 @@ No urgent items currently tracked.
    - Master Plan: `.agents/plans/01_system_stability_overhaul.md`
    - Briefing: `.agents/plans/system_stability_overhaul_arena/00_problem.md`
    - Delivered as a chain of incremental release PRs (starting from v0.34.0+).
-   - **Shipped stability & hardening releases (v0.25.0 → v0.33.0)**: diagnosis G17–G19, XC-1/XC-4 robustness slices, DB-2 slices 1–2, CLI/MCP warning visibility, portable paths v0.29–v0.32, cross-device LWW sync v0.30, and strict v12 schema/reindex speedup v0.33.0.
-   - **Release Candidate (v0.34.0 — CM-1 Command Module God-file Decomposition)**:
-     - Decomposed `cli.py`, `mcp_server.py`, and `plugin_api.py` into cohesive packages (`curator/commands/`, etc.) with compatibility facades preserved.
-     - Briefing: `.agents/drafts/10_cm1_god_file_decomposition.md`
-     - Draft PR: https://github.com/ShinYwings/Incurator/pull/85
-     - PR #85 review follow-up hardening completed and pushed.
-     - Plan and evidence artifacts are archived in Git history; active copies were removed after validation.
+   - **Shipped stability & hardening releases (v0.25.0 → v0.34.0)**: diagnosis G17–G19, XC-1/XC-4 robustness slices, DB-2 slices 1–2, CLI/MCP warning visibility, portable paths v0.29–v0.32, cross-device LWW sync v0.30, strict v12 schema/reindex speedup v0.33.0, and CM-1 command module decomposition v0.34.0.
    - **Remaining Scope for Upcoming Releases (v0.35.0+)**:
      - **Plugin God-file Decomposition (PL-1)**: decompose plugin god-files `chatSidebar.ts`, `llmClient.ts`, `externalPdfView.ts`.
      - **Exception Handling Hardening (XC-1 Slices 2+)**: narrow broad exception blocks in `cli.py`, `mcp_server.py`, `plugin_api.py`.
@@ -78,6 +72,7 @@ No urgent items currently tracked.
 
 ## ✅ Completed Milestones
 
+- **v0.34.0 — CM-1 Command Module God-file Decomposition** (shipped 2026-07-09, PR #85 merged): decomposed `cli.py`, `mcp_server.py`, and `plugin_api.py` into cohesive packages (`curator/commands/`, etc.) with compatibility facades preserved.
 - **v0.33.0 — Strict Sync Schema Enforcement & Startup Speedup** (shipped 2026-07-09, PR #84
   merged): removed legacy pre-v12 database schema migration and automatic fallback conversions;
   simplified db init and connection pathways; added incremental embedding reindex speedups
@@ -212,6 +207,6 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: DRAFT PR OPEN on branch `release/v0.34.0`.
-- **Active Milestone**: System Stability Overhaul — CM-1 Command Module God-file Decomposition (`cli.py`, `mcp_server.py`, `plugin_api.py`).
-- **Next actionable item**: Wait for CI/review on PR #85 and merge when accepted.
+- **Roadmap state**: IDLE (Master Branch).
+- **Active Milestone**: None (System IDLE).
+- **Next actionable item**: Wait for new user request.
