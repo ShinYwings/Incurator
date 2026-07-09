@@ -135,15 +135,42 @@ def materialize_chunks(db_path: Path, search_config: dict | None = None) -> Chun
             )
     if rows:
         with db.connect(db_path) as conn:
+            conn.execute("CREATE TEMP TABLE current_search_chunks(chunk_id TEXT PRIMARY KEY)")
+            conn.executemany(
+                "INSERT INTO current_search_chunks(chunk_id) VALUES (?)",
+                [(row[0],) for row in rows],
+            )
             conn.executemany(
                 """
-                INSERT OR REPLACE INTO search_chunks
+                INSERT INTO search_chunks
                     (chunk_id, doc_id, record_type, record_id, chunk_index, char_start,
                      char_end, text, input_hash, source_span_ids, provenance_json)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(chunk_id) DO UPDATE SET
+                    doc_id = excluded.doc_id,
+                    record_type = excluded.record_type,
+                    record_id = excluded.record_id,
+                    chunk_index = excluded.chunk_index,
+                    char_start = excluded.char_start,
+                    char_end = excluded.char_end,
+                    text = excluded.text,
+                    input_hash = excluded.input_hash,
+                    source_span_ids = excluded.source_span_ids,
+                    provenance_json = excluded.provenance_json
                 """,
                 rows,
             )
+            conn.execute(
+                "DELETE FROM search_chunks "
+                "WHERE NOT EXISTS ("
+                "SELECT 1 FROM current_search_chunks c "
+                "WHERE c.chunk_id = search_chunks.chunk_id"
+                ")"
+            )
+            conn.execute("DROP TABLE current_search_chunks")
+    else:
+        with db.connect(db_path) as conn:
+            conn.execute("DELETE FROM search_chunks")
     db.set_index_meta(db_path, "search_chunk_count", str(len(rows)))
     return ChunkResult(documents=len(docs), chunks=len(rows))
 

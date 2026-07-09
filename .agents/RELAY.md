@@ -202,3 +202,32 @@ Commit the review fixes and push the branch if the user wants the PR updated.
   - `git diff --check`: clean;
   - real `wiki status` for `/Users/shin/shinywings/second_brain`: clean sync
     report, L1 33 done, L2/L3/L4 23 done / 10 skipped, embeddings 3259/3259.
+
+### Update (2026-07-09, Codex) — second speed-audit correction
+
+- User correctly challenged the previous "complete" status. A follow-up review
+  found the first speed fix still had a large-vault weakness: it preserved
+  embeddings by snapshotting ready vector BLOBs into Python memory and restoring
+  them after deleting the corpus. That is acceptable for `second_brain`, but not
+  robust for larger vaults.
+- Replaced the snapshot/restore design with truly incremental materialization:
+  - `search_documents` now use `ON CONFLICT DO UPDATE` instead of
+    `INSERT OR REPLACE`, so child chunks/embeddings are not cascade-deleted for
+    unchanged docs;
+  - stale documents are removed using a temporary current-doc table;
+  - `search_chunks` likewise use `ON CONFLICT DO UPDATE`, and stale chunks are
+    removed using a temporary current-chunk table;
+  - changed chunks still delete their stale embeddings via FK cascade, while
+    unchanged chunks keep their embeddings in place without copying vector BLOBs.
+- Added a regression test proving changed search document text removes stale
+  chunk embeddings.
+- Real `second_brain` check still reports:
+  `wiki reindex --embed` → `3255 documents, 3259 chunks, 0 new embeddings, 3259 reused`
+  in ~1.1s, with `search_chunks=3259` and `search_embeddings=3259`.
+- Verification after this correction:
+  - search/embedding/D2 focused suite: `26 passed`;
+  - `scripts/backend-check ruff`: passed;
+  - `scripts/backend-check mypy`: passed;
+  - full `scripts/backend-check pytest`: `1199 passed, 6 skipped, 5 xfailed`;
+  - `git diff --check`: clean;
+  - real `wiki status` for `/Users/shin/shinywings/second_brain`: clean.

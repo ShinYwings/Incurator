@@ -134,6 +134,30 @@ def test_current_embedding_coverage_rejects_stale_input_hash(db_path: Path):
     assert ready == 0
 
 
+def test_materialize_chunks_removes_stale_chunk_embeddings(db_path: Path):
+    doc = _doc(db_path, "ATM-1", "t", "alpha beta gamma delta.")
+    embedding.materialize_chunks(db_path)
+    first_chunks = db.list_search_chunks_for_doc(db_path, doc)
+    assert first_chunks
+    first = embedding.embed_corpus(db_path, _FakeEmbedder())
+    assert first.embedded == len(first_chunks)
+
+    with db.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE search_documents SET body = ?, content_hash = ? WHERE doc_id = ?",
+            ("changed epsilon zeta eta theta iota kappa.", "changed", doc),
+        )
+
+    embedding.materialize_chunks(db_path)
+    second_chunks = db.list_search_chunks_for_doc(db_path, doc)
+
+    assert second_chunks
+    assert {row["chunk_id"] for row in second_chunks} != {
+        row["chunk_id"] for row in first_chunks
+    }
+    assert db.get_search_embeddings(db_path, "ollama", "bge-m3") == []
+
+
 def test_embed_corpus_degrades_without_embedder(db_path: Path):
     _doc(db_path, "ATM-1", "t", "some body text here.")
     embedding.materialize_chunks(db_path)

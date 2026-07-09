@@ -106,36 +106,65 @@ def _build_doc(
     }
 
 
-def _insert_docs(db_path: Path, docs: list[dict[str, Any]]) -> None:
-    if not docs:
-        return
+def _sync_docs(db_path: Path, docs: list[dict[str, Any]]) -> None:
     now = db._now_iso()
     with db.connect(db_path) as conn:
-        conn.executemany(
-            """
-            INSERT OR REPLACE INTO search_documents
-                (doc_id, record_type, record_id, source_id, projection_path, title,
-                 body, language, content_hash, dependency_hash, provenance_json, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                (
-                    doc["doc_id"],
-                    doc["record_type"],
-                    doc["record_id"],
-                    doc["source_id"],
-                    doc["projection_path"],
-                    doc["title"],
-                    doc["body"],
-                    doc["language"],
-                    doc["content_hash"],
-                    doc["dependency_hash"],
-                    doc["provenance_json"],
-                    now,
-                )
-                for doc in docs
-            ],
-        )
+        if docs:
+            conn.execute("CREATE TEMP TABLE current_search_docs(doc_id TEXT PRIMARY KEY)")
+            conn.executemany(
+                "INSERT INTO current_search_docs(doc_id) VALUES (?)",
+                [(str(doc["doc_id"]),) for doc in docs],
+            )
+            conn.executemany(
+                """
+                INSERT INTO search_documents
+                    (doc_id, record_type, record_id, source_id, projection_path, title,
+                     body, language, content_hash, dependency_hash, provenance_json, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(doc_id) DO UPDATE SET
+                    record_type = excluded.record_type,
+                    record_id = excluded.record_id,
+                    source_id = excluded.source_id,
+                    projection_path = excluded.projection_path,
+                    title = excluded.title,
+                    body = excluded.body,
+                    language = excluded.language,
+                    content_hash = excluded.content_hash,
+                    dependency_hash = excluded.dependency_hash,
+                    provenance_json = excluded.provenance_json,
+                    updated_at = excluded.updated_at
+                """,
+                [
+                    (
+                        doc["doc_id"],
+                        doc["record_type"],
+                        doc["record_id"],
+                        doc["source_id"],
+                        doc["projection_path"],
+                        doc["title"],
+                        doc["body"],
+                        doc["language"],
+                        doc["content_hash"],
+                        doc["dependency_hash"],
+                        doc["provenance_json"],
+                        now,
+                    )
+                    for doc in docs
+                ],
+            )
+            conn.execute(
+                "DELETE FROM search_documents "
+                "WHERE NOT EXISTS ("
+                "SELECT 1 FROM current_search_docs c "
+                "WHERE c.doc_id = search_documents.doc_id"
+                ")"
+            )
+            conn.execute("DROP TABLE current_search_docs")
+        else:
+            conn.execute("DELETE FROM search_documents")
+
+        conn.execute("DELETE FROM search_documents_fts")
+        conn.execute("DELETE FROM search_documents_fts_tri")
         fts_rows = [
             (
                 doc["title"],
@@ -146,75 +175,27 @@ def _insert_docs(db_path: Path, docs: list[dict[str, Any]]) -> None:
             )
             for doc in docs
         ]
-        for tbl in ("search_documents_fts", "search_documents_fts_tri"):
-            conn.executemany(
-                f"INSERT INTO {tbl} (title, body, record_type, record_id, doc_id) "
-                "VALUES (?, ?, ?, ?, ?)",
-                fts_rows,
-            )
-
-
-def _snapshot_ready_embeddings(db_path: Path) -> dict[str, list[dict[str, Any]]]:
-    with db.connect(db_path) as conn:
-        rows = conn.execute(
-            "SELECT chunk_id, provider, model, dim, vector, input_hash "
-            "FROM search_embeddings WHERE status = 'ready'"
-        ).fetchall()
-    out: dict[str, list[dict[str, Any]]] = {}
-    for row in rows:
-        out.setdefault(str(row["chunk_id"]), []).append(dict(row))
-    return out
-
-
-def _restore_matching_embeddings(
-    db_path: Path,
-    snapshot: dict[str, list[dict[str, Any]]],
-) -> int:
-    if not snapshot:
-        return 0
-    with db.connect(db_path) as conn:
-        chunks = conn.execute(
-            "SELECT chunk_id, input_hash, provenance_json FROM search_chunks"
-        ).fetchall()
-    rows: list[tuple] = []
-    for chunk in chunks:
-        chunk_id = str(chunk["chunk_id"])
-        prior_rows = snapshot.get(chunk_id) or []
-        if not prior_rows:
-            continue
-        input_hash = str(chunk["input_hash"])
-        dependency_hash = (
-            json.loads(chunk["provenance_json"] or "{}") or {}
-        ).get("dependency_hash", "")
-        for prior in prior_rows:
-            if prior["input_hash"] != input_hash:
-                continue
-            rows.append(
-                (
-                    chunk_id,
-                    str(prior["provider"]),
-                    str(prior["model"]),
-                    int(prior["dim"]),
-                    prior["vector"],
-                    input_hash,
-                    str(dependency_hash),
-                    "ready",
-                    "",
-                    db._now_iso(),
+        if fts_rows:
+            for tbl in ("search_documents_fts", "search_documents_fts_tri"):
+                conn.executemany(
+                    f"INSERT INTO {tbl} (title, body, record_type, record_id, doc_id) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    fts_rows,
                 )
-            )
-    if rows:
-        with db.connect(db_path) as conn:
-            conn.executemany(
-                """
-                INSERT OR REPLACE INTO search_embeddings
-                    (chunk_id, provider, model, dim, vector, input_hash,
-                     dependency_hash, status, error, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                rows,
-            )
-    return len(rows)
+
+
+def _current_embedding_count(db_path: Path) -> int:
+    with db.connect(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM search_embeddings e
+            JOIN search_chunks c ON c.chunk_id = e.chunk_id
+            WHERE e.status = 'ready'
+              AND e.input_hash = c.input_hash
+            """
+        ).fetchone()
+    return int(row[0] or 0)
 
 
 def materialize_search_documents(
@@ -227,8 +208,6 @@ def materialize_search_documents(
     the model-free materialization step always succeeds; embedding count stays
     zero here and is filled by ``wiki reindex --embed`` / compile's embed pass.
     """
-    embedding_snapshot = _snapshot_ready_embeddings(db_path)
-    db.clear_search_corpus(db_path)
     with db.connect(db_path) as conn:
         sources = {
             int(row["id"]): dict(row)
@@ -418,14 +397,14 @@ def materialize_search_documents(
 
     from . import embedding
 
-    _insert_docs(db_path, docs)
+    _sync_docs(db_path, docs)
     chunk_result = embedding.materialize_chunks(db_path, search_config or {})
-    restored_embeddings = _restore_matching_embeddings(db_path, embedding_snapshot)
+    preserved_embeddings = _current_embedding_count(db_path)
     db.set_index_meta(db_path, "search_materialized_documents", str(len(docs)))
     db.set_index_meta(db_path, "search_materializer_version", "v0.3.2-p5")
     return MaterializeResult(
         documents=len(docs),
         chunks=chunk_result.chunks,
-        embeddings=restored_embeddings,
-        skipped_unchanged=restored_embeddings,
+        embeddings=preserved_embeddings,
+        skipped_unchanged=preserved_embeddings,
     )
