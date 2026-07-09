@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.33.0)
+# Incurator - System Behavior (v0.34.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -70,6 +70,26 @@ Workspace agents may:
 
 Workspace agents must not silently edit `03_Notes/`, `04_Resources/`, or
 `.curator/` by filesystem writes.
+
+### 2.4 Transport Module Ownership
+
+The CLI, MCP server, and same-device plugin command layer are transport
+adapters over shared backend services. Refactoring their Python module layout
+must preserve these public import and runtime surfaces:
+
+- `curator.cli` remains the `wiki` entrypoint and owns the root Typer `app`.
+  Extracted command-group modules may define isolated sub-apps, but the root
+  facade wires the CLI tree top-down with `app.add_typer()`.
+- `curator.mcp_server.build_server()` remains the MCP construction entrypoint.
+  Extracted MCP modules register tools through `register_*_tools(mcp)` functions
+  that receive the dynamic FastMCP instance created by `build_server()`.
+- `curator.plugin_api` remains the backend-local function API used by hidden
+  `wiki plugin ...` commands and selected MCP handlers. It is not an HTTP API
+  contract.
+
+This ownership rule is architecture-only. It must not change command names,
+option names, hidden-command visibility, MCP tool names/schemas, or plugin JSON
+payloads.
 
 ## 3. Source Status And Adaptive Routing
 

@@ -8,9 +8,8 @@ the vision_max_pages_per_run rail, and the model-keyed cache (R12).
 from pathlib import Path
 
 import fitz
-import pytest
 
-from curator import db, ingest_raw, vision
+from curator import db, ingest_raw
 from curator.parsers.base import ParsedDocument
 
 

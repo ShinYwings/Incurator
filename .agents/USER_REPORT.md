@@ -6,5 +6,4 @@ Agents must check this document and triage the received items into the `To-Do (Q
 
 ## 📝 User Inbox
 
-_(empty — the cross-device dashboard report and expanded integrity audit are
-triaged into the active v0.32.1 plan.)_
+_(empty — no untriaged user or review reports.)_

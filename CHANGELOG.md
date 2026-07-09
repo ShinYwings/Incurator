@@ -4,6 +4,24 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.34.0] - 2026-07-09
+### Changed
+- **Command Module Decomposition**
+  Split the backend CLI, MCP server, and plugin API god files into modular
+  package structures while preserving existing command names, MCP tool
+  contracts, plugin API functions, and backward-compatible import facades.
+
+### Fixed
+- **PR #85 Review Hardening**
+  Closed command-layer LLM clients in persona, workspace, and plugin PDF
+  transcription flows; made `wiki models ensure` degrade gracefully when no
+  vault exists; and replaced per-row source status resets with batch updates.
+- **Extracted CLI Facade Compatibility**
+  Restored `curator.cli.list_models_on_host` patch compatibility for extracted
+  plugin model commands so CI and legacy tests observe mocked Ollama installs.
+
+---
+
 ## [0.33.0] - 2026-07-07
 ### Changed
 - **Strict Sync Schema Enforcement (Removal of Legacy Compatibility)**

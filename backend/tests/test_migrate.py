@@ -8,8 +8,6 @@ import yaml
 from curator import config as cfg
 from curator import constants as consts
 from curator.migrate import (
-    MigrationResult,
-    StaleFile,
     get_vault_schema_version,
     run_migrations,
     scan_stale_collection_files,
