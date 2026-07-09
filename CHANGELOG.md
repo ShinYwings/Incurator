@@ -4,6 +4,15 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.34.0] - 2026-07-09
+### Changed
+- **Command Module Decomposition**
+  Split the backend CLI, MCP server, and plugin API god files into modular
+  package structures while preserving existing command names, MCP tool
+  contracts, plugin API functions, and backward-compatible import facades.
+
+---
+
 ## [0.33.0] - 2026-07-07
 ### Changed
 - **Strict Sync Schema Enforcement (Removal of Legacy Compatibility)**

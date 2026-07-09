@@ -38,11 +38,10 @@ No urgent items currently tracked.
    - Briefing: `.agents/plans/system_stability_overhaul_arena/00_problem.md`
    - Delivered as a chain of incremental release PRs (starting from v0.34.0+).
    - **Shipped stability & hardening releases (v0.25.0 → v0.33.0)**: diagnosis G17–G19, XC-1/XC-4 robustness slices, DB-2 slices 1–2, CLI/MCP warning visibility, portable paths v0.29–v0.32, cross-device LWW sync v0.30, and strict v12 schema/reindex speedup v0.33.0.
-   - **Active Release (v0.34.0 — CM-1 Command Module God-file Decomposition)**:
-     - Decompose `cli.py` (7,611 LOC), `mcp_server.py` (3,491 LOC), and `plugin_api.py` (1,100 LOC) into cohesive packages (`curator/commands/`, etc.).
+   - **Release Candidate (v0.34.0 — CM-1 Command Module God-file Decomposition)**:
+     - Decomposed `cli.py`, `mcp_server.py`, and `plugin_api.py` into cohesive packages (`curator/commands/`, etc.) with compatibility facades preserved.
      - Briefing: `.agents/drafts/10_cm1_god_file_decomposition.md`
-     - Master Plan: `.agents/plans/10_cm1_god_file_decomposition.md`
-     - Evidence Ledger: `.agents/plans/10_roadmap_evidence.md`
+     - Plan and evidence artifacts are archived in Git history; active copies were removed after validation.
    - **Remaining Scope for Upcoming Releases (v0.35.0+)**:
      - **Plugin God-file Decomposition (PL-1)**: decompose plugin god-files `chatSidebar.ts`, `llmClient.ts`, `externalPdfView.ts`.
      - **Exception Handling Hardening (XC-1 Slices 2+)**: narrow broad exception blocks in `cli.py`, `mcp_server.py`, `plugin_api.py`.
@@ -211,6 +210,6 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: ACTIVE on branch `release/v0.34.0`.
+- **Roadmap state**: RELEASE CANDIDATE on branch `release/v0.34.0`.
 - **Active Milestone**: System Stability Overhaul — CM-1 Command Module God-file Decomposition (`cli.py`, `mcp_server.py`, `plugin_api.py`).
-- **Next actionable item**: CM-1 Arena plan synthesis is complete. Await human approval of `.agents/plans/10_cm1_god_file_decomposition.md` before implementation begins.
+- **Next actionable item**: v0.34.0 implementation, local CI, and testbed smoke validation are complete; push the release branch and open the PR.

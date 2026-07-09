@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.33.0)
+# Incurator Plugin Schema & API Contract (v0.34.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -95,6 +95,14 @@ wiki plugin promote
 wiki plugin db export
 wiki plugin db import
 ```
+
+The backend implementation of this namespace is the backend-local
+`curator.plugin_api` function API. That module may be implemented as a package
+internally, but its import path, exported function names used by CLI/MCP
+wrappers, and JSON envelopes are part of the plugin contract. The plugin does
+not call these functions in-process; it observes them through hidden backend
+commands such as `wiki plugin source status`, `wiki plugin pdf context`, and
+`wiki plugin query`.
 
 PDF context requests should pass the richest available identity to backend:
 local file path, source id, vault relpath, file hash, or Zotero attachment key.
