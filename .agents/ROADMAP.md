@@ -38,8 +38,11 @@ No urgent items currently tracked.
    - Briefing: `.agents/plans/system_stability_overhaul_arena/00_problem.md`
    - Delivered as a chain of incremental release PRs (starting from v0.34.0+).
    - **Shipped stability & hardening releases (v0.25.0 → v0.33.0)**: diagnosis G17–G19, XC-1/XC-4 robustness slices, DB-2 slices 1–2, CLI/MCP warning visibility, portable paths v0.29–v0.32, cross-device LWW sync v0.30, and strict v12 schema/reindex speedup v0.33.0.
-   - **Remaining Scope for Upcoming Releases (v0.34.0+)**:
-     - **God-file Decomposition (CM-1 / PL-1)**: decompose `cli.py`, `mcp_server.py`, `plugin_api.py` (CM-1) and plugin god-files `chatSidebar.ts`, `llmClient.ts`, `externalPdfView.ts` (PL-1).
+   - **Active Release (v0.34.0 — CM-1 Command Module God-file Decomposition)**:
+     - Decompose `cli.py` (7,611 LOC), `mcp_server.py` (3,491 LOC), and `plugin_api.py` (1,100 LOC) into cohesive packages (`curator/commands/`, etc.).
+     - Briefing: `.agents/drafts/10_cm1_god_file_decomposition.md`
+   - **Remaining Scope for Upcoming Releases (v0.35.0+)**:
+     - **Plugin God-file Decomposition (PL-1)**: decompose plugin god-files `chatSidebar.ts`, `llmClient.ts`, `externalPdfView.ts`.
      - **Exception Handling Hardening (XC-1 Slices 2+)**: narrow broad exception blocks in `cli.py`, `mcp_server.py`, `plugin_api.py`.
      - **Performance & UX Refinements**: RAG/DAG benchmark harness & retrieval hotspot optimization; chat/popover UX friction cleanup.
 
@@ -206,6 +209,6 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: System IDLE. No active milestone.
-- **Active Milestone**: None.
-- **Next actionable item**: triage `.agents/USER_REPORT.md` when new items arrive.
+- **Roadmap state**: ACTIVE on branch `release/v0.34.0`.
+- **Active Milestone**: System Stability Overhaul — CM-1 Command Module God-file Decomposition (`cli.py`, `mcp_server.py`, `plugin_api.py`).
+- **Next actionable item**: Executors must read `.agents/drafts/10_cm1_god_file_decomposition.md`, synthesize `.agents/plans/10_cm1_god_file_decomposition.md` via Arena debate, obtain human approval if required, and implement the command-module decomposition.
