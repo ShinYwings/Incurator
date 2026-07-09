@@ -36,16 +36,12 @@ No urgent items currently tracked.
      allowed; prompt-v2 for cross-model output consistency; legacy/dead-code sweep.
    - Master Plan: `.agents/plans/01_system_stability_overhaul.md`
    - Briefing: `.agents/plans/system_stability_overhaul_arena/00_problem.md`
-   - Delivered as a chain of minor-release PRs (0.25.0 → 0.26.0 → …).
-   - Shipped so far: G17/G18/G19 (v0.27.3), G17 S3 (v0.27.4), **XC-1 error-handling
-     slice 1 (data-pipeline, v0.27.5, PR #64)**, XC-1/XC-4 robustness
-     slice 2 (model setup + plugin logging/timer audit, v0.27.6), DB-2 slices
-     1–2 (v0.27.7–v0.27.8), G07-12 CLI best-effort warning visibility
-     (v0.28.1), G08-5 plugin source-register warning visibility (v0.28.2),
-     and G08-5 MCP register-source warning visibility (v0.28.3).
-     Remaining S2: god-file decomposition CM-1/PL-1/DB-2; XC-1 slices 2+ (god-file
-     excepts in cli.py/mcp_server.py/plugin_api.py, `model_setup.py`); XC-4 plugin
-     timers/logging.
+   - Delivered as a chain of incremental release PRs (starting from v0.34.0+).
+   - **Shipped stability & hardening releases (v0.25.0 → v0.33.0)**: diagnosis G17–G19, XC-1/XC-4 robustness slices, DB-2 slices 1–2, CLI/MCP warning visibility, portable paths v0.29–v0.32, cross-device LWW sync v0.30, and strict v12 schema/reindex speedup v0.33.0.
+   - **Remaining Scope for Upcoming Releases (v0.34.0+)**:
+     - **God-file Decomposition (CM-1 / PL-1)**: decompose `cli.py`, `mcp_server.py`, `plugin_api.py` (CM-1) and plugin god-files `chatSidebar.ts`, `llmClient.ts`, `externalPdfView.ts` (PL-1).
+     - **Exception Handling Hardening (XC-1 Slices 2+)**: narrow broad exception blocks in `cli.py`, `mcp_server.py`, `plugin_api.py`.
+     - **Performance & UX Refinements**: RAG/DAG benchmark harness & retrieval hotspot optimization; chat/popover UX friction cleanup.
 
 2. **[Validation] `[[wikilink]]` Architecture Validation**
    - Core entities in the backend pipeline documents are not explicitly marked with `[[wikilink]]`.
@@ -76,6 +72,10 @@ No urgent items currently tracked.
 
 ## ✅ Completed Milestones
 
+- **v0.33.0 — Strict Sync Schema Enforcement & Startup Speedup** (shipped 2026-07-09, PR #84
+  merged): removed legacy pre-v12 database schema migration and automatic fallback conversions;
+  simplified db init and connection pathways; added incremental embedding reindex speedups
+  and fixed cross-device config isolation.
 - **v0.32.2 — Autosync Legacy Peer Hotfix** (shipped 2026-07-06, PR #83
   merged): fixed `db autosync` crash on pre-v12 legacy peer export files
   missing `export_id`.
