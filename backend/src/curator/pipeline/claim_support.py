@@ -90,14 +90,12 @@ class AuditReport:
     def release_blocking(self) -> list[str]:
         """Findings that fail `wiki lint` / block a release (§20.5, §26.5).
 
-        Excludes ``unsupported_claims`` (active ``unchecked``/``uncertain`` units):
-        those are legitimately excluded from serving — not wrong, just not yet
-        verified — so they are reported but do not gate a release.
+        Excludes claims that are already excluded from serving
+        (``unchecked``/``uncertain``/``failed``/``stale``). They remain audit
+        telemetry, but they are not structural breaks in the served DAG.
         """
         return sorted(
-            set(self.failed_claims)
-            | set(self.stale_claims)
-            | set(self.dangling_supports)
+            set(self.dangling_supports)
             | set(self.formula_inconsistencies)
             | set(self.staged_leftovers)
         )
@@ -106,18 +104,12 @@ class AuditReport:
     def publish_blocking(self) -> list[str]:
         """Findings that block a staged generation publish (§26.3).
 
-        Narrower than ``release_blocking``: a generation publishes its sound
-        VERIFIED served set even when failed/stale claims exist, because those
-        are excluded from serving (``list_serving_units``) and merely surfaced by
-        `wiki lint`. Only structural breaks of the served set block the publish —
-        dangling references, formula inconsistency, or a violated
-        one-authoritative-per-scope invariant.
+        Same structural boundary as ``release_blocking``: a generation publishes
+        its sound VERIFIED served set even when failed/stale claims exist,
+        because those are excluded from serving (``list_serving_units``). Only
+        structural breaks of the served set block the publish.
         """
-        return sorted(
-            set(self.dangling_supports)
-            | set(self.formula_inconsistencies)
-            | set(self.staged_leftovers)
-        )
+        return self.release_blocking
 
     @property
     def ok(self) -> bool:

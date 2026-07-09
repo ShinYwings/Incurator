@@ -217,8 +217,11 @@ fixtures, and `wiki devices ...` for launcher diagnostics.
 > section markers, and coarse Atom Candidates instantly from parser structure
 > without an LLM call (structural L1). Starting in v0.2.2, this step uses
 > **AST-based chunking** to preserve math formula blocks such as `$$...$$`
-> during text splitting. Same-document parser heading wikilinks are rendered as
+> during text splitting. Source-derived parser heading wikilinks are rendered as
 > plain text in CTX projections so generated files do not create broken links.
+> Downstream extraction, community-report synthesis, and query answers must
+> preserve central equations, formulas, and code expressions exactly when they
+> are needed for the claim or answer.
 > Deep L2/L3 extraction is separated from `wiki add`
 > and performed by the distinct `wiki build` command. By default this queues
 > background work; `--wait` requests synchronous execution. In MCP flows,
@@ -509,8 +512,11 @@ atomic publishes (specs: SCHEMA.md §20, SYSTEM_BEHAVIOR.md §26):
 - **Full-span evidence**: evidence packs hydrate the exact span text from the
   source file (hash-verified) instead of presenting the 200-character preview
   as the evidence.
-- **Audit in lint**: `wiki lint` reports the Compiler Integrity findings and
-  fails on release-blocking violations, so CI and testbeds can gate on it.
+- **Audit in lint**: `wiki lint` reports Compiler Integrity telemetry.
+  Failed/stale/unchecked claims are excluded from serving and do not create sync
+  review blockers by themselves; lint fails only on structural violations in
+  the served DAG, such as dangling support references or inconsistent formula
+  evidence.
 
 ---
 

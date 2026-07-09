@@ -174,13 +174,17 @@ def scan_for_changes(paths: cfg.WikiPaths) -> ChangeReport:
 
 def update_all_page_hashes(paths: cfg.WikiPaths):
     """Save current filesystem hashes to DB."""
+    current_paths: set[str] = set()
     for layer_dir in (paths.contexts, paths.atoms, paths.concepts, paths.synthesis):
         if not layer_dir.exists():
             continue
         layer_name = layer_dir.name
         for md_path in sorted(layer_dir.glob("*.md")):
             rel_path = f"{layer_name}/{md_path.name}"
+            current_paths.add(rel_path)
             db.update_page_hash(paths.state_db, rel_path, calculate_hash(md_path))
+    for rel_path in set(db.get_page_hashes(paths.state_db)) - current_paths:
+        db.delete_page_hash(paths.state_db, rel_path)
 
 # ---------------------------------------------------------------------------
 # Internal helpers

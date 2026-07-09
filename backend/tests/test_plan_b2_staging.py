@@ -297,52 +297,6 @@ def test_publish_failure_rolls_back_persisted_graph(vault, monkeypatch) -> None:
     assert n_ent == 0  # graph rolled back with the failed publish (no leak)
 
 
-# --- Legacy NULL-generation backfill migration (P3) -------------------------
-
-def test_init_db_backfills_legacy_verified_units_to_synthetic_generation(vault) -> None:
-    # A legacy verified unit with NULL generation_id (pre-B2) is attributed to a
-    # deterministic synthetic authoritative generation by init_db, so it becomes
-    # served; an unchecked legacy unit is left NULL (not served).
-    with db.connect(vault.state_db) as conn:
-        conn.execute(
-            "INSERT INTO knowledge_units (id, unit_type, canonical_name, statement, "
-            "source_span_ids, source_id, support_status, formula_status, created_at, "
-            "updated_at) VALUES ('KNU-legacyV', 'atom', 'V', 'Verified legacy.', "
-            "'[\"SPAN-x\"]', 1, 'verified', 'not_applicable', '2026-01-01T00:00:00Z', "
-            "'2026-01-01T00:00:00Z')"
-        )
-        conn.execute(
-            "INSERT INTO knowledge_units (id, unit_type, canonical_name, statement, "
-            "source_span_ids, source_id, support_status, formula_status, created_at, "
-            "updated_at) VALUES ('KNU-legacyU', 'atom', 'U', 'Unchecked legacy.', "
-            "'[\"SPAN-y\"]', 1, 'unchecked', 'not_applicable', '2026-01-01T00:00:00Z', "
-            "'2026-01-01T00:00:00Z')"
-        )
-    db.init_db(vault.state_db)  # runs the one-time backfill
-    with db.connect(vault.state_db) as conn:
-        gen_v = conn.execute(
-            "SELECT generation_id FROM knowledge_units WHERE id = 'KNU-legacyV'"
-        ).fetchone()[0]
-        gen_u = conn.execute(
-            "SELECT generation_id FROM knowledge_units WHERE id = 'KNU-legacyU'"
-        ).fetchone()[0]
-        gen_status = conn.execute(
-            "SELECT status FROM compiler_generations WHERE id = ?", (gen_v,)
-        ).fetchone()
-    assert gen_v == "GEN-mig-1"                 # deterministic id
-    assert gen_status is not None and gen_status[0] == "authoritative"
-    assert gen_u is None                        # unchecked legacy is NOT backfilled
-    served_ids = {u["id"] for u in db.list_serving_units(vault.state_db)}
-    assert "KNU-legacyV" in served_ids          # now served
-    assert "KNU-legacyU" not in served_ids      # unchecked → not served
-    # Idempotent: a second init_db creates no duplicate generation.
-    db.init_db(vault.state_db)
-    with db.connect(vault.state_db) as conn:
-        assert conn.execute(
-            "SELECT COUNT(*) FROM compiler_generations WHERE id = 'GEN-mig-1'"
-        ).fetchone()[0] == 1
-
-
 # --- Atomic publish: failures preserve the prior authoritative generation ----
 
 def test_graph_persistence_failure_preserves_authoritative_state(vault, monkeypatch) -> None:

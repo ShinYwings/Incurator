@@ -212,8 +212,10 @@ Obsidian plugin JSON 호출용 `wiki plugin ...`, 외부 에이전트용 `wiki m
 
 > **즉각적인 L1 / L2·L3 분리**: `wiki add`는 LLM 호출 없이 파서 구조로부터 즉시 CTX, ToC, 섹션 마커 및
 > 대략적인 Atom 후보를 생성합니다(구조적 L1). v0.2.2부터 이 단계는 **AST 기반 청킹**을 사용해
-> `$$...$$` 같은 수학 수식 블록을 텍스트 분할 중에도 보존합니다. 같은 문서 heading을 가리키는 parser-generated
-> wikilink는 CTX projection에서 평문으로 렌더링하여 generated 파일이 broken link를 만들지 않게 합니다. 깊은 L2/L3 추출은 `wiki add`와
+> `$$...$$` 같은 수학 수식 블록을 텍스트 분할 중에도 보존합니다. 소스에서 유래한 parser-generated heading
+> wikilink는 CTX projection에서 평문으로 렌더링하여 generated 파일이 broken link를 만들지 않게 합니다.
+> 이후 L2 추출, community-report synthesis, query answer도 claim이나 답변에 필요한 핵심
+> equation, formula, code expression을 정확히 보존해야 합니다. 깊은 L2/L3 추출은 `wiki add`와
 > 분리되어 별도의 `wiki build` 명령으로 수행됩니다. 기본 동작은 백그라운드 작업 큐에 넣는 것이고,
 > `--wait`는 동기 실행을 요청합니다. MCP에서는 `curator_register_source`가 L1 등록을 담당하고
 > `curator_build_source`가 L2/L3 빌드에 대응합니다.
@@ -532,9 +534,10 @@ v0.8.0은 §9의 순방향 컴파일 흐름을 클레임 수준 grounding과 원
   증거와 분리 저장되며, 파서 출력을 절대 덮어쓰지 않습니다.
 - **전체 span 증거**: evidence pack은 200자 미리보기를 증거로 제시하는 대신
   소스 파일에서 정확한 span 텍스트를(해시 검증과 함께) 하이드레이션합니다.
-- **lint 감사**: `wiki lint`가 Compiler Integrity 발견 사항을 보고하고
-  릴리스를 막아야 하는 위반에서 실패하므로, CI와 테스트베드가 이를
-  게이트로 사용할 수 있습니다.
+- **lint 감사**: `wiki lint`가 Compiler Integrity telemetry를 보고합니다.
+  `failed`/`stale`/`unchecked` 클레임은 serving에서 제외되며 그 자체로 sync
+  review blocker가 되지 않습니다. lint는 dangling support reference나
+  formula evidence 불일치처럼 serving DAG를 깨는 구조 위반에서만 실패합니다.
 
 ---
 

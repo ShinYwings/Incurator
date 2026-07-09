@@ -12,9 +12,7 @@ from __future__ import annotations
 
 import logging
 import hashlib
-import shutil
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -443,8 +441,7 @@ def load_config(paths: WikiPaths) -> dict:
                 else:
                     merged[key] = val
         except yaml.YAMLError as e:
-            import logging
-            logging.getLogger(__name__).warning(
+            logger.warning(
                 "Global config '%s' has invalid YAML — using defaults. Error: %s",
                 global_cfg_file, e,
             )
@@ -463,8 +460,7 @@ def load_config(paths: WikiPaths) -> dict:
                 else:
                     merged[key] = val
         except yaml.YAMLError as e:
-            import logging
-            logging.getLogger(__name__).warning(
+            logger.warning(
                 "Vault config '%s' has invalid YAML — using defaults. Error: %s",
                 paths.config_file, e,
             )

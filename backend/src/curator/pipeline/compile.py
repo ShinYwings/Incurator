@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import hashlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -124,6 +125,42 @@ def _source_ids_for_span_ids(conn: Any, span_ids: set[str]) -> set[int]:
             ).fetchall()
         )
     return source_ids
+
+
+def _atom_ids_for_report(paths: cfg.WikiPaths, report: dict) -> list[str]:
+    """Resolve the ATM pages that support a community report's active relations."""
+    relation_ids = [str(rid) for rid in (report.get("relation_ids") or []) if rid]
+    if not relation_ids:
+        return []
+    atom_ids: set[str] = set()
+    with db.connect(paths.state_db) as conn:
+        for start in range(0, len(relation_ids), _SQL_VAR_CHUNK):
+            chunk = relation_ids[start:start + _SQL_VAR_CHUNK]
+            placeholders = ",".join("?" for _ in chunk)
+            rows = conn.execute(
+                f"""
+                SELECT DISTINCT ku.atom_node_id
+                FROM graph_relation_supports grs
+                JOIN knowledge_units ku ON ku.id = grs.knowledge_unit_id
+                JOIN compiler_generations g ON g.id = ku.generation_id
+                WHERE grs.relation_id IN ({placeholders})
+                  AND grs.support_status = 'verified'
+                  AND ku.support_status = 'verified'
+                  AND ku.retired_at IS NULL
+                  AND g.status = 'authoritative'
+                  AND ku.atom_node_id IS NOT NULL
+                  AND ku.atom_node_id != ''
+                """,
+                tuple(chunk),
+            ).fetchall()
+            atom_ids.update(str(row["atom_node_id"]) for row in rows)
+    return sorted(atom_ids)
+
+
+def _concept_id_for_report(report: dict) -> str:
+    report_key = str(report.get("id") or report.get("community_key") or "")
+    digest = hashlib.sha256(f"concept:{report_key}".encode("utf-8")).hexdigest()[:8]
+    return f"{consts.PREFIX_L3}-{digest}"
 
 
 class SpanTextUnavailable(Exception):
@@ -598,6 +635,7 @@ def compile_global_l3(
     db.rebuild_graph_generation(paths.state_db)
 
     concept_ids: list[str] = []
+    report_concept_ids: dict[str, str] = {}
     paths.concepts.mkdir(parents=True, exist_ok=True)
     errors = []
     # (2) Prose pass over each SERVED (non-retired) report, merge-upserted by key.
@@ -614,10 +652,12 @@ def compile_global_l3(
             full = db.get_community_report(paths.state_db, rep_id)
             if not full:
                 continue
-            concept_id = projection.new_concept_id()
+            concept_id = _concept_id_for_report(full)
+            full["atom_ids"] = _atom_ids_for_report(paths, full)
             page = projection.emit_concept_markdown(full, concept_id)
             (paths.concepts / f"{concept_id}.md").write_text(page, encoding="utf-8")
             concept_ids.append(concept_id)
+            report_concept_ids[rep_id] = concept_id
         except Exception as e:
             # KEEP broad: per-report prose is best-effort — collect the error and
             # continue so one bad report does not abort the whole L3 pass; the
@@ -631,7 +671,8 @@ def compile_global_l3(
     if not errors:
         try:
             synthesis_ids = synthesis.generate_synthesis(
-                paths, client, curate_spec_hash=curate_spec_hash
+                paths, client, curate_spec_hash=curate_spec_hash,
+                concept_ids_by_report=report_concept_ids,
             )
         except Exception as e:
             # KEEP broad: synthesis is the final best-effort L4 step; record the
@@ -647,7 +688,6 @@ def compile_global_l3(
         l2_done_ids = [r["id"] for r in rows]
     
     error_msg = "; ".join(errors) if errors else None
-    l4_status = "skipped" if errors else ("done" if synthesis_ids else "skipped")
     l4_error = "L3 prerequisite failed; synthesis not attempted" if errors else None
 
     report_span_ids = {
@@ -660,14 +700,21 @@ def compile_global_l3(
         with db.connect(paths.state_db) as conn:
             report_source_ids = _source_ids_for_span_ids(conn, report_span_ids)
 
+    synthesis_source_ids = report_source_ids if synthesis_ids else set()
+
     for sid in l2_done_ids:
         l3_status = "error" if errors else (
             "done" if sid in report_source_ids else "skipped"
         )
+        source_l4_status = "skipped" if errors else (
+            "done" if sid in synthesis_source_ids else "skipped"
+        )
         db.set_source_layer_status(
             paths.state_db, sid, "l3", l3_status, error=error_msg
         )
-        db.set_source_layer_status(paths.state_db, sid, "l4", l4_status, error=l4_error)
+        db.set_source_layer_status(
+            paths.state_db, sid, "l4", source_l4_status, error=l4_error
+        )
         
     if errors:
         raise RuntimeError(f"L3 global clustering encountered errors: {error_msg}")
@@ -694,7 +741,16 @@ def reemit_projections(paths: cfg.WikiPaths) -> dict[str, int]:
         for report in live_reports
         for span_id in (report.get("source_span_ids") or [])
     }
+    synthesis_span_ids = {
+        span_id
+        for node in db.list_synthesis_nodes(paths.state_db)
+        for report_id in (node.get("community_report_ids") or [])
+        for report in live_reports
+        if report.get("id") == report_id
+        for span_id in (report.get("source_span_ids") or [])
+    }
     report_source_ids: set[int] = set()
+    synthesis_source_ids: set[int] = set()
     with db.connect(paths.state_db) as conn:
         serving_source_ids = {
             int(row["source_id"])
@@ -711,43 +767,48 @@ def reemit_projections(paths: cfg.WikiPaths) -> dict[str, int]:
         }
         if report_span_ids:
             report_source_ids = _source_ids_for_span_ids(conn, report_span_ids)
+        if synthesis_span_ids:
+            synthesis_source_ids = _source_ids_for_span_ids(conn, synthesis_span_ids)
         has_synthesis = (
             conn.execute("SELECT 1 FROM synthesis_nodes LIMIT 1").fetchone()
             is not None
         )
         completed_rows = conn.execute(
-            "SELECT id, l2_status, l3_status, l4_status FROM sources "
+            "SELECT id, l2_status, l3_status, l4_status, layer_error FROM sources "
             "WHERE l2_status IN ('done', 'skipped')"
         ).fetchall()
     for row in completed_rows:
         source_id = int(row["id"])
+        has_layer_error = bool(row["layer_error"])
         desired_l2 = "done" if source_id in serving_source_ids else "skipped"
         if row["l2_status"] != desired_l2:
             db.set_source_layer_status(
                 paths.state_db, source_id, "l2", desired_l2
             )
-        if desired_l2 == "skipped" and row["l3_status"] != "error":
+        if has_layer_error and row["l3_status"] == "error":
+            desired_l3 = "error"
+        elif desired_l2 == "skipped":
             desired_l3 = "skipped"
-        elif row["l3_status"] in {"done", "skipped"}:
+        else:
             desired_l3 = (
                 "done"
                 if desired_l2 == "done" and source_id in report_source_ids
                 else "skipped"
             )
-        else:
-            desired_l3 = str(row["l3_status"])
         if row["l3_status"] != desired_l3:
             db.set_source_layer_status(
                 paths.state_db, source_id, "l3", desired_l3
             )
-        if desired_l2 == "skipped" and row["l4_status"] != "error":
+        if has_layer_error and row["l4_status"] == "error":
+            desired_l4 = "error"
+        elif desired_l2 == "skipped":
             desired_l4 = "skipped"
-        elif row["l4_status"] in {"done", "skipped"}:
-            desired_l4 = (
-                "done" if desired_l2 == "done" and has_synthesis else "skipped"
-            )
         else:
-            desired_l4 = str(row["l4_status"])
+            desired_l4 = (
+                "done"
+                if desired_l2 == "done" and has_synthesis and source_id in synthesis_source_ids
+                else "skipped"
+            )
         if row["l4_status"] != desired_l4:
             db.set_source_layer_status(
                 paths.state_db, source_id, "l4", desired_l4
@@ -775,21 +836,46 @@ def reemit_projections(paths: cfg.WikiPaths) -> dict[str, int]:
 
     n_atoms = 0
     with db.connect(paths.state_db) as conn:
-        source_ids = [int(r["id"]) for r in conn.execute("SELECT id FROM sources").fetchall()]
+        source_rows = conn.execute("SELECT id, relpath FROM sources").fetchall()
+        source_ids = [int(r["id"]) for r in source_rows]
+        source_relpaths = {
+            int(r["id"]): str(r["relpath"])
+            for r in source_rows
+        }
     for sid in source_ids:
         # Serving projection rebuild: only authoritative-generation units (§26.3).
         for unit in db.list_serving_units(paths.state_db, sid):
             atom_id = unit.get("atom_node_id") or projection.new_atom_id()
-            page = projection.emit_atom_markdown(unit, atom_id)
+            page = projection.emit_atom_markdown(
+                unit, atom_id, source_path=source_relpaths.get(sid, "")
+            )
             (paths.atoms / f"{atom_id}.md").write_text(page, encoding="utf-8")
             n_atoms += 1
 
     n_concepts = 0
+    report_concept_ids: dict[str, str] = {}
     for report in db.list_community_reports(paths.state_db):
-        concept_id = projection.new_concept_id()
+        concept_id = _concept_id_for_report(report)
+        report["atom_ids"] = _atom_ids_for_report(paths, report)
         page = projection.emit_concept_markdown(report, concept_id)
         (paths.concepts / f"{concept_id}.md").write_text(page, encoding="utf-8")
+        report_concept_ids[report["id"]] = concept_id
         n_concepts += 1
+
+    synthesis_nodes = db.list_synthesis_nodes(paths.state_db)
+    with db.connect(paths.state_db) as conn:
+        for node in synthesis_nodes:
+            concept_ids = sorted(
+                {
+                    report_concept_ids[report_id]
+                    for report_id in (node.get("community_report_ids") or [])
+                    if report_id in report_concept_ids
+                }
+            )
+            conn.execute(
+                "UPDATE synthesis_nodes SET concept_ids = ?, updated_at = ? WHERE id = ?",
+                (json.dumps(concept_ids), db._now_iso(), node["id"]),
+            )
 
     n_synthesis = synthesis.reemit_synthesis(paths)
     materializer.materialize_search_documents(paths.state_db)

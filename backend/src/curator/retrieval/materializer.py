@@ -66,8 +66,7 @@ def _projection_path(record_type: str, row: dict[str, Any], source_contexts: dic
     return ""
 
 
-def _upsert_doc(
-    db_path: Path,
+def _build_doc(
     *,
     record_type: str,
     record_id: str,
@@ -78,26 +77,144 @@ def _upsert_doc(
     source_span_ids: list[str] | None = None,
     dependency_parts: Any = None,
     provenance: dict[str, Any] | None = None,
-) -> None:
+) -> dict[str, Any]:
     text = f"{title}\n{body}".strip()
-    db.upsert_search_document(
-        db_path,
-        record_type=record_type,
-        record_id=record_id,
-        source_id=source_id,
-        projection_path=projection_path,
-        title=title.strip(),
-        body=body.strip(),
-        language=_language(text),
-        content_hash=_json_hash({"record_type": record_type, "record_id": record_id, "title": title, "body": body}),
-        dependency_hash=_json_hash(dependency_parts if dependency_parts is not None else {}),
-        provenance={
+    return {
+        "doc_id": f"DOC-{record_type}-{record_id}",
+        "record_type": record_type,
+        "record_id": record_id,
+        "source_id": source_id,
+        "projection_path": projection_path,
+        "title": title.strip(),
+        "body": body.strip(),
+        "language": _language(text),
+        "content_hash": _json_hash({
+            "record_type": record_type,
+            "record_id": record_id,
+            "title": title,
+            "body": body,
+        }),
+        "dependency_hash": _json_hash(
+            dependency_parts if dependency_parts is not None else {}
+        ),
+        "provenance_json": json.dumps({
             "record_type": record_type,
             "record_id": record_id,
             "source_span_ids": source_span_ids or [],
             **(provenance or {}),
-        },
-    )
+        }),
+    }
+
+
+def _insert_docs(db_path: Path, docs: list[dict[str, Any]]) -> None:
+    if not docs:
+        return
+    now = db._now_iso()
+    with db.connect(db_path) as conn:
+        conn.executemany(
+            """
+            INSERT OR REPLACE INTO search_documents
+                (doc_id, record_type, record_id, source_id, projection_path, title,
+                 body, language, content_hash, dependency_hash, provenance_json, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    doc["doc_id"],
+                    doc["record_type"],
+                    doc["record_id"],
+                    doc["source_id"],
+                    doc["projection_path"],
+                    doc["title"],
+                    doc["body"],
+                    doc["language"],
+                    doc["content_hash"],
+                    doc["dependency_hash"],
+                    doc["provenance_json"],
+                    now,
+                )
+                for doc in docs
+            ],
+        )
+        fts_rows = [
+            (
+                doc["title"],
+                doc["body"],
+                doc["record_type"],
+                doc["record_id"],
+                doc["doc_id"],
+            )
+            for doc in docs
+        ]
+        for tbl in ("search_documents_fts", "search_documents_fts_tri"):
+            conn.executemany(
+                f"INSERT INTO {tbl} (title, body, record_type, record_id, doc_id) "
+                "VALUES (?, ?, ?, ?, ?)",
+                fts_rows,
+            )
+
+
+def _snapshot_ready_embeddings(db_path: Path) -> dict[str, list[dict[str, Any]]]:
+    with db.connect(db_path) as conn:
+        rows = conn.execute(
+            "SELECT chunk_id, provider, model, dim, vector, input_hash "
+            "FROM search_embeddings WHERE status = 'ready'"
+        ).fetchall()
+    out: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        out.setdefault(str(row["chunk_id"]), []).append(dict(row))
+    return out
+
+
+def _restore_matching_embeddings(
+    db_path: Path,
+    snapshot: dict[str, list[dict[str, Any]]],
+) -> int:
+    if not snapshot:
+        return 0
+    with db.connect(db_path) as conn:
+        chunks = conn.execute(
+            "SELECT chunk_id, input_hash, provenance_json FROM search_chunks"
+        ).fetchall()
+    rows: list[tuple] = []
+    for chunk in chunks:
+        chunk_id = str(chunk["chunk_id"])
+        prior_rows = snapshot.get(chunk_id) or []
+        if not prior_rows:
+            continue
+        input_hash = str(chunk["input_hash"])
+        dependency_hash = (
+            json.loads(chunk["provenance_json"] or "{}") or {}
+        ).get("dependency_hash", "")
+        for prior in prior_rows:
+            if prior["input_hash"] != input_hash:
+                continue
+            rows.append(
+                (
+                    chunk_id,
+                    str(prior["provider"]),
+                    str(prior["model"]),
+                    int(prior["dim"]),
+                    prior["vector"],
+                    input_hash,
+                    str(dependency_hash),
+                    "ready",
+                    "",
+                    db._now_iso(),
+                )
+            )
+    if rows:
+        with db.connect(db_path) as conn:
+            conn.executemany(
+                """
+                INSERT OR REPLACE INTO search_embeddings
+                    (chunk_id, provider, model, dim, vector, input_hash,
+                     dependency_hash, status, error, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                rows,
+            )
+    return len(rows)
 
 
 def materialize_search_documents(
@@ -110,6 +227,7 @@ def materialize_search_documents(
     the model-free materialization step always succeeds; embedding count stays
     zero here and is filled by ``wiki reindex --embed`` / compile's embed pass.
     """
+    embedding_snapshot = _snapshot_ready_embeddings(db_path)
     db.clear_search_corpus(db_path)
     with db.connect(db_path) as conn:
         sources = {
@@ -158,14 +276,13 @@ def materialize_search_documents(
 
     span_source_ids = {str(row["id"]): int(row["source_id"]) for row in spans}
     entity_names = {str(row["id"]): str(row["canonical_name"]) for row in entities}
-    count = 0
+    docs: list[dict[str, Any]] = []
 
     for row in spans:
         source_id = int(row["source_id"])
         title = str(row.get("section_title") or sources.get(source_id, {}).get("relpath") or "")
         body = str(row.get("text_preview") or "")
-        _upsert_doc(
-            db_path,
+        docs.append(_build_doc(
             record_type="source_span",
             record_id=str(row["id"]),
             source_id=source_id,
@@ -185,13 +302,11 @@ def materialize_search_documents(
                 "page_number": row.get("page_number"),
                 "toc_id": row.get("toc_id"),
             },
-        )
-        count += 1
+        ))
 
     for row in units:
         span_ids = [str(v) for v in _loads_list(row.get("source_span_ids"))]
-        _upsert_doc(
-            db_path,
+        docs.append(_build_doc(
             record_type="knowledge_unit",
             record_id=str(row["id"]),
             source_id=row.get("source_id"),
@@ -209,13 +324,11 @@ def materialize_search_documents(
                 "truth_status": row.get("truth_status"),
                 "confidence": row.get("confidence"),
             },
-        )
-        count += 1
+        ))
 
     for row in entities:
         span_ids = [str(v) for v in _loads_list(row.get("source_span_ids"))]
-        _upsert_doc(
-            db_path,
+        docs.append(_build_doc(
             record_type="graph_entity",
             record_id=str(row["id"]),
             source_id=_first_source_id(span_ids, span_source_ids),
@@ -228,8 +341,7 @@ def materialize_search_documents(
                 "prompt_run_id": row.get("prompt_run_id"),
             },
             provenance={"entity_type": row.get("entity_type")},
-        )
-        count += 1
+        ))
 
     for row in relations:
         span_ids = [str(v) for v in _loads_list(row.get("source_span_ids"))]
@@ -239,8 +351,7 @@ def materialize_search_documents(
         description = str(row.get("description") or "")
         title = f"{source_name} {relation_type} {target_name}".strip()
         body = description or title
-        _upsert_doc(
-            db_path,
+        docs.append(_build_doc(
             record_type="graph_relation",
             record_id=str(row["id"]),
             source_id=_first_source_id(span_ids, span_source_ids),
@@ -258,16 +369,14 @@ def materialize_search_documents(
                 "assertion_source": row.get("assertion_source"),
                 "confidence": row.get("confidence"),
             },
-        )
-        count += 1
+        ))
 
     for row in reports:
         span_ids = [str(v) for v in _loads_list(row.get("source_span_ids"))]
         body = "\n\n".join(
             part for part in (str(row.get("summary") or ""), str(row.get("full_content") or "")) if part
         )
-        _upsert_doc(
-            db_path,
+        docs.append(_build_doc(
             record_type="community_report",
             record_id=str(row["id"]),
             source_id=_first_source_id(span_ids, span_source_ids),
@@ -284,16 +393,14 @@ def materialize_search_documents(
                 "level": row.get("level"),
                 "rank": row.get("rank"),
             },
-        )
-        count += 1
+        ))
 
     for row in syntheses:
         span_ids = [str(v) for v in _loads_list(row.get("source_span_ids"))]
         body = "\n\n".join(
             part for part in (str(row.get("statement") or ""), str(row.get("full_content") or "")) if part
         )
-        _upsert_doc(
-            db_path,
+        docs.append(_build_doc(
             record_type="synthesis_node",
             record_id=str(row["id"]),
             source_id=_first_source_id(span_ids, span_source_ids),
@@ -307,12 +414,18 @@ def materialize_search_documents(
                 "concept_ids": _loads_list(row.get("concept_ids")),
             },
             provenance={"confidence": row.get("confidence")},
-        )
-        count += 1
+        ))
 
     from . import embedding
 
+    _insert_docs(db_path, docs)
     chunk_result = embedding.materialize_chunks(db_path, search_config or {})
-    db.set_index_meta(db_path, "search_materialized_documents", str(count))
+    restored_embeddings = _restore_matching_embeddings(db_path, embedding_snapshot)
+    db.set_index_meta(db_path, "search_materialized_documents", str(len(docs)))
     db.set_index_meta(db_path, "search_materializer_version", "v0.3.2-p5")
-    return MaterializeResult(documents=count, chunks=chunk_result.chunks)
+    return MaterializeResult(
+        documents=len(docs),
+        chunks=chunk_result.chunks,
+        embeddings=restored_embeddings,
+        skipped_unchanged=restored_embeddings,
+    )

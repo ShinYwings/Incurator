@@ -21,6 +21,8 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
+import yaml
+
 from .. import config as cfg
 from .. import constants as consts
 from .. import db, prompting
@@ -59,12 +61,37 @@ def _reports_block(reports: list[dict]) -> str:
     )
 
 
+def _concept_ids_for_reports(
+    paths: cfg.WikiPaths,
+    report_ids: list[str],
+    concept_ids_by_report: dict[str, str] | None = None,
+) -> list[str]:
+    mapping = dict(concept_ids_by_report or {})
+    missing = set(report_ids) - set(mapping)
+    if missing:
+        for path in sorted(paths.concepts.glob(f"{consts.PREFIX_L3}-*.md")):
+            try:
+                page = yaml.safe_load(
+                    path.read_text(encoding="utf-8").split("---", 2)[1]
+                )
+            except Exception:
+                continue
+            if not isinstance(page, dict):
+                continue
+            report_id = str(page.get("community_report_id") or "")
+            concept_id = str(page.get("id") or path.stem)
+            if report_id in missing and concept_id.startswith(f"{consts.PREFIX_L3}-"):
+                mapping[report_id] = concept_id
+    return sorted({mapping[rid] for rid in report_ids if mapping.get(rid)})
+
+
 def generate_synthesis(
     paths: cfg.WikiPaths,
     client: Any,
     *,
     curate_spec_hash: str = "",
     max_syntheses: int = 6,
+    concept_ids_by_report: dict[str, str] | None = None,
 ) -> list[str]:
     """Generate the shared synthesis layer from all community reports.
 
@@ -80,8 +107,18 @@ def generate_synthesis(
         return []
 
     dep_hash = corpus_dependency_hash(reports)
+    report_ids = [r["id"] for r in reports]
+    concept_ids = _concept_ids_for_reports(paths, report_ids, concept_ids_by_report)
+
     existing = db.list_synthesis_nodes(paths.state_db)
     if existing and all(n.get("dependency_hash") == dep_hash for n in existing):
+        if any(list(n.get("concept_ids") or []) != concept_ids for n in existing):
+            with db.connect(paths.state_db) as conn:
+                conn.execute(
+                    "UPDATE synthesis_nodes SET concept_ids = ?, updated_at = ?",
+                    (json.dumps(concept_ids), db._now_iso()),
+                )
+            reemit_synthesis(paths)
         return [n["id"] for n in existing]
 
     span_ids = sorted({sid for r in reports for sid in (r.get("source_span_ids") or [])})
@@ -105,7 +142,6 @@ def generate_synthesis(
         errs = "; ".join(result.validation.errors) if getattr(result, "validation", None) else "Unknown LLM error"
         raise RuntimeError(f"Synthesis generation failed: {errs}")
 
-    report_ids = [r["id"] for r in reports]
     # Regenerated wholesale: drop the stale layer, then write the fresh one.
     db.clear_synthesis_nodes(paths.state_db)
     node_ids: list[str] = []
@@ -118,6 +154,7 @@ def generate_synthesis(
             statement=item.statement,
             full_content=item.full_content,
             community_report_ids=report_ids,
+            concept_ids=concept_ids,
             source_span_ids=item_spans,
             confidence=float(item.confidence),
             dependency_hash=dep_hash,

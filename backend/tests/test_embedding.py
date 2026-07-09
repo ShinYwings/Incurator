@@ -106,6 +106,32 @@ def test_embed_corpus_skips_unchanged(db_path: Path):
     assert first.embedded >= 1
     second = embedding.embed_corpus(db_path, _FakeEmbedder())
     assert second.embedded == 0 and second.skipped == first.embedded
+    assert embedding.current_embedding_coverage(db_path, "ollama", "bge-m3") == (
+        first.embedded,
+        first.embedded,
+    )
+
+
+def test_current_embedding_coverage_rejects_stale_input_hash(db_path: Path):
+    doc = _doc(db_path, "ATM-1", "t", "alpha beta gamma delta.")
+    embedding.materialize_chunks(db_path)
+    chunks = db.list_search_chunks_for_doc(db_path, doc)
+    assert chunks
+    db.upsert_search_embedding(
+        db_path,
+        chunk_id=chunks[0]["chunk_id"],
+        provider="ollama",
+        model="bge-m3",
+        dim=4,
+        vector=b"0000",
+        input_hash="stale",
+        dependency_hash="",
+    )
+
+    total, ready = embedding.current_embedding_coverage(db_path, "ollama", "bge-m3")
+
+    assert total == len(chunks)
+    assert ready == 0
 
 
 def test_embed_corpus_degrades_without_embedder(db_path: Path):
@@ -133,7 +159,13 @@ def test_build_embedder_factory():
     em = providers.build_embedder(cfg, ollama_host="http://localhost:11434")
     assert isinstance(em, providers.OllamaEmbedder)
     assert em.fingerprint == "ollama::bge-m3::1024"
+    assert providers.embedding_identity(cfg) == ("ollama", "bge-m3")
+    assert providers.embedding_identity({"embedding": "llama-cpp::"}) == (
+        "llama-cpp",
+        "qwen3-embedding-0.6b",
+    )
     assert providers.build_embedder({"embedding": ""}) is None
+    assert providers.embedding_identity({"embedding": ""}) is None
 
 
 def test_build_reranker_degrades_safely(tmp_path, monkeypatch):

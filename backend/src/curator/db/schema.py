@@ -10,11 +10,10 @@ This is the *internal* state DB. It also owns DB-native search state. This DB tr
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Iterator
 
 from .. import constants as consts
 
@@ -731,7 +730,10 @@ BEGIN
     SET updated_at = CASE
         WHEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') > OLD.updated_at
         THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-        ELSE OLD.updated_at
+        ELSE strftime(
+            '%Y-%m-%dT%H:%M:%fZ',
+            julianday(OLD.updated_at) + (1.0 / 86400000.0)
+        )
     END
     WHERE id = NEW.id;
 END;
@@ -741,7 +743,16 @@ AFTER UPDATE ON compiler_generations
 FOR EACH ROW
 WHEN NEW.updated_at = OLD.updated_at
 BEGIN
-    UPDATE compiler_generations SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = NEW.id;
+    UPDATE compiler_generations
+    SET updated_at = CASE
+        WHEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') > OLD.updated_at
+        THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        ELSE strftime(
+            '%Y-%m-%dT%H:%M:%fZ',
+            julianday(OLD.updated_at) + (1.0 / 86400000.0)
+        )
+    END
+    WHERE id = NEW.id;
 END;
 """
 
@@ -764,6 +775,99 @@ def _chunked(seq: list, size: int = _SQL_VAR_CHUNK):
         yield seq[start:start + size]
 
 
+def _stamp_schema_version(conn: sqlite3.Connection) -> None:
+    row = conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
+    if row is None:
+        conn.execute(
+            "INSERT INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,)
+        )
+        return
+    current_version = row[0]
+    if current_version != SCHEMA_VERSION:
+        conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
+
+
+def _refresh_current_triggers(conn: sqlite3.Connection) -> None:
+    """Replace trigger bodies that CREATE IF NOT EXISTS cannot update."""
+    conn.executescript(
+        """
+        DROP TRIGGER IF EXISTS sources_set_sync_key;
+        DROP TRIGGER IF EXISTS sources_touch_updated_at;
+        DROP TRIGGER IF EXISTS compiler_generations_touch_updated_at;
+
+        CREATE TRIGGER sources_set_sync_key
+        AFTER INSERT ON sources
+        FOR EACH ROW
+        WHEN NEW.sync_key IS NULL OR NEW.sync_key = ''
+        BEGIN
+            UPDATE sources SET sync_key = 'vault:' || replace(NEW.relpath, '\\', '/') WHERE id = NEW.id;
+        END;
+
+        CREATE TRIGGER sources_touch_updated_at
+        AFTER UPDATE ON sources
+        FOR EACH ROW
+        WHEN NEW.updated_at = OLD.updated_at AND NEW.sync_key IS OLD.sync_key
+        BEGIN
+            UPDATE sources
+            SET updated_at = CASE
+                WHEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') > OLD.updated_at
+                THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                ELSE strftime(
+                    '%Y-%m-%dT%H:%M:%fZ',
+                    julianday(OLD.updated_at) + (1.0 / 86400000.0)
+                )
+            END
+            WHERE id = NEW.id;
+        END;
+
+        CREATE TRIGGER compiler_generations_touch_updated_at
+        AFTER UPDATE ON compiler_generations
+        FOR EACH ROW
+        WHEN NEW.updated_at = OLD.updated_at
+        BEGIN
+            UPDATE compiler_generations
+            SET updated_at = CASE
+                WHEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') > OLD.updated_at
+                THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                ELSE strftime(
+                    '%Y-%m-%dT%H:%M:%fZ',
+                    julianday(OLD.updated_at) + (1.0 / 86400000.0)
+                )
+            END
+            WHERE id = NEW.id;
+        END;
+        """
+    )
+
+
+def _triggers_need_refresh(conn: sqlite3.Connection) -> bool:
+    rows = conn.execute(
+        """
+        SELECT name, sql FROM sqlite_master
+        WHERE type = 'trigger'
+          AND name IN (
+            'sources_set_sync_key',
+            'sources_touch_updated_at',
+            'compiler_generations_touch_updated_at'
+          )
+        """
+    ).fetchall()
+    triggers = {str(row[0]): str(row[1] or "") for row in rows}
+    if set(triggers) != {
+        "sources_set_sync_key",
+        "sources_touch_updated_at",
+        "compiler_generations_touch_updated_at",
+    }:
+        return True
+    return not (
+        "NEW.sync_key IS NULL OR NEW.sync_key = ''" in triggers["sources_set_sync_key"]
+        and "NEW.sync_key IS OLD.sync_key" in triggers["sources_touch_updated_at"]
+        and "julianday(OLD.updated_at) + (1.0 / 86400000.0)" in triggers["sources_touch_updated_at"]
+        and "julianday(OLD.updated_at) + (1.0 / 86400000.0)"
+        in triggers["compiler_generations_touch_updated_at"]
+    )
+
+
 def init_db(db_path: Path) -> None:
     """Create the state database and apply the schema. Idempotent."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -775,19 +879,8 @@ def init_db(db_path: Path) -> None:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys = ON")
         conn.executescript(SCHEMA_SQL)
-        row = conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
-        if row is None:
-            conn.execute(
-                "INSERT INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,)
-            )
-        else:
-            # Handle version mismatch if necessary
-            current_version = row[0]
-            if current_version != SCHEMA_VERSION:
-                # In v0.1.0 fresh start, we just stamp it.
-                # In production, this would trigger migration logic.
-                conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
-
+        _refresh_current_triggers(conn)
+        _stamp_schema_version(conn)
         conn.commit()
     finally:
         conn.close()
@@ -799,14 +892,17 @@ def connect(db_path: Path) -> Iterator[sqlite3.Connection]:
     """Context-managed connection with row factory and foreign keys enabled."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
-    # Everything after instantiation runs inside try so a failure in schema
-    # setup or migration cannot leak the connection (and its WAL sidecars).
+    # Everything after instantiation runs inside try so a failure in schema setup
+    # cannot leak the connection (and its WAL sidecars).
     try:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys = ON")
         # Self-heal for existing empty/corrupted state DB files missing base tables.
         conn.executescript(SCHEMA_SQL)
+        if _triggers_need_refresh(conn):
+            _refresh_current_triggers(conn)
+        _stamp_schema_version(conn)
         yield conn
         conn.commit()
     finally:

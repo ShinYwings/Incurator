@@ -37,6 +37,40 @@ def test_schema_version_is_12() -> None:
     assert db.SCHEMA_VERSION == 12
 
 
+def test_connect_stamps_current_schema_version_on_self_healed_db(tmp_path: Path) -> None:
+    path = tmp_path / "state.sqlite"
+    with db.connect(path) as conn:
+        version = conn.execute(
+            "SELECT version FROM schema_version LIMIT 1"
+        ).fetchone()[0]
+    assert version == db.SCHEMA_VERSION
+
+
+def test_connect_replaces_stale_trigger_bodies(tmp_path: Path) -> None:
+    path = tmp_path / "state.sqlite"
+    db.init_db(path)
+    with sqlite3.connect(path) as conn:
+        conn.executescript(
+            """
+            DROP TRIGGER sources_touch_updated_at;
+            CREATE TRIGGER sources_touch_updated_at
+            AFTER UPDATE ON sources
+            FOR EACH ROW
+            BEGIN
+                UPDATE sources SET updated_at = OLD.updated_at WHERE id = NEW.id;
+            END;
+            """
+        )
+
+    with db.connect(path) as conn:
+        sql = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='trigger' "
+            "AND name='sources_touch_updated_at'"
+        ).fetchone()[0]
+
+    assert "julianday(OLD.updated_at)" in sql
+
+
 def test_source_updated_at_advances_on_status_only_mutation(db_path: Path) -> None:
     with db.connect(db_path) as conn:
         conn.execute(
@@ -54,6 +88,47 @@ def test_source_updated_at_advances_on_status_only_mutation(db_path: Path) -> No
     assert before
     assert after > before
 
+
+def test_source_updated_at_advances_past_future_revision(db_path: Path) -> None:
+    with db.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE sources SET updated_at = '2999-01-01T00:00:00.000Z' WHERE id = 1"
+        )
+        before = conn.execute(
+            "SELECT updated_at FROM sources WHERE id = 1"
+        ).fetchone()[0]
+        conn.execute("UPDATE sources SET l3_status = 'done' WHERE id = 1")
+        after = conn.execute(
+            "SELECT updated_at FROM sources WHERE id = 1"
+        ).fetchone()[0]
+    assert after > before
+
+
+def test_compiler_generation_updated_at_advances_past_future_revision(db_path: Path) -> None:
+    gen_id = db.create_compiler_generation(
+        db_path,
+        prompt_contract_version="test",
+        source_id=1,
+    )
+    with db.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE compiler_generations "
+            "SET updated_at = '2999-01-01T00:00:00.000Z' WHERE id = ?",
+            (gen_id,),
+        )
+        before = conn.execute(
+            "SELECT updated_at FROM compiler_generations WHERE id = ?",
+            (gen_id,),
+        ).fetchone()[0]
+        conn.execute(
+            "UPDATE compiler_generations SET audit_json = ? WHERE id = ?",
+            ('{"changed": true}', gen_id),
+        )
+        after = conn.execute(
+            "SELECT updated_at FROM compiler_generations WHERE id = ?",
+            (gen_id,),
+        ).fetchone()[0]
+    assert after > before
 
 
 def test_spec_declares_matching_schema_version() -> None:

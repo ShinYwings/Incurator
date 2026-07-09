@@ -11,6 +11,19 @@ from curator import search
 from curator.retrieval import providers
 
 
+class _FakeEmbedder:
+    provider = "test"
+    model = "embed"
+    dim = 2
+
+    @property
+    def fingerprint(self) -> str:
+        return f"{self.provider}::{self.model}::{self.dim}"
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        return [[float(len(text)), 1.0] for text in texts]
+
+
 class SearchIndexFallbackTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
@@ -74,6 +87,33 @@ class SearchIndexFallbackTests(unittest.TestCase):
             search.update_index(self.paths, embed=True)
 
         unload.assert_called_once_with(config)
+
+    def test_embed_skips_model_load_when_embeddings_are_current(self) -> None:
+        config = cfg.DEFAULT_CONFIG.copy()
+        config["search"] = {
+            **cfg.DEFAULT_CONFIG["search"],
+            "embedding": "test::embed",
+        }
+        with (
+            patch.object(cfg, "load_config", return_value=config),
+            patch.object(providers, "build_embedder", return_value=_FakeEmbedder()) as build,
+        ):
+            first = search.update_index(self.paths, embed=True)
+        self.assertTrue(first.embedded)
+        self.assertEqual(build.call_count, 1)
+
+        with (
+            patch.object(cfg, "load_config", return_value=config),
+            patch.object(
+                providers,
+                "build_embedder",
+                side_effect=AssertionError("embedder should not load"),
+            ),
+        ):
+            second = search.update_index(self.paths, embed=True)
+
+        self.assertTrue(second.embedded)
+        self.assertFalse(second.degraded)
 
 
 if __name__ == "__main__":

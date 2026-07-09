@@ -390,6 +390,7 @@ def test_audit_marks_stale_on_evidence_hash_drift(vault) -> None:
         )
     report = run_compiler_audit(vault.state_db)
     assert unit_id in report.stale_claims
+    assert unit_id not in report.release_blocking
     with db.connect(vault.state_db) as conn:
         assert conn.execute(
             "SELECT support_status FROM knowledge_units WHERE id = ?", (unit_id,)
@@ -742,22 +743,28 @@ def test_reconcile_removes_stale_spans_of_edited_source(vault) -> None:
 # P6 — `wiki lint` Compiler Integrity surface (§26.5).
 # ---------------------------------------------------------------------------
 
-def test_lint_compiler_integrity_emits_error_for_failed_claim(vault) -> None:
+def test_lint_compiler_integrity_reports_failed_claim_as_nonblocking_info(vault) -> None:
     from curator import lint as lint_mod
 
     sup03 = next(c for c in GOLD["support_cases"] if c["id"] == "SUP03")
     unit_id = _seed(vault, sup03["declared"], sup03["statement"])
     validate_claim_support(vault.state_db, unit_id)  # wrong-real-span → failed
     issues = lint_mod.compiler_integrity(vault)
-    ci_errors = [
+    ci_infos = [
+        i for i in issues
+        if i.check == lint_mod.CheckId.COMPILER_INTEGRITY
+        and i.severity == lint_mod.Severity.INFO
+    ]
+    assert any(i.page == unit_id for i in ci_infos)
+    assert not [
         i for i in issues
         if i.check == lint_mod.CheckId.COMPILER_INTEGRITY
         and i.severity == lint_mod.Severity.ERROR
     ]
-    assert any(i.page == unit_id for i in ci_errors)
-    # run_lint surfaces them as report errors → the CLI exits non-zero.
+    # Failed candidates are excluded from serving and should not create a
+    # persistent sync/lint review item immediately after generation.
     report = lint_mod.run_lint(vault)
-    assert any(
+    assert not any(
         i.check == lint_mod.CheckId.COMPILER_INTEGRITY for i in report.errors
     )
 

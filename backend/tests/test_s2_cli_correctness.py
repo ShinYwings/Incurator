@@ -58,25 +58,6 @@ class TestOllamaModelSelection:
         assert provider == consts.BACKEND_OLLAMA
         assert loaded_model == model
 
-    def test_legacy_nested_ollama_model_key_stripped_on_load(self, tmp_path: Path) -> None:
-        """G07-1 regression: old config with nested ollama.model is stripped on load."""
-        settings_dir = tmp_path / ".curator"
-        settings_dir.mkdir(parents=True, exist_ok=True)
-        (settings_dir / "settings.yml").write_text(
-            textwrap.dedent("""\
-                llm:
-                  primary: "ollama::qwen2.5:7b"
-                  ollama:
-                    model: "old-legacy-model"
-            """)
-        )
-        paths = cfg.WikiPaths(tmp_path)
-        config = cfg.load_config(paths)
-        # _migrate_llm_config strips the nested ollama.model key
-        nested = config.get("llm", {}).get(consts.BACKEND_OLLAMA, {})
-        assert "model" not in nested, "Legacy nested ollama.model key must be stripped on load"
-
-
 # ─── G07-3: no-op orchestrator flags produce a warning ──────────────────────
 
 class TestQueryNoopFlagWarning:

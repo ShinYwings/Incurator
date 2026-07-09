@@ -272,8 +272,8 @@ Rules:
 - When `source_sections_inline=true`, the original source text remains
   unmodified under `Source Sections`, even when the source language is Korean or
   another non-English language.
-- Parser-generated same-document heading wikilinks such as `[[Paper#Section]]`
-  are not source truth and must be rendered as plain text in generated CTX
+- Parser-generated heading wikilinks such as `[[Paper#Section]]` are not
+  generated DAG edges and must be rendered as plain text in generated CTX
   projections so lint does not see broken/malformed links. The original source
   file and DB source spans remain untouched.
 - When `source_sections_inline=false`, `Source Sections` keeps durable section
@@ -404,8 +404,9 @@ Rules:
 - `context_id` is set when L1 completes.
 - L2/L3 may remain `pending` while a source is already usable for section RAG.
 - `l4_status='done'` is the source-level signal that shared L4 Synthesis has been
-  produced. L2/L3 completion must not be labelled as L4-ready in user-facing
-  status surfaces.
+  produced from L3 reports grounded in that source's spans. L2/L3 completion, or
+  unrelated corpus-wide synthesis, must not be labelled as L4-ready for a source
+  that did not contribute to the L4 evidence chain.
 - `l4_status='skipped'` is a terminal non-error state after global L3 when no
   eligible community reports/syntheses exist for the current corpus. It must be
   shown distinctly from `pending`, not treated as still-running L4 work.
@@ -728,7 +729,7 @@ on emitted markdown:
   in the same backend write path. Projection re-emission is an Obsidian
   convenience step, not a retrieval prerequisite.
 
-## 11. SQLite State Schema (`SCHEMA_VERSION = 10`)
+## 11. SQLite State Schema (`SCHEMA_VERSION = 12`)
 
 v0.4.0 set `db.SCHEMA_VERSION` to `7`; v0.8.0 (Plan B) bumps it to `8`; v0.9.0
 (Plan C — Graph Quality) bumps it to `9`. The v0.3.2 tables remain in use.
@@ -749,10 +750,7 @@ use typed string prefixes so they are self-describing in traces and frontmatter.
 > knowledge synchronization (§11.17).
 > `SCHEMA_VERSION = 8` adds the Plan B Evidence Compiler Integrity schema —
 > `claim_supports`, `compiler_generations`, and the `knowledge_units`
-> support/formula/generation columns (§20). Forward-only and additive: the
-> support/generation indexes are created in `_apply_migrations` (after the
-> columns exist) so a pre-existing v7 `knowledge_units` table upgrades cleanly,
-> and `deleted_records`'s CHECK list is rebuilt to admit the two new tables.
+> support/formula/generation columns (§20).
 > `SCHEMA_VERSION = 9` adds the Plan C Graph Quality schema — `entity_aliases`,
 > `entity_merge_proposals`, `entity_resolution_lineage`, `graph_relation_supports`,
 > and the `graph_entities` redirect / `graph_relations` lifecycle-edge-class /
@@ -764,6 +762,14 @@ use typed string prefixes so they are self-describing in traces and frontmatter.
 > `sources.external_path` / `sources.import_origin` with portable
 > `external_ref` / `import_origin_ref`, enforces vault-relative `relpath`, and
 > makes Zotero attachment identity key-only.
+> `SCHEMA_VERSION = 11` adds `sources.updated_at` as the source-row LWW clock.
+> `SCHEMA_VERSION = 12` adds `sources.sync_key`, a portable transport identity,
+> and `compiler_generations.updated_at`.
+>
+> **v0.33.0 strict state-schema policy:** runtime DB initialization no longer
+> carries pre-v12 automatic migration shims. Current databases are created from
+> the full `SCHEMA_SQL`; unsupported legacy `state.sqlite` files must be rebuilt
+> or regenerated from a current JSONL export.
 
 | Record | Id prefix | Purpose |
 | --- | --- | --- |
@@ -1476,14 +1482,11 @@ Only `external.path_roots` and integration `root_keys` are accepted as
 machine-local external-root configuration. The backend does not convert legacy
 `external.roots` or `external.zotero.roots` arrays.
 
-Schema v11 adds and backfills `sources.updated_at`. Fresh and migrated databases
-both enforce the same `NOT NULL` expression default. Migration preserves a
-historical `updated_at`, falls back to `last_ingested`/`added_at`, and uses the
-current UTC millisecond timestamp when no history exists. JSONL import preserves
-a valid remote value and applies the same current-time fallback to missing or
-invalid legacy revisions; local source writes advance it. This closes the
-schema-v10 gap where L1-L4 status-only mutations did not participate in
-source-row LWW.
+Schema v11 adds `sources.updated_at`. Current databases enforce a `NOT NULL`
+expression default, and local source writes advance it monotonically. JSONL
+import requires a valid remote `updated_at` value for every `sources` row; it
+does not synthesize a revision from `last_ingested`, `added_at`, or the current
+clock. Malformed source rows are rejected instead of partially imported.
 
 **Portable source transport identity (`SCHEMA_VERSION = 12`):** every source has
 a unique, non-empty `sync_key`. The key is derived from a portable integration
@@ -1491,7 +1494,8 @@ identity such as `zotero:<attachment-key>`, a portable external reference, or
 `vault:<relpath>`. Absolute-path-derived fallback ids are not valid sync keys.
 The integer `sources.id` remains replica-local. Import resolves/upserts a source
 by `sync_key`, preserves the receiving replica's integer id, and remaps every
-synchronized child `source_id` before applying child rows.
+synchronized child `source_id` before applying child rows. JSONL import rejects
+`sources` rows without a non-empty `sync_key`.
 
 ---
 
@@ -1552,10 +1556,13 @@ Column semantics (frozen enums):
   - `verified` — ≥1 minimal `claim_supports` row with `support_status='verified'`
     and a fresh `evidence_hash`.
   - `failed` — validation ran and the claim's cited spans do not minimally
-    support it (wrong-real-span case). Excluded from downstream compile inputs.
+    support it (wrong-real-span case). Excluded from downstream compile inputs
+    and surfaced as informational audit telemetry rather than a sync review
+    blocker.
   - `stale` — previously verified, but a cited span's content hash changed or
     the span was removed. Excluded from downstream compile inputs until
-    re-validated.
+    re-validated; stale excluded claims are informational unless they leave a
+    dangling served-DAG reference.
 - `support_reason` — human/machine-readable verdict reason. Never empty when
   `support_status` is `failed` or `stale`.
 - `formula_status` ∈ `not_applicable | preserved_in_text | linked_evidence |
@@ -1769,19 +1776,16 @@ same re-validation pass — so it can never linger as a dangling row (assertion 
 or a status inconsistency (assertion 5). Recovery always attaches to a cited
 span, so a valid link is never dropped.
 
-### 20.6 v8 Migration And Tombstone Extension
+### 20.6 v8 Schema Columns And Tombstone Extension
 
-- `SCHEMA_VERSION` 7 → 8 is forward-only and additive: the §20.1 ALTERs, the
-  §20.2/§20.3 CREATEs, and extension of the `deleted_records` CHECK list with
-  `claim_supports` and `compiler_generations`.
-- Backfill: every existing `knowledge_units` row receives
-  `support_status='unchecked'`, `formula_status='not_applicable'`,
-  `generation_id=NULL`. The migration creates no support rows and verifies
-  nothing.
+- `SCHEMA_VERSION` 8 includes the §20.1 columns, the §20.2/§20.3 tables, and
+  `deleted_records` CHECK coverage for `claim_supports` and
+  `compiler_generations`.
+- Current v0.33.0 initialization creates the complete current schema directly.
+  Runtime pre-v12 migration/backfill shims are removed; unsupported legacy DBs
+  must be rebuilt or regenerated from a current export.
 - `wiki db export` / `wiki db import` include the two new tables; LWW and
   tombstone-first ordering apply unchanged. No device-local columns are added.
-- Migration rehearsal and rollback acceptance criteria are behavioral and
-  live in SYSTEM_BEHAVIOR §26.6.
 
 ## 21. Entity/Relation Resolution And Hierarchical Community Quality (`SCHEMA_VERSION = 9`, v0.9.0)
 

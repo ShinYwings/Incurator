@@ -1180,7 +1180,7 @@ def apply_llm_fixes(
         if progress_callback:
             progress_callback(relpath)
 
-        full_path = paths.wiki / relpath
+        full_path = paths.collections / relpath
         if not full_path.exists():
             continue
         try:
@@ -1295,7 +1295,7 @@ def apply_fixes(
             if progress_callback:
                 progress_callback(relpath)
 
-            full_path = paths.root / relpath
+            full_path = paths.collections / relpath
             if not full_path.exists():
                 continue
             try:
@@ -1357,13 +1357,16 @@ def compiler_integrity(paths: cfg.WikiPaths) -> list[LintIssue]:
             )
         )
 
-    # Release-blocking (§20.5) — these make `wiki lint` exit non-zero.
+    # Excluded-from-serving candidates — telemetry, not structural review.
     for uid in report.failed_claims:
-        _emit(uid, Severity.ERROR,
-              "claim cites a source span that does not support it (F6 wrong-real-span)")
+        _emit(uid, Severity.INFO,
+              "claim cites a source span that does not support it (F6 wrong-real-span); "
+              "excluded from serving")
     for uid in report.stale_claims:
-        _emit(uid, Severity.ERROR,
-              "claim support is stale: the cited span content changed or was removed")
+        _emit(uid, Severity.INFO,
+              "claim support is stale; excluded from serving")
+
+    # Release-blocking (§20.5) — these make `wiki lint` exit non-zero.
     for uid in report.dangling_supports:
         _emit(uid, Severity.ERROR,
               "support row references a missing span, a retired unit, or a discarded generation")
@@ -1390,7 +1393,7 @@ def compiler_integrity(paths: cfg.WikiPaths) -> list[LintIssue]:
 
     # Graph/community-report broad fallback — RECORDED and assigned to Plan C.
     for finding in report.broad_fallback_plan_c:
-        _emit(str(finding.get("id", "")), Severity.WARNING,
+        _emit(str(finding.get("id", "")), Severity.INFO,
               f"{finding.get('type', 'artifact')} grounds to the broad all-upstream-span set "
               "(broad fallback) — assigned to Plan C (community-report/graph-derived)")
     return issues

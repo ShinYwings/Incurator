@@ -110,16 +110,9 @@ _UPDATED_AT_COL: dict[str, str] = {
 }
 
 # Per-table overrides for computing the remote timestamp from an exported row dict.
-# Needed when the SQL-side LWW expression (in _UPDATED_AT_COL) is a COALESCE/expression
-# rather than a plain column name, so row.get(updated_col) would return None.
 # Each callable receives the row dict and returns the effective timestamp string.
 _REMOTE_TS_FN: dict[str, _Callable[[dict], str]] = {
-    "sources": lambda row: (
-        row.get("updated_at")
-        or row.get("last_ingested")
-        or row.get("added_at")
-        or ""
-    ),
+    "sources": lambda row: row.get("updated_at") or "",
 }
 
 # Primary key column per table. None = composite/handled-separately (always upsert).
@@ -508,10 +501,7 @@ def _source_sync_key(row: dict) -> str:
     sync_key = str(row.get("sync_key") or "").strip()
     if sync_key:
         return sync_key
-    relpath = str(row.get("relpath") or "").replace("\\", "/").strip("/")
-    if not relpath:
-        raise ValueError("Source row is missing sync_key and relpath")
-    return f"vault:{relpath}"
+    raise ValueError("Source row is missing sync_key")
 
 
 def _lw_upsert_source(
@@ -523,6 +513,9 @@ def _lw_upsert_source(
     """Merge a source by portable key while preserving the local integer id."""
     sync_key = _source_sync_key(row)
     row["sync_key"] = sync_key
+    remote_ts = _REMOTE_TS_FN["sources"](row)
+    if _timestamp_key(remote_ts) == datetime.min.replace(tzinfo=timezone.utc):
+        raise ValueError("Source row is missing a valid updated_at revision")
     remote_id = row.get("id")
     existing = conn.execute(
         "SELECT * FROM sources WHERE sync_key = ?",
@@ -545,7 +538,6 @@ def _lw_upsert_source(
 
     local_id = int(existing["id"])
     local_ts = existing["updated_at"] or ""
-    remote_ts = _REMOTE_TS_FN["sources"](row)
     if _timestamp_key(remote_ts) <= _timestamp_key(local_ts):
         return "skipped", local_id
     if not dry_run:
@@ -705,9 +697,8 @@ def _peer_files(internal_dir: Path, *, dir_name: str = "sync") -> list[Path]:
 def _read_export_id(path: Path) -> str | None:
     """Read the export_id from a peer file's header.
 
-    Returns ``None`` for legacy pre-v12 files that lack ``export_id`` or have
-    an incompatible schema version, so ``import_all_peers`` can skip them
-    gracefully instead of crashing the entire autosync run.
+    Returns ``None`` for incompatible peer files so ``import_all_peers`` can skip
+    them without attempting a partial import.
     """
     try:
         opener: IO[str]
@@ -745,7 +736,7 @@ def _read_export_id(path: Path) -> str | None:
     export_id = header.get("export_id")
     if not isinstance(export_id, str) or not export_id:
         logger.warning(
-            "Peer export %s has no export_id (likely pre-v12 legacy); skipping.",
+            "Peer export %s has no export_id; skipping.",
             path.name,
         )
         return None

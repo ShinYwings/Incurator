@@ -24,7 +24,7 @@ def vault():
                       "VALUES ('04_Resources/r.md','h','md',1,datetime('now'))")
             c.execute(
                 "UPDATE sources SET context_id='CTX-keep0001', l1_status='done', "
-                "l2_status='done', l3_status='done', l4_status='done' WHERE id=1"
+                "l2_status='done', l3_status='error', l4_status='pending' WHERE id=1"
             )
             c.execute(
                 "INSERT INTO sources (relpath,content_hash,file_type,bytes,added_at,"
@@ -46,9 +46,38 @@ def vault():
         db.publish_compiler_generation(paths.state_db, gen)
         with db.connect(paths.state_db) as c:
             c.execute("UPDATE knowledge_units SET generation_id = ? WHERE id = ?", (gen, unit_id))
+        source_ent = db.upsert_graph_entity(
+            paths.state_db,
+            canonical_name="Residual learning",
+            entity_type="concept",
+            source_span_ids=[span],
+            knowledge_unit_ids=[unit_id],
+        )
+        target_ent = db.upsert_graph_entity(
+            paths.state_db,
+            canonical_name="Optimization",
+            entity_type="concept",
+            source_span_ids=[span],
+            knowledge_unit_ids=[unit_id],
+        )
+        rel_id = db.upsert_graph_relation(
+            paths.state_db,
+            source_entity_id=source_ent,
+            target_entity_id=target_ent,
+            relation_type="eases",
+            source_span_ids=[span],
+            confidence=0.9,
+        )
+        db.upsert_graph_relation_support(
+            paths.state_db,
+            relation_id=rel_id,
+            knowledge_unit_id=unit_id,
+            source_span_ids=[span],
+            source_lineage_hash="h",
+        )
         db.upsert_community_report(paths.state_db, community_key="comm-1", title="Residual",
                                    summary="s", full_content="f", dependency_hash="d1",
-                                   source_span_ids=[span])
+                                   relation_ids=[rel_id], source_span_ids=[span])
         # stale projection files that must be replaced
         paths.atoms.mkdir(parents=True, exist_ok=True)
         paths.concepts.mkdir(parents=True, exist_ok=True)
@@ -85,10 +114,18 @@ def test_reemit_replaces_stale_and_reflects_db(vault) -> None:
     assert atom.exists()
     body = atom.read_text(encoding="utf-8")
     assert "Residual learning" in body and "source_span_ids" in body
+    assert "source_path: 04_Resources/r.md" in body
 
     con_files = list(paths.concepts.glob("CON-*.md"))
     assert len(con_files) == 1
-    assert "community_report_id" in con_files[0].read_text(encoding="utf-8")
+    first_con_name = con_files[0].name
+    con_text = con_files[0].read_text(encoding="utf-8")
+    assert "community_report_id" in con_text
+    assert "## Relations" in con_text
+    assert "[[02_Atoms/ATM-keep0001]]" in con_text
+
+    compile_mod.reemit_projections(paths)
+    assert [p.name for p in paths.concepts.glob("CON-*.md")] == [first_con_name]
 
 
 def test_reemit_does_not_touch_source(vault) -> None:

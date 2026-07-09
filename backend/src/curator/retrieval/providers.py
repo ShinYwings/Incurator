@@ -24,6 +24,7 @@ __all__ = [
     "LlamaCppReranker",
     "build_embedder",
     "build_reranker",
+    "embedding_identity",
 ]
 
 
@@ -61,6 +62,25 @@ class Reranker(Protocol):
 
     def score(self, query: str, passages: list[str]) -> list[float]:
         ...
+
+
+def embedding_identity(search_config: dict) -> tuple[str, str] | None:
+    """Return the configured embedding provider/model without loading the model."""
+    spec = str((search_config or {}).get("embedding") or "").strip()
+    if not spec:
+        return None
+    provider, _, model = spec.partition("::")
+    provider = provider.strip()
+    model = model.strip()
+    if not provider:
+        return None
+    if provider == consts.BACKEND_OLLAMA:
+        model = model or consts.DEFAULT_EMBED_MODEL
+    elif provider == "llama-cpp":
+        model = model or consts.DEFAULT_EMBED_MODEL
+    elif not model:
+        return None
+    return provider, model
 
 
 class OllamaEmbedder:

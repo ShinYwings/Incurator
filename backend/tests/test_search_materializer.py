@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 from typer.testing import CliRunner
 
 from curator import config as cfg
 from curator import db
 from curator.cli import app
+from curator.retrieval import embedding
 from curator.retrieval import materializer
 
 
@@ -117,6 +119,19 @@ def _seed_authoritative_records(db_path: Path) -> dict[str, str]:
     }
 
 
+class _FakeEmbedder:
+    provider = "test"
+    model = "embed"
+    dim = 2
+
+    @property
+    def fingerprint(self) -> str:
+        return f"{self.provider}::{self.model}::{self.dim}"
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        return [[float(len(text)), 1.0] for text in texts]
+
+
 def test_materializer_projects_all_authoritative_record_types(tmp_path: Path) -> None:
     db_path = tmp_path / "state.sqlite"
     db.init_db(db_path)
@@ -199,6 +214,26 @@ def test_materializer_rebuild_is_deterministic_and_removes_stale_fts(tmp_path: P
     ]
 
 
+def test_materializer_preserves_unchanged_chunk_embeddings(tmp_path: Path) -> None:
+    db_path = tmp_path / "state.sqlite"
+    db.init_db(db_path)
+    _seed_authoritative_records(db_path)
+
+    first = materializer.materialize_search_documents(db_path)
+    assert first.chunks > 0
+    embedded = embedding.embed_corpus(db_path, _FakeEmbedder())
+    assert embedded.embedded == first.chunks
+
+    second = materializer.materialize_search_documents(db_path)
+    assert second.documents == first.documents
+    assert second.chunks == first.chunks
+    assert second.skipped_unchanged == first.chunks
+
+    cached = embedding.embed_corpus(db_path, _FakeEmbedder())
+    assert cached.embedded == 0
+    assert cached.skipped == first.chunks
+
+
 def test_cli_reindex_rebuilds_native_search_without_external_backend(tmp_path: Path) -> None:
     vault = tmp_path / "vault"
     paths = cfg.WikiPaths(vault)
@@ -211,6 +246,33 @@ def test_cli_reindex_rebuilds_native_search_without_external_backend(tmp_path: P
     assert result.exit_code == 0, result.output
     assert "Search index rebuilt" in result.output
     assert len(db.list_search_documents(paths.state_db)) == 7
+
+
+def test_cli_reindex_embed_reports_new_and_reused_embeddings(tmp_path: Path) -> None:
+    vault = tmp_path / "vault"
+    paths = cfg.WikiPaths(vault)
+    cfg.save_config(paths, {"search": {"embedding": "test::embed"}})
+    db.init_db(paths.state_db)
+    _seed_authoritative_records(paths.state_db)
+    runner = CliRunner()
+
+    with patch(
+        "curator.retrieval.providers.build_embedder", return_value=_FakeEmbedder()
+    ) as build_embedder:
+        first = runner.invoke(
+            app, ["reindex", "--embed"], env={"VAULT_ROOT": str(vault)}
+        )
+        assert build_embedder.call_count == 1
+        second = runner.invoke(
+            app, ["reindex", "--embed"], env={"VAULT_ROOT": str(vault)}
+        )
+
+    assert first.exit_code == 0, first.output
+    assert "new embeddings" in first.output
+    assert second.exit_code == 0, second.output
+    assert "0 new embeddings" in second.output
+    assert "reused" in second.output
+    assert build_embedder.call_count == 1
 
 
 def test_materializer_handles_empty_corpus(tmp_path: Path) -> None:

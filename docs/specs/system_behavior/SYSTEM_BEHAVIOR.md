@@ -225,9 +225,9 @@ Rules:
   must query span ids in batches of at most 900 parameters, remaining below
   SQLite's common 999-variable limit even for reports grounded in thousands of
   spans.
-- Sources whose L2 is done must also receive a terminal `l4_status`: `done` when
-  current shared synthesis nodes exist for the current report
-  corpus, `skipped` when no eligible community reports/syntheses exist, or
+- Sources whose L2 is done must also receive a terminal `l4_status`: `done` only
+  when current shared synthesis nodes are grounded in L3 reports that cite that
+  source's spans, `skipped` when that source has no eligible L4 contribution, or
   `error` when report/synthesis generation fails. They must not remain
   indefinitely `pending` after a completed build.
 - After processing, `wiki jobs run` (which `wiki build` spawns as a detached
@@ -315,7 +315,7 @@ The backend parser must generate a CTX with:
 - `## Source Sections` preserving text recall inline for small/medium sources,
   or preserving section markers/previews with on-demand raw-source fetch for
   large sources
-- Generated CTX projections must not introduce lint-visible same-document
+- Generated CTX projections must not introduce lint-visible source-derived
   parser heading wikilinks such as `[[Paper#Section]]`. If a parser emits these
   links in generated CTX titles, previews, atom-candidate scaffolding, or source
   section projection text, the projection writer must convert them to plain text
@@ -934,10 +934,12 @@ proceeds in RRF order and `reranker_unavailable` is recorded. These are degraded
 modes, not the parity target.
 
 `wiki reindex` rebuilds DB-native search state: `search_documents`,
-`search_chunks`, FTS5 rows, and missing/stale chunk embeddings. It reports counts
-for FTS rows, chunks, embedded chunks, skipped unchanged chunks, failures,
-provider/model, and degraded state. It does not shell out to an external search
-binary.
+`search_chunks`, FTS5 rows, and missing/stale chunk embeddings. Rebuilding the
+derived corpus MUST preserve ready embeddings for chunks that rematerialize with
+the same chunk id and input hash, so unchanged vaults do not pay a full
+re-embedding cost. It reports counts for FTS rows, chunks, embedded chunks,
+skipped unchanged chunks, failures, provider/model, and degraded state. It does
+not shell out to an external search binary.
 
 ## 13. Syncthing Device Registry
 
@@ -997,13 +999,14 @@ competing edit. Import preserves the source row's timestamp and never stamps
 
 `sources.updated_at` is the source-row LWW clock. Every local source mutation,
 including layer-status-only changes, advances it. `last_ingested` remains ingest
-metadata. Migrated schemas retain the fresh schema's `NOT NULL` expression
-default. A legacy import with no valid source revision receives a current UTC
-millisecond timestamp instead of an empty or malformed LWW key. Export-gate
-timestamp comparison is chronological rather than a raw mixed-format string
-comparison, and non-string values are treated as invalid rather than raising.
-Source and compiler-generation revision triggers always advance beyond the
-previous row revision even if the current device wall clock is behind.
+metadata and is never used as an import revision fallback. v0.33.0 accepts only
+current-schema source rows: every imported `sources` row must carry a non-empty
+`sync_key` and a valid `updated_at`; malformed source rows are rejected rather
+than stamped with `now()`. Export-gate timestamp comparison is chronological
+rather than a raw mixed-format string comparison, and non-string values are
+treated as invalid rather than raising. Source and compiler-generation revision
+triggers always advance beyond the previous row revision even if the current
+device wall clock is behind.
 
 **Snapshot identity and loop prevention are structural.** Every export header
 has a fresh `export_id`; peer high-water state records that id, so a replaced
@@ -1802,7 +1805,8 @@ F3/F4/F5/F11/F12 stay with Program 3.
      content/entity terms intersect the span above the support threshold.
   2. `failed` — no cited span structurally supports the claim: zero/low entity
      intersection (the F6 wrong-real-span case) OR a formula that is absent from
-     or altered relative to the span. Recorded with a reason; release-blocking.
+     or altered relative to the span. Recorded with a reason and excluded from
+     serving.
   3. `uncertain` — structurally plausible but ambiguous (heavy paraphrase or
      logical deduction). Escalated to secondary calibrated model validation,
      recorded with a `PTR-` validator trace; left `unchecked` when no model is
@@ -1839,7 +1843,9 @@ F3/F4/F5/F11/F12 stay with Program 3.
 - A claim whose cited spans fail minimal-support validation is marked
   `support_status='failed'` with a reason; it is excluded from downstream
   compile stages and flagged by the compiler audit. Wrong-real-span citations
-  are a release-blocking gate (0 accepted on gold fixtures).
+  remain audit telemetry and gold-fixture quality gates, but they do not create
+  user-facing sync review items when the failed claim is already excluded from
+  the served DAG.
 - Evidence freshness: every audit pass re-compares `claim_supports.evidence_hash`
   against the cited span's current `content_hash`; a mismatch marks the
   support row and unit `stale`. Stale units leave downstream surfaces until
@@ -1864,6 +1870,10 @@ F3/F4/F5/F11/F12 stay with Program 3.
   support row). Destructive central-formula truncation in graph input and
   search materialization is removed. In particular, graph prompt batching may
   truncate oversized prose-only units, but never a formula-bearing statement.
+- Community-report synthesis and query-answer prompts MUST preserve central
+  equations, formulas, and code expressions exactly when they are needed for a
+  finding, explanation, or answer; they may abstract prose, but not silently
+  rewrite or drop the mathematical/code expression that carries the claim.
 - Selective recovery runs only after a measured loss verdict
   (`fragmented | image_only | parser_omitted`) where parser output, raw text,
   and current extraction all either miss the region OR yield a
@@ -2083,40 +2093,27 @@ rendered page instead.
   orphan/staged leftovers, duplicate-claim candidates, and formula-status
   inconsistencies (SCHEMA §20.5 assertions).
 - `wiki lint` exits non-zero when a release-blocking audit assertion fails,
-  so CI and the testbed can gate on it. Existing lint checks are unchanged.
+  so CI and the testbed can gate on it. Release-blocking assertions are
+  structural breaks in the served DAG: dangling support references,
+  formula-status inconsistencies, or multiple authoritative generations for one
+  source scope. Failed/stale/unchecked claims are excluded from serving and are
+  reported as informational compiler telemetry, not sync review blockers.
+  Existing lint checks are unchanged.
 - Surface scope: CLI only in v0.8.0. No MCP tool schema changes and no plugin
   contract changes (PLUGIN_SCHEMA.md is intentionally untouched apart from the
   synchronized version title). MCP/plugin clients observe Plan B only through
   better evidence: full-span hydration (SEARCH_ENGINE_SCHEMA §10) and
   support/formula labels already carried on returned records.
 
-### 26.6 Migration Rehearsal And Rollback Acceptance Criteria
+### 26.6 Current-Schema State DB Boundary
 
-The v8 migration (SCHEMA §20.6) ships only with a rehearsed rollback path.
-Acceptance criteria — ALL must pass before the migration may touch a real
-vault DB, and they are encoded as tests in P3:
-
-1. Rehearsal runs on a disposable copy of the pre-implementation backup
-   (`.agents/backups/b-pre-implementation-state.sqlite`) — never first on the
-   live testbed DB.
-2. Post-migration: `PRAGMA integrity_check` = ok; `schema_version` row = 8;
-   all pre-existing row counts unchanged; every legacy `knowledge_units` row
-   reads `support_status='unchecked'`, `formula_status='not_applicable'`,
-   `retired_at IS NULL`, `generation_id IS NULL`; zero `claim_supports` and
-   zero `compiler_generations` rows exist.
-3. Idempotency: running the migration twice is a no-op the second time.
-4. Round-trip: `wiki db export` → `wiki db import` on a migrated DB preserves
-   the new tables/columns; tombstones for the two new tables apply
-   deletion-before-upsert as in §13.1.
-5. Restore drill: replacing the migrated DB with the backup and re-running
-   the migration reproduces an identical schema fingerprint (SHA-256 over
-   ordered `sqlite_master` DDL).
-6. Failure rollback: if migration or the post-migration audit fails, restore
-   the DB backup, discard staged generations, re-emit projections/search from
-   the prior authoritative state, and (after three repeated QA failures)
-   return to planning via the rollback strategist.
-7. Clean rebuild remains available: source truth under `03_Notes/` /
-   `04_Resources/` is never modified by migration, compile, or rollback.
+As of v0.33.0, runtime DB initialization no longer carries the historical v8/v9
+automatic migration rehearsal path. `init_db()` and `connect()` create or open
+the current schema directly and stamp the current `SCHEMA_VERSION`; unsupported
+pre-v12 `state.sqlite` files are not upgraded in place. The supported recovery
+path is to rebuild/regenerate from source truth or import a current-schema JSONL
+snapshot. Clean rebuild remains available: source truth under `03_Notes/` /
+`04_Resources/` is never modified by DB initialization, compile, or rollback.
 
 ### 26.7 Testbed Validation (Plan B)
 
