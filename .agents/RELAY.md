@@ -43,7 +43,7 @@ with zero regression in CLI commands, MCP tools, or plugin API endpoints.
 - [x] Updated relevant specs and changelog/version metadata.
 - [x] Ran backend checks, plugin tests, and testbed validation.
 - [x] Removed active CM-1 plan artifacts after committing them to Git history.
-- [ ] Push `release/v0.34.0` and open the PR.
+- [x] Pushed `release/v0.34.0` and opened draft PR #85.
 
 ## Validation
 
@@ -64,9 +64,10 @@ with zero regression in CLI commands, MCP tools, or plugin API endpoints.
 ## Critical Context / Blockers
 
 - No active implementation blocker remains.
+- Draft PR: https://github.com/ShinYwings/Incurator/pull/85
 - Do not recreate `.agents/plans/10_cm1_god_file_decomposition.md` unless a
   new review finding re-enters the plan-first workflow.
 
 ## Immediate Next Action
 
-Push the release branch and open the v0.34.0 PR.
+Review draft PR #85 and merge when accepted.

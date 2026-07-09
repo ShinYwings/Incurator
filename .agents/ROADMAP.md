@@ -41,6 +41,7 @@ No urgent items currently tracked.
    - **Release Candidate (v0.34.0 — CM-1 Command Module God-file Decomposition)**:
      - Decomposed `cli.py`, `mcp_server.py`, and `plugin_api.py` into cohesive packages (`curator/commands/`, etc.) with compatibility facades preserved.
      - Briefing: `.agents/drafts/10_cm1_god_file_decomposition.md`
+     - Draft PR: https://github.com/ShinYwings/Incurator/pull/85
      - Plan and evidence artifacts are archived in Git history; active copies were removed after validation.
    - **Remaining Scope for Upcoming Releases (v0.35.0+)**:
      - **Plugin God-file Decomposition (PL-1)**: decompose plugin god-files `chatSidebar.ts`, `llmClient.ts`, `externalPdfView.ts`.
@@ -210,6 +211,6 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: RELEASE CANDIDATE on branch `release/v0.34.0`.
+- **Roadmap state**: DRAFT PR OPEN on branch `release/v0.34.0`.
 - **Active Milestone**: System Stability Overhaul — CM-1 Command Module God-file Decomposition (`cli.py`, `mcp_server.py`, `plugin_api.py`).
-- **Next actionable item**: v0.34.0 implementation, local CI, and testbed smoke validation are complete; push the release branch and open the PR.
+- **Next actionable item**: Review draft PR #85 and merge when accepted.
