@@ -43,7 +43,7 @@ from ..llm import (
     _cli_installed as _cli_installed_impl,
     build_client as _build_client_impl,
     describe_backend,
-    list_models_on_host,
+    list_models_on_host as _list_models_on_host_impl,
     list_ollama_models_with_vision,
     make_client_by_key as _make_client_by_key_impl,
 )
@@ -2546,6 +2546,13 @@ def make_client_by_key(*args, **kwargs):
     if override is not None:
         return override(*args, **kwargs)
     return _make_client_by_key_impl(*args, **kwargs)
+
+
+def list_models_on_host(*args, **kwargs):
+    override = _cli_override("list_models_on_host")
+    if override is not None:
+        return override(*args, **kwargs)
+    return _list_models_on_host_impl(*args, **kwargs)
 
 
 def _cli_installed(cmd: str) -> bool:

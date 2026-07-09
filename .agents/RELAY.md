@@ -45,6 +45,8 @@ with zero regression in CLI commands, MCP tools, or plugin API endpoints.
 - [x] Removed active CM-1 plan artifacts after committing them to Git history.
 - [x] Pushed `release/v0.34.0` and opened draft PR #85.
 - [x] Captured and implemented PR #85 review follow-up hardening.
+- [x] Fixed CI failure in
+  `test_plugin_models_ollama_lists_with_install_and_ram_flags`.
 
 ## Validation
 
@@ -58,6 +60,11 @@ with zero regression in CLI commands, MCP tools, or plugin API endpoints.
   -q` passed: 54 passed.
 - `scripts/backend-check pytest backend/tests -k
   test_plugin_models_ollama_lists_with_install_and_ram_flags -vv` passed.
+- `scripts/backend-check pytest
+  backend/tests/test_plugin_models_ollama.py::test_plugin_models_ollama_lists_with_install_and_ram_flags
+  -vv` passed after the CI compatibility fix.
+- `scripts/backend-check pytest backend/tests/test_plugin_models_ollama.py
+  backend/tests/test_command_surface_characterization.py -q` passed: 9 passed.
 - `scripts/backend-check pytest backend/tests/test_spec_sync.py` passed: 10
   passed.
 - `scripts/backend-check ruff` passed.
@@ -75,6 +82,9 @@ with zero regression in CLI commands, MCP tools, or plugin API endpoints.
 
 - No active implementation blocker remains.
 - Draft PR: https://github.com/ShinYwings/Incurator/pull/85
+- Latest CI root cause: extracted plugin commands were calling the original
+  `list_models_on_host` import instead of honoring `curator.cli` facade patches.
+  `commands.common.list_models_on_host` now proxies through `_cli_override`.
 - Do not recreate `.agents/plans/10_cm1_god_file_decomposition.md` unless a
   new review finding re-enters the plan-first workflow.
 - PR #85 review follow-up plan `11_pr85_review_followup.md` is archived in Git

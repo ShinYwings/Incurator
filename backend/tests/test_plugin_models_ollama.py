@@ -32,9 +32,9 @@ def test_plugin_models_ollama_lists_with_install_and_ram_flags(tmp_path: Path) -
     runner = CliRunner()
     vault = _init_vault(runner, tmp_path)
 
-    with patch("curator.cli.list_models_on_host", return_value=["qwen2.5:7b"]), patch(
-        "curator.llm.detect_ram_gb", return_value=8.0
-    ):
+    with patch("curator.commands.common._list_models_on_host_impl", return_value=[]), patch(
+        "curator.cli.list_models_on_host", return_value=["qwen2.5:7b"]
+    ), patch("curator.llm.detect_ram_gb", return_value=8.0):
         result = runner.invoke(
             app,
             ["plugin", "models", "ollama", "--json"],

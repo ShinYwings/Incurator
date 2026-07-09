@@ -16,6 +16,9 @@ All notable changes to Incurator are documented here.
   Closed command-layer LLM clients in persona, workspace, and plugin PDF
   transcription flows; made `wiki models ensure` degrade gracefully when no
   vault exists; and replaced per-row source status resets with batch updates.
+- **Extracted CLI Facade Compatibility**
+  Restored `curator.cli.list_models_on_host` patch compatibility for extracted
+  plugin model commands so CI and legacy tests observe mocked Ollama installs.
 
 ---
 
