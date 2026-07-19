@@ -1,64 +1,82 @@
-# RELAY - v0.36.0 PL-1 Release
+# RELAY - v0.36.1 XC-1 Silent Exception Hardening
 
 ## Goal
 
-Decompose the plugin god-files into cohesive internal modules while preserving
-all public imports, persisted data contracts, command construction, and visible
-Obsidian behavior.
+Eliminate silent internal broad-exception fallbacks in the decomposed command,
+MCP, and plugin API packages while preserving public CLI/MCP/plugin error
+envelopes and intended best-effort behavior.
 
 ## Plan Reference
 
-- Implemented plan artifacts are deleted from the active workspace per project
-  workflow; use Git history on `.agents/plans/` for the v0.36.0 PL-1 plan,
-  Arena, domain analyses, and evidence ledger.
+- The implemented master plan, evidence ledger, and Arena are preserved in Git
+  history and removed from the active workspace per the release workflow.
 
 ## Analysis & Reasoning
 
-- Branch: `release/v0.36.0`, created fresh from merged `master` at PR #87 merge
-  commit `9129908`.
-- The v0.36 plan was approved before v0.35 and intentionally deferred; no PL-1
-  implementation was mixed into the model-catalogue release.
-- Facade-first extraction is locked. Existing imports from `chatSidebar.ts`,
-  `llmClient.ts`, and `externalPdfView.ts` must remain valid.
-- This is an internal refactor. UI, persistence schemas, backend commands, MCP
-  behavior, providers, and models remain unchanged.
-- Original import paths are one-line facades over owners in `ui/chat/`,
-  `agent/llm/`, and `ui/pdf/`; `main.ts` required no import change.
+- Branch: `release/v0.36.1`, created from PR #88 merge commit `b2a26e3`.
+- The old diagnosis named monolithic `cli.py`, `mcp_server.py`, and
+  `plugin_api.py`; current owners are `commands/`, `mcp/server.py`, and
+  `plugin_api/` after CM-1.
+- Current broad-handler counts are 67/69/12 respectively. Most catch-and-return
+  handlers are intentional transport boundaries; this patch targets only silent
+  internal fallbacks and cleanup paths.
+- Python's official guidance distinguishes raised runtime errors from suppressed
+  best-effort failures: suppressed failures must be logged at an appropriate
+  level rather than silently discarded.
+- The next read-only XC-1 pass counted 232 backend-wide broad handlers and 12
+  syntactically silent handlers outside the v0.36.1 target packages.
+- Failure injection confirmed four P0 follow-ups: corrupt sync state generates a
+  new device identity; failed conflict archiving is suppressed; failed tombstone
+  deletion still returns applied and records propagation; malformed curate.yml
+  becomes an unrestricted default retrieval policy.
+- `find_workspace_exhibition` has no callers and retains a retired Exhibition
+  contract; queue it for the later reachability-driven dead-code sweep rather
+  than mixing it into the P0 correctness patch.
 
 ## Progress Status
 
-- [x] PR #87 merged and fresh v0.36 branch created from master.
-- [x] Refreshed rollback anchors and file sizes from merged commit `9129908`.
-- [x] P0 baseline: 65 plugin files / 678 tests; TypeScript and build passed.
-- [x] Found stale KR-only absolute-path ExternalPdfView restart documentation;
-  queued EN-first parity correction for P1.
-- [x] P0: facade/export characterization tests added.
-- [x] P1: internal ownership/facade contract and EN/KR guide parity documented.
-- [x] P2: LLM client moved behind stable facade; pure message helpers extracted.
-- [x] P3: external PDF view moved behind stable facade.
-- [x] P4: chat sidebar moved behind stable facade.
-- [x] P5: entrypoint verified unchanged against stable facades.
-- [x] P6: 1218 backend tests, 683 plugin tests, Ruff, Mypy, TypeScript, build,
-  and `gaussian_splatting` testbed passed. Autosync then dry-run was quiescent.
-- [x] Branch pushed and PR #88 opened.
-- [x] GitHub Backend Tests, Plugin Tests, and Version Consistency passed; PR #88
-  marked ready for review.
-- [x] Addressed all six lifecycle review findings: request-local abort ownership,
-  guarded controller cleanup, PDF close render invalidation, optional child
-  stdin, and missing MCP args. Plugin 688-test, TypeScript, build, and spec/docs
-  checks passed locally; follow-up pushed to PR #88 for GitHub validation.
-- [ ] Await human review/merge and address any actionable feedback on the same
-  branch.
+- [x] PR #88 merged; local `master` fast-forwarded to `b2a26e3`.
+- [x] Created patch branch `release/v0.36.1` from merged master.
+- [x] Recounted current broad handlers and isolated 28 syntactically silent
+  `except Exception` handlers across the three target packages.
+- [x] Completed official Python exception/logging prior-art review.
+- [x] Authored Arena, domain analyses, evidence ledger, and master plan.
+- [x] User approved implementation and explicitly prioritized finding/fixing
+  actual behavior bugs alongside exception cleanup.
+- [x] Added the silent-handler policy test; all 28 findings are resolved.
+- [x] Fixed empty-build false success, missing degraded-index warnings, and the
+  broken packaged model-catalogue path.
+- [x] Hardened command, MCP, and plugin API fallback/cleanup boundaries.
+- [x] Synchronized the English/Korean MCP guide and static behavior spec,
+  including a pre-existing provider-parameter and runtime-path mismatch.
+- [x] Full backend, plugin, static, build, testbed, and autosync gates passed.
+- [x] Pushed `release/v0.36.1` and opened draft PR #89.
+- [x] Both GitHub CI runs passed Backend Tests and Plugin Tests; Version
+  Consistency passed on the required run (the duplicate run skipped that job).
+- [x] Addressed all five PR #89 review threads: null-safe client cleanup,
+  missing-curate race guidance, explicit client-name initialization, direct
+  MCP test imports, and recursive policy scanning.
+- [x] Completed an independent full-diff review. Added a regression test and
+  `UnicodeError` degradation boundary so an unreadable packaged model catalogue
+  follows the documented `warnings` contract instead of aborting the MCP call.
 
 ## Critical Context / Blockers
 
-- No blockers.
-- Stop if extraction requires changing persisted DTOs, public behavior, or broad
-  `any` casts.
-- Source-contract tests must follow the real owning module; inert facade strings
-  are forbidden.
+- No implementation or validation blocker.
+- Full backend: 1225 passed, 6 skipped, 5 xfailed.
+- Plugin: 688 passed; TypeScript and production build passed.
+- Testbed autosync ran twice with zero imported/updated/deleted rows on both
+  passes, so the Knowledge Sync loop regression did not recur.
+- Review follow-up focused tests: 6 passed; Ruff and Mypy passed.
+- Independent-review focused tests: 21 passed; Ruff, Mypy, and all 688 plugin
+  tests passed. The full backend run passed 1,227 tests with only the workspace
+  hygiene check failing on a pre-existing root `.pytest_cache`; after moving
+  that cache into the repository cache area, all 18 hygiene tests passed.
+- v0.36.2 diagnostics reproduced all four queued P0 paths in temporary state;
+  no application code was changed before the required plan/branch transition.
 
 ## Immediate Next Action
 
-Await follow-up CI and human review/merge of ready PR #88. Address any new
-actionable findings on the same branch.
+Review and merge PR #89. Then update local `master`, create `release/v0.36.2`,
+author the fail-closed sync/policy plan, and stop for approval before changing
+the affected control flow.

@@ -323,6 +323,12 @@ database is temporarily unavailable, the MCP tool must keep the L1 registration
 successful and report the skipped refresh in `warnings`; unexpected refresh
 exceptions remain visible as tool failures.
 
+For synchronous `curator_build_source`, an absent per-source ingest result is a
+failure rather than a successful empty build. After a successful build, and
+after `curator_add_knowledge` has durably written a Wiki page, a failed
+best-effort search refresh is returned in `warnings` without rolling back the
+completed primary operation.
+
 ## 5. Instant L1 Generation
 
 The backend parser must generate a CTX with:
@@ -772,8 +778,10 @@ Rules:
   an expected local refresh failure (file-system error, a locked `state.sqlite`,
   or a malformed config during `config set --local`), the command should still
   complete and report a warning.
-- Runtime snapshots may include local absolute paths. Their repo-cache location
-  makes them device-local without vault ignore rules.
+- Runtime snapshots and the live `wiki status --json` payload must not export
+  local absolute paths. They use vault-relative/portable identifiers and blank
+  machine-path fields; backend commands resolve machine-local paths only when a
+  requested operation needs them.
 - Mutating actions such as import, rebind, reset, query generation, and
   promotion must not be implemented by editing shared JSON files.
 - Dashboard buttons that change backend state must invoke backend code. The
@@ -3031,3 +3039,28 @@ The decision is recorded as `route_admission` on both the response and the root
 trace's `context_service` payload: `{requested, served, admitted_routes,
 disabled_routes, downgraded}`. Exactly one `RTR-*` retrieval execution attaches to
 the one root `QTR-*`; admission changes which route runs, never how many.
+
+## 32. Exception Boundaries And Observable Degradation (v0.36.1)
+
+CLI commands, MCP tools, and hidden plugin APIs may catch an unexpected
+exception at their outer transport boundary to preserve their established exit
+or JSON result contract. Internal operations must not use an unexplained silent
+`except Exception: pass` fallback.
+
+When an internal operation can recover:
+
+- deterministic parsing, filesystem, and conversion fallbacks catch the
+  specific expected exception classes;
+- optional LLM/provider/client and cleanup boundaries may retain a broad catch
+  only when arbitrary implementations can raise unknown exceptions, with an
+  explicit reason and module logging;
+- a requested operation that succeeds with degraded maintenance, discovery, or
+  indexing reports the degradation through an existing `warnings` field or CLI
+  warning where that surface already defines one;
+- MCP stdio diagnostics use logging and never write plain text to protocol
+  stdout.
+
+False success is forbidden. A response must not claim that a requested
+maintenance/indexing action completed when it was skipped after an exception.
+Optional classification or suggestion failures may preserve deterministic
+fallback output, but the suppressed cause remains observable in logs.

@@ -4,6 +4,26 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.36.1] - 2026-07-19
+### Fixed
+- **Observable Runtime Degradation**
+  Replaced silent broad-exception handlers in decomposed CLI, MCP, and plugin
+  API internals with specific catches or logged best-effort fallbacks while
+  preserving established command and tool boundaries.
+- **MCP False Success And Missing Warnings**
+  Synchronous source builds no longer report success when no per-source result
+  is produced. Successful builds and knowledge promotions now return warnings
+  when their follow-up search refresh cannot run.
+- **Provider Model Catalogue Loading**
+  Restored `curator_get_provider_config` model discovery after the MCP module
+  move by loading `models.json` from packaged resources. This makes the current
+  Claude Code and Codex model catalogue visible to Obsidian again.
+- **MCP And Guide Contract Parity**
+  Corrected the documented provider-setting parameters and recorded the actual
+  build, knowledge-promotion, and provider-config result behavior.
+
+---
+
 ## [0.36.0] - 2026-07-19
 ### Changed
 - **Plugin Module Ownership**

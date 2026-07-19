@@ -25,12 +25,14 @@ from __future__ import annotations
 from .. import constants as consts
 
 import json
+import logging
 import os
 import re
 import sqlite3
 import subprocess
 import sys
 from datetime import datetime, timezone
+from importlib import resources
 from pathlib import Path
 from typing import Any, Optional
 
@@ -45,6 +47,19 @@ except ImportError as e:  # pragma: no cover - import-time hint
 from .. import config as cfg
 from .. import page_writer
 from .. import source_tools
+
+
+_log = logging.getLogger(__name__)
+
+
+def _close_client(client: Any, *, operation: str) -> None:
+    """Close an arbitrary LLM client without hiding cleanup failures."""
+    if client is None:
+        return
+    try:
+        client.close()
+    except Exception:
+        _log.debug("%s client cleanup failed", operation, exc_info=True)
 
 
 def _zotero_db_candidates(custom_paths: str) -> list[str]:
@@ -207,8 +222,10 @@ def _resolve_paths(hint_path: str = "") -> cfg.WikiPaths:
                 )
         except RuntimeError:
             raise
-        except Exception:
+        except FileNotFoundError:
             pass
+        except Exception as exc:
+            raise RuntimeError(f"Cannot read workspace curate.yml: {exc}") from exc
 
     raise RuntimeError(
         "Cannot resolve vault: VAULT_ROOT is not set and no curate.yml with vault_root was found. "
@@ -368,10 +385,7 @@ def curator_update_artist_persona(workspace_path: str, request: str) -> dict:
     except Exception as exc:
         return {"error": f"LLM call failed: {exc}"}
     finally:
-        try:
-            client.close()
-        except Exception:
-            pass
+        _close_client(client, operation="artist persona update")
 
     try:
         new_persona = json.loads(response)
@@ -449,10 +463,7 @@ def curator_update_curator_persona(request: str, workspace_path: str = "") -> di
     except Exception as exc:
         return {"error": f"LLM call failed: {exc}"}
     finally:
-        try:
-            client.close()
-        except Exception:
-            pass
+        _close_client(client, operation="Curator persona update")
 
     try:
         new_persona = json.loads(response)
@@ -547,8 +558,8 @@ def _get_interview_suggestions(workspace_path: str, field_id: str, provided: dic
                             global_dirs.append(f"{d}/{subp.name}/")
                         if len(global_dirs) > 15:
                             break
-                except Exception:
-                    pass
+                except OSError:
+                    _log.debug("Could not inspect vault subdirectories", exc_info=True)
 
         if field_id == "exclude_patterns":
             PROMPT = f"""You are a workspace configuration assistant.
@@ -610,7 +621,7 @@ Instructions:
                     return cleaned[:5]
                 return [str(s) for s in suggestions[:5]]
     except Exception:
-        pass
+        _log.debug("Workspace interview suggestions fell back to defaults", exc_info=True)
 
     # Fallbacks
     fallbacks = {
@@ -722,7 +733,7 @@ def build_server() -> FastMCP:
             worker.start()
             setattr(mcp, "_incurator_ingest_worker", worker)  # keep a strong reference
     except Exception:
-        pass
+        _log.warning("Background ingest worker did not start", exc_info=True)
 
     def _source_dict(
         paths: cfg.WikiPaths,
@@ -931,16 +942,30 @@ def build_server() -> FastMCP:
         paths = _resolve_paths(workspace_path)
         config = cfg.load_config(paths)
         
-        models_data = {}
+        models_data: dict[str, Any] = {}
+        warnings: list[str] = []
         try:
-            models_path = Path(__file__).parent / "data" / "models.json"
-            if models_path.exists():
-                with open(models_path, "r", encoding="utf-8") as f:
-                    models_data = json.load(f)
-        except Exception:
-            pass
+            model_text = (
+                resources.files("curator.data")
+                .joinpath("models.json")
+                .read_text(encoding="utf-8")
+            )
+            parsed_models = json.loads(model_text)
+            if isinstance(parsed_models, dict):
+                models_data = parsed_models
+            else:
+                raise TypeError("models.json root must be an object")
+        except (OSError, UnicodeError, json.JSONDecodeError, TypeError) as exc:
+            warning = f"Packaged model catalogue unavailable: {type(exc).__name__}: {exc}"
+            warnings.append(warning)
+            _log.warning(warning)
             
-        return {"ok": True, "llm": config.get("llm", {}), "models_json": models_data}
+        return {
+            "ok": True,
+            "llm": config.get("llm", {}),
+            "models_json": models_data,
+            "warnings": warnings,
+        }
 
     @mcp.tool()
     def curator_set_provider_config(
@@ -1585,13 +1610,19 @@ def build_server() -> FastMCP:
                 if event.get("kind") == "page"
                 and str(event.get("path") or "").startswith(f"{consts.LAYER_L3}/")
             )
+            warnings: list[str] = []
             if ingest_result is not None and ingest_result.ok:
                 try:
                     search.update_index(paths, embed=True)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    warning = (
+                        "Search index refresh skipped: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
+                    warnings.append(warning)
+                    _log.warning(warning)
             result = {
-                "ok": True if ingest_result is None else ingest_result.ok,
+                "ok": False if ingest_result is None else ingest_result.ok,
                 "source_id": source_id_int,
                 "context_id": context_id,
                 "l2": None
@@ -1604,15 +1635,17 @@ def build_server() -> FastMCP:
                 },
                 "l3_pages_written": l3_pages_written,
                 "events": callbacks.events[-50:],
+                "warnings": warnings,
             }
+            if ingest_result is None:
+                result["error"] = (
+                    f"No build result was produced for source {source_id_int}."
+                )
             from .. import db_sync
             db_sync.maybe_auto_export(paths)
             return result
         finally:
-            try:
-                client.close()
-            except Exception:
-                pass
+            _close_client(client, operation="source build")
 
     @mcp.tool()
     def curator_ingest_source(
@@ -1901,7 +1934,7 @@ def build_server() -> FastMCP:
             with build_client(config) as client:
                 query = translate_to_english(client, query)
         except Exception:
-            pass
+            _log.debug("Query translation unavailable; using original query", exc_info=True)
 
         try:
             results = search.query(
@@ -2014,6 +2047,7 @@ def build_server() -> FastMCP:
                     for hit in raw_results.hits
                 ]
             except Exception:
+                _log.debug("L3-incomplete lexical fallback search failed", exc_info=True)
                 fallback_hits = []
             return {
                 "ok": True,
@@ -2135,7 +2169,7 @@ def build_server() -> FastMCP:
             with _llm.build_client(config) as client:
                 category, slug = _query.classify_wiki_topic(client, question, answer)
         except Exception:
-            pass
+            _log.debug("Wiki topic classification unavailable; using deterministic slug", exc_info=True)
 
         if not slug:
             import re as _re
@@ -2230,7 +2264,8 @@ def build_server() -> FastMCP:
                         and ctx.session.client_params
                         and ctx.session.client_params.clientInfo
                     ) else ""
-                except Exception:
+                except (AttributeError, TypeError):
+                    _log.debug("MCP client metadata was unavailable", exc_info=True)
                     client_name = ""
             detected_agent = detect_agent_from_client_info(client_name)
             agent_marker = ws_path / ".agents" / "curator" / "runtime" / f"{detected_agent}.md"
@@ -2242,7 +2277,8 @@ def build_server() -> FastMCP:
                 try:
                     if str(paths.root) not in agent_marker.read_text(encoding="utf-8"):
                         needs_install = True
-                except Exception:
+                except OSError:
+                    _log.debug("Could not read installed agent marker", exc_info=True)
                     needs_install = True
 
             if needs_install:
@@ -2255,11 +2291,12 @@ def build_server() -> FastMCP:
                 )
                 agent_rules_installed = detected_agent
         except Exception:
-            pass
+            _log.warning("Workspace agent rule installation failed", exc_info=True)
 
         try:
             _scenario = detect_workspace_scenario(ws_path, detected_agent)
         except Exception:
+            _log.debug("Workspace scenario detection failed; using full mode", exc_info=True)
             _scenario = "full"
 
         result: dict[str, Any] = {
@@ -2369,8 +2406,9 @@ def build_server() -> FastMCP:
                     and ctx.session.client_params
                     and ctx.session.client_params.clientInfo
                 ) else ""
-            except Exception:
-                pass
+            except (AttributeError, TypeError):
+                _log.debug("MCP client metadata was unavailable", exc_info=True)
+                client_name = ""
         agent = detect_agent_from_client_info(client_name)
 
         # ── 1b. Agent-only: try LLM integration of Curator into existing rules ──
@@ -2397,7 +2435,7 @@ def build_server() -> FastMCP:
                             rule_path.write_text(modified + "\n", encoding="utf-8")
                             _llm_integrated = True
             except Exception:
-                pass
+                _log.debug("LLM rule integration unavailable", exc_info=True)
             if not _llm_integrated:
                 try:
                     rule_file, _ = top_level_target(agent)
@@ -2856,10 +2894,7 @@ def build_server() -> FastMCP:
         except (LLMError, json.JSONDecodeError, Exception) as exc:
             return {"error": f"LLM resolution failed: {exc}"}
         finally:
-            try:
-                _client.close()
-            except Exception:
-                pass
+            _close_client(_client, operation="contradiction resolution")
 
         if apply:
             _cd.apply_resolution(paths, a_id, b_id, proposal)
@@ -2977,7 +3012,8 @@ def build_server() -> FastMCP:
                         1 for e in os.scandir(d)
                         if e.is_file() and e.name.endswith(".md") and not e.name.startswith(".")
                     )
-                except Exception:
+                except OSError:
+                    _log.debug("Could not count files in %s", d, exc_info=True)
                     count = 0
                 if consts.LAYER_L1 in subdir:
                     layer_counts["contexts"] = count
@@ -2993,7 +3029,7 @@ def build_server() -> FastMCP:
         try:
             _discover_zotero_base_attachment_path(zotero_roots)
         except Exception:
-            pass
+            _log.debug("Zotero attachment root discovery failed", exc_info=True)
 
         return {
             "vault_root":   str(paths.root),
@@ -3206,22 +3242,26 @@ def build_server() -> FastMCP:
             category, slug = query_module.classify_wiki_topic(_client, insight, context)
             wiki_path = query_module.save_wiki_page(paths, insight, context, category, slug)
 
+            warnings: list[str] = []
             try:
                 search.update_index(paths, embed=True)
-            except Exception:
-                pass
+            except Exception as exc:
+                warning = (
+                    "Search index refresh skipped: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+                warnings.append(warning)
+                _log.warning(warning)
 
             return {
                 "ok": True,
-                "wiki_path": wiki_path
+                "wiki_path": wiki_path,
+                "warnings": warnings,
             }
         except Exception as exc:
             return {"error": str(exc)}
         finally:
-            try:
-                _client.close()
-            except Exception:
-                pass
+            _close_client(_client, operation="knowledge capture")
 
     # ------------------------------------------------------------------
     # v0.3.1 curation-native tools (SYSTEM_BEHAVIOR §20)
@@ -3300,10 +3340,7 @@ def build_server() -> FastMCP:
                 QueryRequest(question=query, workspace_path=workspace_path, mode="auto")
             )
         finally:
-            try:
-                client.close()
-            except Exception:
-                pass
+            _close_client(client, operation="context fetch")
 
     @mcp.tool()
     def curator_explore(query: str, workspace_path: str = "") -> dict[str, Any]:
@@ -3320,10 +3357,7 @@ def build_server() -> FastMCP:
         except Exception as exc:
             return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
         finally:
-            try:
-                client.close()
-            except Exception:
-                pass
+            _close_client(client, operation="explore query")
         return {
             "ok": res.ok, "answer": res.answer, "route": res.route, "trace_id": res.trace_id,
             "synthesis_node_ids": res.synthesis_node_ids,
@@ -3386,10 +3420,7 @@ def build_server() -> FastMCP:
         except Exception as exc:
             return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
         finally:
-            try:
-                client.close()
-            except Exception:
-                pass
+            _close_client(client, operation="correction classification")
         plan = insight_lifecycle.plan_action(classification)
         candidate_id = ""
         if plan.creates_candidate:
@@ -3441,7 +3472,8 @@ def serve_stdio() -> None:
             host = (_cfg.load_config(paths).get("llm", {}).get("ollama", {}) or {}).get("host") or host
         model_setup.ensure_ollama_serving(host)
     except Exception:
-        pass  # never block the daemon on model provisioning
+        # Model provisioning is best-effort and must not block the stdio daemon.
+        _log.warning("MCP model provisioning failed", exc_info=True)
     server = build_server()
     server.run()  # FastMCP defaults to stdio transport
 

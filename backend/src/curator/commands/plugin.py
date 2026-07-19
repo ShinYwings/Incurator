@@ -4,7 +4,11 @@
 
 from __future__ import annotations
 
+import logging
+
 from .common import *
+
+_log = logging.getLogger(__name__)
 
 plugin_app = typer.Typer(
     name="plugin",
@@ -82,8 +86,8 @@ def plugin_version() -> None:
         parsed = json.loads(text)
         if isinstance(parsed, dict):
             build.update(parsed)
-    except Exception:
-        pass
+    except (OSError, json.JSONDecodeError, TypeError):
+        _log.debug("Could not load packaged build manifest", exc_info=True)
     from .. import device_registry
     _print_json({
         "ok": True,

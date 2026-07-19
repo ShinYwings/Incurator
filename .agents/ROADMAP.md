@@ -26,8 +26,18 @@ No urgent items currently tracked.
 
 ### 🚨 Immediate Next Release
 
-No release is currently staged. Select the next item from the priority queue
-after v0.36.0 merges.
+- **v0.36.2 XC-1 Fail-Closed Correctness Hardening** *(queued after PR #89)*:
+  failure injection against the remaining backend broad catches confirmed four
+  P0 paths that must be planned and fixed before lower-risk cleanup:
+  - malformed/unreadable local sync state currently becomes `{}`, allowing a
+    new device ID and snapshot identity to be generated silently;
+  - failed Syncthing conflict import/archive can still be counted and displayed
+    as merged, leaving the conflict file to retrigger;
+  - a failed tombstone DELETE is reported as applied and the tombstone is still
+    recorded for propagation;
+  - malformed workspace `curate.yml` silently falls back to unrestricted default
+    policy in both ContextService and QueryOrchestrator, bypassing source scope.
+  Plan and implement from updated `master` after v0.36.1 merges.
 
 ### 🚀 Priority Order
 
@@ -38,9 +48,11 @@ after v0.36.0 merges.
    - Master Plan: `.agents/plans/01_system_stability_overhaul.md`
    - Briefing: `.agents/plans/system_stability_overhaul_arena/00_problem.md`
    - Delivered as a chain of incremental release PRs (starting from v0.34.0+).
-   - **Shipped stability & hardening releases (v0.25.0 → v0.34.0)**: diagnosis G17–G19, XC-1/XC-4 robustness slices, DB-2 slices 1–2, CLI/MCP warning visibility, portable paths v0.29–v0.32, cross-device LWW sync v0.30, strict v12 schema/reindex speedup v0.33.0, and CM-1 command module decomposition v0.34.0.
-   - **Remaining Scope for Upcoming Releases (v0.37.0+)**:
-     - **Exception Handling Hardening (XC-1 Slices 2+)**: narrow broad exception blocks in `cli.py`, `mcp_server.py`, `plugin_api.py`.
+   - **Shipped stability & hardening releases (v0.25.0 → v0.36.1)**: diagnosis G17–G19, XC-1/XC-4 robustness slices, DB-2 slices 1–2, CLI/MCP warning visibility, portable paths v0.29–v0.32, cross-device LWW sync v0.30, strict v12 schema/reindex speedup v0.33.0, CM-1 command module decomposition v0.34.0, and silent exception/false-success hardening v0.36.1.
+   - **Remaining Scope for Upcoming Releases**:
+     - **Exception Handling Hardening (XC-1 later slices)**: audit broad
+       catch-and-return boundary handlers and other backend modules after the
+       silent-swallow slice lands.
      - **Performance & UX Refinements**: RAG/DAG benchmark harness & retrieval hotspot optimization; chat/popover UX friction cleanup.
 
 2. **[Validation] `[[wikilink]]` Architecture Validation**
@@ -72,6 +84,13 @@ after v0.36.0 merges.
 
 ## ✅ Completed Milestones
 
+- **v0.36.1 — XC-1 Silent Exception And False-Success Hardening**
+  (release-ready 2026-07-19): eliminated 28 silent broad handlers across the
+  decomposed CLI/MCP/plugin API packages; fixed empty-build false success,
+  surfaced degraded search refreshes, restored packaged provider model loading,
+  and reconciled MCP/runtime snapshot documentation. Backend 1225-test, plugin
+  688-test, static-analysis, build, Gaussian Splatting, and consecutive
+  zero-change autosync gates passed.
 - **v0.36.0 — PL-1 Plugin God-file Decomposition** (release-ready 2026-07-19):
   moved the chat sidebar, LLM client, and external PDF view implementations into
   dedicated internal packages while preserving stable public facades, class and

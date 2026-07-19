@@ -113,6 +113,10 @@ wiki mcp install
 #### `curator_build_source`
 - **역할**: 등록된 소스에 대해 깊이 있는 L2 (Atoms) 및 L3 (Concepts) 지식 추출 프로세스를 트리거합니다.
 - **파라미터**: `file_path` 또는 `source_id`.
+- **반환**: 동기식(`wait=true`) 빌드에서 ingest pipeline이 요청한 source의
+  결과를 만들지 못하면 `ok=false`를 반환합니다. 추출은 성공했지만 best-effort
+  search refresh가 실패하면 `ok`는 true로 유지되고 건너뛴 refresh가
+  `warnings`에 기록됩니다.
 
 #### `curator_add_all`
 - **역할**: 워크스페이스 source 디렉터리 전체에 대해 `wiki add`를 실행하여 새 파일이나 변경 파일을 발견하고 구조적 등록(L1)을 최신 상태로 유지합니다.
@@ -194,6 +198,9 @@ wiki mcp install
 
 #### `curator_add_knowledge`
 - **역할**: 대화 중 얻은 귀중한 통찰이나 정보를 **Wiki(02_Wiki/)** 페이지로 승격하여 영구 저장합니다. 카테고리 분류와 슬러그 생성이 자동으로 수행됩니다.
+- **반환**: 승격 성공 시 `wiki_path`와 `warnings`를 반환합니다. search refresh가
+  실패해도 이미 작성된 Wiki 페이지를 버리지 않고 실패 내용을 `warnings`에
+  기록합니다.
 
 #### `curator_update_node`
 - **역할**: 상태를 변경하지 않는 비활성 endpoint입니다. 생성 노드를 직접 덮어쓰는 방식은 지원하지 않습니다.
@@ -420,9 +427,15 @@ typed conflict를 반환합니다. 확장된 handle은 같은 pack snapshot 안�
 ### 3.8 환경 설정 관리 (Configuration Management)
 
 #### `curator_get_provider_config`
-- **역할**: 현재 구성된 LLM 공급자 설정을 가져옵니다.
+- **역할**: 현재 구성된 LLM 공급자 설정과 provider/model 선택기에 사용하는
+  패키지 내 모델 카탈로그를 가져옵니다.
 - **파라미터**: `workspace_path` (선택).
+- **반환**: `llm`, `models_json`, `warnings`. `models_json`은 설치된
+  `curator.data` 패키지에서 읽으므로 source module이 재구성되어도 사용할 수
+  있습니다.
 
 #### `curator_set_provider_config`
 - **역할**: LLM 공급자 설정을 동적으로 업데이트합니다.
-- **파라미터**: `provider` (예: 'claude', 'antigravity'), `model`, `api_key` (선택), `workspace_path` (선택).
+- **파라미터**: `primary`(`claude-code`, `codex-cli`, `antigravity-cli`,
+  `deepseek-api`, `ollama` 등의 backend key), `model`, `host`,
+  `api_key_env`, `api_key`, `base_url`, `workspace_path` (`primary` 외에는 선택).
