@@ -13,7 +13,7 @@ success after its correctness precondition failed.
 
 ## 2. Reproduced Failures
 
-Failure injection on the merged v0.36.1 baseline proves five paths:
+Failure injection on the merged v0.36.1 baseline proves six failure classes:
 
 1. An existing malformed device-local sync-state file is read as `{}`.
    `get_device_id()` then generates a new id and overwrites the corrupt state,
@@ -28,6 +28,9 @@ Failure injection on the merged v0.36.1 baseline proves five paths:
    policy with an empty policy hash.
 5. A syntactically valid but wrong-shaped `sources:` block is normalized to an
    empty include/exclude policy, silently removing workspace source scope.
+6. Invalid semantic policy is persisted by both plan surfaces. MCP
+   `curator_plan_workspace` returns `ok=true`; the hidden plugin planner returns
+   `ok=false` but exits zero after recording the invalid curation plan.
 
 Current failure-injection observations:
 
@@ -37,6 +40,7 @@ conflict_archive_failure: counted imported, file remains
 tombstone_delete_failure: reported_applied=true, row_exists=true, tombstone exists
 malformed_curate_policy: both resolvers returned project=default, hash=""
 wrong-shaped sources: parsed_include=[], policy_include=(), unrestricted=true
+invalid plan: MCP ok=true + one row; plugin ok=false/exit=0 + one row
 ```
 
 ## 3. Contract Conflicts
@@ -51,6 +55,8 @@ wrong-shaped sources: parsed_include=[], policy_include=(), unrestricted=true
   invalid specs surface errors; the current path can erase source scope.
 - Device identity is documented as generated once, but corrupt bookkeeping can
   silently generate it again.
+- Curation planning is documented as validate/compile/record; current plan
+  surfaces can record a normalized policy after validation has failed.
 
 ## 4. Constraints
 
@@ -75,4 +81,5 @@ wrong-shaped sources: parsed_include=[], policy_include=(), unrestricted=true
   passes.
 - Missing `curate.yml` default behavior must remain covered separately from
   invalid-existing-file failure.
-
+- Invalid curation planning must leave `curation_plans` unchanged on both MCP
+  and hidden plugin command surfaces.

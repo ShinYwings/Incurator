@@ -42,8 +42,8 @@ commits. Dry-run remains read-only.
 
 ### Curation-policy boundary
 
-Move duplicated policy resolution into one `curate_yml` helper used by both
-ContextService and QueryOrchestrator:
+Add one validated-spec loader and move duplicated policy resolution into a
+`curate_yml` helper used by ContextService and QueryOrchestrator:
 
 ```python
 def resolve_curation_policy(workspace_path):
@@ -58,6 +58,11 @@ def resolve_curation_policy(workspace_path):
 `load_curate_spec()` must reject a non-mapping `sources` block and wrong-shaped
 `include`/`exclude` values instead of normalizing them to an unrestricted scope.
 Preserve the currently accepted single string and list-of-strings forms.
+
+Both curation-plan surfaces must call the same validated-spec loader before
+`record_curation_plan()`. Validation errors return a failure and perform no DB
+write. The validation-only MCP tool may still return an error list and compiled
+preview because it has no persistence side effect.
 
 ## 2. Pros & Cons
 
@@ -74,4 +79,3 @@ Preserve the currently accepted single string and list-of-strings forms.
 - A conflict import may have committed before archive failure; the user sees a
   failed pass even though some rows changed. Retrying is required and safe.
 - Stricter source-policy parsing may expose previously ignored malformed files.
-

@@ -11,6 +11,8 @@ Date: 2026-07-19
   requirements, and general-knowledge allowance.
 - `load_curate_spec()` currently normalizes a wrong-shaped `sources` block to an
   empty/unrestricted scope.
+- MCP and plugin plan surfaces validate inconsistently and can persist a
+  normalized plan even when the semantic KRS is invalid.
 
 ## Docs/Specs Invariants
 
@@ -37,6 +39,8 @@ Date: 2026-07-19
 - Reject wrong-shaped source-scope containers/pattern values while preserving
   accepted string and string-list inputs.
 - Assert no retrieval/trace work occurs after policy failure.
+- Require validated spec before both `record_curation_plan()` call sites; invalid
+  planning returns failure and records no row.
 
 ## Implementation Pseudocode
 
@@ -50,5 +54,10 @@ errors = validate_curate_spec(spec)
 if errors:
     raise ValueError("invalid curate.yml: " + "; ".join(errors))
 return compile_curate_policy(spec, path), curate_spec_hash(path)
-```
 
+# Plan surfaces
+spec = load_validated_curate_spec(path)
+if spec is None: fail("no curate.yml")
+policy = compile_curate_policy(spec, path)
+record_curation_plan(policy)  # only reachable after validation
+```

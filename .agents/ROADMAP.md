@@ -42,6 +42,8 @@ No urgent items currently tracked.
   - Arena: `.agents/plans/fail_closed_correctness_arena/`
   - Additional reproduced scope: a wrong-shaped `sources:` block silently
     becomes an unrestricted policy and is included in the same fail-closed fix.
+  - Additional persisted-side-effect bug: invalid semantic KRS is recorded by
+    MCP/plugin curation planners; validation must precede every plan DB write.
   - Follow-up requiring a separate schema-contract plan: composite-primary-key
     tombstones currently have no unambiguous `record_id` encoding and therefore
     cannot safely delete the target row. Do not guess an encoding in v0.36.2.

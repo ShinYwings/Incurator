@@ -22,6 +22,7 @@ Status: PRE-IMPLEMENTATION BASELINE
 | Tombstone delete failure | `db_sync._apply_tombstone` | Swallows delete error, records tombstone, returns applied |
 | Malformed workspace policy | `context_service._resolve_policy`, `retrieval.orchestrator._resolve_policy` | Both swallow and return unrestricted default |
 | Wrong-shaped source scope | `curate_yml.load_curate_spec` | Non-mapping/invalid values normalize to empty include/exclude |
+| Invalid curation planning | MCP `curator_plan_workspace`, hidden plugin planner | Invalid semantic policy is normalized and persisted before/while reporting failure |
 
 ## 3. Reproduction Evidence
 
@@ -37,6 +38,18 @@ One-shot failure injection on the rollback anchor produced:
 A valid YAML document with `sources:` as a sequence produced
 `parsed_include=[]`, `policy_include=()`, and `scope_became_unrestricted=true`.
 
+An invalid semantic route produced:
+
+```text
+MCP:    ok=true, route=auto, persisted_plan_count=1
+Plugin: ok=false, exit_code=0, persisted_plan_count=1
+```
+
+Repository/testbed compatibility preflight found four current `curate.yml`
+files (active Gaussian Splatting testbed plus three scenario fixtures). Every
+`sources` block is a mapping and every include/exclude is a list of strings, so
+the proposed strict source-pattern parser does not reject current valid assets.
+
 ## 4. Pre-Change Test Baseline
 
 ```text
@@ -49,7 +62,7 @@ scripts/backend-check pytest \
 95 passed in 425.76s
 ```
 
-The green baseline does not cover any of the five reproduced false-success or
+The green baseline does not cover any of the six reproduced false-success or
 scope-bypass paths.
 
 ## 5. Contract Evidence
@@ -82,4 +95,3 @@ scope-bypass paths.
 - [ ] `gaussian_splatting` testbed smoke passes.
 - [ ] Consecutive real autosync + dry-run is quiescent.
 - [ ] Version/spec consistency passes for v0.36.2.
-

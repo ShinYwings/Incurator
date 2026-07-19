@@ -13,6 +13,7 @@ state is unreadable, invalid, or only partially completed. Done means:
   result;
 - a failed tombstone delete rolls back and is never counted/propagated;
 - an existing invalid `curate.yml` never becomes the unrestricted default policy;
+- invalid semantic KRS never creates a curation-plan row on MCP/plugin surfaces;
 - valid first-run/missing-workspace defaults and unchanged-sync quiescence remain
   intact.
 
@@ -37,6 +38,8 @@ state is unreadable, invalid, or only partially completed. Done means:
   uncommitted and increments no deleted count.
 - Empty/no-workspace queries still use `default`; invalid-existing-workspace
   queries fail before retrieval, trace, or synthesis.
+- Invalid curation planning returns failure before any `PLAN-*` DB write; the
+  plugin command exits non-zero.
 - Two consecutive unchanged autosync passes apply zero rows and do not export.
 - Full backend, plugin, static, build, version-consistency, and testbed gates pass.
 
@@ -55,6 +58,8 @@ state is unreadable, invalid, or only partially completed. Done means:
   rolls back that input file.
 - `curate_yml` owns one validated policy resolver. ContextService and
   QueryOrchestrator do not implement private fallback logic.
+- MCP/plugin curation planners use the same validated-spec loader before their
+  only `record_curation_plan()` calls.
 - Default policy is allowed only for empty workspace context or absent file.
 - Existing invalid YAML, source-scope shape, semantic policy, read, or hash
   failures propagate before retrieval.
@@ -78,7 +83,7 @@ state is unreadable, invalid, or only partially completed. Done means:
 - Branch: `release/v0.36.2` from merged master.
 - Current version/schema: v0.36.1 / schema 12.
 - Relevant baseline: 95 passed in 425.76s.
-- Five failure injections reproduced exactly as recorded in
+- Six failure classes reproduced exactly as recorded in
   `.agents/plans/02_roadmap_evidence.md`.
 - No production files changed; temporary directories only.
 
@@ -86,7 +91,7 @@ state is unreadable, invalid, or only partially completed. Done means:
 
 ### P0 — Research & Measured Baseline (complete)
 
-- Reproduce all five failures on merged master.
+- Reproduce all six failure classes on merged master.
 - Read current sync, curation, CLI, plugin, specs, paired guides, and historical
   sync plans.
 - Freeze rollback anchor and 95-test baseline.
@@ -122,6 +127,8 @@ Add focused backend tests for:
 - missing `curate.yml` default remains valid;
 - malformed YAML, wrong-shaped source patterns, semantic validation errors, and
   hash/read races fail in both public query paths before retrieval.
+- MCP/plugin invalid planning returns failure and leaves `curation_plans` at the
+  pre-call count; plugin failure exits non-zero.
 
 Add/adjust the plugin client test proving `{error}` maps to `ok:false` and never
 produces a merged-conflict result.
@@ -145,6 +152,7 @@ Verify focused sync + CLI tests and Ruff before P4.
 - Add shared validated policy resolver in `curate_yml`.
 - Replace duplicate ContextService/QueryOrchestrator fallback functions.
 - Ensure policy failures predate retrieval, trace, and synthesis writes.
+- Route MCP/plugin curation-plan writes through the validated-spec loader.
 
 Verify focused curation/query tests and Ruff before P5.
 
@@ -174,7 +182,7 @@ Verify focused curation/query tests and Ruff before P5.
 - **schema_guardian**: confirmed no schema bump and transaction rollback semantics;
   prohibited guessed composite-key encoding.
 - **source_pair_analyst**: confirmed policy failure precedes evidence selection and
-  valid source include/exclude remains unchanged.
+  valid source include/exclude remains unchanged; all current scenario KRS files
+  pass the stricter shape preflight.
 - **system_synthesizer**: accepted per-file partial progress with visible overall
   failure because imports are idempotent; locked structured JSON failure output.
-

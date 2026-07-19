@@ -29,6 +29,9 @@ Date: 2026-07-19 | Agent Persona: red_teamer
 10. The existing composite-PK tombstone branch is itself a false-success smell.
     Ignoring it without recording a follow-up would undermine the stated
     stability objective.
+11. Fixing query policy only leaves `curator_plan_workspace` and hidden plugin
+    planning able to persist invalid normalized policy. Every write surface must
+    validate before side effects, and `ok=false` must not exit zero after a write.
 
 ## 2. Suggested Alternatives
 
@@ -42,4 +45,5 @@ Date: 2026-07-19 | Agent Persona: red_teamer
 - Preserve scalar strings, reject mappings/numbers/nested values for source
   pattern fields.
 - Queue composite-key tombstone encoding as a separate schema-contract item.
-
+- Add DB-count assertions around both plan surfaces: invalid input returns failure,
+  exits non-zero where applicable, and leaves `curation_plans` unchanged.

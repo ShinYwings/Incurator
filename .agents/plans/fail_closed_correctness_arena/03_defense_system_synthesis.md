@@ -20,6 +20,8 @@ Date: 2026-07-19 | Agent Persona: system_synthesizer
   displayed as success.
 - Composite-key tombstone encoding is recorded as a follow-up because fixing it
   correctly changes the transport contract and cannot be guessed in a patch.
+- MCP and plugin curation planners use the validated loader before recording.
+  Validation-only preview remains non-mutating; invalid planning never writes.
 
 ## 2. Final Consensus
 
@@ -27,4 +29,3 @@ Implement two surgical domains: sync fail-closed behavior and curation-policy
 fail-closed behavior. Write docs/specs first, failing tests second, then the
 minimum application changes. No schema migration, no hash guard, no new retry
 loop, and no production-state repair is permitted.
-

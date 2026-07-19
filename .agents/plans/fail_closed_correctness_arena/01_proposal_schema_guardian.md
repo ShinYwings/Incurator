@@ -16,6 +16,8 @@ Date: 2026-07-19 | Agent Persona: schema_guardian / source_pair_analyst
 - Curation policy errors occur before retrieval begins, so no evidence pack,
   query trace, or answer is created under a policy different from the requested
   workspace.
+- Curation plan validation occurs before `record_curation_plan`, so invalid KRS
+  input creates no durable `PLAN-*` row.
 
 ## 2. Pros & Cons
 
@@ -31,4 +33,3 @@ Date: 2026-07-19 | Agent Persona: schema_guardian / source_pair_analyst
   the roadmap.
 - Cross-file autosync is not globally atomic; making it so would require staging
   all peer files into one transaction and is disproportionate to this patch.
-

@@ -18,10 +18,11 @@ parity, and reproducible failure handling take priority over refactoring volume.
 
 - PR #89 merged as `06e69058def994d4091a77790b2eeaf162da5393`.
 - Branch `release/v0.36.2` was created directly from updated `master`.
-- Five failures are reproduced: corrupt sync state resets identity; conflict
+- Six failure classes are reproduced: corrupt sync state resets identity; conflict
   import/archive can report false success; tombstone delete failure propagates a
   false deletion; malformed YAML defaults unrestricted; wrong-shaped source
-  scope compiles unrestricted.
+  scope compiles unrestricted; invalid semantic KRS is persisted by MCP/plugin
+  plan surfaces.
 - Missing state and missing workspace policy remain legitimate initialization
   defaults; only an existing invalid artifact fails closed.
 - Per-file imports stay transactional/idempotent. A later failure may follow an
@@ -35,6 +36,10 @@ parity, and reproducible failure handling take priority over refactoring volume.
 - [x] Created `release/v0.36.2` at merge commit `06e6905`.
 - [x] Reproduced all four queued P0 failures on current code.
 - [x] Found and reproduced the additional wrong-shaped source-scope bypass.
+- [x] Found and reproduced invalid MCP/plugin curation-plan persistence: MCP
+  returns success and plugin exits zero after writing invalid normalized policy.
+- [x] Confirmed all current scenario/testbed `curate.yml` files satisfy the
+  proposed stricter source-pattern shape.
 - [x] Read current code, specs, paired guides, tests, and historical sync plans.
 - [x] Relevant pre-change baseline: 95 passed in 425.76s.
 - [x] Authored Arena proposal, red-team critique, defense, domain analyses,
