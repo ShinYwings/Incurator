@@ -8,11 +8,9 @@ parity, and reproducible failure handling take priority over refactoring volume.
 
 ## Plan Reference
 
-- Master: `.agents/plans/02_fail_closed_correctness.md`
-- Evidence: `.agents/plans/02_roadmap_evidence.md`
-- Domain analysis: `.agents/plans/A_sync_fail_closed.md`,
-  `.agents/plans/B_curation_policy_fail_closed.md`
-- Arena: `.agents/plans/fail_closed_correctness_arena/`
+- Completed v0.36.2 plan artifacts are deleted from the active workspace during
+  release closure. Planning is preserved from commit `3a6c3c2`; final validation
+  evidence is preserved in commit `ada48f1`.
 
 ## Analysis & Reasoning
 
@@ -55,18 +53,26 @@ parity, and reproducible failure handling take priority over refactoring volume.
   query work or plan persistence.
 - [x] Combined focused state/scope suites pass (86); query orchestrator passes
   (14); new public-query/MCP/plugin plan tests pass.
-- [ ] P5 full CI and gaussian_splatting testbed validation in progress.
+- [x] P5 backend CI passes: 1259 passed, 6 skipped, 5 xfailed; Ruff and Mypy pass.
+- [x] P5 plugin CI passes: 66 files / 689 tests; TypeScript and production build pass.
+- [x] P5 gaussian_splatting passes status/reindex/incremental-sync/lint (100/100),
+  Reference Mode preservation, and repeated quiescent autosync checks.
+- [x] v0.36.2 version/spec/docs consistency passes (16 tests).
+- [ ] P6 release commit, push, and PR creation in progress.
 
 ## Critical Context / Blockers
 
-- No technical blocker.
+- External validation blocker only: Antigravity CLI returned no output during
+  answer JSON repair after KRS loading/retrieval succeeded. Full logical sync and
+  final answer synthesis were therefore not claimed; lower-level gates passed.
+- The newly observed full-traceback query UX is queued in ROADMAP for a separate
+  plan rather than mixed into this patch.
 - No workflow blocker; the implementation plan is approved.
-- No production vault/DB/config was changed; failure injection used temporary
-  directories only.
+- No production vault/DB/config was changed; only temporary fixtures and the
+  repository `testbed/` were used.
 - Active validation scenario is `tests/scenarios/gaussian_splatting`; existing
   `testbed/` is present.
 
 ## Immediate Next Action
 
-Run full backend/plugin CI and gaussian_splatting testbed validation, then close
-the v0.36.2 release.
+Create `chore(release): v0.36.2`, push `release/v0.36.2`, and open the release PR.

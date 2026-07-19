@@ -26,27 +26,8 @@ No urgent items currently tracked.
 
 ### 🚨 Immediate Next Release
 
-- **v0.36.2 XC-1 Fail-Closed Correctness Hardening** *(ACTIVE — implementation complete, validating)*:
-  failure injection against the remaining backend broad catches confirmed four
-  P0 paths that must be planned and fixed before lower-risk cleanup:
-  - malformed/unreadable local sync state currently becomes `{}`, allowing a
-    new device ID and snapshot identity to be generated silently;
-  - failed Syncthing conflict import/archive can still be counted and displayed
-    as merged, leaving the conflict file to retrigger;
-  - a failed tombstone DELETE is reported as applied and the tombstone is still
-    recorded for propagation;
-  - malformed workspace `curate.yml` silently falls back to unrestricted default
-    policy in both ContextService and QueryOrchestrator, bypassing source scope.
-  - Master Plan: `.agents/plans/02_fail_closed_correctness.md`
-  - Evidence: `.agents/plans/02_roadmap_evidence.md`
-  - Arena: `.agents/plans/fail_closed_correctness_arena/`
-  - Additional reproduced scope: a wrong-shaped `sources:` block silently
-    becomes an unrestricted policy and is included in the same fail-closed fix.
-  - Additional persisted-side-effect bug: invalid semantic KRS is recorded by
-    MCP/plugin curation planners; validation must precede every plan DB write.
-  - Follow-up requiring a separate schema-contract plan: composite-primary-key
-    tombstones currently have no unambiguous `record_id` encoding and therefore
-    cannot safely delete the target row. Do not guess an encoding in v0.36.2.
+- No additional patch batch is active. v0.36.2 is release-ready; continue the
+  approved System Stability Overhaul through the ordered follow-ups below.
 
 ### 🚀 Priority Order
 
@@ -57,14 +38,20 @@ No urgent items currently tracked.
    - Master Plan: `.agents/plans/01_system_stability_overhaul.md`
    - Briefing: `.agents/plans/system_stability_overhaul_arena/00_problem.md`
    - Delivered as a chain of incremental release PRs (starting from v0.34.0+).
-   - **Shipped stability & hardening releases (v0.25.0 → v0.36.1)**: diagnosis G17–G19, XC-1/XC-4 robustness slices, DB-2 slices 1–2, CLI/MCP warning visibility, portable paths v0.29–v0.32, cross-device LWW sync v0.30, strict v12 schema/reindex speedup v0.33.0, CM-1 command module decomposition v0.34.0, and silent exception/false-success hardening v0.36.1.
+   - **Shipped stability & hardening releases (v0.25.0 → v0.36.2)**: diagnosis G17–G19, XC-1/XC-4 robustness slices, DB-2 slices 1–2, CLI/MCP warning visibility, portable paths v0.29–v0.32, cross-device LWW sync v0.30, strict v12 schema/reindex speedup v0.33.0, CM-1 command module decomposition v0.34.0, silent exception/false-success hardening v0.36.1, and fail-closed sync/KRS integrity v0.36.2.
    - **Remaining Scope for Upcoming Releases**:
      - **Exception Handling Hardening (XC-1 later slices)**: audit broad
        catch-and-return boundary handlers and other backend modules after the
        silent-swallow slice lands.
      - **Performance & UX Refinements**: RAG/DAG benchmark harness & retrieval hotspot optimization; chat/popover UX friction cleanup.
 
-2. **[Bug] Query Provider Failure UX**
+2. **[Schema Contract] Composite-Primary-Key Tombstones**
+   - Synced tombstones currently carry one `record_id`, which cannot identify a
+     row in composite-key tables without an explicit encoding contract.
+   - Plan the JSONL/schema representation and data migration before enabling
+     deletion for those tables; do not guess or concatenate key values ad hoc.
+
+3. **[Bug] Query Provider Failure UX**
    - A real Gaussian Splatting testbed query reached retrieval successfully, but
      Antigravity CLI returned no output during JSON repair and `wiki query`
      exposed a full Rich traceback instead of a concise provider-error message.
@@ -72,27 +59,27 @@ No urgent items currently tracked.
      exits non-zero, and reports actionable CLI/MCP/plugin errors without hiding
      the original provider failure.
 
-3. **[Validation] `[[wikilink]]` Architecture Validation**
+4. **[Validation] `[[wikilink]]` Architecture Validation**
    - Core entities in the backend pipeline documents are not explicitly marked with `[[wikilink]]`.
    - Validate `backend/src/curator/page_writer.py` and `sync.py` backlink parsing logic against `[[wikilink]]` syntax.
    - Detailed analysis: `.agents/drafts/minor_quick_wins.md` (Wikilink section)
 
-4. **[Minor Update] Chat Session Context Compaction**
+5. **[Minor Update] Chat Session Context Compaction**
    - Confirm full-session history behavior.
    - Add a Claude-Code-style circular token usage meter under the query box and a click-to-compact action.
    - Detailed analysis: `.agents/drafts/chat_context_compaction.md`
 
-5. **[Minor Update] Vault Storage Governance & Quota Visibility**
+6. **[Minor Update] Vault Storage Governance & Quota Visibility**
    - Separate authoritative, derived, cache, and external storage accounting.
    - Add capacity guidance, safe admission control, and CLI/plugin visibility.
    - Detailed analysis: `.agents/drafts/vault_storage_governance.md`
 
-6. **[Major Update] Native PDF Annotation & Asset System**
+7. **[Major Update] Native PDF Annotation & Asset System**
    - Native annotation highlight/memo synchronization using Obsidian's built-in PDF viewer.
    - In-PDF full-text search and strict-spelling mode remain here.
    - Detailed analysis: `.agents/drafts/pdf_annotation_system.md`
 
-7. **[Minor Update] Web Search Integration**
+8. **[Minor Update] Web Search Integration**
    - Design and integrate web search capabilities for local models (Ollama, Deepseek, etc.).
    - Investigate API options (Brave, SerpAPI) and implement `web_search.py`.
    - Detailed analysis: `.agents/drafts/minor_quick_wins.md` (Web Search Section)
@@ -101,6 +88,15 @@ No urgent items currently tracked.
 
 ## ✅ Completed Milestones
 
+- **v0.36.2 — XC-1 Fail-Closed Correctness Hardening**
+  (release-ready 2026-07-20): preserved corrupt device-local sync state instead
+  of regenerating identity, surfaced peer/conflict/archive failures, made
+  tombstone deletion transactional, and prevented existing invalid KRS files
+  from widening query scope or persisting curation plans. Backend 1259-test,
+  plugin 689-test, static-analysis, production build, version/docs consistency,
+  Gaussian Splatting Reference Mode, lint 100/100, and repeated quiescent
+  autosync gates passed. External Antigravity answer synthesis returned no
+  output; the resulting traceback UX is queued separately.
 - **v0.36.1 — XC-1 Silent Exception And False-Success Hardening**
   (release-ready 2026-07-19): eliminated 28 silent broad handlers across the
   decomposed CLI/MCP/plugin API packages; fixed empty-build false success,
