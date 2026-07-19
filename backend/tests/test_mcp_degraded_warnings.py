@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 from curator import db
+from curator.mcp.server import _close_client, _resolve_paths
 from curator.mcp_server import build_server
 
 
@@ -51,3 +55,23 @@ def test_add_knowledge_reports_search_refresh_degradation(
     assert result["ok"] is True
     assert "index unavailable" in "\n".join(result["warnings"])
     client.close.assert_called_once_with()
+
+
+def test_client_cleanup_failure_is_non_fatal_and_logged(caplog) -> None:
+    client = MagicMock()
+    client.close.side_effect = RuntimeError("close failed")
+
+    with caplog.at_level(logging.DEBUG, logger="curator.mcp.server"):
+        _close_client(client, operation="test operation")
+
+    assert any("test operation client cleanup failed" in row.message for row in caplog.records)
+
+
+def test_malformed_workspace_curate_spec_fails_with_context(
+    tmp_path: Path, monkeypatch
+) -> None:
+    (tmp_path / "curate.yml").write_text("vault_root: [broken", encoding="utf-8")
+    monkeypatch.delenv("VAULT_ROOT", raising=False)
+
+    with pytest.raises(RuntimeError, match="Cannot read workspace curate.yml"):
+        _resolve_paths(str(tmp_path))

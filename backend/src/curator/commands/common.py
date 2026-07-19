@@ -4,6 +4,7 @@
 from __future__ import annotations
 from .. import constants as consts
 import json
+import logging
 import sys
 import os
 from importlib import resources
@@ -48,6 +49,7 @@ from ..llm import (
     make_client_by_key as _make_client_by_key_impl,
 )
 console = Console()
+_log = logging.getLogger(__name__)
 
 def _cli_override(name: str):
     cli_module = sys.modules.get("curator.cli")
@@ -259,6 +261,10 @@ def _resolve_root_or_die_impl(hint_path: Path | None = None) -> cfg.WikiPaths:
                 if not _d.get("testbed", False):
                     cfg.set_last_root(root_path)
             except Exception:
+                _log.debug(
+                    "Could not inspect VAULT_ROOT settings before recording last root",
+                    exc_info=True,
+                )
                 cfg.set_last_root(root_path)
             return cfg.paths_from_config(root_path)
 
@@ -276,6 +282,10 @@ def _resolve_root_or_die_impl(hint_path: Path | None = None) -> cfg.WikiPaths:
                     (last_root / consts.INTERNAL_DIR / consts.SETTINGS_FILE).read_text(encoding="utf-8")
                 ) or {}
             except Exception:
+                _log.debug(
+                    "Could not inspect last-root settings; treating it as non-testbed",
+                    exc_info=True,
+                )
                 _cfg_data = {}
             if not _cfg_data.get("testbed", False):
                 return cfg.paths_from_config(last_root)
@@ -1127,8 +1137,8 @@ def _ensure_npm_impl(install_cmd: str) -> bool:
         console.print("[dim]NVM not found. Installing NVM…[/dim]")
         try:
             _sp.run("curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash", shell=True, check=False)
-        except Exception:
-            pass
+        except OSError as exc:
+            _warn(f"NVM installer could not start: {exc}")
 
     # 4. If NVM exists but no node installed, install Node via NVM
     if nvm_sh.exists():
@@ -1239,8 +1249,8 @@ def _configure_backend(
                         try:
                             # Run the installed CLI command interactively so the user can directly log in/authenticate
                             _sp.run([cli_cmd], check=False)
-                        except Exception:
-                            pass
+                        except OSError as exc:
+                            _warn(f"Could not launch '{cli_cmd}' for authentication: {exc}")
                     else:
                         _warn(f"Install failed. Run manually: {install_cmd}")
         else:
@@ -1426,7 +1436,7 @@ def _maybe_auto_evolve_curator_persona(
         cfg.save_config(paths, config)
         console.print("[dim]  · Curator persona quietly updated with new domain context.[/dim]")
     except Exception:
-        pass
+        _log.debug("Curator persona auto-evolution skipped", exc_info=True)
 def _run_artist_persona_wizard(client, project: str) -> dict | None:
     """Multi-turn LLM interview to build an Artist persona. Returns persona dict or None (skipped)."""
     from ..prompts import build_persona_interview_messages, PERSONA_INTERVIEW_ARTIST_OPENER
@@ -1612,7 +1622,11 @@ def _start_client_inner(config: dict):
                     p_client.ensure_ready()
                     return p_client if not fallback_key else build_client(config)
                 except Exception:
-                    pass  # fall through to fallback logic
+                    _log.debug(
+                        "Primary LLM remained unavailable after model pull",
+                        exc_info=True,
+                    )
+                    # Fall through to the configured fallback.
             else:
                 _warn(f"Pull failed. Run manually: ollama pull {model_name}")
     except _ALL_LLM_ERRORS as e:

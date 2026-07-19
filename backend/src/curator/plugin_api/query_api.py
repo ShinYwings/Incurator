@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any
 
 from .. import config as cfg
 from .. import constants as consts
 from .. import db, llm, query, search
+
+
+_log = logging.getLogger(__name__)
 
 def curator_query(
     paths: cfg.WikiPaths,
@@ -35,6 +39,7 @@ def curator_query(
                 for hit in raw_results.hits
             ]
         except Exception:
+            _log.debug("L3-incomplete lexical fallback search failed", exc_info=True)
             fallback_hits = []
         return {
             "ok": True,
@@ -170,7 +175,7 @@ def promote_answer(
         with llm.build_client(config) as client:
             category, slug = query.classify_wiki_topic(client, question, answer)
     except Exception:
-        pass
+        _log.debug("Wiki topic classification unavailable; using deterministic slug", exc_info=True)
 
     if not slug:
         import re
