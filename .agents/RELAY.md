@@ -85,6 +85,9 @@ parity, and reproducible failure handling take priority over refactoring volume.
 - [x] Final local gates pass: backend 1268 passed / 6 skipped / 5 xfailed, Ruff,
   Mypy (125 sources), helper shell syntax, docs/version parity, and real testbed
   invalid-KRS CLI (`exit 1`, concise error, no provider startup/traceback).
+- [x] Follow-up commit `9a90a59` pushed to PR #90. Refreshed push/PR Backend,
+  Plugin, and applicable Version Consistency checks pass; unresolved review
+  threads remain zero and the PR is clean/mergeable.
 
 ## Critical Context / Blockers
 
@@ -101,5 +104,6 @@ parity, and reproducible failure handling take priority over refactoring volume.
 
 ## Immediate Next Action
 
-Commit and push the new PR #90 self-review fixes, resolve any new review
-feedback, and verify refreshed GitHub CI.
+PR #90 is ready for human review and merge. After merge, update local `master`,
+truncate this file to the IDLE stub, and start the composite-PK tombstone
+contract plan from a fresh branch.
