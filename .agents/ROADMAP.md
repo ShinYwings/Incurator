@@ -26,11 +26,7 @@ No urgent items currently tracked.
 
 ### 🚨 Immediate Next Release
 
-- No additional patch batch is active. v0.36.2 is release-ready; continue the
-  approved System Stability Overhaul through the ordered follow-ups below. PR
-  #90 self-review also closed the human CLI workspace-scope bypass and removed
-  query-triggered pending ingestion that contradicted the documented read-only
-  query contract.
+- v0.36.2 PR #90 is merged. The next actionable item is the Composite-Primary-Key Tombstones schema contract update.
 
 ### 🚀 Priority Order
 
@@ -92,7 +88,7 @@ No urgent items currently tracked.
 ## ✅ Completed Milestones
 
 - **v0.36.2 — XC-1 Fail-Closed Correctness Hardening**
-  (release-ready 2026-07-20): preserved corrupt device-local sync state instead
+  (shipped 2026-07-20, PR #90 merged): preserved corrupt device-local sync state instead
   of regenerating identity, surfaced peer/conflict/archive failures, made
   tombstone deletion transactional, and prevented existing invalid KRS files
   from widening query scope or persisting curation plans. Backend 1268-test,
@@ -266,10 +262,6 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: System Stability Overhaul ACTIVE; v0.36.2 PR #90 is in
-  final review hardening on `release/v0.36.2`.
-- **Active Milestone**: exhaustive correctness, error-boundary, and docs↔code
-  parity hardening under `.agents/plans/01_system_stability_overhaul.md`.
-- **Next actionable item**: merge PR #90, then start the highest-priority
-  remaining schema-contract plan for composite-primary-key tombstones from a
-  fresh branch off updated `master`.
+- **Roadmap state**: System Stability Overhaul ACTIVE; v0.36.2 PR #90 is merged.
+- **Active Milestone**: None (System IDLE)
+- **Next actionable item**: Start the highest-priority remaining schema-contract plan for composite-primary-key tombstones from a fresh branch off updated `master`.
