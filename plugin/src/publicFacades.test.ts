@@ -99,6 +99,12 @@ describe("stable plugin public facades", () => {
     ]));
   });
 
+  it("delegates ChatSidebarView implementation to the ui/chat owner", () => {
+    const source = sourceText("ui/chatSidebar.ts");
+    expect(source).toContain('export * from "./chat/ChatSidebarView";');
+    expect(source).not.toContain("class ChatSidebarView");
+  });
+
   it("keeps external-PDF exports available from ui/externalPdfView", () => {
     const names = exportedNames("ui/externalPdfView.ts");
     expect([...names]).toEqual(expect.arrayContaining([

@@ -9,13 +9,13 @@ import { join } from "path";
 // in textUtils.test.ts (stampMathSourceData) and mathSource.test.ts.
 
 const src = readFileSync(
-  fileURLToPath(new URL("./chatSidebar.ts", import.meta.url)),
+  fileURLToPath(new URL("./chat/ChatSidebarView.ts", import.meta.url)),
   "utf8"
 );
 
-describe("chat-sidebar LaTeX source stamping wiring (chatSidebar.ts)", () => {
+describe("chat-sidebar LaTeX source stamping wiring (ChatSidebarView.ts)", () => {
   it("imports the shared stamping helper", () => {
-    expect(src).toMatch(/import\s*\{[^}]*\bstampMathSourceData\b[^}]*\}\s*from\s*"\.\.\/utils\/textUtils"/);
+    expect(src).toMatch(/import\s*\{[^}]*\bstampMathSourceData\b[^}]*\}\s*from\s*"\.\.\/\.\.\/utils\/textUtils"/);
   });
 
   it("stamps each assistant render with its exact source after the render resolves", () => {

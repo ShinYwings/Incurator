@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 describe("chat sidebar context chip source contract", () => {
   it("resets model effort through the shared catalogue normalizer", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
 
     expect(source).toContain("normalizePluginModelEffort(");
     expect(source).toContain("this.plugin.settings, catalogue, persist");
@@ -14,7 +14,7 @@ describe("chat sidebar context chip source contract", () => {
 
   it("lets pending purple chips remove to zero and exposes eye toggles", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
 
     expect(source).toContain("this.pendingContextRefs.splice(i, 1)");
     expect(source).not.toContain("this.pendingContextRefs.length <= 2");
@@ -28,19 +28,19 @@ describe("chat sidebar context chip source contract", () => {
 
   it("appends the recency anchor to the latest user turn for attention against context decay (v0.19.0)", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
 
     // The anchor is built from the shared registry with the sidechat profile and
     // gated on the latest turn's primary-selection state. Appended to the last
     // user message so it sits at the strongest-attention recency position.
-    expect(source).toContain('import { buildRecencyAnchor, SIDECHAT_PROFILE } from "../context/promptRegistry"');
+    expect(source).toContain('import { buildRecencyAnchor, SIDECHAT_PROFILE } from "../../context/promptRegistry"');
     expect(source).toContain("buildRecencyAnchor(SIDECHAT_PROFILE, {");
     expect(source).toContain("hasPrimarySelection: lastUserHasPrimaryContext");
   });
 
   it("suppresses edit affordances for a localized question turn (v0.21.0)", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
 
     // The shared pure predicate gates both the editable-selection affordance and
     // the edit-review-loop contract on the same flag, so a primary-focus question
@@ -54,7 +54,7 @@ describe("chat sidebar context chip source contract", () => {
 
   it("recognizes bare SEARCH/REPLACE edits against whole-file Markdown context", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
 
     expect(source).toContain("getEditTargetContextForMessage");
     expect(source).toContain('ref.type === "file"');
@@ -72,7 +72,7 @@ describe("chat sidebar context chip source contract", () => {
 
   it("only binds a workspace when the active note is inside one (no first-curate fallback)", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
 
     // Must not default to the first curate.yml found in the vault.
     expect(source).not.toContain("let targetCurate = curateFiles[0]");
@@ -82,7 +82,7 @@ describe("chat sidebar context chip source contract", () => {
 
   it("injects full open Markdown files as edit targets for global similar replacements", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
 
     expect(source).toContain("isMarkdownEditRequest");
     expect(source).toContain("buildOpenMarkdownEditTargetContext");
@@ -94,7 +94,7 @@ describe("chat sidebar context chip source contract", () => {
 
   it("injects Markdown outlines as background structure for selected-context answers", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
 
     expect(source).toContain("buildMarkdownOutline");
     expect(source).toContain("<markdown_outlines>");
@@ -104,7 +104,7 @@ describe("chat sidebar context chip source contract", () => {
 
   it("auto-opens the diff once per message under a safe focus gate, not on history re-render", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
 
     // The on-disk artifact feature is fully removed (no writer / pill / setting).
     expect(source).not.toContain("maybeWriteEditArtifact");
@@ -122,7 +122,7 @@ describe("chat sidebar context chip source contract", () => {
 
   it("keeps the edit-loop contract as a hint, not a hard gate (v0.24.0 demotion)", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
 
     // Contract still appended (last) for any edit-likely turn, incl. multi-turn carry.
     expect(source).toContain("getEditLoopContract()");
@@ -145,7 +145,7 @@ describe("chat sidebar context chip source contract", () => {
 
   it("v0.14.1 Diff Viewer fixes: review serialization, path fallback, derived pill status", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
 
     // Bug 2: a single in-flight guard serializes diff-review opens.
     expect(source).toContain("private reviewInFlight = false;");
@@ -169,7 +169,7 @@ describe("chat sidebar context chip source contract", () => {
 
   it("does not yank the chat view to the bottom when generation completes", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
 
     // renderMessages preserves the reader's scroll position unless they were
     // already near the bottom (or a caller explicitly forces a bottom scroll).
@@ -184,7 +184,7 @@ describe("chat sidebar context chip source contract", () => {
 
   it("keys the source-status map by one canonical assetStatusKey (Plan G item 3)", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
     // A single refStatusKey()/assetStatusKey is used for read + write so the
     // badge never desyncs (e.g. Zotero PDF whose path resolves only after add).
     expect(source).toContain("private refStatusKey(ref: ContextRef): string");
@@ -197,7 +197,7 @@ describe("chat sidebar context chip source contract", () => {
 
   it("detects Zotero PDFs via durable ref identity, not UI leaves or `as any` (Plan G item 4)", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
     // Zotero identity is a durable property of the context ref, not inferred by
     // scanning open external-PDF leaves (which breaks when the tab is closed).
     expect(source).toContain("const isZoteroPdf = Boolean(ref.zoteroAttachmentKey);");
@@ -207,7 +207,7 @@ describe("chat sidebar context chip source contract", () => {
 
   it("shows an inert Added badge for built sources (PLUGIN_SCHEMA §4.1.1)", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
 
     // l1..l4_ready all collapse to the single "Added" label.
     expect(source).toContain('return "Added"');
@@ -222,7 +222,7 @@ describe("chat sidebar context chip source contract", () => {
 
   it("never registers a PDF as a passive provider-context side effect", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
     const providerContext = source.slice(
       source.indexOf("private async buildIncuratorProviderContext"),
       source.indexOf("private async timedContextCall")
@@ -238,7 +238,7 @@ describe("chat sidebar context chip source contract", () => {
 
   it("grounds default Incurator sidechat context with evidence packs, not backend answers", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
     const providerContext = source.slice(
       source.indexOf("private async buildIncuratorProviderContext"),
       source.indexOf("private async timedContextCall")
@@ -252,7 +252,7 @@ describe("chat sidebar context chip source contract", () => {
 
   it("handles Sources & Trace expansion and verification events through IncuratorClient", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
 
     expect(source).toContain("attachContextTraceActionHandlers");
     expect(source).toContain("handleContextTraceAction");
@@ -267,7 +267,7 @@ describe("chat sidebar context chip source contract", () => {
 
   it("records Sources & Trace feedback through IncuratorClient without mutating truth", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
 
     expect(source).toContain("context:feedback");
     expect(source).toContain("handleContextTraceFeedback");
@@ -277,7 +277,7 @@ describe("chat sidebar context chip source contract", () => {
 
   it("handles snapshot-conflict refetch from Sources & Trace", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
 
     expect(source).toContain("context:refetch");
     expect(source).toContain("handleContextTraceRefetch");
@@ -292,7 +292,7 @@ describe("chat sidebar context chip source contract", () => {
 
   it("preserves eye-off state across tab switches (active-leaf-change must not clear excluded keys)", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
 
     // The active-leaf-change handler must NOT clear activeContextExcludedKeys.
     // Previously this bug reset all eye-off state on every tab switch.
@@ -308,7 +308,7 @@ describe("chat sidebar context chip source contract", () => {
 
   it("allows distinct crop images from the same PDF page to coexist as separate context refs", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
 
     // addContextRef dedup must also compare imageBase64 so that two crops from
     // the same page (same label, different base64) are both accepted.
@@ -321,7 +321,7 @@ describe("chat sidebar context chip source contract", () => {
 
   it("marks an image-only primary context as primary focus (image crops must not be buried)", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
 
     // When a primary user ref has an image but no text (e.g. a scanned-PDF crop
     // or a dragged image), it must still emit a <primary_focus_selection> anchor
@@ -354,7 +354,7 @@ describe("chat sidebar context chip source contract", () => {
 
   it("materializeContextRefs routes crops by main-model vision (v0.28.0): direct image vs transcribe", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
 
     const materializeBlock = source.slice(
       source.indexOf("private async materializeContextRefs("),
@@ -379,7 +379,7 @@ describe("chat sidebar context chip source contract", () => {
 
   it("mainChatModelSupportsVision() resolves the main chat model via modelSupportsVision", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
     const start = source.indexOf("private mainChatModelSupportsVision(");
     expect(start).toBeGreaterThanOrEqual(0);
     const helper = source.slice(start, start + 320);
@@ -390,7 +390,7 @@ describe("chat sidebar context chip source contract", () => {
 
   it("handleSend renders the thinking indicator BEFORE the deferred crop materialize (no Send freeze)", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
 
     // The v0.27.9 pattern (materialize inside the pre-render contextRefs literal)
     // must be gone; the refs to send are snapshotted, then materialized later.
@@ -431,7 +431,7 @@ describe("chat sidebar context chip source contract", () => {
 
   it("wires the 'Save to 02_Wiki' promote action with the trace source_span_ids", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
 
     // The trace panel gets an onPromote callback bound to this answer's own trace
     // and message, not a mutable global trace reused across history.
@@ -453,7 +453,7 @@ describe("chat sidebar context chip source contract", () => {
 
   it("opens generated vault block links from assistant answers through Obsidian", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
 
     expect(source).toContain('link.getAttribute("data-href") ?? link.getAttribute("href")');
     expect(source).toContain('if (target.kind === "vault")');
@@ -462,7 +462,7 @@ describe("chat sidebar context chip source contract", () => {
 
   it("G14-1: deferred materialize AND buildLLMMessages are inside the try block so a context-build failure clears isStreaming (never stuck)", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
 
     // Both the deferred crop materialize (v0.28.0) and buildLLMMessages must sit
     // INSIDE the try block that catches streaming errors, so any context-build
@@ -487,7 +487,7 @@ describe("chat sidebar context chip source contract", () => {
 
   it("G14-2: renderAssistantMessage targets message by data-msg-id, not always the last bubble", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
 
     // renderMessage stamps data-msg-id only when msg.id is defined (never "undefined").
     expect(source).toContain("if (msg.id !== undefined) msgEl.dataset.msgId = msg.id");
