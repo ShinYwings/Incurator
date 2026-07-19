@@ -26,7 +26,7 @@ No urgent items currently tracked.
 
 ### 🚨 Immediate Next Release
 
-- **v0.36.2 XC-1 Fail-Closed Correctness Hardening** *(queued after PR #89)*:
+- **v0.36.2 XC-1 Fail-Closed Correctness Hardening** *(ACTIVE — plan awaiting approval)*:
   failure injection against the remaining backend broad catches confirmed four
   P0 paths that must be planned and fixed before lower-risk cleanup:
   - malformed/unreadable local sync state currently becomes `{}`, allowing a
@@ -37,7 +37,14 @@ No urgent items currently tracked.
     recorded for propagation;
   - malformed workspace `curate.yml` silently falls back to unrestricted default
     policy in both ContextService and QueryOrchestrator, bypassing source scope.
-  Plan and implement from updated `master` after v0.36.1 merges.
+  - Master Plan: `.agents/plans/02_fail_closed_correctness.md`
+  - Evidence: `.agents/plans/02_roadmap_evidence.md`
+  - Arena: `.agents/plans/fail_closed_correctness_arena/`
+  - Additional reproduced scope: a wrong-shaped `sources:` block silently
+    becomes an unrestricted policy and is included in the same fail-closed fix.
+  - Follow-up requiring a separate schema-contract plan: composite-primary-key
+    tombstones currently have no unambiguous `record_id` encoding and therefore
+    cannot safely delete the target row. Do not guess an encoding in v0.36.2.
 
 ### 🚀 Priority Order
 
