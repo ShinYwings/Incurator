@@ -227,7 +227,8 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: v0.35.0 RELEASE READY; PR publication in progress.
-- **Active Milestone**: finalize and publish `release/v0.35.0`.
+- **Roadmap state**: v0.35.0 PR #87 READY FOR REVIEW; all local and GitHub CI
+  gates passed.
+- **Active Milestone**: human review/merge of `release/v0.35.0`.
 - **Next actionable item**: after the v0.35.0 PR is merged, begin the approved
   v0.36.0 PL-1 plugin decomposition plan.

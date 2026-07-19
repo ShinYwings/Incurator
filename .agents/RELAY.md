@@ -1,4 +1,4 @@
-# RELAY - v0.35.0 Release Publication
+# RELAY - v0.35.0 PR Ready for Review
 
 ## Goal
 
@@ -35,8 +35,9 @@ Publish the completed Claude/Codex model-catalogue refresh from
 - [x] Gaussian Splatting testbed status/add/sync/lint and external Reference
   Mode no-copy validation passed.
 - [x] v0.35.0 manifest, lockfile, changelog, and four spec-title versions agree.
-- [ ] Delete completed v0.35 plan artifacts, create the final release commit,
-  push, and open the release PR.
+- [x] Completed v0.35 plan artifacts deleted and final release commit created.
+- [x] Draft PR #87 opened: https://github.com/ShinYwings/Incurator/pull/87
+- [x] GitHub Backend Tests, Plugin Tests, and Version Consistency passed.
 
 ## Critical Context / Blockers
 
@@ -47,5 +48,5 @@ Publish the completed Claude/Codex model-catalogue refresh from
 
 ## Immediate Next Action
 
-Commit the validation ledger/roadmap state, delete the completed v0.35 plan
-artifacts, create `chore(release): v0.35.0`, then push and open the PR.
+Human review and merge of PR #87. After merge, begin the approved v0.36.0 PL-1
+plugin decomposition milestone from `master` on a fresh release branch.
