@@ -31,7 +31,7 @@ import { CLIAuthResolver } from "./src/auth/cliAuth";
 import { LLMClient } from "./src/agent/llmClient";
 import { MCPManager } from "./src/agent/mcpClient";
 import { IncuratorClient } from "./src/agent/incuratorClient";
-import { SyncScheduler } from "./src/agent/syncScheduler";
+import { isIncomingPeerSnapshot, SyncScheduler } from "./src/agent/syncScheduler";
 import { ChatSidebarView, CHAT_VIEW_TYPE } from "./src/ui/chatSidebar";
 import {
   ExternalPdfView,
@@ -127,6 +127,7 @@ export default class ObsidianAIAgent extends Plugin {
   private ingestStatusBar: HTMLElement | null = null;
   private incuratorStatusBar: HTMLElement | null = null;
   private syncScheduler: SyncScheduler | null = null;
+  private lastExportedSyncFile: string | null = null;
   private syncWatcher: { close: () => void } | null = null;
   private syncStatusBar: HTMLElement | null = null;
   private settingsPersistPromise: Promise<void> = Promise.resolve();
@@ -2139,7 +2140,7 @@ export default class ObsidianAIAgent extends Plugin {
     try {
       if (fsmod.existsSync && !fsmod.existsSync(dir)) return;
       this.syncWatcher = fsmod.watch(dir, { persistent: false }, (_evt, filename) => {
-        if (!filename || !filename.endsWith(".jsonl")) return;
+        if (!isIncomingPeerSnapshot(filename, this.lastExportedSyncFile)) return;
         this.syncScheduler?.schedule();
       });
     } catch (e) {
@@ -2157,6 +2158,9 @@ export default class ObsidianAIAgent extends Plugin {
         this.syncStatusBar?.setText("⚠ Sync Failed");
         new Notice(`Auto-sync failed: ${res.error || "Unknown error"}. Check if Incurator Repo Path is set in settings.`);
         return;
+      }
+      if (res.exported) {
+        this.lastExportedSyncFile = res.exported;
       }
       const changes = (res.inserted ?? 0) + (res.updated ?? 0) + (res.deleted ?? 0);
       if (this.settings.autoSyncNotify !== false && changes > 0) {

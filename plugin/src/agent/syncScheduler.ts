@@ -8,6 +8,14 @@
  *  - two sync passes never overlap; a trigger arriving mid-run queues exactly one
  *    follow-up run.
  */
+export function isIncomingPeerSnapshot(
+  filename: string,
+  ownSnapshot: string | null
+): boolean {
+  if (!filename || !filename.endsWith(".jsonl")) return false;
+  return !ownSnapshot || filename !== ownSnapshot;
+}
+
 export class SyncScheduler {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private running = false;
