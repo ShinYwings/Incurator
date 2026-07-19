@@ -113,6 +113,10 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
 #### `curator_build_source`
 - **Role**: Trigger the deep L2 (Atoms) and L3 (Concepts) knowledge extraction for a registered source.
 - **Parameters**: `file_path` or `source_id`.
+- **Return**: A synchronous (`wait=true`) build returns `ok=false` if the ingest
+  pipeline produces no result for the requested source. If extraction succeeds
+  but the best-effort search refresh fails, `ok` remains true and `warnings`
+  describes the skipped refresh.
 
 #### `curator_add_all`
 - **Role**: Run `wiki add` across the workspace source directories, discovering new or changed raw files and ensuring structural registration (L1) is up to date.
@@ -195,6 +199,9 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
 
 #### `curator_add_knowledge`
 - **Role**: Promote a conversational insight or discussion to the human-verified Wiki space (`02_Wiki/`). This permanently captures valuable information from the chat into the project's durable Wiki.
+- **Return**: Successful promotion returns the `wiki_path` and `warnings`. A
+  search refresh failure is reported in `warnings` without discarding the
+  already-written Wiki page.
 
 #### `curator_update_node`
 - **Role**: Disabled non-mutating endpoint. Direct generated-node overwrites are not supported.
@@ -455,9 +462,16 @@ do not loop on the same impossible expansion.
 ### 3.8 Configuration Management
 
 #### `curator_get_provider_config`
-- **Role**: Retrieve the current LLM provider configuration.
+- **Role**: Retrieve the current LLM provider configuration and the packaged
+  model catalogue used by provider/model selectors.
 - **Parameters**: `workspace_path` (optional).
+- **Return**: `llm`, `models_json`, and `warnings`. `models_json` is loaded from
+  the installed `curator.data` package, so it remains available after source
+  modules are reorganized.
 
 #### `curator_set_provider_config`
 - **Role**: Update the LLM provider configuration dynamically.
-- **Parameters**: `provider` (e.g., 'claude', 'antigravity'), `model`, `api_key` (optional), `workspace_path` (optional).
+- **Parameters**: `primary` (backend key such as `claude-code`, `codex-cli`,
+  `antigravity-cli`, `deepseek-api`, or `ollama`), `model`, `host`,
+  `api_key_env`, `api_key`, `base_url`, and `workspace_path` (all except
+  `primary` optional).

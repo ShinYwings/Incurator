@@ -323,6 +323,12 @@ database is temporarily unavailable, the MCP tool must keep the L1 registration
 successful and report the skipped refresh in `warnings`; unexpected refresh
 exceptions remain visible as tool failures.
 
+For synchronous `curator_build_source`, an absent per-source ingest result is a
+failure rather than a successful empty build. After a successful build, and
+after `curator_add_knowledge` has durably written a Wiki page, a failed
+best-effort search refresh is returned in `warnings` without rolling back the
+completed primary operation.
+
 ## 5. Instant L1 Generation
 
 The backend parser must generate a CTX with:
