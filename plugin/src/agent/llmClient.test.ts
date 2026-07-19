@@ -9,10 +9,9 @@ import {
   sanitizeOpenAIMessages,
   normalizeOpenAIContent,
   shouldInjectMcpTools,
-  LLMClient,
-  ADAPTERS,
   mapOpenAIFinishReason,
-} from "./llmClient";
+} from "./llm/messageUtils";
+import { LLMClient, ADAPTERS } from "./llmClient";
 import { DEFAULT_SETTINGS } from "../types";
 import type { LLMMessage, PluginSettings } from "../types";
 

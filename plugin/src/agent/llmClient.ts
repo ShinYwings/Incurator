@@ -26,63 +26,28 @@ import type {
   ProviderUsage,
 } from "../types";
 import type { ToolPolicy } from "../context/promptRegistry";
-
-// ─── MCP tool injection policy ──────────────────────────────────
-
-/**
- * The single decision for whether `streamChat` injects MCP tools into a request.
- * `toolPolicy: "none"` (ephemeral surfaces like the Quick Query popover) and the
- * existing no-tools conditions (CLI providers, absent MCP manager) all resolve
- * here so the tool-free paths can never diverge. Pure for unit testing.
- */
-export function shouldInjectMcpTools(
-  toolPolicy: ToolPolicy,
-  hasMcpManager: boolean,
-  useCli: boolean
-): boolean {
-  if (toolPolicy === "none") return false;
-  if (useCli) return false;
-  return hasMcpManager;
-}
-
-// ─── Message sanitization (OpenAI-compatible providers) ─────────
-
-function messageHasContent(content: string | LLMContentPart[]): boolean {
-  if (typeof content === "string") return content.trim().length > 0;
-  return Array.isArray(content) && content.length > 0;
-}
-
-/**
- * OpenAI/DeepSeek/Ollama reject an assistant message that has neither content
- * nor tool_calls ("Invalid assistant message: content or tool_calls is
- * required"). Such degenerate turns can linger in chat history after an
- * aborted/empty response or a reset, and then fail every subsequent request
- * with a 400. Drop them before building the request body. Assistant turns that
- * carry tool_calls are kept even with empty content (that is a valid tool turn).
- */
-export function sanitizeOpenAIMessages(messages: LLMMessage[]): LLMMessage[] {
-  return messages.filter((m) => {
-    if (m.role !== "assistant") return true;
-    const hasTools = Array.isArray(m.tool_calls) && m.tool_calls.length > 0;
-    return messageHasContent(m.content) || hasTools;
-  });
-}
-
-/**
- * Produce the `content` field for an OpenAI-compatible message. DeepSeek (and
- * some Ollama models) reject `content: null` on assistant/tool turns — e.g. an
- * assistant turn that only carries tool_calls during the MCP tool loop fails
- * with a 400 "Invalid assistant message: content or tool_calls". Emit an empty
- * string instead of null for assistant/tool roles so those turns stay valid.
- */
-export function normalizeOpenAIContent(
-  message: LLMMessage,
-  toContent: (content: string | LLMContentPart[]) => string | Array<Record<string, unknown>>
-): string | Array<Record<string, unknown>> | null {
-  if (messageHasContent(message.content)) return toContent(message.content);
-  if (message.role === "assistant" || message.role === "tool") return "";
-  return null;
-}
+import {
+  extractAntigravityAnswerFromStderr,
+  formatMcpToolResultForDisplay,
+  formatQuotaErrorMessage,
+  isAntigravityStatusLine,
+  isQuotaErrorMessage,
+  mapOpenAIFinishReason,
+  normalizeOpenAIContent,
+  sanitizeOpenAIMessages,
+  shouldInjectMcpTools,
+} from "./llm/messageUtils";
+export {
+  extractAntigravityAnswerFromStderr,
+  formatMcpToolResultForDisplay,
+  formatQuotaErrorMessage,
+  isAntigravityStatusLine,
+  isQuotaErrorMessage,
+  mapOpenAIFinishReason,
+  normalizeOpenAIContent,
+  sanitizeOpenAIMessages,
+  shouldInjectMcpTools,
+} from "./llm/messageUtils";
 
 // ─── Provider-specific request builders ─────────────────────────
 
@@ -96,26 +61,6 @@ interface ProviderAdapter {
   ): Record<string, unknown>;
   parseStreamChunk(raw: string): StreamChunk | null;
   parseFullResponse(json: unknown): string;
-}
-
-/**
- * Map an OpenAI-compatible `finish_reason` (shared by OpenAI, DeepSeek, Ollama)
- * to the normalized StreamChunk terminal fields. `length` = output-token cap →
- * `truncated` so the chat layer can auto-continue; `stop`/`tool_calls` end the
- * stream cleanly; anything else (e.g. `content_filter`) terminates without a
- * truncation recovery.
- */
-export function mapOpenAIFinishReason(
-  finish_reason: string | null | undefined
-): Pick<StreamChunk, "done" | "finishReason" | "truncated"> {
-  if (finish_reason === "length") return { done: true, finishReason: "length", truncated: true };
-  if (finish_reason === "stop") return { done: true, finishReason: "stop" };
-  if (finish_reason === "tool_calls") return { done: true, finishReason: "tool_calls" };
-  if (finish_reason === "content_filter") return { done: true, finishReason: "content_filter" };
-  // Any other truthy finish_reason (custom/legacy provider value) still means the
-  // stream has terminated — end it rather than hang waiting for a `[DONE]`.
-  if (finish_reason) return { done: true, finishReason: "stop" };
-  return { done: false };
 }
 
 // ─── Base Adapter (shared SSE envelope + default headers) ────────
@@ -473,83 +418,6 @@ export const ADAPTERS: Record<LLMProvider, ProviderAdapter> = {
   ollama: new OllamaAdapter("http://localhost:11434"), // host updated at runtime
   deepseek: new DeepSeekAdapter(),
 };
-
-export function isQuotaErrorMessage(message: string): boolean {
-  const value = message.toLowerCase();
-  return (
-    value.includes("429") ||
-    value.includes("quota") ||
-    value.includes("capacity") ||
-    value.includes("resource_exhausted") ||
-    value.includes("rate limit") ||
-    value.includes("rate_limit") ||
-    value.includes("insufficient balance") ||
-    value.includes("insufficient_quota")
-  );
-}
-
-export function formatQuotaErrorMessage(provider: LLMProvider, message: string): string {
-  const label = provider === "openai" ? "Codex/OpenAI" : provider;
-  return (
-    `${label} quota or capacity is currently unavailable.\n\n` +
-    `${message.slice(0, 700)}\n\n` +
-    "Switch provider/model, configure a fallback, or retry after quota resets."
-  );
-}
-
-export function formatMcpToolResultForDisplay(toolName: string, raw: string): string {
-  if (!toolName.includes("curator_query")) {
-    return raw.length > 600 ? raw.slice(0, 600) + "\n…" : raw;
-  }
-  try {
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") {
-      return raw.length > 600 ? raw.slice(0, 600) + "\n…" : raw;
-    }
-    const compact = {
-      ok: parsed.ok,
-      question: parsed.question,
-      route: parsed.route,
-      trace_id: parsed.trace_id,
-      fallback: parsed.fallback,
-      error: parsed.error,
-      trace: parsed.trace,
-    };
-    return JSON.stringify(compact, null, 2);
-  } catch {
-    return raw.length > 600 ? raw.slice(0, 600) + "\n…" : raw;
-  }
-}
-
-function stripAnsi(text: string): string {
-  return text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
-}
-
-export function isAntigravityStatusLine(line: string): boolean {
-  const value = stripAnsi(line).trim();
-  if (!value) return true;
-  if (/^[⠁-⣿◐◓◑◒|/\\\-]+\s*$/.test(value)) return true;
-  if (/^[-–—•*]?\s*(thinking|processing|generating|starting|loading|initializing|connecting|authenticating|requesting|waiting)\b/i.test(value)) {
-    return true;
-  }
-  if (/^[-–—•*]?\s*(mcp servers? available|using tool|running tool|calling tool|tool use|tool result)\b/i.test(value)) {
-    return true;
-  }
-  if (/^[-–—•*]?\s*(antigravity|gemini)\b.*\b(generating|thinking|processing)\b/i.test(value)) {
-    return true;
-  }
-  return false;
-}
-
-export function extractAntigravityAnswerFromStderr(stderr: string): string {
-  return stderr
-    .replace(/\r/g, "\n")
-    .split("\n")
-    .map((line) => stripAnsi(line).trim())
-    .filter((line) => line && !isAntigravityStatusLine(line))
-    .join("\n")
-    .trim();
-}
 
 const execFileAsync = promisify(execFile);
 const CLI_TIMEOUT_MS = 5 * 60 * 1000;
