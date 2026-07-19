@@ -1,7 +1,7 @@
 # v0.36.2 Evidence Ledger
 
-Date: 2026-07-19
-Status: PRE-IMPLEMENTATION BASELINE
+Date: 2026-07-20
+Status: POST-IMPLEMENTATION — release gates complete with one external LLM blocker
 
 ## 1. Rollback And Repository Reality
 
@@ -87,11 +87,27 @@ scope-bypass paths.
 
 ## 7. Post-Change Evidence Slots
 
-- [ ] Failing TDD tests captured before logic changes.
-- [ ] Sync fail-closed focused tests pass.
-- [ ] Policy fail-closed focused tests pass.
-- [ ] Backend pytest/Ruff/Mypy pass.
-- [ ] Plugin Vitest/TypeScript/build pass.
-- [ ] `gaussian_splatting` testbed smoke passes.
-- [ ] Consecutive real autosync + dry-run is quiescent.
-- [ ] Version/spec consistency passes for v0.36.2.
+- [x] Failing TDD run captured before logic changes: 26 expected failures and
+  125 passes in 406.49s; every failure mapped to a reproduced false-success path.
+- [x] Sync fail-closed focused tests pass: 56 backend tests; plugin client tests
+  pass: 33.
+- [x] Policy/state focused suites pass: 86; QueryOrchestrator passes: 14; public
+  query, MCP validation/planning, and hidden plugin planning regressions pass.
+- [x] Full backend: 1259 passed, 6 skipped, 5 xfailed in 583.61s. Ruff passes;
+  Mypy reports no issues in 125 source files.
+- [x] Plugin: 66 files / 689 tests pass; TypeScript no-emit and production build
+  pass.
+- [x] `gaussian_splatting`: status runs, reindex builds 750 documents/chunks,
+  incremental sync completes, and final lint is 100/100 over 12 pages.
+- [x] Testbed Reference Mode remains external: source id 6 retains
+  `is_reference=1`, `import_policy=reference`, the same content hash, and
+  `@testbed_zotero/Zwicker et al. - 2002 - EWA splatting.pdf`; only the Markdown
+  reference stub exists in the vault.
+- [x] Real autosync converges; two consecutive dry-runs report zero imports,
+  zero conflicts, and `would_export=false`.
+- [x] v0.36.2 manifest/spec/docs consistency passes: 16 tests; production build
+  reports package 0.36.2.
+- [ ] External LLM answer synthesis: KRS loading, retrieval, and LLM startup
+  succeeded, but Antigravity CLI returned no output during JSON repair. The
+  exact external blocker is documented, and the newly observed traceback UX bug
+  is queued in ROADMAP rather than folded into this patch.

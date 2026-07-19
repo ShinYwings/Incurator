@@ -26,7 +26,7 @@ No urgent items currently tracked.
 
 ### 🚨 Immediate Next Release
 
-- **v0.36.2 XC-1 Fail-Closed Correctness Hardening** *(ACTIVE — plan awaiting approval)*:
+- **v0.36.2 XC-1 Fail-Closed Correctness Hardening** *(ACTIVE — implementation complete, validating)*:
   failure injection against the remaining backend broad catches confirmed four
   P0 paths that must be planned and fixed before lower-risk cleanup:
   - malformed/unreadable local sync state currently becomes `{}`, allowing a
@@ -64,27 +64,35 @@ No urgent items currently tracked.
        silent-swallow slice lands.
      - **Performance & UX Refinements**: RAG/DAG benchmark harness & retrieval hotspot optimization; chat/popover UX friction cleanup.
 
-2. **[Validation] `[[wikilink]]` Architecture Validation**
+2. **[Bug] Query Provider Failure UX**
+   - A real Gaussian Splatting testbed query reached retrieval successfully, but
+     Antigravity CLI returned no output during JSON repair and `wiki query`
+     exposed a full Rich traceback instead of a concise provider-error message.
+   - Plan a typed query/provider boundary that preserves failed prompt traces,
+     exits non-zero, and reports actionable CLI/MCP/plugin errors without hiding
+     the original provider failure.
+
+3. **[Validation] `[[wikilink]]` Architecture Validation**
    - Core entities in the backend pipeline documents are not explicitly marked with `[[wikilink]]`.
    - Validate `backend/src/curator/page_writer.py` and `sync.py` backlink parsing logic against `[[wikilink]]` syntax.
    - Detailed analysis: `.agents/drafts/minor_quick_wins.md` (Wikilink section)
 
-3. **[Minor Update] Chat Session Context Compaction**
+4. **[Minor Update] Chat Session Context Compaction**
    - Confirm full-session history behavior.
    - Add a Claude-Code-style circular token usage meter under the query box and a click-to-compact action.
    - Detailed analysis: `.agents/drafts/chat_context_compaction.md`
 
-4. **[Minor Update] Vault Storage Governance & Quota Visibility**
+5. **[Minor Update] Vault Storage Governance & Quota Visibility**
    - Separate authoritative, derived, cache, and external storage accounting.
    - Add capacity guidance, safe admission control, and CLI/plugin visibility.
    - Detailed analysis: `.agents/drafts/vault_storage_governance.md`
 
-5. **[Major Update] Native PDF Annotation & Asset System**
+6. **[Major Update] Native PDF Annotation & Asset System**
    - Native annotation highlight/memo synchronization using Obsidian's built-in PDF viewer.
    - In-PDF full-text search and strict-spelling mode remain here.
    - Detailed analysis: `.agents/drafts/pdf_annotation_system.md`
 
-6. **[Minor Update] Web Search Integration**
+7. **[Minor Update] Web Search Integration**
    - Design and integrate web search capabilities for local models (Ollama, Deepseek, etc.).
    - Investigate API options (Brave, SerpAPI) and implement `web_search.py`.
    - Detailed analysis: `.agents/drafts/minor_quick_wins.md` (Web Search Section)
