@@ -46,7 +46,11 @@ parity, and reproducible failure handling take priority over refactoring volume.
   Evidence Ledger, and Master Plan.
 - [x] User approved the v0.36.2 Master Plan on 2026-07-20.
 - [x] P1 docs/spec contracts updated (English first, then Korean pairs).
-- [ ] P2 fail-closed regression tests in progress.
+- [x] P2 regression tests added; pre-fix run produced the expected 26 failures
+  with 125 passes, all on the reproduced false-success paths.
+- [x] P3 sync fail-closed implementation complete; focused backend tests pass
+  (56) and the plugin client suite passes (33).
+- [ ] P4 shared validated curation-policy boundary in progress.
 
 ## Critical Context / Blockers
 
@@ -59,5 +63,5 @@ parity, and reproducible failure handling take priority over refactoring volume.
 
 ## Immediate Next Action
 
-Write and run P2 failing tests, then implement P3/P4 and complete full/testbed
-validation.
+Implement and validate P4 curation-policy integrity, then complete full CI and
+testbed validation.

@@ -104,10 +104,17 @@ def db_autosync(
 ) -> None:
     """Bidirectional cross-device sync: import peers (+ merge conflict files), then
     export this device's snapshot if anything changed (one-writer-per-file)."""
-    from curator.db_sync import autosync
+    from curator.db_sync import SyncError, autosync
 
     paths = _resolve_root_or_die()
-    res = autosync(paths.internal, paths.state_db, dry_run=dry_run)
+    try:
+        res = autosync(paths.internal, paths.state_db, dry_run=dry_run)
+    except SyncError as exc:
+        if json_output:
+            _print_json({"ok": False, "error": str(exc)})
+        else:
+            console.print(f"[red]Auto-sync failed:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
 
     total = sum(
         s.inserted + s.updated + s.deleted for s in res.imported.values()
@@ -145,4 +152,3 @@ def db_autosync(
     if not dry_run and not skip_reindex and total:
         console.print("[dim]Running wiki reindex…[/dim]")
         _refresh_search_index(paths)
-
