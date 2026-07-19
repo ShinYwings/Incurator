@@ -128,7 +128,10 @@ export default class ObsidianAIAgent extends Plugin {
   private incuratorStatusBar: HTMLElement | null = null;
   private syncScheduler: SyncScheduler | null = null;
   private lastExportedSyncFile: string | null = null;
-  private syncWatcher: { close: () => void } | null = null;
+  private syncWatcher: {
+    close: () => void;
+    on?: (event: "error", listener: (err: unknown) => void) => unknown;
+  } | null = null;
   private syncStatusBar: HTMLElement | null = null;
   private settingsPersistPromise: Promise<void> = Promise.resolve();
   private zoteroProfilesPersistPromise: Promise<void> = Promise.resolve();
@@ -2128,7 +2131,10 @@ export default class ObsidianAIAgent extends Plugin {
             p: string,
             opts: { persistent: boolean },
             cb: (evt: string, filename: string) => void
-          ) => { close: () => void };
+          ) => {
+            close: () => void;
+            on?: (event: "error", listener: (err: unknown) => void) => unknown;
+          };
           existsSync?: (p: string) => boolean;
         }
       | undefined;
@@ -2142,6 +2148,9 @@ export default class ObsidianAIAgent extends Plugin {
       this.syncWatcher = fsmod.watch(dir, { persistent: false }, (_evt, filename) => {
         if (!isIncomingPeerSnapshot(filename, this.lastExportedSyncFile)) return;
         this.syncScheduler?.schedule();
+      });
+      this.syncWatcher?.on?.("error", (err) => {
+        logger.warn("sync watcher error:", err);
       });
     } catch (e) {
       logger.warn("sync watcher unavailable:", e);

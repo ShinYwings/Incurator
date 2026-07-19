@@ -363,14 +363,14 @@ def import_knowledge(
                 if table in existing_tables
             }
             table_columns = {
-                table: {str(col[1]) for col in columns}
+                table: {str(col["name"]) for col in columns}
                 for table, columns in table_info.items()
             }
             table_primary_keys = {
                 table: [
-                    str(col[1])
-                    for col in sorted(columns, key=lambda col: int(col[5]))
-                    if int(col[5]) > 0
+                    str(col["name"])
+                    for col in sorted(columns, key=lambda col: int(col["pk"]))
+                    if int(col["pk"]) > 0
                 ]
                 for table, columns in table_info.items()
             }
