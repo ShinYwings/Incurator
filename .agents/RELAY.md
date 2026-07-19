@@ -35,17 +35,24 @@ envelopes and intended best-effort behavior.
 - [x] Authored Arena, domain analyses, evidence ledger, and master plan.
 - [x] User approved implementation and explicitly prioritized finding/fixing
   actual behavior bugs alongside exception cleanup.
-- [ ] P0: add failing silent-handler policy test and classify failure behavior.
-- [ ] P1-P4: docs-first TDD hardening across commands, MCP, and plugin API.
+- [x] Added the silent-handler policy test; all 28 findings are resolved.
+- [x] Fixed empty-build false success, missing degraded-index warnings, and the
+  broken packaged model-catalogue path.
+- [x] Hardened command, MCP, and plugin API fallback/cleanup boundaries.
+- [x] Synchronized the English/Korean MCP guide and static behavior spec,
+  including a pre-existing provider-parameter and runtime-path mismatch.
+- [x] Full backend, plugin, static, build, testbed, and autosync gates passed.
+- [ ] Push `release/v0.36.1`, open the PR, and verify remote checks.
 
 ## Critical Context / Blockers
 
-- No implementation blocker.
-- Stop if a proposed narrowing changes a public error envelope, stdio protocol,
-  persistence/schema contract, or converts an intended non-fatal fallback into a
-  fatal path.
+- No implementation or validation blocker.
+- Full backend: 1225 passed, 6 skipped, 5 xfailed.
+- Plugin: 688 passed; TypeScript and production build passed.
+- Testbed autosync ran twice with zero imported/updated/deleted rows on both
+  passes, so the Knowledge Sync loop regression did not recur.
 
 ## Immediate Next Action
 
-Add the P0 policy test, verify the current 28-site failure, then update the
-behavior contract and implement each component TDD-first.
+Commit release metadata and evidence, delete implemented plan artifacts, push
+the branch, open the v0.36.1 PR, and verify remote checks.

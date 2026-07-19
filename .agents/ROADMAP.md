@@ -26,10 +26,7 @@ No urgent items currently tracked.
 
 ### 🚨 Immediate Next Release
 
-- **v0.36.1 XC-1 Silent Exception Hardening**: planning active on
-  `release/v0.36.1`. Scope is limited to silent internal broad-exception
-  fallbacks in `commands/`, `mcp/`, and `plugin_api/`; public boundary error
-  envelopes remain intact.
+No release is currently active after the v0.36.1 PR handoff.
 
 ### 🚀 Priority Order
 
@@ -40,11 +37,7 @@ No urgent items currently tracked.
    - Master Plan: `.agents/plans/01_system_stability_overhaul.md`
    - Briefing: `.agents/plans/system_stability_overhaul_arena/00_problem.md`
    - Delivered as a chain of incremental release PRs (starting from v0.34.0+).
-   - **Shipped stability & hardening releases (v0.25.0 → v0.34.0)**: diagnosis G17–G19, XC-1/XC-4 robustness slices, DB-2 slices 1–2, CLI/MCP warning visibility, portable paths v0.29–v0.32, cross-device LWW sync v0.30, strict v12 schema/reindex speedup v0.33.0, and CM-1 command module decomposition v0.34.0.
-   - **Current (v0.36.1)**:
-     - **Exception Handling Hardening (XC-1 silent-swallow slice)**: classify,
-       narrow, or make observable silent internal exception fallbacks in the
-       decomposed CLI/MCP/plugin API packages without changing boundary envelopes.
+   - **Shipped stability & hardening releases (v0.25.0 → v0.36.1)**: diagnosis G17–G19, XC-1/XC-4 robustness slices, DB-2 slices 1–2, CLI/MCP warning visibility, portable paths v0.29–v0.32, cross-device LWW sync v0.30, strict v12 schema/reindex speedup v0.33.0, CM-1 command module decomposition v0.34.0, and silent exception/false-success hardening v0.36.1.
    - **Remaining Scope for Upcoming Releases**:
      - **Exception Handling Hardening (XC-1 later slices)**: audit broad
        catch-and-return boundary handlers and other backend modules after the
@@ -80,6 +73,13 @@ No urgent items currently tracked.
 
 ## ✅ Completed Milestones
 
+- **v0.36.1 — XC-1 Silent Exception And False-Success Hardening**
+  (release-ready 2026-07-19): eliminated 28 silent broad handlers across the
+  decomposed CLI/MCP/plugin API packages; fixed empty-build false success,
+  surfaced degraded search refreshes, restored packaged provider model loading,
+  and reconciled MCP/runtime snapshot documentation. Backend 1225-test, plugin
+  688-test, static-analysis, build, Gaussian Splatting, and consecutive
+  zero-change autosync gates passed.
 - **v0.36.0 — PL-1 Plugin God-file Decomposition** (release-ready 2026-07-19):
   moved the chat sidebar, LLM client, and external PDF view implementations into
   dedicated internal packages while preserving stable public facades, class and

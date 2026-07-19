@@ -53,3 +53,39 @@ a valid target. Public CLI/MCP/plugin catch-and-envelope handlers are excluded.
 - v0.36.0 merge CI was green: Backend Tests, Plugin Tests, Version Consistency.
 - No schema or data migration is planned.
 - Active testbed scenario remains `gaussian_splatting`.
+
+## Confirmed Behavior Defects And Repairs
+
+- `curator_build_source(wait=True)` returned `ok=true` when the ingest pipeline
+  returned no result for the requested source. It now returns `ok=false` with a
+  named error.
+- Successful source builds and `curator_add_knowledge` silently discarded
+  follow-up search-index failures. They now preserve the completed primary
+  operation and return the degradation in `warnings`.
+- `curator_get_provider_config` still resolved `data/models.json` relative to
+  the pre-CM-1 MCP module location, so the current Claude/Codex catalogue was
+  always empty. It now loads `curator.data/models.json` as a package resource.
+- The MCP guide documented a nonexistent `provider` argument for
+  `curator_set_provider_config`; it now documents the actual `primary`, model,
+  host, secret, base URL, and workspace parameters.
+- The runtime snapshot spec allowed absolute machine paths while the guides,
+  implementation, and tests forbid them. The spec now records the portable,
+  path-sanitized contract.
+
+## Post-Implementation Validation
+
+- Silent broad-handler policy: 28 pre-existing findings reduced to zero.
+- Focused command/MCP/plugin API regression group: 81 passed.
+- Full backend: 1225 passed, 6 skipped, 5 xfailed.
+- Ruff: passed.
+- Mypy: passed for 125 source files.
+- Plugin Vitest: 66 files / 688 tests passed.
+- Plugin TypeScript `--noEmit`: passed.
+- Plugin production build: passed.
+- Version/spec consistency group: 42 passed.
+- `gaussian_splatting` testbed: `status`, `add`, `sync`, and `lint` passed;
+  lint health was 100/100 with zero findings. The external Zotero Reference Mode
+  row remained portable and resolvable without copying its external source.
+- Knowledge Sync regression: two consecutive `wiki db autosync --skip-reindex`
+  runs each reported `+0 inserted, ~0 updated, 0 deleted from 0 peer file(s)`;
+  no repeated export/import loop was triggered.
