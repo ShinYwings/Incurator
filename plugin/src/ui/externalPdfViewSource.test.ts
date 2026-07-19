@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const source = readFileSync(join(__dirname, "externalPdfView.ts"), "utf-8");
+const source = readFileSync(join(__dirname, "pdf", "ExternalPdfView.ts"), "utf-8");
 
 describe("ExternalPdfView device-portable restore contract", () => {
   it("re-resolves Zotero-backed restored views through backend key lookup", () => {
@@ -39,5 +39,11 @@ describe("ExternalPdfView scroll performance", () => {
 
   it("cancels pending scroll frames on close", () => {
     expect(source).toContain("cancelAnimationFrame(this.scrollFrame)");
+  });
+
+  it("invalidates in-flight PDF renders as soon as the view closes", () => {
+    expect(source).toMatch(
+      /async onClose\(\): Promise<void> \{\s*this\.renderToken\+\+;\s*this\.clearTimers\(\);/
+    );
   });
 });

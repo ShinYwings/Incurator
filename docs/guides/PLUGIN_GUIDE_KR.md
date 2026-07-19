@@ -942,9 +942,15 @@ Obsidian plugin은 시작 시와 설정 저장 후에 Syncthing이 공유 중인
 
 자세한 동기화 설정은 [SYNC_IGNORE_GUIDE_KR.md](SYNC_IGNORE_GUIDE_KR.md)를 참조하세요.
 
-### 외부 PDF 재시작 제한
+### 외부 PDF 재시작 동작
 
-ExternalPdfView에 드래그한 PDF는 Obsidian이 실행 중인 동안만 파일 객체(File)가 메모리에 유지됩니다. Obsidian 재시작 후에는 캡처된 절대 경로(`doc.path`)로만 접근하므로, 파일이 이동·삭제된 경우 PDF를 다시 드래그해야 합니다.
+열린 외부 PDF의 해석된 절대 경로는 메모리에만 유지됩니다. 플러그인, view,
+session의 영속 상태는 기기별 절대 경로를 durable identity로 사용하지 않습니다.
+Zotero 기반 탭은 `zoteroAttachmentKey`를 저장하고 재시작 후 현재 기기의
+backend/Zotero 설정으로 다시 해석합니다. 일반 외부 탭은 기기별 named root 아래의
+portable `externalRef`를 저장합니다. 현재 기기에 해당 named root가 설정되지 않았거나
+참조 파일이 root 밖으로 이동했다면 root 또는 reference를 복구할 때까지 탭에서 파일을
+다시 열 수 없습니다. 플러그인은 동기화된 절대 `doc.path`로 fallback하지 않습니다.
 
 ---
 

@@ -1074,6 +1074,17 @@ unavailable; `wiki devices` inspects the current registry.
 
 See [SYNC_IGNORE_GUIDE.md](SYNC_IGNORE_GUIDE.md) for the full synchronization setup.
 
+### External PDF restart behavior
+
+An open external PDF keeps its resolved absolute path only in memory. Persisted
+plugin/view/session state does not use that device-specific path as durable
+identity. Zotero-backed tabs persist `zoteroAttachmentKey` and resolve it through
+the current device's backend/Zotero configuration after restart; generic
+external tabs persist a portable `externalRef` under a machine-local named root.
+If the current device has not configured that named root, or the referenced file
+was moved outside it, the tab cannot reopen the file until the root or reference
+is repaired. The plugin does not fall back to a synced absolute `doc.path`.
+
 ---
 
 ## 11. Zotero Integration

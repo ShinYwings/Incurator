@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.35.0)
+# Incurator Plugin Schema & API Contract (v0.36.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -220,6 +220,37 @@ The plugin keeps it outside persistable DTOs.
 The plugin must not direct users to a backend path-migration command. Backend
 source identity is assumed to use the current Zotero-key or named-root contract;
 unsupported legacy device-local DB recovery is outside the plugin UI.
+
+### 1.3 Internal module ownership and stable facades (v0.36.0)
+
+The plugin may decompose large implementation files behind stable TypeScript
+facades. The following import paths and their current public exports remain
+compatible for the entrypoint, plugin consumers, and tests:
+
+- `src/agent/llmClient.ts` — facade for `src/agent/llm/`
+- `src/ui/chatSidebar.ts` — facade for `src/ui/chat/`
+- `src/ui/externalPdfView.ts` — facade for `src/ui/pdf/`
+
+Implementation behavior belongs in the owner directories. A facade may declare
+stable constants/types or re-export owned symbols, but must not retain duplicate
+or inert implementation text merely to satisfy a source-string test. Tests for
+sandboxing, provider commands, PDF state, rendering, and chat orchestration must
+inspect or import the module that actually owns that behavior. `plugin/main.ts`
+remains the Obsidian lifecycle entrypoint and may consume either the stable
+facades or explicit owner modules without changing command IDs, view types,
+settings fields, persisted DTOs, or backend command envelopes.
+
+### 1.4 Asynchronous lifecycle safety (v0.36.0)
+
+- Each streaming HTTP request owns a locally captured `AbortController`. An
+  older request may clear the shared controller slot only while that slot still
+  points to its own controller, so abort and overlapping requests cannot null or
+  detach a newer request.
+- Closing an External PDF view invalidates its render token before timer,
+  observer, cache, and index cleanup. Any in-flight PDF render must discard its
+  result instead of touching the closed view DOM.
+- Optional child-process streams must be checked before writes. A missing MCP
+  `args` array is normalized to an empty array during command preparation.
 
 ## 2. Persisted Settings Schema
 
@@ -717,6 +748,11 @@ interface MCPServerConfig {
   enabled: boolean;
 }
 ```
+
+The persisted current-schema field remains required. Runtime command
+preparation nevertheless normalizes malformed or legacy missing/null `args` to
+`[]` so a damaged setting cannot crash plugin startup before validation or UI
+repair.
 
 ## 3. Model Catalogue
 

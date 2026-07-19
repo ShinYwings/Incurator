@@ -112,3 +112,15 @@ def test_cli_reference_is_single_sourced_from_user_guide() -> None:
     assert korean_anchor in workflow_kr
     assert english_anchor in plugin
     assert korean_anchor in plugin_kr
+
+
+def test_external_pdf_restart_guides_use_portable_identity_contract() -> None:
+    plugin = _read("docs/guides/PLUGIN_GUIDE.md")
+    plugin_kr = _read("docs/guides/PLUGIN_GUIDE_KR.md")
+
+    for guide in (plugin, plugin_kr):
+        assert "externalRef" in guide
+        assert "zoteroAttachmentKey" in guide
+
+    assert "captured absolute path (`doc.path`)" not in plugin
+    assert "캡처된 절대 경로(`doc.path`)" not in plugin_kr

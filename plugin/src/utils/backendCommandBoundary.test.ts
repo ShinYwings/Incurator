@@ -20,7 +20,7 @@ describe("backend command boundary", () => {
   it("constructs IncuratorClient with a backend JSON command runner", () => {
     const root = fileURLToPath(new URL("../../", import.meta.url));
     const source = readFileSync(join(root, "main.ts"), "utf8");
-    const chatSidebar = readFileSync(join(root, "src/ui/chatSidebar.ts"), "utf8");
+    const chatSidebar = readFileSync(join(root, "src/ui/chat/ChatSidebarView.ts"), "utf8");
 
     expect(source).toContain("this.runBackendJsonCommand.bind(this)");
     expect(chatSidebar).toContain("this.plugin.runBackendJsonCommand.bind(this.plugin)");
