@@ -1,7 +1,7 @@
 # v0.36.0 Master Implementation Plan
 
 Date: 2026-07-09
-Status: DEFERRED - Arena debate concluded; resume after v0.35.0 model refresh.
+Status: APPROVED - implementation active on `release/v0.36.0`.
 
 ## 1. Objective
 

@@ -2,36 +2,48 @@
 
 Date: 2026-07-09
 
-> Deferred on 2026-07-19. Re-capture rollback anchors, file sizes, and test
-> baselines after v0.35.0 ships; the evidence below remains the original
-> planning snapshot only.
+> Refreshed on 2026-07-19 after v0.35.0 shipped. This is the active P0 baseline
+> for implementation on `release/v0.36.0`.
 
 ## Rollback Anchor
 
-- Branch: `release/v0.35.0`
-- Current head before PL-1 planning: `61c585423556cf5e26f98ecd634fb43e7e6d65e8`
-- Merge base with `master`: `bcc4ac2d66d457670f1ed675c79d231b697af76e`
-- PR #85 merged at `3fd9abfae290a1a74403e24cc9331aaf4f31776f`.
+- Branch: `release/v0.36.0`
+- Current head before PL-1 implementation:
+  `9129908a0d305f726b30dc305ef927dc2cb20202`
+- Merge base with `master`:
+  `9129908a0d305f726b30dc305ef927dc2cb20202`
+- PR #87 merged at the same commit on 2026-07-19.
 
 ## Current Worktree Reality
 
-- One untracked briefing exists: `.agents/drafts/11_pl1_plugin_decomposition.md`.
-- No implementation files are modified at planning start.
+- Only relay/roadmap/plan activation metadata is modified at P0 start.
+- No implementation, test, spec, guide, manifest, or lockfile is modified.
 
 ## Target File Sizes
 
 ```text
-  2224 plugin/main.ts
-  4895 plugin/src/ui/chatSidebar.ts
-  2382 plugin/src/agent/llmClient.ts
+  2253 plugin/main.ts
+  4889 plugin/src/ui/chatSidebar.ts
+  2387 plugin/src/agent/llmClient.ts
   1909 plugin/src/ui/externalPdfView.ts
- 11410 total
+ 11438 total
 ```
 
 ## Current Test Reality
 
-- `npx vitest run -c ./plugin/vitest.config.ts` passed:
-  65 test files, 669 tests.
+- `npx vitest run -c ./plugin/vitest.config.ts`: 65 files, 678 tests passed.
+- `npx tsc --noEmit -p plugin/tsconfig.json`: passed.
+- `npm run build --prefix plugin`: passed at plugin v0.35.0.
+
+## Code/Documentation Divergence Found at P0
+
+- `PLUGIN_GUIDE_KR.md` still claims a dragged `ExternalPdfView` can restore
+  after restart only from a captured absolute `doc.path` and must be re-dragged
+  after moves. The active v0.29+ code/spec instead persists only
+  `zoteroAttachmentKey` or portable `externalRef` and resolves the local path at
+  runtime. The English guide has no matching stale section, so the EN/KR pair is
+  also structurally divergent. P1 must add the correct English source section
+  first, then replace the Korean text faithfully.
 
 ## Contract Constraints
 

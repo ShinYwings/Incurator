@@ -26,8 +26,8 @@ No urgent items currently tracked.
 
 ### 🚨 Immediate Next Release
 
-- **v0.36.0 PL-1 Plugin God-file Decomposition**: approved plan is queued after
-  the v0.35.0 release PR. No PL-1 code was mixed into the model refresh.
+- **v0.36.0 PL-1 Plugin God-file Decomposition**: implementation active on
+  `release/v0.36.0`, created fresh from merged `master`.
 
 ### 🚀 Priority Order
 
@@ -77,8 +77,8 @@ No urgent items currently tracked.
 
 ## ✅ Completed Milestones
 
-- **v0.35.0 — Claude/Codex Model Catalogue Refresh** (release-ready
-  2026-07-19): updated the shared catalogue to Claude Sonnet 4.6, Fable 5,
+- **v0.35.0 — Claude/Codex Model Catalogue Refresh** (shipped 2026-07-19,
+  PR #87): updated the shared catalogue to Claude Sonnet 4.6, Fable 5,
   Opus 4.8, Haiku 4.5 and Codex GPT-5.6 Sol/Terra/Luna plus GPT-5.5; unified
   model-specific effort normalization across settings, sidebar, dashboard, and
   stored-setting migration; omitted effort flags for no-effort models; restored
@@ -227,8 +227,8 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: v0.35.0 PR #87 READY FOR REVIEW; all local and GitHub CI
-  gates passed.
-- **Active Milestone**: human review/merge of `release/v0.35.0`.
-- **Next actionable item**: after the v0.35.0 PR is merged, begin the approved
-  v0.36.0 PL-1 plugin decomposition plan.
+- **Roadmap state**: v0.36.0 IMPLEMENTATION ACTIVE.
+- **Active Milestone**: PL-1 plugin god-file decomposition on
+  `release/v0.36.0`.
+- **Next actionable item**: refresh the P0 evidence baseline, then execute the
+  facade-first extraction phases in `.agents/plans/11_pl1_plugin_decomposition.md`.
