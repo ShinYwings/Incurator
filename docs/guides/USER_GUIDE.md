@@ -843,6 +843,13 @@ How it stays safe across devices:
   is not skipped merely because its mtime is unchanged.
 - **Syncthing conflict files** are imported then archived in repo cache.
 
+Autosync fails visibly if an existing local sync-state file is corrupt, a peer
+snapshot cannot be imported, or a conflict file cannot be archived. It never
+replaces corrupt state with a new device identity and never calls an unarchived
+conflict “merged.” Some earlier peer files may already have been applied before a
+later file fails; fix the reported file/permission problem and rerun the command.
+Row-level imports are idempotent, so the retry is safe.
+
 The local DB, runtime, staging, reports, and PDF/CLI caches live under repo
 `.cache`. Sync bookkeeping lives under
 `.cache/config/sync_state/<vault-root-hash>.json`; only the

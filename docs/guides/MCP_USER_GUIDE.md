@@ -267,6 +267,10 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
   and uses DB-native lexical/vector retrieval where possible; clients can still
   fall back to source sections or local PDF context. For an evidence pack without
   synthesis, use `curator_fetch_context`.
+- **Workspace policy failures**: An empty path or a directory without
+  `curate.yml` uses the `default` policy. If the file exists but is unreadable,
+  malformed, wrong-shaped, or semantically invalid, the query fails before
+  retrieval instead of silently widening to the unrestricted default policy.
 
 #### `promote_answer`
 
@@ -362,6 +366,8 @@ and plugin, and they never edit read-only source truth (`03_Notes/`,
   inspectable bridge between the spec and a curation run).
 - **Parameters**: `workspace_path`.
 - **Returns**: `plan_id` (`PLAN-…`), `workspace_id`, `route`.
+- **Failure semantics**: Missing or invalid `curate.yml` returns `ok=false` and
+  records no `curation_plans` row. Validation always precedes persistence.
 
 #### `curator_fetch_context`
 
@@ -371,6 +377,10 @@ and plugin, and they never edit read-only source truth (`03_Notes/`,
   not a frozen file; it is the primary surface for reasoning agents (e.g. the
   Obsidian agent) that do their own synthesis. For broad questions the pack leads
   with the shared **L4 Synthesis** nodes.
+- **Workspace policy failures**: An empty path or a directory without
+  `curate.yml` uses the `default` policy. If the file exists but is unreadable,
+  malformed, wrong-shaped, or semantically invalid, the request fails before
+  evidence retrieval instead of silently widening to the unrestricted default.
 - **Parameters**: `query`, `workspace_path` (optional).
 - **Returns**: `route`, `trace_id` (`QTR-…`), `retrieval_execution_id` (`RTR-…`),
   `workspace_id`, `evidence` (each item has `kind` — `synthesis` |

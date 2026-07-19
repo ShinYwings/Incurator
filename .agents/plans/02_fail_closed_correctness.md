@@ -1,7 +1,7 @@
 # v0.36.2 Master Implementation Plan
 
 Date: 2026-07-19
-Status: DRAFT — Arena debate concluded; awaiting user approval before coding.
+Status: APPROVED — user approved implementation on 2026-07-20; specs are docs-first.
 
 ## 1. Objective
 

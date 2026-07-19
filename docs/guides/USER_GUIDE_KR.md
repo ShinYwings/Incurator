@@ -808,6 +808,13 @@ Dry-run도 기록된 피어 high-water mark를 따르므로 이미 가져온 파
   mtime이 같아도 새 snapshot을 건너뛰지 않습니다.
 - **Syncthing 충돌 파일**은 가져온 뒤 repo cache에 보관됩니다.
 
+Autosync는 손상된 상태를 초기 상태로 취급하지 않습니다. 동기화 상태 파일이
+없을 때만 새 상태를 만들며, 기존 파일을 읽을 수 없거나 JSON/필드 형태가
+잘못된 경우에는 파일을 덮어쓰지 않고 동기화를 실패시킵니다. 피어 스냅샷,
+tombstone 삭제, 충돌 파일 가져오기 또는 보관 중 하나라도 실패하면 성공이나
+병합 완료로 보고하지 않습니다. 이미 커밋된 이전 파일은 유지되고 실패한
+파일은 재시도할 수 있습니다.
+
 로컬 DB, runtime, staging, report, PDF/CLI cache는 repo `.cache`에 둡니다.
 동기화 bookkeeping은
 `.cache/config/sync_state/<vault-root-hash>.json`에 저장되고,

@@ -44,13 +44,14 @@ parity, and reproducible failure handling take priority over refactoring volume.
 - [x] Relevant pre-change baseline: 95 passed in 425.76s.
 - [x] Authored Arena proposal, red-team critique, defense, domain analyses,
   Evidence Ledger, and Master Plan.
-- [ ] Await user approval before docs/TDD/application changes.
+- [x] User approved the v0.36.2 Master Plan on 2026-07-20.
+- [x] P1 docs/spec contracts updated (English first, then Korean pairs).
+- [ ] P2 fail-closed regression tests in progress.
 
 ## Critical Context / Blockers
 
 - No technical blocker.
-- Workflow blocker by design: substantial control-flow changes require plan
-  approval before coding.
+- No workflow blocker; the implementation plan is approved.
 - No production vault/DB/config was changed; failure injection used temporary
   directories only.
 - Active validation scenario is `tests/scenarios/gaussian_splatting`; existing
@@ -58,6 +59,5 @@ parity, and reproducible failure handling take priority over refactoring volume.
 
 ## Immediate Next Action
 
-After user approval, execute P1 docs-first, then P2 failing tests, followed by
-P3/P4 implementation and full/testbed validation. Do not change application
-logic before approval.
+Write and run P2 failing tests, then implement P3/P4 and complete full/testbed
+validation.
