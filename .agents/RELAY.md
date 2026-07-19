@@ -1,4 +1,4 @@
-# RELAY - v0.36.0 PL-1 Plugin Decomposition
+# RELAY - v0.36.0 PL-1 Release
 
 ## Goal
 
@@ -8,14 +8,9 @@ Obsidian behavior.
 
 ## Plan Reference
 
-- Master Plan: `.agents/plans/11_pl1_plugin_decomposition.md`
-- Evidence Ledger: `.agents/plans/11_roadmap_evidence.md`
-- Arena: `.agents/plans/11_pl1_plugin_decomposition_arena/`
-- Domain Analyses:
-  - `.agents/plans/A_pl1_chat_domain_analysis.md`
-  - `.agents/plans/B_pl1_llm_domain_analysis.md`
-  - `.agents/plans/C_pl1_pdf_domain_analysis.md`
-  - `.agents/plans/D_pl1_entrypoint_domain_analysis.md`
+- Implemented plan artifacts are deleted from the active workspace per project
+  workflow; use Git history on `.agents/plans/` for the v0.36.0 PL-1 plan,
+  Arena, domain analyses, and evidence ledger.
 
 ## Analysis & Reasoning
 
@@ -25,8 +20,10 @@ Obsidian behavior.
   implementation was mixed into the model-catalogue release.
 - Facade-first extraction is locked. Existing imports from `chatSidebar.ts`,
   `llmClient.ts`, and `externalPdfView.ts` must remain valid.
-- This is an internal refactor: UI, persistence schemas, backend commands, MCP
-  behavior, providers, and models must not change.
+- This is an internal refactor. UI, persistence schemas, backend commands, MCP
+  behavior, providers, and models remain unchanged.
+- Original import paths are one-line facades over owners in `ui/chat/`,
+  `agent/llm/`, and `ui/pdf/`; `main.ts` required no import change.
 
 ## Progress Status
 
@@ -35,12 +32,19 @@ Obsidian behavior.
 - [x] P0 baseline: 65 plugin files / 678 tests; TypeScript and build passed.
 - [x] Found stale KR-only absolute-path ExternalPdfView restart documentation;
   queued EN-first parity correction for P1.
-- [ ] P0: add facade/export characterization tests.
-- [ ] P1: document internal ownership/facade contract.
-- [ ] P2: extract LLM client modules incrementally.
-- [ ] P3: extract external PDF modules incrementally.
-- [ ] P4: extract chat sidebar modules incrementally.
-- [ ] P5-P6: entrypoint hygiene, full CI, testbed, release publication.
+- [x] P0: facade/export characterization tests added.
+- [x] P1: internal ownership/facade contract and EN/KR guide parity documented.
+- [x] P2: LLM client moved behind stable facade; pure message helpers extracted.
+- [x] P3: external PDF view moved behind stable facade.
+- [x] P4: chat sidebar moved behind stable facade.
+- [x] P5: entrypoint verified unchanged against stable facades.
+- [x] P6: 1218 backend tests, 683 plugin tests, Ruff, Mypy, TypeScript, build,
+  and `gaussian_splatting` testbed passed. Autosync then dry-run was quiescent.
+- [x] Branch pushed and PR #88 opened.
+- [x] GitHub Backend Tests, Plugin Tests, and Version Consistency passed; PR #88
+  marked ready for review.
+- [ ] Await human review/merge and address any actionable feedback on the same
+  branch.
 
 ## Critical Context / Blockers
 
@@ -52,6 +56,5 @@ Obsidian behavior.
 
 ## Immediate Next Action
 
-Read the relevant PLUGIN_SCHEMA/guide contracts and domain analyses, refresh P0
-evidence, then add failing facade/export characterization tests before moving
-implementation code.
+Await human review/merge of ready PR #88. Address actionable findings on the
+same branch if any are reported.

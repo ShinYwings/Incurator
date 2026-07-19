@@ -26,8 +26,8 @@ No urgent items currently tracked.
 
 ### 🚨 Immediate Next Release
 
-- **v0.36.0 PL-1 Plugin God-file Decomposition**: implementation active on
-  `release/v0.36.0`, created fresh from merged `master`.
+No release is currently staged. Select the next item from the priority queue
+after v0.36.0 merges.
 
 ### 🚀 Priority Order
 
@@ -39,11 +39,6 @@ No urgent items currently tracked.
    - Briefing: `.agents/plans/system_stability_overhaul_arena/00_problem.md`
    - Delivered as a chain of incremental release PRs (starting from v0.34.0+).
    - **Shipped stability & hardening releases (v0.25.0 → v0.34.0)**: diagnosis G17–G19, XC-1/XC-4 robustness slices, DB-2 slices 1–2, CLI/MCP warning visibility, portable paths v0.29–v0.32, cross-device LWW sync v0.30, strict v12 schema/reindex speedup v0.33.0, and CM-1 command module decomposition v0.34.0.
-   - **Planned (v0.36.0 — PL-1 Plugin God-file Decomposition)**:
-     - Decompose plugin god-files `chatSidebar.ts`, `llmClient.ts`, `externalPdfView.ts` into a cleaner package structure.
-     - Briefing: `.agents/drafts/11_pl1_plugin_decomposition.md`
-     - Master Plan: `.agents/plans/11_pl1_plugin_decomposition.md`
-     - Evidence Ledger: `.agents/plans/11_roadmap_evidence.md`
    - **Remaining Scope for Upcoming Releases (v0.37.0+)**:
      - **Exception Handling Hardening (XC-1 Slices 2+)**: narrow broad exception blocks in `cli.py`, `mcp_server.py`, `plugin_api.py`.
      - **Performance & UX Refinements**: RAG/DAG benchmark harness & retrieval hotspot optimization; chat/popover UX friction cleanup.
@@ -77,6 +72,13 @@ No urgent items currently tracked.
 
 ## ✅ Completed Milestones
 
+- **v0.36.0 — PL-1 Plugin God-file Decomposition** (release-ready 2026-07-19):
+  moved the chat sidebar, LLM client, and external PDF view implementations into
+  dedicated internal packages while preserving stable public facades, class and
+  view identities, persistence, provider behavior, and UI flows. Corrected the
+  EN/KR External PDF restoration docs. Backend 1218-test, plugin 683-test,
+  static-analysis, build, and Gaussian Splatting testbed gates passed; a real
+  autosync followed by dry-run confirmed no pending Knowledge Sync re-export.
 - **v0.35.0 — Claude/Codex Model Catalogue Refresh** (shipped 2026-07-19,
   PR #87): updated the shared catalogue to Claude Sonnet 4.6, Fable 5,
   Opus 4.8, Haiku 4.5 and Codex GPT-5.6 Sol/Terra/Luna plus GPT-5.5; unified

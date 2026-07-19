@@ -4,6 +4,22 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.36.0] - 2026-07-19
+### Changed
+- **Plugin Module Ownership**
+  Moved the chat sidebar, LLM client, and external PDF view implementations into
+  dedicated internal packages while preserving their established import paths,
+  class names, view types, persistence formats, provider behavior, and UI flows
+  through stable public facades.
+
+### Fixed
+- **External PDF Documentation Parity**
+  Corrected the English/Korean plugin guides to describe portable Zotero and
+  external-reference restoration instead of the removed persisted absolute-path
+  behavior.
+
+---
+
 ## [0.35.0] - 2026-07-19
 ### Added
 - **Current Claude Code and Codex CLI Models**
