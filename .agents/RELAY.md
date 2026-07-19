@@ -8,9 +8,8 @@ envelopes and intended best-effort behavior.
 
 ## Plan Reference
 
-- Master Plan: `.agents/plans/12_xc1_silent_exception_hardening.md`
-- Evidence Ledger: `.agents/plans/12_roadmap_evidence.md`
-- Arena: `.agents/plans/12_xc1_silent_exception_hardening_arena/`
+- The implemented master plan, evidence ledger, and Arena are preserved in Git
+  history and removed from the active workspace per the release workflow.
 
 ## Analysis & Reasoning
 
@@ -42,7 +41,9 @@ envelopes and intended best-effort behavior.
 - [x] Synchronized the English/Korean MCP guide and static behavior spec,
   including a pre-existing provider-parameter and runtime-path mismatch.
 - [x] Full backend, plugin, static, build, testbed, and autosync gates passed.
-- [ ] Push `release/v0.36.1`, open the PR, and verify remote checks.
+- [x] Pushed `release/v0.36.1` and opened draft PR #89.
+- [x] Both GitHub CI runs passed Backend Tests and Plugin Tests; Version
+  Consistency passed on the required run (the duplicate run skipped that job).
 
 ## Critical Context / Blockers
 
@@ -54,5 +55,5 @@ envelopes and intended best-effort behavior.
 
 ## Immediate Next Action
 
-Commit release metadata and evidence, delete implemented plan artifacts, push
-the branch, open the v0.36.1 PR, and verify remote checks.
+Review and merge PR #89. After merge, continue the System Stability Overhaul
+with the next bounded XC-1 broad catch-and-return audit slice.
