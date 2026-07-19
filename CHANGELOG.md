@@ -4,6 +4,21 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.34.1] - 2026-07-19
+### Fixed
+- **Endless Obsidian Knowledge Sync**
+  Made current-schema full-snapshot import content-idempotent for composite-key
+  and immutable rows. Equivalent snapshots with fresh `export_id` values no
+  longer report thousands of false updates and trigger cross-device re-export
+  ping-pong. Dry-run now honors recorded peer high-water marks, and the plugin
+  watcher ignores its known self snapshot instead of treating it as incoming
+  peer data.
+- **Plugin Lockfile Version Drift**
+  Restored `plugin/package-lock.json` parity with the backend, plugin package,
+  and Obsidian manifest versions.
+
+---
+
 ## [0.34.0] - 2026-07-09
 ### Changed
 - **Command Module Decomposition**

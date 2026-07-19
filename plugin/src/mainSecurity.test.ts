@@ -173,6 +173,18 @@ describe("Session sync path hygiene", () => {
   });
 });
 
+describe("Knowledge Sync watcher resilience", () => {
+  it("handles asynchronous watcher errors instead of leaking an unhandled exception", () => {
+    const src = mainSource();
+    const methodStart = src.indexOf("private startSyncWatcher(): void");
+    const methodEnd = src.indexOf("private async runAutoSyncPass()", methodStart);
+    const body = src.slice(methodStart, methodEnd);
+
+    expect(body).toContain('this.syncWatcher?.on?.("error", (err) => {');
+    expect(body).toContain('logger.warn("sync watcher error:", err);');
+  });
+});
+
 describe("Temporary file hygiene", () => {
   it("stores PDF crop transcription temp files under the repo cache", () => {
     const src = mainSource();

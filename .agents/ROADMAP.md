@@ -72,6 +72,13 @@ No urgent items currently tracked.
 
 ## ✅ Completed Milestones
 
+- **v0.34.1 — Knowledge Sync Loop Hotfix** (release-ready 2026-07-19): made
+  composite/immutable full-snapshot imports content-idempotent, made autosync
+  dry-run honor peer export-id high-water state, and filtered the plugin's known
+  self snapshot from incoming-file watcher triggers. Production before/after
+  dry-run moved from `updated=6650` / `would_export=true` to zero imports and
+  `would_export=false`; backend, plugin, build, and Gaussian Splatting testbed
+  validation passed.
 - **v0.34.0 — CM-1 Command Module God-file Decomposition** (shipped 2026-07-09, PR #85 merged): decomposed `cli.py`, `mcp_server.py`, and `plugin_api.py` into cohesive packages (`curator/commands/`, etc.) with compatibility facades preserved.
 - **v0.33.0 — Strict Sync Schema Enforcement & Startup Speedup** (shipped 2026-07-09, PR #84
   merged): removed legacy pre-v12 database schema migration and automatic fallback conversions;

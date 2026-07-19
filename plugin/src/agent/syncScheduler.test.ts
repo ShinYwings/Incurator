@@ -1,5 +1,17 @@
 import { describe, it, expect, vi } from "vitest";
-import { SyncScheduler } from "./syncScheduler";
+import { isIncomingPeerSnapshot, SyncScheduler } from "./syncScheduler";
+
+describe("isIncomingPeerSnapshot", () => {
+  it("accepts peer and conflict snapshots but rejects the known self snapshot", () => {
+    expect(isIncomingPeerSnapshot("dev-peer.jsonl", "dev-self.jsonl")).toBe(true);
+    expect(
+      isIncomingPeerSnapshot("dev-peer.sync-conflict-20260719.jsonl", "dev-self.jsonl")
+    ).toBe(true);
+    expect(isIncomingPeerSnapshot("dev-self.jsonl", "dev-self.jsonl")).toBe(false);
+    expect(isIncomingPeerSnapshot("sync_state.json", "dev-self.jsonl")).toBe(false);
+    expect(isIncomingPeerSnapshot("", "dev-self.jsonl")).toBe(false);
+  });
+});
 
 describe("SyncScheduler", () => {
   it("coalesces a burst of schedule() calls into one run", async () => {

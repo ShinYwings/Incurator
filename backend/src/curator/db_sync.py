@@ -357,15 +357,22 @@ def import_knowledge(
                     "SELECT name FROM sqlite_master WHERE type='table'"
                 ).fetchall()
             }
-            table_columns = {
-                table: {
-                    str(col[1])
-                    for col in conn.execute(
-                        f"PRAGMA table_info({table})"
-                    ).fetchall()
-                }
+            table_info = {
+                table: conn.execute(f"PRAGMA table_info({table})").fetchall()
                 for table in SYNC_TABLES
                 if table in existing_tables
+            }
+            table_columns = {
+                table: {str(col["name"]) for col in columns}
+                for table, columns in table_info.items()
+            }
+            table_primary_keys = {
+                table: [
+                    str(col["name"])
+                    for col in sorted(columns, key=lambda col: int(col["pk"]))
+                    if int(col["pk"]) > 0
+                ]
+                for table, columns in table_info.items()
             }
             source_id_map: dict[int, int] = {}
 
@@ -429,7 +436,13 @@ def import_knowledge(
                                 f"{remote_source_id!r}"
                             )
                         row["source_id"] = source_id_map[remote_source_id]
-                    result = _lw_upsert(conn, tbl, row, dry_run=dry_run)
+                    result = _lw_upsert(
+                        conn,
+                        tbl,
+                        row,
+                        dry_run=dry_run,
+                        primary_keys=table_primary_keys[tbl],
+                    )
                     if result == "inserted":
                         stats.inserted += 1
                     elif result == "updated":
@@ -554,20 +567,27 @@ def _lw_upsert_source(
     return "updated", local_id
 
 
-def _lw_upsert(conn: "db.sqlite3.Connection", table_name: str, row: dict, dry_run: bool = False) -> str:
+def _lw_upsert(
+    conn: "db.sqlite3.Connection",
+    table_name: str,
+    row: dict,
+    dry_run: bool = False,
+    *,
+    primary_keys: list[str] | None = None,
+) -> str:
     """Insert or update a row using Last-Write-Wins.
 
     Returns: 'inserted' | 'updated' | 'skipped'
     """
     pk_col = _PK_COL.get(table_name)
     updated_col = _UPDATED_AT_COL.get(table_name)
+    key_columns = primary_keys or ([pk_col] if pk_col else [])
 
-    if pk_col and pk_col in row:
+    if key_columns and all(key in row for key in key_columns):
+        where = " AND ".join(f"{key} IS ?" for key in key_columns)
         existing = conn.execute(
-            f"SELECT {updated_col} FROM {table_name} WHERE {pk_col} = ?"
-            if updated_col
-            else f"SELECT 1 FROM {table_name} WHERE {pk_col} = ?",
-            (row[pk_col],),
+            f"SELECT * FROM {table_name} WHERE {where}",
+            tuple(row[key] for key in key_columns),
         ).fetchone()
 
         if existing is None:
@@ -576,26 +596,57 @@ def _lw_upsert(conn: "db.sqlite3.Connection", table_name: str, row: dict, dry_ru
             return "inserted"
 
         if updated_col:
-            local_ts = existing[0] or ""
+            local_ts = existing[updated_col] or ""
             remote_ts_fn = _REMOTE_TS_FN.get(table_name)
             remote_ts = remote_ts_fn(row) if remote_ts_fn else (row.get(updated_col) or "")
-            if remote_ts > local_ts:
+            if _timestamp_key(remote_ts) > _timestamp_key(local_ts):
                 if not dry_run:
                     _preserve_device_local(conn, table_name, row)
                     _do_upsert(conn, table_name, row)
                 return "updated"
             return "skipped"
 
-        # No updated_at col — always upsert
+        local_row = {key: existing[key] for key in row}
+        if local_row == row:
+            return "skipped"
+
+        # Immutable tables without a revision clock still need deterministic
+        # convergence. The same primary key should normally mean the same row;
+        # if corrupted peers disagree, retain the lexicographically greater
+        # canonical payload on both sides instead of alternating forever.
+        remote_key = json.dumps(row, sort_keys=True, separators=(",", ":"), default=str)
+        local_key = json.dumps(
+            local_row, sort_keys=True, separators=(",", ":"), default=str
+        )
+        if remote_key <= local_key:
+            return "skipped"
         if not dry_run:
             _preserve_device_local(conn, table_name, row)
             _do_upsert(conn, table_name, row)
         return "updated"
 
-    # Composite PK or unknown PK — always upsert (INSERT OR REPLACE) as intended
+    # Current-schema exports always include every primary-key column. Refuse to
+    # guess identity for malformed rows because blind replacement breaks
+    # idempotence and can create cross-device export ping-pong.
+    if primary_keys:
+        missing = ", ".join(key for key in primary_keys if key not in row)
+        raise ValueError(
+            f"Table {table_name!r} row is missing primary-key columns: {missing}"
+        )
+
+    # A table with no declared primary key has no safe transport identity.
+    # Existing schema-v12 sync tables all declare one; keep this defensive path
+    # content-idempotent for forward-compatible callers.
+    clauses = " AND ".join(f"{key} IS ?" for key in row)
+    existing = conn.execute(
+        f"SELECT 1 FROM {table_name} WHERE {clauses} LIMIT 1",
+        tuple(row.values()),
+    ).fetchone()
+    if existing is not None:
+        return "skipped"
     if not dry_run:
         _do_upsert(conn, table_name, row)
-    return "updated"
+    return "inserted"
 
 
 def _do_insert(conn: "db.sqlite3.Connection", table: str, row: dict) -> None:
@@ -766,7 +817,7 @@ def import_all_peers(
             # Legacy or incompatible peer file — skip until peer re-exports.
             continue
         rec = peers.get(f.name, {})
-        if not dry_run and rec.get("last_export_id") == export_id:
+        if rec.get("last_export_id") == export_id:
             continue
         try:
             stats = import_knowledge(db_path, f, dry_run=dry_run)
