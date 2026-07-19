@@ -26,7 +26,10 @@ No urgent items currently tracked.
 
 ### 🚨 Immediate Next Release
 
-No urgent items currently tracked.
+- **v0.34.1 Knowledge Sync Loop Hotfix**: PR #86 is open, mergeable, ready for
+  review, and all GitHub CI checks pass. It fixes unchanged full-snapshot
+  re-import ping-pong, dry-run high-water handling, and self-snapshot watcher
+  filtering. Merge this before continuing v0.35.0.
 
 ### 🚀 Priority Order
 
@@ -38,12 +41,19 @@ No urgent items currently tracked.
    - Briefing: `.agents/plans/system_stability_overhaul_arena/00_problem.md`
    - Delivered as a chain of incremental release PRs (starting from v0.34.0+).
    - **Shipped stability & hardening releases (v0.25.0 → v0.34.0)**: diagnosis G17–G19, XC-1/XC-4 robustness slices, DB-2 slices 1–2, CLI/MCP warning visibility, portable paths v0.29–v0.32, cross-device LWW sync v0.30, strict v12 schema/reindex speedup v0.33.0, and CM-1 command module decomposition v0.34.0.
-   - **Release Candidate (v0.35.0 — PL-1 Plugin God-file Decomposition)**:
+   - **Release Candidate (v0.35.0 — Claude/Codex Model Catalogue Refresh)**:
+     - Align the canonical model catalogue with the installed subscription CLIs.
+     - Fix model/effort normalization, no-effort command construction, and the
+       stale `ModelOption` plugin spec.
+     - Arena: `.agents/plans/12_model_catalogue_refresh_arena/`
+     - Master Plan: `.agents/plans/12_model_catalogue_refresh.md`
+     - Evidence Ledger: `.agents/plans/12_roadmap_evidence.md`
+   - **Planned (v0.36.0 — PL-1 Plugin God-file Decomposition)**:
      - Decompose plugin god-files `chatSidebar.ts`, `llmClient.ts`, `externalPdfView.ts` into a cleaner package structure.
      - Briefing: `.agents/drafts/11_pl1_plugin_decomposition.md`
      - Master Plan: `.agents/plans/11_pl1_plugin_decomposition.md`
      - Evidence Ledger: `.agents/plans/11_roadmap_evidence.md`
-   - **Remaining Scope for Upcoming Releases (v0.36.0+)**:
+   - **Remaining Scope for Upcoming Releases (v0.37.0+)**:
      - **Exception Handling Hardening (XC-1 Slices 2+)**: narrow broad exception blocks in `cli.py`, `mcp_server.py`, `plugin_api.py`.
      - **Performance & UX Refinements**: RAG/DAG benchmark harness & retrieval hotspot optimization; chat/popover UX friction cleanup.
 
@@ -211,6 +221,9 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: WAITING FOR PLAN APPROVAL on branch `release/v0.35.0`.
-- **Active Milestone**: System Stability Overhaul — PL-1 Plugin God-file Decomposition (`chatSidebar.ts`, `llmClient.ts`, `externalPdfView.ts`).
-- **Next actionable item**: Review and approve `.agents/plans/11_pl1_plugin_decomposition.md`; implementation must not begin until approval.
+- **Roadmap state**: HOTFIX READY FOR MERGE; v0.35.0 PLAN AWAITING APPROVAL.
+- **Active Milestone**: v0.34.1 Knowledge Sync loop hotfix, followed by the
+  v0.35.0 Claude/Codex model catalogue and effort-contract refresh.
+- **Next actionable item**: Merge PR #86, approve
+  `.agents/plans/12_model_catalogue_refresh.md`, then update
+  `release/v0.35.0` from the merged `master` before implementation.

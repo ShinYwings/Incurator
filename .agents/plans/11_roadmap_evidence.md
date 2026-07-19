@@ -1,6 +1,10 @@
-# v0.35.0 PL-1 Evidence Ledger
+# v0.36.0 PL-1 Evidence Ledger
 
 Date: 2026-07-09
+
+> Deferred on 2026-07-19. Re-capture rollback anchors, file sizes, and test
+> baselines after v0.35.0 ships; the evidence below remains the original
+> planning snapshot only.
 
 ## Rollback Anchor
 

@@ -1,73 +1,71 @@
-# RELAY - Active Milestone: v0.35.0 (PL-1 Plugin God-file Decomposition)
+# RELAY - Hotfix v0.34.1 Ready; v0.35.0 Model Refresh Planned
 
 ## Goal
 
-Decompose plugin god-files into cohesive modules without changing user-visible
-behavior, Obsidian lifecycle hooks, backend command contracts, provider
-semantics, chat/session persistence, or external PDF state persistence.
-
-Target files:
-
-- `plugin/src/ui/chatSidebar.ts`
-- `plugin/src/agent/llmClient.ts`
-- `plugin/src/ui/externalPdfView.ts`
-- `plugin/main.ts` only for import/coordinator hygiene after the three primary
-  files are stable.
+Stop the Obsidian Knowledge Sync loop introduced/persisting in v0.34, then
+refresh the Claude Code and Codex CLI model catalogue while prioritizing
+code/document parity and model-selection bugs.
 
 ## Plan Reference
 
-- Parent Master Plan: `.agents/plans/01_system_stability_overhaul.md`
-- PM Draft Briefing: `.agents/drafts/11_pl1_plugin_decomposition.md`
-- Target Implementation Plan: `.agents/plans/11_pl1_plugin_decomposition.md`
-  (DRAFT; awaiting human approval before implementation)
-- Evidence Ledger: `.agents/plans/11_roadmap_evidence.md`
-- Domain Analyses:
-  - `.agents/plans/A_pl1_chat_domain_analysis.md`
-  - `.agents/plans/B_pl1_llm_domain_analysis.md`
-  - `.agents/plans/C_pl1_pdf_domain_analysis.md`
-  - `.agents/plans/D_pl1_entrypoint_domain_analysis.md`
-- Arena Folder: `.agents/plans/11_pl1_plugin_decomposition_arena/`
+- Hotfix PR: https://github.com/ShinYwings/Incurator/pull/86
+- v0.35 Master Plan: `.agents/plans/12_model_catalogue_refresh.md`
+- v0.35 Evidence Ledger: `.agents/plans/12_roadmap_evidence.md`
+- v0.35 Arena: `.agents/plans/12_model_catalogue_refresh_arena/`
+- v0.35 Domain Analyses:
+  - `.agents/plans/A_model_catalogue_domain_analysis.md`
+  - `.agents/plans/B_model_effort_domain_analysis.md`
+- Deferred PL-1 Plan (v0.36.0):
+  `.agents/plans/11_pl1_plugin_decomposition.md`
 
 ## Analysis & Reasoning
 
-- Current branch: `release/v0.35.0`.
-- PR #85 / v0.34.0 merged into `master`; this branch starts from the post-merge
-  IDLE reset.
-- `USER_REPORT.md` is empty; no urgent inbox item supersedes PL-1.
-- Baseline target file sizes:
-  - `plugin/main.ts`: 2,224 LOC
-  - `plugin/src/ui/chatSidebar.ts`: 4,895 LOC
-  - `plugin/src/agent/llmClient.ts`: 2,382 LOC
-  - `plugin/src/ui/externalPdfView.ts`: 1,909 LOC
-- Baseline plugin tests passed on 2026-07-09:
-  `npx vitest run -c ./plugin/vitest.config.ts` -> 65 files, 669 tests.
-- Existing source-contract tests read `chatSidebar.ts`, `llmClient.ts`, and
-  `externalPdfView.ts` directly; implementation must move those assertions to
-  new owner modules instead of satisfying them with inert facade comments.
+- Hotfix branch: `hotfix/v0.34.1-knowledge-sync-loop`, head `1a71771`.
+- Hotfix root causes:
+  1. immutable/composite-PK snapshot rows were counted as updated on every new
+     full-snapshot export even when content was equal;
+  2. `--dry-run` ignored recorded peer export IDs;
+  3. the plugin watcher did not exclude its known self snapshot.
+- PR #86 is open, non-draft, mergeable, and all GitHub CI checks pass.
+- Read-only production verification changed `would_export` from true with 6,650
+  false updates to false with zero imports/updates after applying the hotfix
+  logic. Production state was not mutated.
+- Full hotfix validation passed: 1,214 backend tests, ruff, mypy, 670 plugin
+  tests, production plugin build, spec/version sync, testbed ingest/reindex, and
+  external Zotero-style Reference Mode without PDF hard-copying.
+- Installed Codex cache exposes Sol/Terra/Luna/GPT-5.5 at an effective 272K
+  context. Sol/Terra support `max`/`ultra`; Luna supports `max`.
+- Installed Claude Code supports current Fable/Opus/Sonnet/Haiku aliases. The
+  bounded full-ID update adds Fable 5 and Opus 4.8 while retaining verified
+  Sonnet 4.6 and Haiku 4.5.
+- Model triage found additional relevant mismatches: stale Codex effort unions,
+  fictional `supportsThinking` in the plugin spec, divergent UI effort reset
+  behavior, and unconditional effort flags for no-effort models.
 
 ## Progress Status
 
-- [x] Confirmed v0.34.0 PR #85 is merged.
-- [x] Confirmed `release/v0.35.0` branch exists on top of post-merge master.
-- [x] Read PL-1 draft briefing.
-- [x] Ran Arena planning workflow and authored draft plan artifacts.
-- [x] Updated roadmap with plan/evidence references.
-- [ ] Human approval of `.agents/plans/11_pl1_plugin_decomposition.md`.
-- [ ] Implementation through P0-P6 after approval.
+- [x] Reproduced the v0.34 Knowledge Sync loop against production state.
+- [x] Implemented the v0.34.1 backend/plugin root-cause fix with docs/tests.
+- [x] Completed full local CI, testbed, and Reference Mode validation.
+- [x] Pushed v0.34.1 and opened ready-for-review PR #86; GitHub CI passed.
+- [x] Ran the v0.35 model-refresh Arena and authored plan/evidence artifacts.
+- [ ] Human merge of PR #86.
+- [ ] Human approval of `.agents/plans/12_model_catalogue_refresh.md`.
+- [ ] Update `release/v0.35.0` from merged master and execute P0-P6.
 
 ## Critical Context / Blockers
 
-- Do not implement until the PL-1 plan is approved.
-- This is a structural TypeScript refactor only. UI, persistence, backend
-  command envelopes, provider behavior, MCP behavior, and view type strings must
-  remain unchanged.
-- Keep current public import paths as facades:
-  - `src/ui/chatSidebar`
-  - `src/agent/llmClient`
-  - `src/ui/externalPdfView`
-- Avoid circular imports with one-way type/helper ownership.
+- Do not implement v0.35 until PR #86 is merged; release branches must be based
+  on master and the sync regression must not be omitted from the next minor.
+- Preserve the pre-existing user-owned `plugin/package-lock.json` version edit
+  in the v0.35 worktree.
+- Do not mix PL-1 extraction into v0.35. Its plan explicitly excludes
+  provider/model behavior and is deferred to v0.36.0.
+- Use installed CLI/cache values for executable catalogue context/effort, not
+  broader API-only availability.
 
 ## Immediate Next Action
 
-Review `.agents/plans/11_pl1_plugin_decomposition.md`. If approved, start P0
-characterization tests before moving code.
+Merge PR #86 and approve `.agents/plans/12_model_catalogue_refresh.md`. Then
+update `release/v0.35.0` from the merged master, revalidate the CLI catalogue,
+and start P0 characterization tests.

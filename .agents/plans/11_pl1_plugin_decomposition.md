@@ -1,7 +1,7 @@
-# v0.35.0 Master Implementation Plan
+# v0.36.0 Master Implementation Plan
 
 Date: 2026-07-09
-Status: DRAFT - Arena debate concluded; awaiting human approval before implementation.
+Status: DEFERRED - Arena debate concluded; resume after v0.35.0 model refresh.
 
 ## 1. Objective
 
@@ -142,6 +142,6 @@ Definition of done:
     - `npx vitest run -c ./plugin/vitest.config.ts`
     - backend checks required by release workflow
   - Run testbed smoke if any backend/plugin integration contract was touched.
-  - Bump manifests to `0.35.0`, update changelog, sync spec titles for the new
+  - Bump manifests to `0.36.0`, update changelog, sync spec titles for the new
     minor line, delete implemented plan artifacts after committing them to Git
     history, push branch, and open the PR.
