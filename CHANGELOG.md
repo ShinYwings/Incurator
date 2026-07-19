@@ -4,6 +4,23 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.35.0] - 2026-07-19
+### Added
+- **Current Claude Code and Codex CLI Models**
+  Updated the shared backend/plugin catalogue for Claude Sonnet 4.6, Fable 5,
+  Opus 4.8, and Haiku 4.5, plus Codex GPT-5.6 Sol, Terra, Luna, and GPT-5.5.
+  Model-specific context capacities, effort choices, and defaults now drive all
+  model pickers from the same contract.
+
+### Fixed
+- **Model-Specific Effort Handling**
+  Settings, the chat sidebar, the dashboard, and stored-setting migration now
+  normalize effort when a model changes. Models without an effort dimension
+  clear stale values and omit the CLI flag; Claude vision calls now preserve a
+  configured effort, while Codex supports the current `max` and `ultra` levels.
+
+---
+
 ## [0.34.1] - 2026-07-19
 ### Fixed
 - **Endless Obsidian Knowledge Sync**
