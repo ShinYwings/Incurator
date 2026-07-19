@@ -26,7 +26,8 @@ No urgent items currently tracked.
 
 ### 🚨 Immediate Next Release
 
-No urgent items currently tracked.
+- **v0.36.0 PL-1 Plugin God-file Decomposition**: approved plan is queued after
+  the v0.35.0 release PR. No PL-1 code was mixed into the model refresh.
 
 ### 🚀 Priority Order
 
@@ -38,8 +39,12 @@ No urgent items currently tracked.
    - Briefing: `.agents/plans/system_stability_overhaul_arena/00_problem.md`
    - Delivered as a chain of incremental release PRs (starting from v0.34.0+).
    - **Shipped stability & hardening releases (v0.25.0 → v0.34.0)**: diagnosis G17–G19, XC-1/XC-4 robustness slices, DB-2 slices 1–2, CLI/MCP warning visibility, portable paths v0.29–v0.32, cross-device LWW sync v0.30, strict v12 schema/reindex speedup v0.33.0, and CM-1 command module decomposition v0.34.0.
-   - **Remaining Scope for Upcoming Releases (v0.35.0+)**:
-     - **Plugin God-file Decomposition (PL-1)**: decompose plugin god-files `chatSidebar.ts`, `llmClient.ts`, `externalPdfView.ts`.
+   - **Planned (v0.36.0 — PL-1 Plugin God-file Decomposition)**:
+     - Decompose plugin god-files `chatSidebar.ts`, `llmClient.ts`, `externalPdfView.ts` into a cleaner package structure.
+     - Briefing: `.agents/drafts/11_pl1_plugin_decomposition.md`
+     - Master Plan: `.agents/plans/11_pl1_plugin_decomposition.md`
+     - Evidence Ledger: `.agents/plans/11_roadmap_evidence.md`
+   - **Remaining Scope for Upcoming Releases (v0.37.0+)**:
      - **Exception Handling Hardening (XC-1 Slices 2+)**: narrow broad exception blocks in `cli.py`, `mcp_server.py`, `plugin_api.py`.
      - **Performance & UX Refinements**: RAG/DAG benchmark harness & retrieval hotspot optimization; chat/popover UX friction cleanup.
 
@@ -72,6 +77,14 @@ No urgent items currently tracked.
 
 ## ✅ Completed Milestones
 
+- **v0.35.0 — Claude/Codex Model Catalogue Refresh** (release-ready
+  2026-07-19): updated the shared catalogue to Claude Sonnet 4.6, Fable 5,
+  Opus 4.8, Haiku 4.5 and Codex GPT-5.6 Sol/Terra/Luna plus GPT-5.5; unified
+  model-specific effort normalization across settings, sidebar, dashboard, and
+  stored-setting migration; omitted effort flags for no-effort models; restored
+  Claude text/image effort parity; synchronized EN/KR guides and static specs.
+  Full backend, plugin, build, version-consistency, and Gaussian Splatting
+  Reference Mode testbed validation passed.
 - **v0.34.1 — Knowledge Sync Loop Hotfix** (release-ready 2026-07-19): made
   composite/immutable full-snapshot imports content-idempotent, made autosync
   dry-run honor peer export-id high-water state, and filtered the plugin's known
@@ -214,6 +227,8 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: IDLE (Master Branch).
-- **Active Milestone**: None (System IDLE).
-- **Next actionable item**: Wait for new user request.
+- **Roadmap state**: v0.35.0 PR #87 READY FOR REVIEW; all local and GitHub CI
+  gates passed.
+- **Active Milestone**: human review/merge of `release/v0.35.0`.
+- **Next actionable item**: after the v0.35.0 PR is merged, begin the approved
+  v0.36.0 PL-1 plugin decomposition plan.

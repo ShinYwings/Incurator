@@ -97,6 +97,14 @@ describe("Incurator dashboard backend boundary", () => {
     expect(source).toContain("Models are still loading");
   });
 
+  it("uses the shared effort normalizer for model transitions", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "incuratorDashboardModal.ts"), "utf8");
+
+    expect(source).toContain("normalizeModelEffort(opt, preferred, resetToDefault)");
+    expect(source).toContain("refreshEffort(primarySel, primaryEffortSel, \"\", true)");
+  });
+
   it("exposes two vision-extraction model rows persisted via wiki config (v0.22.0)", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
     const source = readFileSync(join(dir, "incuratorDashboardModal.ts"), "utf8");

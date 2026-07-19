@@ -1,6 +1,6 @@
 import { App, Modal, Notice, parseYaml, setIcon } from "obsidian";
 import type ObsidianAIAgent from "../../main";
-import type { LLMProvider, ModelOption } from "../types";
+import { normalizeModelEffort, type LLMProvider, type ModelOption } from "../types";
 import { resolveModelSelectValue } from "../utils/modelSelect";
 
 const PROVIDER_TO_PRIMARY: Record<LLMProvider, string> = {
@@ -962,7 +962,12 @@ export class IncuratorDashboardModal extends Modal {
     };
 
     // Repopulate an effort dropdown from the model currently chosen in its select.
-    const refreshEffort = (modelSel: HTMLSelectElement, effortSel: HTMLSelectElement, preferred: string) => {
+    const refreshEffort = (
+      modelSel: HTMLSelectElement,
+      effortSel: HTMLSelectElement,
+      preferred: string,
+      resetToDefault = false
+    ) => {
       const opt = this.getModelOption(modelSel.value);
       const efforts = opt?.efforts ?? [];
       effortSel.empty();
@@ -973,7 +978,7 @@ export class IncuratorDashboardModal extends Modal {
       }
       effortSel.disabled = false;
       for (const e of efforts) effortSel.createEl("option", { value: e, text: e });
-      const want = efforts.includes(preferred) ? preferred : (opt?.defaultEffort || efforts[0]);
+      const want = normalizeModelEffort(opt, preferred, resetToDefault);
       effortSel.value = want;
     };
 
@@ -1006,8 +1011,8 @@ export class IncuratorDashboardModal extends Modal {
       refreshExtractHint();
     };
     // Changing a model resets its effort to that model's default.
-    primarySel.onchange  = () => refreshEffort(primarySel, primaryEffortSel, "");
-    fallbackSel.onchange = () => refreshEffort(fallbackSel, fallbackEffortSel, "");
+    primarySel.onchange  = () => refreshEffort(primarySel, primaryEffortSel, "", true);
+    fallbackSel.onchange = () => refreshEffort(fallbackSel, fallbackEffortSel, "", true);
     visionSel.onchange = refreshExtractHint;
     extractSel.onchange = refreshExtractHint;
 

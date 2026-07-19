@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from curator import config as cfg
+from curator import constants as consts
 from curator import models
 from curator.llm import (
     AntigravityCliClient,
@@ -50,6 +51,13 @@ class TestSharedModelsCatalogue(unittest.TestCase):
                 models.get_default_model(name), "",
                 f"{name} default did not resolve from models.json",
             )
+            provider_models = providers[name]["models"]
+            ids = [model["id"] for model in provider_models]
+            self.assertEqual(len(ids), len(set(ids)), f"{name} has duplicate model ids")
+            for model in provider_models:
+                default_effort = model.get("default_effort", "")
+                if default_effort:
+                    self.assertIn(default_effort, model.get("efforts", []))
 
     def test_empty_catalogue_degrades_gracefully(self) -> None:
         """If the data file is unavailable, callers must not crash."""
@@ -134,17 +142,35 @@ class TestModelEfforts(unittest.TestCase):
     def test_catalogue_exposes_efforts(self) -> None:
         available = models.get_available_models()
         sonnet = next(m for m in available["claude"] if m["id"] == "claude-sonnet-4-6")
-        self.assertEqual(sonnet["efforts"], ["low", "medium", "high", "xhigh", "max"])
-        self.assertEqual(sonnet["default_effort"], "medium")
-        gpt = next(m for m in available["openai"] if m["id"] == "gpt-5.5")
-        self.assertIn("xhigh", gpt["efforts"])
+        self.assertEqual(sonnet["efforts"], ["low", "medium", "high", "max"])
+        self.assertEqual(sonnet["default_effort"], "high")
+        sol = next(m for m in available["openai"] if m["id"] == "gpt-5.6-sol")
+        self.assertEqual(sol["efforts"], ["low", "medium", "high", "xhigh", "max", "ultra"])
+        self.assertEqual(sol["default_effort"], "low")
+
+    def test_cli_catalogue_ids_order_context_and_defaults_are_exact(self) -> None:
+        available = models.get_available_models()
+        self.assertEqual(
+            [model["id"] for model in available["claude"]],
+            ["claude-sonnet-4-6", "claude-fable-5", "claude-opus-4-8", "claude-haiku-4-5"],
+        )
+        self.assertEqual(
+            [model["id"] for model in available["openai"]],
+            ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"],
+        )
+        self.assertEqual([model["context_window"] for model in available["openai"]], [272000] * 4)
+        self.assertEqual(consts.DEFAULT_CLAUDE_MODEL, available["claude"][0]["id"])
+        self.assertEqual(consts.DEFAULT_CODEX_MODEL, available["openai"][0]["id"])
+        self.assertEqual(consts.DEFAULT_CLAUDE_EFFORT, "high")
+        self.assertEqual(consts.DEFAULT_CODEX_EFFORT, "low")
 
     def test_effort_helpers(self) -> None:
         self.assertEqual(
-            models.get_model_efforts("openai", "gpt-5.5"),
-            ["low", "medium", "high", "xhigh"],
+            models.get_model_efforts("openai", "gpt-5.6-terra"),
+            ["low", "medium", "high", "xhigh", "max", "ultra"],
         )
-        self.assertEqual(models.get_default_effort("claude", "claude-sonnet-4-6"), "medium")
+        self.assertEqual(models.get_default_effort("claude", "claude-sonnet-4-6"), "high")
+        self.assertEqual(models.get_model_efforts("claude", "claude-haiku-4-5"), [])
         # Ollama models have no effort dimension.
         self.assertEqual(models.get_model_efforts("ollama", "qwen2.5:7b"), [])
 
@@ -157,7 +183,7 @@ class TestModelEfforts(unittest.TestCase):
         self.assertIn("gpt-oss-120b", agy_ids)
 
     def test_codex_client_injects_reasoning_effort(self) -> None:
-        client = CodexCliClient(model="gpt-5.5", effort="high")
+        client = CodexCliClient(model="gpt-5.6-sol", effort="ultra")
         captured: dict = {}
 
         def fake_run(cmd, **kwargs):
@@ -175,15 +201,15 @@ class TestModelEfforts(unittest.TestCase):
         with patch("curator.llm.subprocess.run", fake_run):
             client._run("hi")
         self.assertIn("-c", captured["cmd"])
-        self.assertIn("model_reasoning_effort=high", captured["cmd"])
+        self.assertIn("model_reasoning_effort=ultra", captured["cmd"])
 
     def test_codex_client_clone_preserves_model_and_effort(self) -> None:
-        client = CodexCliClient(model="gpt-5.2", effort="medium")
+        client = CodexCliClient(model="gpt-5.6-luna", effort="medium")
         clone = client.clone()
 
         self.assertIsInstance(clone, CodexCliClient)
         self.assertIsNot(clone, client)
-        self.assertEqual(clone.model, "gpt-5.2")
+        self.assertEqual(clone.model, "gpt-5.6-luna")
         self.assertEqual(clone.effort, "medium")
         self.assertLessEqual(clone.optimal_chunk_chars, 12000)
 
@@ -206,12 +232,49 @@ class TestModelEfforts(unittest.TestCase):
         self.assertIn("--effort", captured["cmd"])
         self.assertIn("max", captured["cmd"])
 
+    def test_claude_image_path_preserves_effort_flag(self) -> None:
+        client = ClaudeCodeClient(model="claude-fable-5", effort="high")
+        captured: dict = {}
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+
+            class _R:
+                returncode = 0
+                stdout = "ok"
+                stderr = ""
+
+            return _R()
+
+        with patch("curator.llm.subprocess.run", fake_run):
+            client._run_with_image_path("Read image", "/tmp/image.png")
+        self.assertIn("--effort", captured["cmd"])
+        self.assertIn("high", captured["cmd"])
+
+    def test_claude_no_effort_omits_flag(self) -> None:
+        client = ClaudeCodeClient(model="claude-haiku-4-5", effort="")
+        captured: dict = {}
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+
+            class _R:
+                returncode = 0
+                stdout = "ok"
+                stderr = ""
+
+            return _R()
+
+        with patch("curator.llm.subprocess.run", fake_run):
+            client._run("hi")
+        self.assertNotIn("--effort", captured["cmd"])
+
     def test_build_client_threads_per_slot_effort(self) -> None:
-        config = {"llm": {"primary": "codex-cli::gpt-5.5", "primary_effort": "xhigh", "fallback": ""}}
+        config = {"llm": {"primary": "codex-cli::gpt-5.6-sol", "primary_effort": "ultra", "fallback": ""}}
         client = build_client(config)
         inner = client.providers[0] if hasattr(client, "providers") else client
         self.assertIsInstance(inner, CodexCliClient)
-        self.assertEqual(inner.effort, "xhigh")
+        self.assertEqual(inner.effort, "ultra")
 
     def test_default_config_has_effort_keys(self) -> None:
         self.assertIn("primary_effort", cfg.DEFAULT_CONFIG["llm"])

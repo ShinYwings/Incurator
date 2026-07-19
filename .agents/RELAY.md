@@ -1,69 +1,52 @@
-# Relay State (IDLE)
+# RELAY - v0.35.0 PR Ready for Review
 
-- **Goal**: IDLE. No active task.
-- **Plan Reference**: N/A
-- **Branch**: `master`
+## Goal
 
-### Progress Status
-- The previous milestone (v0.34.0) has been successfully shipped and merged. The repository is clean and idle.
+Publish the completed Claude/Codex model-catalogue refresh from
+`release/v0.35.0` without mixing in the deferred PL-1 decomposition.
 
-### Critical Context / Blockers
-- N/A
+## Plan Reference
 
-### Immediate Next Action
-- Wait for a new user request or an autonomous milestone trigger from `.agents/ROADMAP.md`.
+- v0.35 model-refresh plan artifacts are ready for workflow-mandated deletion;
+  their implementation and validation evidence is preserved in Git history.
+- Deferred next milestone: `.agents/plans/11_pl1_plugin_decomposition.md`.
 
-### Update (2026-07-19, Codex) — v0.34.1 Knowledge Sync Loop Hotfix
+## Analysis & Reasoning
 
-- **Branch**: `hotfix/v0.34.1-knowledge-sync-loop` (independent worktree based
-  on `master`; the active v0.35.0 PL-1 worktree is untouched).
-- **User report**: Obsidian Knowledge Sync runs endlessly after v0.34.0; current
-  Claude/Codex model catalogue is also stale.
-- **Root-cause evidence**:
-  - Production `second_brain` dry-run returned `updated=6650` and
-    `would_export=true` for an already imported peer snapshot.
-  - Composite-PK and no-revision rows are always counted as updated, so a fresh
-    `export_id` on an unchanged full snapshot creates cross-device re-export
-    ping-pong.
-  - The plugin watcher is documented as peer-only but watches its own JSONL too.
-  - Dry-run ignores an already-recorded peer `last_export_id`, so it does not
-    preview the real pass.
-- **Implemented**:
-  - Current-schema imports resolve complete SQLite primary keys, apply LWW to
-    composite rows, skip equal immutable content, and deterministically converge
-    malformed immutable conflicts.
-  - Dry-run honors recorded peer `last_export_id` state.
-  - The plugin ignores its known self snapshot in the incoming-file watcher.
-  - EN specs/guides were updated before the paired KR guides.
-  - Backend/plugin/lockfile versions agree at `0.34.1`.
-- **Validation**:
-  - Production read-only before/after: `updated=6650` / `would_export=true` →
-    `imported_files=0`, `updated=0`, `would_export=false`.
-  - Backend: 1,214 passed, 6 skipped, 5 xfailed.
-  - Ruff: pass; mypy: 125 source files, pass.
-  - Plugin: 65 files, 670 tests; production build pass.
-  - Gaussian Splatting testbed: migrate/add/sync/lint/reindex pass, lint 100/100,
-    622 search documents/chunks. External Zotero-style Reference Mode produced
-    one `is_reference=1` Markdown stub and zero PDF hard copies.
-- **Critical context**: the active v0.35.0 PL-1 worktree and its user-owned
-  `plugin/package-lock.json` change remain untouched. Current Claude/Codex model
-  IDs and effort levels were verified separately for the v0.35.0 plan; do not
-  mix that user-facing catalogue change into this patch hotfix.
-- **Immediate next action**: push and open the v0.34.1 draft PR; after human
-  review/merge, rebase the independent v0.35.0 release from `master`, incorporate
-  the model-catalogue plan update, and resume PL-1.
+- PR #86 merged the v0.34.1 Knowledge Sync loop hotfix at `34636fd`; release
+  merge commit `7e75b48` carries it into v0.35.0.
+- Installed Codex CLI/cache and Claude Code values were used as the executable
+  catalogue contract. Public API-only context claims were not substituted for
+  CLI behavior.
+- Model-specific effort normalization is shared by settings, sidebar,
+  dashboard, and load migration. No-effort models omit CLI flags; Claude image
+  calls preserve configured effort.
+- The pre-existing package-lock edit was preserved and superseded by the merged
+  0.34.1 baseline before all manifests were bumped to 0.35.0.
 
-### Update (2026-07-19, Codex) — PR #86 Review Follow-up
+## Progress Status
 
-- Addressed both unresolved review threads.
-- `PRAGMA table_info` rows now use named `sqlite3.Row` access (`name`, `pk`)
-  instead of positional indices.
-- The desktop Knowledge Sync watcher registers an `error` listener, logs
-  directory/permission failures, and leaves the 60-second poll as fallback.
-- Updated the plugin spec and EN/KR guides; added a failing-then-passing watcher
-  regression test.
-- Validation: 31 autosync tests, 671 full plugin tests, ruff, TypeScript, and
-  production plugin build all pass.
-- Immediate next action: push commits `cf9a15e` and `1f5b7ea` to PR #86, wait
-  for GitHub CI, then report the result. Do not resolve/reply to review threads
-  unless the user explicitly requests that GitHub write.
+- [x] v0.34.1 hotfix merged and integrated.
+- [x] Docs/spec contract updated in English then Korean.
+- [x] Failing backend/plugin regression tests added before implementation.
+- [x] Backend and plugin catalogue/effort implementation completed.
+- [x] Full backend CI: 1217 passed, 6 skipped, 5 xfailed; Ruff and mypy clean.
+- [x] Full plugin CI: 65 files / 678 tests; TypeScript and production build clean.
+- [x] Gaussian Splatting testbed status/add/sync/lint and external Reference
+  Mode no-copy validation passed.
+- [x] v0.35.0 manifest, lockfile, changelog, and four spec-title versions agree.
+- [x] Completed v0.35 plan artifacts deleted and final release commit created.
+- [x] Draft PR #87 opened: https://github.com/ShinYwings/Incurator/pull/87
+- [x] GitHub Backend Tests, Plugin Tests, and Version Consistency passed.
+
+## Critical Context / Blockers
+
+- No blockers.
+- PL-1 remains v0.36.0 scope and must not enter this release.
+- Temporary testbed external-root config was restored to its original empty
+  global values.
+
+## Immediate Next Action
+
+Human review and merge of PR #87. After merge, begin the approved v0.36.0 PL-1
+plugin decomposition milestone from `master` on a fresh release branch.

@@ -93,7 +93,7 @@ DEFAULT_OLLAMA_MODEL = "qwen2.5:7b"
 DEFAULT_TIMEOUT = 120.0
 
 DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6"
-DEFAULT_CODEX_MODEL = "gpt-5.5"
+DEFAULT_CODEX_MODEL = "gpt-5.6-sol"
 DEFAULT_ANTIGRAVITY_MODEL = "gemini-3.5-flash"
 DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash"
 
@@ -122,8 +122,8 @@ DEFAULT_RERANK_GGUF_FILE = "qwen3-reranker-0.6b-q8_0.gguf"
 # Default reasoning/effort levels per CLI backend. Empty = let the CLI use its
 # own default. These map to: claude `--effort`, codex `-c model_reasoning_effort`,
 # and an embedded prompt hint for the agy (Antigravity) CLI.
-DEFAULT_CLAUDE_EFFORT = "medium"
-DEFAULT_CODEX_EFFORT = "medium"
+DEFAULT_CLAUDE_EFFORT = "high"
+DEFAULT_CODEX_EFFORT = "low"
 DEFAULT_ANTIGRAVITY_EFFORT = "medium"
 
 # LLM Provider Backends

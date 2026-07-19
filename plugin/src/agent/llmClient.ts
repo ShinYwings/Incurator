@@ -1957,13 +1957,16 @@ export class LLMClient {
           !ephemeral && hasImage && imageRunDir
             ? ["--add-dir", imageRunDir]
             : addDirs;
+        const claudeEffortArgs = this.settings.claudeEffort
+          ? ["--effort", this.settings.claudeEffort]
+          : [];
         base = {
           command: "claude",
           args: [
             "--mcp-config", claudeMcpPath,
             "-p", prompt,
             "--model", model,
-            "--effort", this.settings.claudeEffort,
+            ...claudeEffortArgs,
             ...toolArgs,
             ...claudeAddDirs, // image turns: scoped image dir only (Read is enabled)
             "--output-format", "stream-json",
@@ -1989,6 +1992,9 @@ export class LLMClient {
         }
 
         // Popover: read-only. Sidechat: workspace-write scoped to the allowed roots.
+        const codexEffortArgs = this.settings.codexReasoningEffort
+          ? ["-c", `model_reasoning_effort=${JSON.stringify(this.settings.codexReasoningEffort)}`]
+          : [];
         base = {
           command: "codex",
           args: [
@@ -1999,8 +2005,7 @@ export class LLMClient {
             ...addDirs, // empty in ephemeral (read-only popover) mode
             "--skip-git-repo-check",
             "--json",
-            "-c",
-            `model_reasoning_effort=${JSON.stringify(this.settings.codexReasoningEffort)}`,
+            ...codexEffortArgs,
             ...(outputFile ? ["--output-last-message", outputFile] : []),
             preferStdin ? "-" : prompt,
           ],

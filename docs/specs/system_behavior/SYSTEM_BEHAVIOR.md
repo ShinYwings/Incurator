@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.34.0)
+# Incurator - System Behavior (v0.35.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -649,7 +649,10 @@ Effort is stored per failover slot in `llm.primary_effort` / `llm.fallback_effor
 provider-native control:
 
 - `claude-code` → `claude --effort <level>` (`low|medium|high|xhigh|max`).
-- `codex-cli` → `codex -c model_reasoning_effort=<level>` (`low|medium|high|xhigh`).
+- `codex-cli` → `codex -c model_reasoning_effort=<level>`
+  (`low|medium|high|xhigh|max|ultra`; availability is model-specific). Codex
+  `ultra` is not merely a deeper scalar level: the CLI may automatically
+  delegate tasks while it is selected.
 - `antigravity-cli` → `agy` has no effort flag, so the level is embedded as a
   prompt hint (best-effort only).
 - `deepseek-api` → OpenAI-compatible `https://api.deepseek.com/chat/completions`
@@ -665,6 +668,26 @@ provider-native control:
 The interactive `wiki config provider` wizard and the plugin dashboard LLM card
 must offer only the efforts a chosen model declares, and changing the model must
 reset its effort to that model's `default_effort`.
+
+The v0.35 CLI-backed catalogue is locked to the installed runtime contract:
+
+| Provider | Model | Context | Efforts | Default |
+| --- | --- | ---: | --- | --- |
+| Claude Code | `claude-sonnet-4-6` | 1,000,000 | `low`, `medium`, `high`, `max` | `high` |
+| Claude Code | `claude-fable-5` | 1,000,000 | `low`, `medium`, `high`, `xhigh`, `max` | `high` |
+| Claude Code | `claude-opus-4-8` | 1,000,000 | `low`, `medium`, `high`, `xhigh`, `max` | `high` |
+| Claude Code | `claude-haiku-4-5` | 200,000 | none | none |
+| Codex CLI | `gpt-5.6-sol` | 272,000 | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `low` |
+| Codex CLI | `gpt-5.6-terra` | 272,000 | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `medium` |
+| Codex CLI | `gpt-5.6-luna` | 272,000 | `low`, `medium`, `high`, `xhigh`, `max` | `medium` |
+| Codex CLI | `gpt-5.5` | 272,000 | `low`, `medium`, `high`, `xhigh` | `medium` |
+
+These Codex context values are the installed CLI's effective window, not the
+larger public API limit. A deliberate model change resets to the target model's
+default. Loading existing settings preserves a still-supported effort, falls
+back to the model default when invalid, and clears the stored effort for a model
+with no effort dimension. Clients MUST omit the provider effort argument when
+the normalized value is empty.
 
 `wiki config provider` must be **non-interactive-safe** so callers like the
 dashboard (which run it as a subprocess with no TTY) can persist a change:

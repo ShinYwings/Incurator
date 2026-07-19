@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.34.0)
+# Incurator Plugin Schema & API Contract (v0.35.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -243,8 +243,8 @@ interface PluginSettings {
                                    // backend `llm.latex_extract_model`/`vision_model`
                                    // via the Dashboard runtime snapshot — see §2.6.
   chatMode: ChatMode;              // "chat" | "plan"
-  codexReasoningEffort: CodexReasoningEffort;  // "low"|"medium"|"high"|"xhigh"
-  claudeEffort: ClaudeEffort;      // "low"|"medium"|"high"|"xhigh"|"max"
+  codexReasoningEffort: CodexReasoningEffort;  // ""|"low"|"medium"|"high"|"xhigh"|"max"|"ultra"
+  claudeEffort: ClaudeEffort;      // ""|"low"|"medium"|"high"|"xhigh"|"max"
   agentEffort: string;             // Ollama/Antigravity reasoning-effort slot; empty = provider default
   antigravityPrintTimeoutSec: number;
   deepseekApiKey: string;          // device-local optional key; empty = use DEEPSEEK_API_KEY
@@ -348,7 +348,10 @@ Rules:
 - The chat sidebar footer may expose provider/model as one compact selector.
   Selecting a model from another provider must update both `provider` and `model`.
 - AI Provider settings must show model context-window information on the
-  **Model** row, not as a separate setting row.
+  **Model** row, not as a separate setting row. Catalogue context windows are
+  provider/CLI token capacities. The current per-document context clipping
+  helper is a conservative character guard, not an exact tokenizer or a claim
+  that the full model window is available to one attached document.
 - `incuratorDefaultDestination` defaults to `"04_Resources"` for new installs.
 - `incuratorDefaultImportMode` defaults to `"reference"` (no file copy).
 - `incuratorPdfAssetFolder` defaults to `""` (v0.5.6). When empty the plugin
@@ -738,12 +741,18 @@ interface ModelOption {
   id: string;
   label: string;
   supportsVision: boolean;
-  supportsThinking: boolean;
-  defaultEffort: string;
+  contextWindow?: number;
+  efforts?: string[];
+  defaultEffort?: string;
 }
 ```
 
-The plugin UI must use `supportsThinking` and the backend's `efforts` array to render appropriate configuration controls (e.g., hiding reasoning sliders for standard models). There are no fictional "tiers" transmitted from the backend.
+The plugin UI uses `efforts` as the sole reasoning-control authority. An absent
+or empty array hides the effort control and causes command construction to omit
+the provider effort argument. On an explicit model change the effort resets to
+`defaultEffort` (or the first declared effort); load-time migration preserves a
+still-valid stored effort and otherwise normalizes it. There is no parallel
+`supportsThinking` flag or fictional "tier" transmitted from the backend.
 
 DeepSeek appears in the catalogue under plugin provider key `deepseek` and maps
 to backend key `deepseek-api`. The plugin must call the API directly with a

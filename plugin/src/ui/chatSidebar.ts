@@ -93,6 +93,7 @@ import {
   getDefaultModel,
   getModelOption,
   modelSupportsVision,
+  normalizePluginModelEffort,
 } from "../types";
 
 export interface MultiEditProposal {
@@ -4801,6 +4802,7 @@ export class ChatSidebarView extends ItemView {
     const provider = this.plugin.settings.provider;
     const catalogue = this.plugin.getAvailableModels();
     const currentModelOption = getModelOption(catalogue, provider, this.plugin.settings.model);
+    normalizePluginModelEffort(this.plugin.settings, catalogue, persist);
 
     if (currentModelOption?.efforts && currentModelOption.efforts.length > 0) {
       this.reasoningSelectEl.setAttribute("aria-label", "Reasoning effort");
@@ -4820,14 +4822,6 @@ export class ChatSidebarView extends ItemView {
       };
       const rawVal = getOldVal();
       const val = currentModelOption.efforts.includes(rawVal) ? rawVal : (currentModelOption.defaultEffort || currentModelOption.efforts[0]);
-
-      // On explicit model change (persist=true), normalize the stored effort so
-      // the caller's saveSettings() captures both model and effort together.
-      if (persist && val !== rawVal) {
-        if (provider === "openai") this.plugin.settings.codexReasoningEffort = val as any;
-        else if (provider === "claude") this.plugin.settings.claudeEffort = val as any;
-        else this.plugin.settings.agentEffort = val;
-      }
 
       this.reasoningSelectEl.value = val;
       this.reasoningSelectEl.show();

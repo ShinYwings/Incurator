@@ -4,6 +4,14 @@ import { join } from "path";
 import { describe, expect, it } from "vitest";
 
 describe("chat sidebar context chip source contract", () => {
+  it("resets model effort through the shared catalogue normalizer", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");
+
+    expect(source).toContain("normalizePluginModelEffort(");
+    expect(source).toContain("this.plugin.settings, catalogue, persist");
+  });
+
   it("lets pending purple chips remove to zero and exposes eye toggles", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
     const source = readFileSync(join(dir, "chatSidebar.ts"), "utf8");

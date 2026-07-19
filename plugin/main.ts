@@ -25,6 +25,7 @@ import {
   DEFAULT_SESSION_DATA,
   getDefaultModel,
   getModelOption,
+  normalizePluginModelEffort,
 } from "./src/types";
 import { AIAgentSettingTab } from "./src/settings";
 import { CLIAuthResolver } from "./src/auth/cliAuth";
@@ -1593,15 +1594,25 @@ export default class ObsidianAIAgent extends Plugin {
       this.settings.provider,
       this.settings.model
     );
-    if (this.settings.model && knownModel) return false;
+    if (this.settings.model && knownModel) {
+      return normalizePluginModelEffort(this.settings, this.availableModels, false);
+    }
     // Ollama serves arbitrary user-pulled model ids the bundled catalogue
     // cannot enumerate; never reset a non-empty custom Ollama model.
     if (this.settings.model && this.settings.provider === "ollama") return false;
 
     const backendDefault = getDefaultModel(this.availableModels, this.settings.provider) || "";
-    if (this.settings.model === backendDefault) return false;
-    this.settings.model = backendDefault;
-    return true;
+    let modelChanged = false;
+    if (this.settings.model !== backendDefault) {
+      this.settings.model = backendDefault;
+      modelChanged = true;
+    }
+    const effortChanged = normalizePluginModelEffort(
+      this.settings,
+      this.availableModels,
+      modelChanged
+    );
+    return modelChanged || effortChanged;
   }
 
   getAvailableModels(): ModelCatalogue {
@@ -1612,18 +1623,23 @@ export default class ObsidianAIAgent extends Plugin {
     const catalogue = getBundledModelCatalogue();
     if (Object.keys(catalogue).length === 0) return false;
     this.availableModels = catalogue;
+    let modelChanged = false;
     if (!this.settings.model) {
       this.settings.model = getDefaultModel(catalogue, this.settings.provider);
-      await this.saveSettings();
-      return true;
-    }
-    if (!getModelOption(catalogue, this.settings.provider, this.settings.model)) {
+      modelChanged = true;
+    } else if (!getModelOption(catalogue, this.settings.provider, this.settings.model)) {
       const fallback = getDefaultModel(catalogue, this.settings.provider);
       if (fallback) {
         this.settings.model = fallback;
-        await this.saveSettings();
+        modelChanged = true;
       }
     }
+    const effortChanged = normalizePluginModelEffort(
+      this.settings,
+      catalogue,
+      modelChanged
+    );
+    if (modelChanged || effortChanged) await this.saveSettings();
     return true;
   }
 
