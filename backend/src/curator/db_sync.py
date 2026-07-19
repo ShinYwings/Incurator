@@ -230,9 +230,7 @@ def _validate_sync_state(state: object, path: Path) -> None:
         raise SyncStateError(f"Invalid sync state {path}: root must be an object")
 
     device_id = state.get("device_id")
-    if device_id is not None and (
-        not isinstance(device_id, str) or not device_id.strip()
-    ):
+    if not isinstance(device_id, str) or not device_id.strip():
         raise SyncStateError(
             f"Invalid sync state {path}: device_id must be a non-empty string"
         )
@@ -788,13 +786,18 @@ def export_for_device(
     return out
 
 
-def _peer_files(internal_dir: Path, *, dir_name: str = "sync") -> list[Path]:
+def _peer_files(
+    internal_dir: Path,
+    *,
+    dir_name: str = "sync",
+    own_device_id: str | None = None,
+) -> list[Path]:
     """All peer export files (dev-*.jsonl) excluding this device's own file and any
     Syncthing conflict files (handled separately)."""
     sync_dir = _sync_dir(internal_dir, dir_name=dir_name)
     if not sync_dir.is_dir():
         return []
-    own = f"dev-{get_device_id(internal_dir)}.jsonl"
+    own = f"dev-{own_device_id or get_device_id(internal_dir)}.jsonl"
     peers = []
     for f in sorted(sync_dir.glob("dev-*.jsonl")):
         if f.name == own:
@@ -868,10 +871,16 @@ def import_all_peers(
     late-arriving Syncthing delivery is picked up exactly once.
     """
     results: dict[str, ImportStats] = {}
+    # Initialize identity before taking the mutable state snapshot. Otherwise a
+    # first-run `_peer_files()` call can persist an id after `state` was read as
+    # `{}`, and the final peer checkpoint write would overwrite that new id.
+    own_device_id = get_device_id(internal_dir)
     state = read_sync_state(internal_dir)
     peers: dict = state.setdefault("peers", {})
 
-    for f in _peer_files(internal_dir, dir_name=dir_name):
+    for f in _peer_files(
+        internal_dir, dir_name=dir_name, own_device_id=own_device_id
+    ):
         export_id = _read_export_id(f)
         if export_id is None:
             # Legacy or incompatible peer file — skip until peer re-exports.

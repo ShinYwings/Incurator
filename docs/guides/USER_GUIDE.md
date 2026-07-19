@@ -422,7 +422,7 @@ prompts:
 | Field | Purpose |
 | ----- | ------- |
 | `goal.audience` | Intended consumer of the curation output: `researcher`, `engineer`, `learner`, `writer`, or `generalist` |
-| `sources.include` / `sources.exclude` | Vault-relative source scope; empty `include` means all tracked sources, and exclusions always win |
+| `sources.include` / `sources.exclude` | Vault-relative source scope; an omitted or explicit empty `include` list means all tracked sources, exclusions always win, and every supplied pattern must contain non-whitespace text |
 | `sources.reference_mode` | External-reference policy for Zotero/linked resources |
 | `knowledge.domains` / `knowledge.topics` | Workspace relevance terms used by curation and planning |
 | `knowledge.avoid_merges` | False-merge guards for concepts that must remain distinct |
@@ -845,9 +845,10 @@ How it stays safe across devices:
 
 Autosync fails visibly if an existing local sync-state file is corrupt, a peer
 snapshot cannot be imported, or a conflict file cannot be archived. It never
-replaces corrupt state with a new device identity and never calls an unarchived
-conflict “merged.” Some earlier peer files may already have been applied before a
-later file fails; fix the reported file/permission problem and rerun the command.
+replaces corrupt state — including a missing, null, or empty `device_id` in an
+existing file — with a new identity and never calls an unarchived conflict
+“merged.” Some earlier peer files may already have been applied before a later
+file fails; fix the reported file/permission problem and rerun the command.
 Row-level imports are idempotent, so the retry is safe.
 
 The local DB, runtime, staging, reports, and PDF/CLI caches live under repo

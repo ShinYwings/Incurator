@@ -426,15 +426,29 @@ def _source_patterns_from(key: str, d: dict, workspace_path: Path) -> list[str]:
         return []
     value = d[key]
     if isinstance(value, str):
-        return [value] if value.strip() else []
-    if not isinstance(value, list) or any(
-        not isinstance(item, str) for item in value
-    ):
+        values = [value]
+    elif isinstance(value, list):
+        values = value
+    else:
         raise ValueError(
             f"curate.yml in {workspace_path}: 'sources.{key}' must be a string "
             "or a list of strings"
         )
-    return [item for item in value if item.strip()]
+    patterns: list[str] = []
+    for item in values:
+        if not isinstance(item, str):
+            raise ValueError(
+                f"curate.yml in {workspace_path}: 'sources.{key}' must be a "
+                "string or a list of strings"
+            )
+        pattern = item.strip()
+        if not pattern:
+            raise ValueError(
+                f"curate.yml in {workspace_path}: 'sources.{key}' contains an "
+                "empty or whitespace-only pattern"
+            )
+        patterns.append(pattern)
+    return patterns
 
 
 

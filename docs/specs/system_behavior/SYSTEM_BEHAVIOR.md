@@ -1151,8 +1151,9 @@ files are the transport.
 Only an absent device-local sync-state file is an initialization case. If the
 file exists but cannot be read, decoded, or validated as an object with correctly
 shaped identity/high-water fields, autosync fails without rewriting it. In
-particular, corruption must never be converted to `{}` and must never generate a
-replacement `device_id` or discard peer high-water marks.
+particular, an existing state object with a missing, null, empty, or non-string
+`device_id` is invalid. Corruption must never be converted to `{}` and must never
+generate a replacement identity or discard peer high-water marks.
 
 ## 13.4 Machine-Local Configuration
 
@@ -1357,7 +1358,8 @@ failure marks the run `failed` and must not write a partial artifact.
   policy resolution and occur before retrieval, trace creation, or synthesis.
   In particular,
   `sources` must be a mapping and its `include`/`exclude` values must be a string
-  or list of strings; malformed values cannot become an empty unrestricted scope.
+  or list of strings. Each explicit pattern must remain non-empty after trimming;
+  malformed or whitespace-only values cannot become an empty unrestricted scope.
 
 ### 16.2 Curation Plan Flow
 

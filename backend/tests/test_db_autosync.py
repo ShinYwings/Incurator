@@ -100,6 +100,8 @@ class TestSyncState:
             b"{broken",
             b"\xff\xfe",
             b"[]",
+            b"{}",
+            b'{"device_id": null}',
             b'{"device_id": 42}',
             b'{"peers": []}',
             b'{"peers": {"dev-peer.jsonl": "done"}}',
@@ -262,6 +264,25 @@ class TestImportAllPeers:
             assert conn.execute(
                 "SELECT 1 FROM atoms WHERE id = 'ATM-BROKEN'"
             ).fetchone() is None
+
+    def test_first_peer_import_preserves_generated_device_identity(
+        self, vault: Path
+    ) -> None:
+        peer = _make_peer(
+            vault,
+            "dev-peerIDENTITY.jsonl",
+            "ATM-IDENTITY",
+            "identity",
+            "2026-06-01T00:00:00Z",
+        )
+
+        db_sync.import_all_peers(_internal(vault), _db(vault))
+        first = db_sync.read_sync_state(_internal(vault))["device_id"]
+        db_sync.import_all_peers(_internal(vault), _db(vault))
+        second = db_sync.read_sync_state(_internal(vault))["device_id"]
+
+        assert peer.name in db_sync.read_sync_state(_internal(vault))["peers"]
+        assert first == second
 
     def test_never_imports_own_file(self, vault: Path) -> None:
         _add_atom(_db(vault), "ATM-00000001", "A", "2026-06-01T00:00:00Z")

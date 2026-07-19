@@ -384,7 +384,7 @@ prompts:
 | 필드 | 설명 |
 | ---- | ---- |
 | `goal.audience` | curation 출력의 대상: `researcher`, `engineer`, `learner`, `writer`, `generalist` |
-| `sources.include` / `sources.exclude` | vault 상대 경로 기준 source scope. `include`가 비어 있으면 전체 tracked source가 대상이며, exclude가 항상 우선합니다. |
+| `sources.include` / `sources.exclude` | vault 상대 경로 기준 source scope. 생략하거나 명시적으로 빈 `include` 목록이면 전체 tracked source가 대상이고 exclude가 항상 우선하며, 입력한 각 패턴에는 공백이 아닌 문자가 있어야 합니다. |
 | `sources.reference_mode` | Zotero/linked resource 같은 외부 reference 정책 |
 | `knowledge.domains` / `knowledge.topics` | curation과 plan에 사용하는 workspace relevance 용어 |
 | `knowledge.avoid_merges` | 서로 구분되어야 하는 concept의 false-merge guard |
@@ -810,8 +810,9 @@ Dry-run도 기록된 피어 high-water mark를 따르므로 이미 가져온 파
 
 Autosync는 손상된 상태를 초기 상태로 취급하지 않습니다. 동기화 상태 파일이
 없을 때만 새 상태를 만들며, 기존 파일을 읽을 수 없거나 JSON/필드 형태가
-잘못된 경우에는 파일을 덮어쓰지 않고 동기화를 실패시킵니다. 피어 스냅샷,
-tombstone 삭제, 충돌 파일 가져오기 또는 보관 중 하나라도 실패하면 성공이나
+잘못된 경우(누락/null/빈 `device_id` 포함)에는 파일을 덮어쓰지 않고 동기화를
+실패시킵니다. 피어 스냅샷, tombstone 삭제, 충돌 파일 가져오기 또는 보관 중
+하나라도 실패하면 성공이나
 병합 완료로 보고하지 않습니다. 이미 커밋된 이전 파일은 유지되고 실패한
 파일은 재시도할 수 있습니다.
 

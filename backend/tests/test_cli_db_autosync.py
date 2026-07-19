@@ -230,7 +230,9 @@ def test_lww_gate_catches_same_second_mutation(tmp_path: Path) -> None:
             "VALUES (?, ?, ?, ?, ?)",
             ("03_Notes/n.md", "h1", "md", 1, ts),
         )
-    db_sync.write_sync_state(paths.internal, {"last_export_ts": ts})
+    db_sync.write_sync_state(
+        paths.internal, {"device_id": "test-device", "last_export_ts": ts}
+    )
 
     assert db_sync.local_has_unexported_changes(paths.internal, paths.state_db) is True
 
@@ -244,7 +246,10 @@ def test_lww_gate_counts_tombstones(tmp_path: Path) -> None:
     paths = cfg.paths_from_config(vault)
 
     # Baseline: nothing unexported after an export "now".
-    db_sync.write_sync_state(paths.internal, {"last_export_ts": "2026-07-02T10:00:00Z"})
+    db_sync.write_sync_state(
+        paths.internal,
+        {"device_id": "test-device", "last_export_ts": "2026-07-02T10:00:00Z"},
+    )
     assert db_sync.local_has_unexported_changes(paths.internal, paths.state_db) is False
 
     # A tombstone newer than last_export_ts must flip the gate.

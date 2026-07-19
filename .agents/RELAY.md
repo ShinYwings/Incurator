@@ -58,7 +58,13 @@ parity, and reproducible failure handling take priority over refactoring volume.
 - [x] P5 gaussian_splatting passes status/reindex/incremental-sync/lint (100/100),
   Reference Mode preservation, and repeated quiescent autosync checks.
 - [x] v0.36.2 version/spec/docs consistency passes (16 tests).
-- [ ] P6 release commit, push, and PR creation in progress.
+- [x] P6 release commit `a8547da`, push, and draft PR #90 creation complete.
+- [x] PR review hardening implemented: existing state now requires a non-empty
+  `device_id`; explicit source patterns reject empty/whitespace-only entries.
+- [x] First-run peer import now initializes identity before reading the mutable
+  checkpoint snapshot, preventing that snapshot from erasing the new identity.
+- [x] Review follow-up validation passes: focused tests 92, spec/docs parity 16,
+  Ruff, Mypy (125 sources), and full backend 1265 passed / 6 skipped / 5 xfailed.
 
 ## Critical Context / Blockers
 
@@ -75,4 +81,5 @@ parity, and reproducible failure handling take priority over refactoring volume.
 
 ## Immediate Next Action
 
-Create `chore(release): v0.36.2`, push `release/v0.36.2`, and open the release PR.
+Commit and push the PR review follow-up, resolve both review threads, and verify
+the refreshed GitHub checks and review state on PR #90.

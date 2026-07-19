@@ -165,6 +165,9 @@ sources:
         "sources:\n  include: 42",
         "sources:\n  include: {path: 03_Notes/**}",
         "sources:\n  include: [03_Notes/**, 42]",
+        'sources:\n  include: "   "',
+        'sources:\n  include: [03_Notes/**, "   "]',
+        'sources:\n  exclude: [""]',
         "sources:\n  exclude: [[03_Notes/private/**]]",
     ],
 )
