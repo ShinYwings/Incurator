@@ -508,7 +508,9 @@ Treat PDF chat and PDF knowledge refinement as separate workflows:
 The plugin supports Antigravity, Claude, OpenAI Codex, Ollama, and DeepSeek. In settings, provider and model can be adjusted separately. In the chat sidebar footer, a single model menu switches both at once using `Provider · Model` labels. Reasoning/effort appears only for models whose backend catalogue entry declares effort levels.
 
 The Settings page shows the selected model's context window on the **Model**
-row instead of as a separate setting.
+row instead of as a separate setting. This is the provider/CLI token capacity;
+individual attached documents are still clipped by a conservative character
+guard, not an exact tokenizer-aware allocation of the whole model window.
 
 **Vision extraction models (v0.22.0):** PDF math extraction uses dedicated
 **vision** models, configured in the **Incurator Dashboard → LLM Provider** card,
@@ -571,7 +573,15 @@ claude login
 # Or use the plugin command: Login to Claude CLI
 ```
 
-`claudeEffort`: Choose from `low` / `medium` / `high` / `xhigh` / `max`
+Effort is model-specific. Sonnet 4.6 supports `low` / `medium` / `high` / `max`;
+Fable 5 and Opus 4.8 also support `xhigh`; Haiku 4.5 has no effort control.
+
+| Model | Default effort |
+| --- | --- |
+| `claude-sonnet-4-6` | `high` (plugin default) |
+| `claude-fable-5` | `high` |
+| `claude-opus-4-8` | `high` |
+| `claude-haiku-4-5` | None |
 
 ### 7.3 OpenAI Codex
 
@@ -583,14 +593,16 @@ codex login
 # Or use the plugin command: Login to OpenAI Codex CLI
 ```
 
-`codexReasoningEffort`: Choose from `low` / `medium` / `high` / `xhigh`
+`codexReasoningEffort` is model-specific. Sol and Terra support `low` /
+`medium` / `high` / `xhigh` / `max` / `ultra`; Luna stops at `max`; GPT-5.5
+stops at `xhigh`. `ultra` may automatically delegate work in Codex.
 
 | Model | Description |
 | --- | --- |
-| `gpt-5.5` | Default. Powerful reasoning |
-| `gpt-5.4` | Everyday coding tasks |
-| `gpt-5.4-mini` | Fast, lightweight tasks |
-| `gpt-5.3-codex` | Coding-specialized model |
+| `gpt-5.6-sol` | Default; frontier agentic coding (`low` default effort) |
+| `gpt-5.6-terra` | Balanced everyday agentic coding (`medium` default) |
+| `gpt-5.6-luna` | Lighter-weight agentic coding (`medium` default) |
+| `gpt-5.5` | Visible compatibility model (`medium` default) |
 
 ### 7.4 Ollama (Local)
 

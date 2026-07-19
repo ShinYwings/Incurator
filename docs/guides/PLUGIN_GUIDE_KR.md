@@ -445,7 +445,9 @@ PDF 채팅과 PDF 지식 정제는 별도 workflow로 취급합니다.
 ## 7. AI 제공자 설정
 
 Settings 화면에서는 선택된 model의 context window를 별도 항목으로 만들지 않고
-**Model** 행의 설명에 함께 표시합니다.
+**Model** 행의 설명에 함께 표시합니다. 이 값은 provider/CLI의 token 용량이며,
+개별 첨부 문서는 전체 model window를 정확히 token 단위로 배정받는 것이 아니라
+보수적인 문자 수 guard로 잘립니다.
 
 **비전 추출 모델 (v0.22.0):** PDF 수식 추출은 메인 채팅 모델과 별개의 전용 **비전**
 모델을 쓰며, **Incurator Dashboard → LLM Provider** 카드에서 설정합니다. 두 개의 행:
@@ -501,7 +503,16 @@ claude login
 # 또는 플러그인 내 명령: Login to Claude CLI
 ```
 
-`claudeEffort`: `low` / `medium` / `high` / `xhigh` / `max` 중 선택
+effort 지원 범위는 모델별로 다릅니다. Sonnet 4.6은 `low` / `medium` /
+`high` / `max`, Fable 5와 Opus 4.8은 여기에 `xhigh`를 추가로 지원하며,
+Haiku 4.5에는 effort 조절 기능이 없습니다.
+
+| 모델 | 기본 effort |
+| --- | --- |
+| `claude-sonnet-4-6` | `high` (플러그인 기본값) |
+| `claude-fable-5` | `high` |
+| `claude-opus-4-8` | `high` |
+| `claude-haiku-4-5` | 없음 |
 
 ### 7.3 OpenAI Codex
 
@@ -513,14 +524,16 @@ codex login
 # 또는 플러그인 내 명령: Login to OpenAI Codex CLI
 ```
 
-`codexReasoningEffort`: `low` / `medium` / `high` / `xhigh` 중 선택
+`codexReasoningEffort` 지원 범위도 모델별로 다릅니다. Sol과 Terra는 `low` /
+`medium` / `high` / `xhigh` / `max` / `ultra`, Luna는 `max`까지, GPT-5.5는
+`xhigh`까지 지원합니다. Codex의 `ultra`에서는 작업이 자동 위임될 수 있습니다.
 
 | 모델 | 설명 |
 | --- | --- |
-| `gpt-5.5` | 기본값. 강력한 추론 |
-| `gpt-5.4` | 일상 코딩 작업 |
-| `gpt-5.4-mini` | 빠른 경량 작업 |
-| `gpt-5.3-codex` | 코딩 특화 모델 |
+| `gpt-5.6-sol` | 기본값. frontier agentic coding (`low` 기본 effort) |
+| `gpt-5.6-terra` | 균형 잡힌 일상 agentic coding (`medium` 기본값) |
+| `gpt-5.6-luna` | 경량 agentic coding (`medium` 기본값) |
+| `gpt-5.5` | 노출되는 호환 모델 (`medium` 기본값) |
 
 ### 7.4 Ollama (로컬)
 

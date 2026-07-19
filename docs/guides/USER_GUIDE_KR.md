@@ -841,8 +841,8 @@ Incurator의 지능을 담당하는 LLM 백엔드를 설정합니다. 시스템�
 | :--- | :--- | :--- |
 | `ollama` | 로컬 | DeepSeek, Llama 3 등 로컬 모델 사용 (비용 무료, 오프라인 가능) |
 | `antigravity-cli` | CLI | Google Antigravity CLI (`agy`)를 통한 추론 (가장 빠르고 안정적인 무료 옵션). Gemini 3.5 Flash / 3.1 Pro 외에 Claude·GPT-OSS 모델도 노출됩니다 |
-| `claude-code` | CLI | Anthropic 공식 `claude` 명령어를 통한 추론 (Sonnet 4.6 / Opus 4.7 / Haiku 4.5) |
-| `codex-cli` | CLI | OpenAI 공식 `codex` 명령어를 통한 추론 (GPT-5.5 / 5.4 / 5.4-mini / 5.3-codex / 5.2) |
+| `claude-code` | CLI | Anthropic 공식 `claude` 명령어를 통한 추론 (Sonnet 4.6 / Fable 5 / Opus 4.8 / Haiku 4.5) |
+| `codex-cli` | CLI | OpenAI 공식 `codex` 명령어를 통한 추론 (GPT-5.6 Sol / Terra / Luna 및 노출되는 GPT-5.5 호환 모델) |
 | `deepseek-api` | API key | DeepSeek의 OpenAI 호환 API를 통한 추론 (`DEEPSEEK_API_KEY` 또는 암호화된 로컬 backend secret; 현재 모델 `deepseek-v4-flash` / `deepseek-v4-pro`) |
 
 ```bash
@@ -855,14 +855,14 @@ wiki config provider
 모델을 고른 뒤에는 **추론 강도(effort)** 를 함께 선택할 수 있습니다. 이는 각 CLI가 노출하는 사고 깊이 옵션과 1:1로 매핑됩니다.
 
 - `claude-code` → `claude --effort <low|medium|high|xhigh|max>`
-- `codex-cli` → `codex -c model_reasoning_effort=<low|medium|high|xhigh>`
+- `codex-cli` → `codex -c model_reasoning_effort=<low|medium|high|xhigh|max|ultra>` (모델별 지원 범위가 다르며, `ultra`에서는 작업이 자동 위임될 수 있음)
 - `antigravity-cli` → `agy`는 별도 플래그가 없어, 선택한 강도가 프롬프트 힌트로 전달됩니다 (best-effort).
 
 위자드는 모델별로 사용 가능한 강도만 보여주며 (예: Gemini 3.1 Pro 는 `low`/`high`), 강도가 하나뿐인 모델은 자동 선택됩니다. 플래그로 직접 지정할 수도 있습니다:
 
 ```bash
-# Primary 를 GPT-5.5 + high effort 로 즉시 설정
-wiki config provider --primary codex-cli --model gpt-5.5 --effort high
+# Primary 를 GPT-5.6 Sol + high effort 로 즉시 설정
+wiki config provider --primary codex-cli --model gpt-5.6-sol --effort high
 wiki config provider --primary deepseek-api --model deepseek-v4-flash
 wiki config provider --primary deepseek-api --model deepseek-v4-pro --api-key-env DEEPSEEK_API_KEY
 ```
