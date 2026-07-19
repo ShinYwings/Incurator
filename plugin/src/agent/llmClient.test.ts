@@ -11,7 +11,7 @@ import {
   shouldInjectMcpTools,
   mapOpenAIFinishReason,
 } from "./llm/messageUtils";
-import { LLMClient, ADAPTERS } from "./llmClient";
+import { ADAPTERS, LLMClient } from "./llm/LLMClient";
 import { DEFAULT_SETTINGS } from "../types";
 import type { LLMMessage, PluginSettings } from "../types";
 
@@ -243,7 +243,7 @@ import { join } from "path";
 
 describe("CLI tool-scope sandbox source contract (v0.23.0)", () => {
   const source = readFileSync(
-    join(fileURLToPath(new URL(".", import.meta.url)), "llmClient.ts"),
+    join(fileURLToPath(new URL(".", import.meta.url)), "llm", "LLMClient.ts"),
     "utf8",
   );
 
@@ -293,7 +293,7 @@ describe("CLI tool-scope sandbox source contract (v0.23.0)", () => {
   });
 
   it("reuses the shared expandPath helper (no duplicated ~-expansion regex)", () => {
-    expect(source).toContain('from "../utils/deviceRegistry"');
+    expect(source).toContain('from "../../utils/deviceRegistry"');
     expect(source).not.toContain("replace(/^~");
   });
 
@@ -369,7 +369,7 @@ describe("CLI model effort arguments", () => {
 
 describe("chat image channel (v0.28.0)", () => {
   const source = readFileSync(
-    join(fileURLToPath(new URL(".", import.meta.url)), "llmClient.ts"),
+    join(fileURLToPath(new URL(".", import.meta.url)), "llm", "LLMClient.ts"),
     "utf8",
   );
 

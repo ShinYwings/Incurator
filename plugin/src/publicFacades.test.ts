@@ -1,5 +1,5 @@
 import { readFileSync } from "fs";
-import { dirname, join } from "path";
+import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
 import {
   ScriptKind,
@@ -13,6 +13,7 @@ import {
   isInterfaceDeclaration,
   isIdentifier,
   isNamedExports,
+  isStringLiteral,
   isTypeAliasDeclaration,
   isVariableStatement,
   ModifierFlags,
@@ -35,6 +36,18 @@ function exportedNames(relativePath: string): Set<string> {
   forEachChild(source, (node) => {
     if (isExportDeclaration(node) && node.exportClause && isNamedExports(node.exportClause)) {
       for (const element of node.exportClause.elements) names.add(element.name.text);
+      return;
+    }
+    if (
+      isExportDeclaration(node) &&
+      !node.exportClause &&
+      node.moduleSpecifier &&
+      isStringLiteral(node.moduleSpecifier) &&
+      node.moduleSpecifier.text.startsWith(".")
+    ) {
+      const target = resolve(dirname(path), `${node.moduleSpecifier.text}.ts`);
+      const relativeTarget = target.slice(pluginSrc.length + 1);
+      for (const name of exportedNames(relativeTarget)) names.add(name);
       return;
     }
     if (!(getCombinedModifierFlags(node as never) & ModifierFlags.Export)) return;
