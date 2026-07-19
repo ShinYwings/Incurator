@@ -14,7 +14,8 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 
 class RegisterBuildSplitTests(unittest.TestCase):
@@ -116,6 +117,46 @@ class RegisterBuildSplitTests(unittest.TestCase):
         result = build(source_id=self.source_id, wait=False, workspace_path=str(self.root))
         self.assertFalse(result["ok"])
         self.assertIn("L1", result["error"])
+
+    def test_sync_build_does_not_report_success_without_a_source_result(self) -> None:
+        tools = self._tools()
+        register = tools["curator_register_source"].fn
+        build = tools["curator_build_source"].fn
+        register(source_id=self.source_id, build=False, workspace_path=str(self.root))
+        client = MagicMock()
+
+        with patch("curator.llm.build_client", return_value=client), patch(
+            "curator.ingest_llm.run_l1_to_l3", return_value=[]
+        ):
+            result = build(source_id=self.source_id, wait=True, workspace_path=str(self.root))
+
+        self.assertFalse(result["ok"], result)
+        self.assertIn("No build result", result["error"])
+        client.close.assert_called_once_with()
+
+    def test_sync_build_reports_degraded_search_index_refresh(self) -> None:
+        tools = self._tools()
+        register = tools["curator_register_source"].fn
+        build = tools["curator_build_source"].fn
+        register(source_id=self.source_id, build=False, workspace_path=str(self.root))
+        client = MagicMock()
+        ingest_result = SimpleNamespace(
+            source_id=self.source_id,
+            ok=True,
+            fragments_created=1,
+            fragments_updated=0,
+            error=None,
+            skipped=False,
+        )
+
+        with patch("curator.llm.build_client", return_value=client), patch(
+            "curator.ingest_llm.run_l1_to_l3", return_value=[ingest_result]
+        ), patch("curator.search.update_index", side_effect=RuntimeError("index offline")):
+            result = build(source_id=self.source_id, wait=True, workspace_path=str(self.root))
+
+        self.assertTrue(result["ok"], result)
+        self.assertIn("index offline", "\n".join(result["warnings"]))
+        client.close.assert_called_once_with()
 
     # ── deprecated alias ──────────────────────────────────────────────────
 

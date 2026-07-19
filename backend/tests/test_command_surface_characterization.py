@@ -236,6 +236,27 @@ def test_mcp_tool_names_and_representative_signatures_are_stable() -> None:
         assert list(signature.parameters) == parameters
 
 
+def test_mcp_provider_config_loads_the_packaged_model_catalogue(
+    tmp_path: Path, monkeypatch
+) -> None:
+    curator_dir = tmp_path / ".curator"
+    curator_dir.mkdir()
+    (curator_dir / "settings.yml").write_text(
+        "llm:\n  primary: antigravity-cli::gemini-3.5-flash\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("VAULT_ROOT", str(tmp_path))
+    monkeypatch.setenv("CURATOR_DISABLE_INGEST_WORKER", "1")
+
+    result = _mcp_tools()["curator_get_provider_config"].fn(
+        workspace_path=str(tmp_path)
+    )
+
+    assert result["ok"] is True
+    assert result["models_json"]["schema_version"] >= 1
+    assert "antigravity" in result["models_json"]["providers"]
+
+
 def test_plugin_api_exports_and_validation_envelopes_are_stable(tmp_path: Path) -> None:
     expected_exports = [
         "_parse_pdf_pages_cached",
