@@ -9,6 +9,7 @@ import {
   DEFAULT_SETTINGS,
   getDefaultModel,
   getModelOption,
+  normalizePluginModelEffort,
 } from "./types";
 import { getIncuratorBackendStatus } from "./utils/incuratorBackendStatus";
 
@@ -73,9 +74,11 @@ export class AIAgentSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.provider)
           .onChange(async (value: string) => {
             const provider = value as LLMProvider;
+            const catalogue = this.plugin.getAvailableModels();
             this.plugin.settings.provider = provider;
             this.plugin.settings.model =
-              getDefaultModel(this.plugin.getAvailableModels(), provider) || "";
+              getDefaultModel(catalogue, provider) || "";
+            normalizePluginModelEffort(this.plugin.settings, catalogue, true);
             await this.plugin.saveSettings();
             this.display();
           })
@@ -163,6 +166,7 @@ export class AIAgentSettingTab extends PluginSettingTab {
               } else {
                 this.plugin.settings.model = value;
               }
+              normalizePluginModelEffort(this.plugin.settings, catalogue, true);
               await this.plugin.saveSettings();
               this.display();
             });
@@ -193,6 +197,11 @@ export class AIAgentSettingTab extends PluginSettingTab {
                     this.plugin.getAvailableModels(),
                     this.plugin.settings.provider
                   );
+                normalizePluginModelEffort(
+                  this.plugin.settings,
+                  this.plugin.getAvailableModels(),
+                  true
+                );
                 await this.plugin.saveSettings();
               })
           );

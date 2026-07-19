@@ -29,8 +29,8 @@ export interface LastMarkdownScrollPosition extends FileScrollPosition {
 // ─── LLM Provider ───────────────────────────────────────────────
 export type LLMProvider = "antigravity" | "claude" | "openai" | "ollama" | "deepseek";
 export type ChatMode = "chat" | "plan";
-export type CodexReasoningEffort = "low" | "medium" | "high" | "xhigh";
-export type ClaudeEffort = "low" | "medium" | "high" | "xhigh" | "max";
+export type CodexReasoningEffort = "" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
+export type ClaudeEffort = "" | "low" | "medium" | "high" | "xhigh" | "max";
 
 export interface ProviderUsage {
   requests: number;
@@ -135,8 +135,8 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   provider: "antigravity",
   model: "",
   chatMode: "chat",
-  codexReasoningEffort: "medium",
-  claudeEffort: "medium",
+  codexReasoningEffort: "low",
+  claudeEffort: "high",
   agentEffort: "",
   antigravityPrintTimeoutSec: 300,
   providerUsage: {
@@ -219,6 +219,44 @@ export function getDefaultModel(
 ): string {
   const options = catalogue[provider] || [];
   return options[0]?.id || "";
+}
+
+export function normalizeModelEffort(
+  option: ModelOption | undefined,
+  stored: string,
+  resetToDefault = false
+): string {
+  const efforts = option?.efforts ?? [];
+  if (efforts.length === 0) return "";
+  const declaredDefault = option?.defaultEffort;
+  const fallback = declaredDefault && efforts.includes(declaredDefault)
+    ? declaredDefault
+    : efforts[0];
+  if (resetToDefault) return fallback;
+  return efforts.includes(stored) ? stored : fallback;
+}
+
+export function normalizePluginModelEffort(
+  settings: PluginSettings,
+  catalogue: ModelCatalogue,
+  resetToDefault = false
+): boolean {
+  const option = getModelOption(catalogue, settings.provider, settings.model);
+  const current = settings.provider === "openai"
+    ? settings.codexReasoningEffort
+    : settings.provider === "claude"
+      ? settings.claudeEffort
+      : settings.agentEffort;
+  const normalized = normalizeModelEffort(option, current, resetToDefault);
+  if (normalized === current) return false;
+  if (settings.provider === "openai") {
+    settings.codexReasoningEffort = normalized as CodexReasoningEffort;
+  } else if (settings.provider === "claude") {
+    settings.claudeEffort = normalized as ClaudeEffort;
+  } else {
+    settings.agentEffort = normalized;
+  }
+  return true;
 }
 
 export function modelSupportsVision(

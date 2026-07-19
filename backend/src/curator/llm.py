@@ -670,7 +670,7 @@ class ClaudeCodeClient:
         cmd = [self.CLI, "-p", "Follow the instructions in the provided input."]
         if self.model:
             cmd += ["--model", self.model]
-        # claude CLI exposes reasoning depth via --effort (low|medium|high|xhigh|max).
+        # claude CLI exposes model-specific reasoning depth via --effort.
         if self.effort:
             cmd += ["--effort", self.effort]
         env = _repo_temp_env({"CLAUDE_BYPASS_PERMISSIONS": "true"})
@@ -749,6 +749,8 @@ class ClaudeCodeClient:
         ]
         if self.model:
             cmd += ["--model", self.model]
+        if self.effort:
+            cmd += ["--effort", self.effort]
         try:
             result = subprocess.run(
                 cmd,
@@ -1013,7 +1015,7 @@ class CodexCliClient:
         out.close()
         cmd = [self.CLI, "--profile", "incurator"]
         # codex exposes reasoning depth through the config override
-        # `model_reasoning_effort` (low|medium|high|xhigh).
+        # `model_reasoning_effort` (model-specific, through max/ultra).
         if self.effort:
             cmd += ["-c", f"model_reasoning_effort={self.effort}"]
         cmd += [

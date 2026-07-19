@@ -180,12 +180,12 @@ def config_provider(
     model: str = typer.Option(
         "",
         "--model", "-m",
-        help="Model name (e.g. qwen2.5:7b, gpt-5.5, claude-sonnet-4-6).",
+        help="Model name (e.g. qwen2.5:7b, gpt-5.6-sol, claude-sonnet-4-6).",
     ),
     effort: str = typer.Option(
         "",
         "--effort", "-e",
-        help="Reasoning effort for the primary model (low|medium|high|xhigh|max), CLI-dependent.",
+        help="Reasoning effort for the primary model (low|medium|high|xhigh|max|ultra), CLI-dependent.",
     ),
     host: str = typer.Option(
         "",
@@ -214,7 +214,7 @@ def config_provider(
 
     \b
       wiki config provider --primary ollama --model qwen2.5:7b
-      wiki config provider --primary codex-cli --model gpt-5.5 --effort high
+      wiki config provider --primary codex-cli --model gpt-5.6-sol --effort high
       wiki config provider --primary deepseek-api --model deepseek-v4-flash
       wiki config provider --primary deepseek-api --model deepseek-v4-pro --api-key-env DEEPSEEK_API_KEY
       wiki config provider --primary antigravity-cli
@@ -541,4 +541,3 @@ def models_use(
     cfg.save_config(paths, config)
     _ok(f"Model set to [bold]{model}[/bold] in {paths.config_file.relative_to(paths.root)}")
     _hint("Run [bold]wiki add[/bold] to start using the new model.")
-
