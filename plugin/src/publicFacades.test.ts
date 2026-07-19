@@ -69,6 +69,10 @@ function exportedNames(relativePath: string): Set<string> {
   return names;
 }
 
+function sourceText(relativePath: string): string {
+  return readFileSync(join(pluginSrc, relativePath), "utf8");
+}
+
 describe("stable plugin public facades", () => {
   it("keeps the LLM client exports available from agent/llmClient", () => {
     expect([...exportedNames("agent/llmClient.ts")]).toEqual(expect.arrayContaining([
@@ -103,5 +107,11 @@ describe("stable plugin public facades", () => {
       "ExternalPdfState",
       "ExternalPdfView",
     ]));
+  });
+
+  it("delegates ExternalPdfView implementation to the ui/pdf owner", () => {
+    const source = sourceText("ui/externalPdfView.ts");
+    expect(source).toContain('export * from "./pdf/ExternalPdfView";');
+    expect(source).not.toContain("class ExternalPdfView");
   });
 });

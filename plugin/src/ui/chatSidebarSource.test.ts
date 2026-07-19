@@ -407,7 +407,7 @@ describe("chat sidebar context chip source contract", () => {
 
   it("Convert-to-LaTeX still routes through the backend transcribe resolver (no-regress)", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
-    const source = readFileSync(join(dir, "externalPdfView.ts"), "utf8");
+    const source = readFileSync(join(dir, "pdf", "ExternalPdfView.ts"), "utf8");
     // The right-click Convert-to-LaTeX text path is OUT OF SCOPE and unchanged.
     expect(source).toContain("transcribePdfRegion({ text:");
   });
