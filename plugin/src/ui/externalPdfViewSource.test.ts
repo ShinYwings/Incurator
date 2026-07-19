@@ -40,4 +40,10 @@ describe("ExternalPdfView scroll performance", () => {
   it("cancels pending scroll frames on close", () => {
     expect(source).toContain("cancelAnimationFrame(this.scrollFrame)");
   });
+
+  it("invalidates in-flight PDF renders as soon as the view closes", () => {
+    expect(source).toMatch(
+      /async onClose\(\): Promise<void> \{\s*this\.renderToken\+\+;\s*this\.clearTimers\(\);/
+    );
+  });
 });

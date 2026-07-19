@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { vi } from "vitest";
 import {
   formatMcpToolResultForDisplay,
@@ -21,6 +21,89 @@ vi.mock("obsidian", () => ({
   },
   requestUrl: async () => ({ json: {} }),
 }));
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe("LLM request lifecycle hardening", () => {
+  const messages: LLMMessage[] = [{ role: "user", content: "hi" }];
+
+  function httpClient(auth: { resolveCredential: () => Promise<{ type: "bearer"; token: string }> }): LLMClient {
+    const client = new LLMClient(
+      { ...DEFAULT_SETTINGS, provider: "openai", model: "test-model" },
+      auth as never,
+    );
+    (client as any).shouldUseCli = () => false;
+    return client;
+  }
+
+  function emptyStreamingResponse(): Response {
+    return {
+      ok: true,
+      body: {
+        getReader: () => ({ read: async () => ({ done: true, value: undefined }) }),
+      },
+    } as unknown as Response;
+  }
+
+  it("keeps the current request controller usable if abort runs during async authentication", async () => {
+    let resolveCredential!: (value: { type: "bearer"; token: string }) => void;
+    const credential = new Promise<{ type: "bearer"; token: string }>((resolve) => {
+      resolveCredential = resolve;
+    });
+    const client = httpClient({ resolveCredential: () => credential });
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+      expect((init.signal as AbortSignal).aborted).toBe(true);
+      throw new DOMException("aborted", "AbortError");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const request = (client as any)._streamChatSingleTurn(messages, vi.fn());
+    client.abort();
+    resolveCredential({ type: "bearer", token: "token" });
+
+    await expect(request).resolves.toMatchObject({ text: "" });
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("does not let an older request clear a newer request controller", async () => {
+    const client = httpClient({
+      resolveCredential: async () => ({ type: "bearer", token: "token" }),
+    });
+    const pending: Array<(response: Response) => void> = [];
+    const signals: AbortSignal[] = [];
+    vi.stubGlobal("fetch", vi.fn((_url: string, init: RequestInit) => {
+      signals.push(init.signal as AbortSignal);
+      return new Promise<Response>((resolve) => pending.push(resolve));
+    }));
+
+    const first = (client as any)._streamChatSingleTurn(messages, vi.fn());
+    await vi.waitFor(() => expect(pending).toHaveLength(1));
+    const second = (client as any)._streamChatSingleTurn(messages, vi.fn());
+    await vi.waitFor(() => expect(pending).toHaveLength(2));
+
+    pending[0](emptyStreamingResponse());
+    await first;
+    client.abort();
+
+    expect(signals[1].aborted).toBe(true);
+    pending[1](emptyStreamingResponse());
+    await second;
+  });
+
+  it("accepts MCP server definitions without an args array", () => {
+    const client = httpClient({
+      resolveCredential: async () => ({ type: "bearer", token: "token" }),
+    });
+
+    expect((client as any).processMcpServer({ command: "server", env: {} })).toEqual({
+      command: "server",
+      args: [],
+      env: {},
+    });
+  });
+});
 
 describe("LLM quota errors", () => {
   it("recognizes quota and capacity failures from CLI/API providers", () => {
@@ -303,6 +386,10 @@ describe("CLI tool-scope sandbox source contract (v0.23.0)", () => {
     // logger.warn already prepends [Incurator]; the legacy prefix must be gone
     // (no double-prefixing).
     expect(source).not.toContain("[incurator]");
+  });
+
+  it("writes the MCP initialize message only when child stdin is available", () => {
+    expect(source).toContain('child.stdin?.write(JSON.stringify(initMessage) + "\\n")');
   });
 
   it("resolves --add-dir lazily — skipped on the tool-free ephemeral path", () => {

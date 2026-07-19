@@ -240,6 +240,18 @@ remains the Obsidian lifecycle entrypoint and may consume either the stable
 facades or explicit owner modules without changing command IDs, view types,
 settings fields, persisted DTOs, or backend command envelopes.
 
+### 1.4 Asynchronous lifecycle safety (v0.36.0)
+
+- Each streaming HTTP request owns a locally captured `AbortController`. An
+  older request may clear the shared controller slot only while that slot still
+  points to its own controller, so abort and overlapping requests cannot null or
+  detach a newer request.
+- Closing an External PDF view invalidates its render token before timer,
+  observer, cache, and index cleanup. Any in-flight PDF render must discard its
+  result instead of touching the closed view DOM.
+- Optional child-process streams must be checked before writes. A missing MCP
+  `args` array is normalized to an empty array during command preparation.
+
 ## 2. Persisted Settings Schema
 
 > **Logging is not a setting.** Plugin logs go through a namespaced logger
@@ -736,6 +748,11 @@ interface MCPServerConfig {
   enabled: boolean;
 }
 ```
+
+The persisted current-schema field remains required. Runtime command
+preparation nevertheless normalizes malformed or legacy missing/null `args` to
+`[]` so a damaged setting cannot crash plugin startup before validation or UI
+repair.
 
 ## 3. Model Catalogue
 

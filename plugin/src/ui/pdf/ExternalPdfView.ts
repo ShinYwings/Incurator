@@ -471,6 +471,7 @@ export class ExternalPdfView extends ItemView {
   }
 
   async onClose(): Promise<void> {
+    this.renderToken++;
     this.clearTimers();
     if (this.styleObserver) {
       this.styleObserver.disconnect();

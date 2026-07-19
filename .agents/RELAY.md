@@ -43,6 +43,10 @@ Obsidian behavior.
 - [x] Branch pushed and PR #88 opened.
 - [x] GitHub Backend Tests, Plugin Tests, and Version Consistency passed; PR #88
   marked ready for review.
+- [x] Addressed all six lifecycle review findings: request-local abort ownership,
+  guarded controller cleanup, PDF close render invalidation, optional child
+  stdin, and missing MCP args. Plugin 688-test, TypeScript, build, and spec/docs
+  checks passed locally; follow-up pushed to PR #88 for GitHub validation.
 - [ ] Await human review/merge and address any actionable feedback on the same
   branch.
 
@@ -56,5 +60,5 @@ Obsidian behavior.
 
 ## Immediate Next Action
 
-Await human review/merge of ready PR #88. Address actionable findings on the
-same branch if any are reported.
+Await follow-up CI and human review/merge of ready PR #88. Address any new
+actionable findings on the same branch.

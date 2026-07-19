@@ -17,6 +17,10 @@ All notable changes to Incurator are documented here.
   Corrected the English/Korean plugin guides to describe portable Zotero and
   external-reference restoration instead of the removed persisted absolute-path
   behavior.
+- **Review Lifecycle Hardening**
+  Prevented concurrent abort/stream requests from clearing each other's request
+  controllers, invalidated in-flight PDF renders on view close, and guarded MCP
+  child stdin plus omitted server argument arrays.
 
 ---
 

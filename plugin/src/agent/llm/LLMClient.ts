@@ -570,7 +570,7 @@ export class LLMClient {
         }
       };
       
-      child.stdin.write(JSON.stringify(initMessage) + "\n");
+      child.stdin?.write(JSON.stringify(initMessage) + "\n");
     });
   }
 
@@ -681,12 +681,19 @@ export class LLMClient {
     tools?: any[],
     toolPolicy: ToolPolicy = "auto"
   ): Promise<{ text: string; tool_calls?: any[] }> {
-    this.abortController = new AbortController();
+    const controller = new AbortController();
+    this.abortController = controller;
     const provider = this.settings.provider;
 
     if (this.shouldUseCli(messages)) {
-      const text = await this.streamChatViaCli(messages, onChunk, toolPolicy);
-      return { text };
+      try {
+        const text = await this.streamChatViaCli(messages, onChunk, toolPolicy);
+        return { text };
+      } finally {
+        if (this.abortController === controller) {
+          this.abortController = null;
+        }
+      }
     }
 
     // For Ollama, refresh the adapter host from current settings
@@ -729,7 +736,7 @@ export class LLMClient {
           method: "POST",
           headers,
           body: JSON.stringify(body),
-          signal: this.abortController.signal,
+          signal: controller.signal,
         });
       } catch (fetchErr) {
         if (provider === "ollama") {
@@ -868,7 +875,9 @@ export class LLMClient {
       }
       throw err;
     } finally {
-      this.abortController = null;
+      if (this.abortController === controller) {
+        this.abortController = null;
+      }
     }
 
     const tool_calls = toolCallsMap.size > 0 ? Array.from(toolCallsMap.values()) : undefined;
@@ -2071,7 +2080,7 @@ export class LLMClient {
 
     return {
       command: server.command,
-      args: server.args.map((a: string) => replaceVars(a)),
+      args: (server.args || []).map((a: string) => replaceVars(a)),
       env: processedEnv,
     };
   }
