@@ -94,6 +94,70 @@ class TestSyncState:
 
         assert db_sync._sync_state_path(first) != db_sync._sync_state_path(second)
 
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            b"{broken",
+            b"\xff\xfe",
+            b"[]",
+            b"{}",
+            b'{"device_id": null}',
+            b'{"device_id": 42}',
+            b'{"peers": []}',
+            b'{"peers": {"dev-peer.jsonl": "done"}}',
+            b'{"peers": {"dev-peer.jsonl": {"last_export_id": 42}}}',
+            b'{"last_export_ts": 42}',
+        ],
+    )
+    def test_existing_invalid_state_fails_without_repair(
+        self, tmp_path: Path, payload: bytes
+    ) -> None:
+        internal = tmp_path / ".curator"
+        state_path = db_sync._sync_state_path(internal)
+        state_path.parent.mkdir(parents=True)
+        state_path.write_bytes(payload)
+
+        with pytest.raises(RuntimeError, match="sync state"):
+            db_sync.get_device_id(internal)
+
+        assert state_path.read_bytes() == payload
+
+    def test_existing_unreadable_state_fails_closed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        internal = tmp_path / ".curator"
+        state_path = db_sync._sync_state_path(internal)
+        state_path.parent.mkdir(parents=True)
+        state_path.write_text('{"device_id": "stable-device"}', encoding="utf-8")
+        original_read_text = Path.read_text
+
+        def deny_state_read(path: Path, *args, **kwargs) -> str:
+            if path == state_path:
+                raise PermissionError("state read denied")
+            return original_read_text(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", deny_state_read)
+
+        with pytest.raises(RuntimeError, match="sync state"):
+            db_sync.get_device_id(internal)
+
+    def test_state_existence_probe_error_is_not_treated_as_absent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        internal = tmp_path / ".curator"
+        state_path = db_sync._sync_state_path(internal)
+        original_stat = Path.stat
+
+        def deny_state_stat(path: Path, *args, **kwargs):
+            if path == state_path:
+                raise PermissionError("state stat denied")
+            return original_stat(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "stat", deny_state_stat)
+
+        with pytest.raises(RuntimeError, match="sync state"):
+            db_sync.read_sync_state(internal)
+
 
 class TestConstantsAndIgnore:
     def test_source_locators_are_not_device_local_columns(self) -> None:
@@ -177,6 +241,48 @@ class TestImportAllPeers:
         real = db_sync.import_all_peers(_internal(vault), _db(vault), dry_run=False)
         assert dry[peer_name].inserted == real[peer_name].inserted
         assert real[peer_name].inserted == 1
+
+    def test_peer_import_failure_is_not_skipped_or_checkpointed(
+        self, vault: Path
+    ) -> None:
+        peer = _make_peer(
+            vault,
+            "dev-peerBROKEN.jsonl",
+            "ATM-BROKEN",
+            "broken",
+            "2026-06-01T00:00:00Z",
+        )
+        with peer.open("a", encoding="utf-8") as handle:
+            handle.write("{malformed\n")
+
+        with pytest.raises(RuntimeError, match=peer.name):
+            db_sync.import_all_peers(_internal(vault), _db(vault))
+
+        state = db_sync.read_sync_state(_internal(vault))
+        assert peer.name not in state.get("peers", {})
+        with db.connect(_db(vault)) as conn:
+            assert conn.execute(
+                "SELECT 1 FROM atoms WHERE id = 'ATM-BROKEN'"
+            ).fetchone() is None
+
+    def test_first_peer_import_preserves_generated_device_identity(
+        self, vault: Path
+    ) -> None:
+        peer = _make_peer(
+            vault,
+            "dev-peerIDENTITY.jsonl",
+            "ATM-IDENTITY",
+            "identity",
+            "2026-06-01T00:00:00Z",
+        )
+
+        db_sync.import_all_peers(_internal(vault), _db(vault))
+        first = db_sync.read_sync_state(_internal(vault))["device_id"]
+        db_sync.import_all_peers(_internal(vault), _db(vault))
+        second = db_sync.read_sync_state(_internal(vault))["device_id"]
+
+        assert peer.name in db_sync.read_sync_state(_internal(vault))["peers"]
+        assert first == second
 
     def test_never_imports_own_file(self, vault: Path) -> None:
         _add_atom(_db(vault), "ATM-00000001", "A", "2026-06-01T00:00:00Z")
@@ -409,6 +515,74 @@ class TestAutosync:
             / "sync_conflicts"
             / conflict.name
         ).exists()
+
+    def test_conflict_import_failure_is_not_reported_as_merged(
+        self, vault: Path
+    ) -> None:
+        sync_dir = _internal(vault) / "sync"
+        sync_dir.mkdir(parents=True, exist_ok=True)
+        conflict = sync_dir / "dev-peerBAD.sync-conflict-20260607.jsonl"
+        conflict.write_text(
+            '{"type":"header","schema_version":12,"export_id":"bad"}\n'
+            "{malformed\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(RuntimeError, match=conflict.name):
+            db_sync.autosync(_internal(vault), _db(vault))
+
+        assert conflict.exists()
+
+    def test_conflict_archive_failure_is_not_reported_as_merged(
+        self,
+        vault: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        sync_dir = _internal(vault) / "sync"
+        sync_dir.mkdir(parents=True, exist_ok=True)
+        src = tmp_src(vault, "ATM-ARCHIVE", "archive", "2026-06-04T00:00:00Z")
+        conflict = sync_dir / "dev-peerARCHIVE.sync-conflict-20260607.jsonl"
+        conflict.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+
+        def deny_rename(_path: Path, _target: Path) -> Path:
+            raise PermissionError("archive denied")
+
+        monkeypatch.setattr(Path, "rename", deny_rename)
+
+        with pytest.raises(RuntimeError, match=conflict.name):
+            db_sync.autosync(_internal(vault), _db(vault))
+
+        assert conflict.exists()
+
+
+class TestTombstoneFailures:
+    def test_delete_failure_rolls_back_target_and_tombstone(self, vault: Path) -> None:
+        db_path = _db(vault)
+        _add_atom(db_path, "ATM-PROTECTED", "protected", "2026-06-01T00:00:00Z")
+        with db.connect(db_path) as conn:
+            conn.execute(
+                "CREATE TRIGGER deny_atom_delete BEFORE DELETE ON atoms "
+                "BEGIN SELECT RAISE(ABORT, 'delete denied'); END"
+            )
+        peer = _peer_with_tombstone(
+            vault,
+            "dev-peerDELETE.jsonl",
+            "atoms",
+            "ATM-PROTECTED",
+            "2026-06-02T00:00:00Z",
+        )
+
+        with pytest.raises(Exception, match="delete denied"):
+            db_sync.import_knowledge(db_path, peer)
+
+        with db.connect(db_path) as conn:
+            assert conn.execute(
+                "SELECT 1 FROM atoms WHERE id = 'ATM-PROTECTED'"
+            ).fetchone() is not None
+            assert conn.execute(
+                "SELECT 1 FROM deleted_records "
+                "WHERE table_name = 'atoms' AND record_id = 'ATM-PROTECTED'"
+            ).fetchone() is None
 
 
 class TestTwoDeviceE2E:

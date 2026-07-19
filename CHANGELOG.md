@@ -4,6 +4,38 @@ All notable changes to Incurator are documented here.
 
 ---
 
+## [0.36.2] - 2026-07-20
+### Fixed
+- **Fail-Closed Knowledge Sync**
+  Existing unreadable, malformed, or wrong-shaped device-local sync state now
+  fails without replacing the device identity or peer high-water marks. Peer
+  import and conflict archive failures are surfaced with file context, and a
+  conflict is reported as merged only after import and archive both complete.
+- **Transactional Tombstone Deletes**
+  Imported tombstones no longer suppress target-row deletion errors. A failed
+  delete rolls back the input-file transaction instead of recording and
+  propagating a deletion that did not occur locally.
+- **Workspace Policy Integrity**
+  ContextService and QueryOrchestrator now use one validated `curate.yml` policy
+  resolver. Existing malformed KRS files, invalid source-scope shapes, semantic
+  validation errors, and policy hash/read failures stop before retrieval or
+  synthesis rather than widening to the unrestricted default policy.
+- **CLI Query Scope And Read-Only Behavior**
+  `wiki query --workspace` now forwards the selected workspace into the shared
+  policy boundary and reports invalid KRS configuration without starting the
+  provider or printing a traceback. Query no longer runs pending ingestion as a
+  hidden side effect; `wiki add` and `wiki build` remain explicit operations.
+- **Validation Cache Isolation**
+  The backend check helper now pins pytest to the backend configuration and the
+  repository `.cache/pytest` directory even when callers pass only CLI options,
+  preventing local validation from creating a forbidden root `.pytest_cache`.
+- **Curation Plan Persistence Guard**
+  MCP and hidden plugin planning surfaces validate the KRS before inserting a
+  `curation_plans` row; invalid plans return failure and the plugin command exits
+  non-zero without leaving a database side effect.
+
+---
+
 ## [0.36.1] - 2026-07-19
 ### Fixed
 - **Observable Runtime Degradation**

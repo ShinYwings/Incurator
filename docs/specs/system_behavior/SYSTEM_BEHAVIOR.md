@@ -1125,6 +1125,12 @@ condition is visible without mutating anything.
 `.curator/sync/` (e.g. a duplicated `device_id`), `wiki db autosync` imports it
 as an ordinary LWW peer — which is always data-safe — then moves it out of the
 synced tree into repo-cache `runtime/sync_conflicts/` and surfaces a UI notice.
+The conflict is reported as successfully merged only after both import and
+archive complete. A peer import or archive failure makes the autosync pass fail
+visibly and leaves the conflict file available for retry; it must never be
+counted or displayed as merged. Earlier peer files may already have committed
+before a later file fails because imports are transactional per file. Retrying
+the pass is safe and content-idempotent.
 
 ## 13.3 Device-Local Sync State (Backend Cache)
 
@@ -1141,6 +1147,13 @@ correctness does not depend on every existing `.stignore` having received a
 new pattern. A vault-local `.curator/sync_state.json` is unsupported and is not
 read. The `.curator/sync/` directory remains synchronized because its JSONL
 files are the transport.
+
+Only an absent device-local sync-state file is an initialization case. If the
+file exists but cannot be read, decoded, or validated as an object with correctly
+shaped identity/high-water fields, autosync fails without rewriting it. In
+particular, an existing state object with a missing, null, empty, or non-string
+`device_id` is invalid. Corruption must never be converted to `{}` and must never
+generate a replacement identity or discard peer high-water marks.
 
 ## 13.4 Machine-Local Configuration
 
@@ -1339,6 +1352,17 @@ failure marks the run `failed` and must not write a partial artifact.
   the compiled policy, the spec hash, and any validation errors. Invalid specs
   (unknown route, contradictory policy) surface errors instead of silently using
   defaults.
+- Empty workspace context, or an explicit workspace directory with no
+  `curate.yml`, uses the documented `default` policy. If `curate.yml` exists,
+  read/parse/root-shape/source-scope-shape/semantic/hash failures are fatal to
+  policy resolution and occur before retrieval, trace creation, or synthesis.
+  This boundary applies equally to human `wiki query --workspace`, MCP
+  `curator_query`, and hidden plugin query calls; no surface may discard the
+  selected workspace path or warn-and-continue with unrestricted defaults.
+  In particular,
+  `sources` must be a mapping and its `include`/`exclude` values must be a string
+  or list of strings. Each explicit pattern must remain non-empty after trimming;
+  malformed or whitespace-only values cannot become an empty unrestricted scope.
 
 ### 16.2 Curation Plan Flow
 
@@ -1356,6 +1380,10 @@ Before a workspace curation run, the backend generates a `curation_plans` row
 `wiki plugin curate plan --workspace-path PATH` and MCP
 `curator_plan_workspace(workspace_path)` record and return the plan. They do not
 write a frozen Exhibition.
+Both surfaces validate the existing KRS before calling
+`record_curation_plan()`. Missing or invalid input returns failure, the hidden
+plugin command exits non-zero, and `curation_plans` remains unchanged. The
+validation-only tool may return errors and a non-persisted policy preview.
 
 ## 17. Query Routing: local / global / explore / source-section
 

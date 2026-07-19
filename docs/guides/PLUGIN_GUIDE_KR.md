@@ -846,6 +846,11 @@ Incurator MCP tool discovery 없이 JSON 결과만 받습니다. 이 plugin plum
   통째 덮어쓰기는 없습니다.
 - **피드백**: 실행 중 상태 표시줄 `⟳ Sync`, 그리고 실제로 변경이 적용됐을 때만 토스트 알림(동기화 변경 알림).
 
+백엔드가 손상된 동기화 상태, 피어 가져오기, tombstone 삭제 또는 충돌 파일
+처리 오류를 보고하면 플러그인은 **Sync Failed**로 표시합니다. 해당 실행은
+병합 완료 토스트를 보여 주거나 실패한 충돌 파일을 처리 완료로 세지 않으며,
+원본 파일과 상태를 보존해 다음 실행에서 안전하게 재시도할 수 있게 합니다.
+
 Source layer 상태는 source row 전용 `updated_at` revision을 사용하므로 L1-L4
 상태만 바뀐 경우도 LWW 동기화에 포함됩니다. Dashboard Knowledge Graph 수치는
 stale Collection projection 파일이 아니라 serving DB record에서 계산합니다.

@@ -959,6 +959,12 @@ no manual export/import.
 - **Feedback**: a status-bar `⟳ Sync` while running, and a toast only when a sync actually
   applied changes (Notify on sync changes).
 
+If local sync bookkeeping is corrupt, a peer import fails, or a conflict cannot
+be archived, the backend returns a failed pass. The plugin shows **Sync Failed**
+and does not show a “Merged conflict” toast for that file. After correcting the
+reported state/file/permission problem, the next coalesced poll or manual sync
+retries safely; a failed pass never resets the device identity.
+
 Source layer statuses use the source row's dedicated `updated_at` revision, so
 L1-L4 status-only changes participate in LWW sync. Dashboard Knowledge Graph
 counts come from serving DB records, never stale Collection projection files.

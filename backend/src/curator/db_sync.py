@@ -161,6 +161,18 @@ class ImportStats:
     dry_run: bool = False
 
 
+class SyncError(RuntimeError):
+    """Base error for a sync pass that must be surfaced to callers."""
+
+
+class SyncStateError(SyncError):
+    """The existing device-local sync state cannot be trusted."""
+
+
+class AutosyncError(SyncError):
+    """A peer or conflict file could not complete its sync step."""
+
+
 def record_tombstone_on_connection(
     conn: "db.sqlite3.Connection",
     table_name: str,
@@ -199,17 +211,66 @@ def _sync_state_path(internal_dir: Path) -> Path:
 def read_sync_state(internal_dir: Path) -> dict:
     """Read this device's local sync bookkeeping (device_id, peer high-water marks)."""
     p = _sync_state_path(internal_dir)
-    if p.exists():
-        try:
-            return json.loads(p.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
-    return {}
+    try:
+        p.stat()
+    except FileNotFoundError:
+        return {}
+    except OSError as exc:
+        raise SyncStateError(f"Cannot inspect sync state {p}: {exc}") from exc
+    try:
+        state = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise SyncStateError(f"Cannot read sync state {p}: {exc}") from exc
+    _validate_sync_state(state, p)
+    return state
+
+
+def _validate_sync_state(state: object, path: Path) -> None:
+    if not isinstance(state, dict):
+        raise SyncStateError(f"Invalid sync state {path}: root must be an object")
+
+    device_id = state.get("device_id")
+    if not isinstance(device_id, str) or not device_id.strip():
+        raise SyncStateError(
+            f"Invalid sync state {path}: device_id must be a non-empty string"
+        )
+
+    last_export_ts = state.get("last_export_ts")
+    if last_export_ts is not None and (
+        not isinstance(last_export_ts, str) or not last_export_ts.strip()
+    ):
+        raise SyncStateError(
+            f"Invalid sync state {path}: last_export_ts must be a non-empty string"
+        )
+
+    peers = state.get("peers")
+    if peers is None:
+        return
+    if not isinstance(peers, dict):
+        raise SyncStateError(f"Invalid sync state {path}: peers must be an object")
+    for peer_name, peer_state in peers.items():
+        if not isinstance(peer_name, str) or not peer_name:
+            raise SyncStateError(
+                f"Invalid sync state {path}: peer names must be non-empty strings"
+            )
+        if not isinstance(peer_state, dict):
+            raise SyncStateError(
+                f"Invalid sync state {path}: peer {peer_name!r} must be an object"
+            )
+        export_id = peer_state.get("last_export_id")
+        if export_id is not None and (
+            not isinstance(export_id, str) or not export_id.strip()
+        ):
+            raise SyncStateError(
+                f"Invalid sync state {path}: peer {peer_name!r} last_export_id "
+                "must be a non-empty string"
+            )
 
 
 def write_sync_state(internal_dir: Path, state: dict) -> None:
     """Persist this device's local sync bookkeeping."""
     p = _sync_state_path(internal_dir)
+    _validate_sync_state(state, p)
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_name(f".{p.name}.{uuid.uuid4().hex}.tmp")
     try:
@@ -488,10 +549,7 @@ def _apply_tombstone(
 
     if not dry_run:
         if pk_col:
-            try:
-                conn.execute(f"DELETE FROM {table_name} WHERE {pk_col} = ?", (record_id,))
-            except Exception:
-                pass
+            conn.execute(f"DELETE FROM {table_name} WHERE {pk_col} = ?", (record_id,))
         else:
             # Composite-PK tables cannot be deleted by a single record_id. The
             # tombstone is still recorded for propagation, but the local row is not
@@ -728,13 +786,18 @@ def export_for_device(
     return out
 
 
-def _peer_files(internal_dir: Path, *, dir_name: str = "sync") -> list[Path]:
+def _peer_files(
+    internal_dir: Path,
+    *,
+    dir_name: str = "sync",
+    own_device_id: str | None = None,
+) -> list[Path]:
     """All peer export files (dev-*.jsonl) excluding this device's own file and any
     Syncthing conflict files (handled separately)."""
     sync_dir = _sync_dir(internal_dir, dir_name=dir_name)
     if not sync_dir.is_dir():
         return []
-    own = f"dev-{get_device_id(internal_dir)}.jsonl"
+    own = f"dev-{own_device_id or get_device_id(internal_dir)}.jsonl"
     peers = []
     for f in sorted(sync_dir.glob("dev-*.jsonl")):
         if f.name == own:
@@ -808,10 +871,16 @@ def import_all_peers(
     late-arriving Syncthing delivery is picked up exactly once.
     """
     results: dict[str, ImportStats] = {}
+    # Initialize identity before taking the mutable state snapshot. Otherwise a
+    # first-run `_peer_files()` call can persist an id after `state` was read as
+    # `{}`, and the final peer checkpoint write would overwrite that new id.
+    own_device_id = get_device_id(internal_dir)
     state = read_sync_state(internal_dir)
     peers: dict = state.setdefault("peers", {})
 
-    for f in _peer_files(internal_dir, dir_name=dir_name):
+    for f in _peer_files(
+        internal_dir, dir_name=dir_name, own_device_id=own_device_id
+    ):
         export_id = _read_export_id(f)
         if export_id is None:
             # Legacy or incompatible peer file — skip until peer re-exports.
@@ -822,8 +891,9 @@ def import_all_peers(
         try:
             stats = import_knowledge(db_path, f, dry_run=dry_run)
         except Exception as exc:
-            logger.warning("Skipping peer export %s: %s", f.name, exc)
-            continue
+            raise AutosyncError(
+                f"Peer snapshot {f.name} import failed: {exc}"
+            ) from exc
         results[f.name] = stats
         if not dry_run:
             peers[f.name] = {"last_export_id": export_id}
@@ -918,10 +988,7 @@ def _archive_conflict(cf: Path, internal_dir: Path) -> None:
         / "sync_conflicts"
     )
     archive.mkdir(parents=True, exist_ok=True)
-    try:
-        cf.rename(archive / cf.name)
-    except Exception:
-        pass
+    cf.rename(archive / cf.name)
 
 
 @dataclass
@@ -952,16 +1019,24 @@ def autosync(
     """
     result = AutosyncResult(dry_run=dry_run)
     conflicts = detect_conflict_files(internal_dir, dir_name=dir_name)
-    result.conflicts = [c.name for c in conflicts]
 
     # Conflict files are LWW-mergeable; import then archive (real runs only).
     if not dry_run:
         for cf in conflicts:
             try:
-                result.imported[cf.name] = import_knowledge(db_path, cf)
-            except Exception:
-                continue
-            _archive_conflict(cf, internal_dir)
+                stats = import_knowledge(db_path, cf)
+            except Exception as exc:
+                raise AutosyncError(
+                    f"Conflict file {cf.name} import failed: {exc}"
+                ) from exc
+            try:
+                _archive_conflict(cf, internal_dir)
+            except Exception as exc:
+                raise AutosyncError(
+                    f"Conflict file {cf.name} archive failed: {exc}"
+                ) from exc
+            result.imported[cf.name] = stats
+            result.conflicts.append(cf.name)
 
     result.imported.update(
         import_all_peers(internal_dir, db_path, dry_run=dry_run, dir_name=dir_name)

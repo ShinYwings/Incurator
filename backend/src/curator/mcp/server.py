@@ -3273,16 +3273,21 @@ def build_server() -> FastMCP:
         from .. import curate_yml
         try:
             spec = curate_yml.load_curate_spec(Path(workspace_path))
+            if spec is None:
+                return {"ok": False, "error": "no curate.yml in workspace"}
+            errors = curate_yml.validate_curate_spec(spec)
+            policy = curate_yml.compile_curate_policy(spec, Path(workspace_path))
+            spec_hash = curate_yml.curate_spec_hash(Path(workspace_path))
+            if not spec_hash:
+                raise ValueError(
+                    "curate.yml disappeared before validation completed"
+                )
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
-        if spec is None:
-            return {"ok": False, "error": "no curate.yml in workspace"}
-        errors = curate_yml.validate_curate_spec(spec)
-        policy = curate_yml.compile_curate_policy(spec, Path(workspace_path))
         return {
             "ok": not errors,
             "errors": errors,
-            "spec_hash": curate_yml.curate_spec_hash(Path(workspace_path)),
+            "spec_hash": spec_hash,
             "policy": {
                 "workspace_id": policy.workspace_id,
                 "default_route": policy.default_route,
@@ -3297,20 +3302,19 @@ def build_server() -> FastMCP:
     def curator_plan_workspace(workspace_path: str) -> dict[str, Any]:
         """Compile the workspace curate.yml into a recorded curation plan."""
         from .. import curate_yml
-        paths = _resolve_paths(workspace_path)
         try:
-            spec = curate_yml.load_curate_spec(Path(workspace_path))
+            policy, spec_hash = curate_yml.resolve_curate_policy(
+                workspace_path, require_spec=True
+            )
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
-        if spec is None:
-            return {"ok": False, "error": "no curate.yml in workspace"}
-        policy = curate_yml.compile_curate_policy(spec, Path(workspace_path))
+        paths = _resolve_paths(workspace_path)
         plan_id = db.record_curation_plan(
             paths.state_db,
             workspace_id=policy.workspace_id,
             workspace_path=workspace_path,
             project=policy.project,
-            curate_spec_hash=curate_yml.curate_spec_hash(Path(workspace_path)),
+            curate_spec_hash=spec_hash,
             route=policy.default_route,
             source_policy={"include": list(policy.source_include), "exclude": list(policy.source_exclude)},
             retrieval_policy={"allowed_routes": sorted(policy.allowed_routes),

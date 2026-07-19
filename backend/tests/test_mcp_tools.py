@@ -78,6 +78,37 @@ class V031McpToolsTests(unittest.TestCase):
         self.assertIsNotNone(plan)
         self.assertEqual(plan["id"], out["plan_id"])
 
+    def test_invalid_plan_workspace_does_not_persist(self) -> None:
+        (self.ws / "curate.yml").write_text(
+            'project: "bad"\nreasoning:\n  allowed_modes: [bogus]\n',
+            encoding="utf-8",
+        )
+        with db.connect(self.paths.state_db) as conn:
+            before = conn.execute("SELECT COUNT(*) FROM curation_plans").fetchone()[0]
+
+        out = self._tool("curator_plan_workspace")(workspace_path=str(self.ws))
+
+        self.assertFalse(out["ok"])
+        self.assertIn("allowed_modes", out["error"])
+        with db.connect(self.paths.state_db) as conn:
+            after = conn.execute("SELECT COUNT(*) FROM curation_plans").fetchone()[0]
+        self.assertEqual(after, before)
+
+    def test_validation_only_never_persists_invalid_plan(self) -> None:
+        (self.ws / "curate.yml").write_text(
+            'project: "bad"\nreasoning:\n  allowed_modes: [bogus]\n',
+            encoding="utf-8",
+        )
+
+        out = self._tool("curator_validate_curate_spec")(
+            workspace_path=str(self.ws)
+        )
+
+        self.assertFalse(out["ok"])
+        with db.connect(self.paths.state_db) as conn:
+            count = conn.execute("SELECT COUNT(*) FROM curation_plans").fetchone()[0]
+        self.assertEqual(count, 0)
+
     def test_insight_list_and_promote(self) -> None:
         ins_id = db.create_insight_candidate(
             self.paths.state_db, classification="derived_insight",

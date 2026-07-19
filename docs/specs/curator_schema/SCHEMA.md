@@ -1469,6 +1469,11 @@ CREATE TABLE IF NOT EXISTS deleted_records (
 - A `sources` tombstone stores the portable `sources.sync_key`, never the
   replica-local integer `sources.id`.
 - During `wiki db import`, tombstones are applied **before** upserts. A tombstone beats a concurrent update (deletion wins over modification).
+- Applying an imported tombstone is one SQLite transaction: the target `DELETE`
+  must complete before the tombstone is recorded and the deleted counter is
+  incremented. A `DELETE` exception aborts the input-file transaction, leaves
+  the local row/tombstone state unchanged, and is surfaced to the caller. A
+  zero-row delete is still valid when the target was already absent.
 - Device-local tables (`search_embeddings`, `ingest_jobs`, `job_events`, `page_hashes`, FTS5 virtual tables) are **never** listed as `table_name` in tombstones and are excluded from `wiki db export`.
 
 **Portable source locators (`SCHEMA_VERSION = 11`):** `sources` has no

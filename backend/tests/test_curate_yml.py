@@ -1,4 +1,7 @@
 from pathlib import Path
+
+import pytest
+
 from curator.curate_yml import load_curate_spec
 
 
@@ -153,6 +156,47 @@ sources:
     assert spec.sources.include == ["03_Notes/**"], (
         "scalar include must be wrapped; empty list means 'all sources' which is wrong here"
     )
+
+
+@pytest.mark.parametrize(
+    "sources_yaml",
+    [
+        "sources: []",
+        "sources:\n  include: 42",
+        "sources:\n  include: {path: 03_Notes/**}",
+        "sources:\n  include: [03_Notes/**, 42]",
+        'sources:\n  include: "   "',
+        'sources:\n  include: [03_Notes/**, "   "]',
+        'sources:\n  exclude: [""]',
+        "sources:\n  exclude: [[03_Notes/private/**]]",
+    ],
+)
+def test_invalid_source_scope_shape_fails_closed(
+    tmp_path: Path, sources_yaml: str
+) -> None:
+    (tmp_path / "curate.yml").write_text(
+        f'project: "Scoped"\n{sources_yaml}\n', encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError, match="sources"):
+        load_curate_spec(tmp_path)
+
+
+def test_curate_file_existence_probe_error_is_not_treated_as_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    curate_file = tmp_path / "curate.yml"
+    original_stat = Path.stat
+
+    def deny_curate_stat(path: Path, *args, **kwargs):
+        if path == curate_file:
+            raise PermissionError("curate stat denied")
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", deny_curate_stat)
+
+    with pytest.raises(ValueError, match="inspect curate.yml"):
+        load_curate_spec(tmp_path)
 
 
 def test_backprop_enabled_string(tmp_path: Path):

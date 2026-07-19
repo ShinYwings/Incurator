@@ -384,7 +384,7 @@ prompts:
 | 필드 | 설명 |
 | ---- | ---- |
 | `goal.audience` | curation 출력의 대상: `researcher`, `engineer`, `learner`, `writer`, `generalist` |
-| `sources.include` / `sources.exclude` | vault 상대 경로 기준 source scope. `include`가 비어 있으면 전체 tracked source가 대상이며, exclude가 항상 우선합니다. |
+| `sources.include` / `sources.exclude` | vault 상대 경로 기준 source scope. 생략하거나 명시적으로 빈 `include` 목록이면 전체 tracked source가 대상이고 exclude가 항상 우선하며, 입력한 각 패턴에는 공백이 아닌 문자가 있어야 합니다. |
 | `sources.reference_mode` | Zotero/linked resource 같은 외부 reference 정책 |
 | `knowledge.domains` / `knowledge.topics` | curation과 plan에 사용하는 workspace relevance 용어 |
 | `knowledge.avoid_merges` | 서로 구분되어야 하는 concept의 false-merge guard |
@@ -424,6 +424,11 @@ Incurator의 가장 핵심적인 작동 방식입니다. 당신은 그저 질문
 > [!TIP]
 > 활성 workspace 경로가 `curate.yml` KRS 적용 여부를 결정합니다. workspace
 > 밖에서는 `default` vault scope를 사용합니다.
+
+스코프 안에 `curate.yml`이 있지만 유효하지 않거나 읽을 수 없으면 `wiki query`는
+검색 전에 간결한 설정 오류를 표시하고 중단합니다. 선택한 workspace를 무시하거나
+제한 없는 `default` 정책으로 계속하지 않습니다. `curate.yml`이 없는 workspace
+디렉터리는 문서화된 기본 정책을 그대로 사용합니다.
 
 ### 답변을 지속 지식으로 승격
 쿼리 답변은 저장되지 않습니다. 보존하려면 `02_Wiki/`(사람이 큐레이션하는 공간)로
@@ -807,6 +812,14 @@ Dry-run도 기록된 피어 high-water mark를 따르므로 이미 가져온 파
 - **Snapshot identity.** JSONL header의 export id로 교체된 파일을 식별하므로
   mtime이 같아도 새 snapshot을 건너뛰지 않습니다.
 - **Syncthing 충돌 파일**은 가져온 뒤 repo cache에 보관됩니다.
+
+Autosync는 손상된 상태를 초기 상태로 취급하지 않습니다. 동기화 상태 파일이
+없을 때만 새 상태를 만들며, 기존 파일을 읽을 수 없거나 JSON/필드 형태가
+잘못된 경우(누락/null/빈 `device_id` 포함)에는 파일을 덮어쓰지 않고 동기화를
+실패시킵니다. 피어 스냅샷, tombstone 삭제, 충돌 파일 가져오기 또는 보관 중
+하나라도 실패하면 성공이나
+병합 완료로 보고하지 않습니다. 이미 커밋된 이전 파일은 유지되고 실패한
+파일은 재시도할 수 있습니다.
 
 로컬 DB, runtime, staging, report, PDF/CLI cache는 repo `.cache`에 둡니다.
 동기화 bookkeeping은

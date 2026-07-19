@@ -1394,25 +1394,17 @@ def query(
     """
     paths = _resolve_root_or_die()
     config = cfg.load_config(paths)
-    curate_spec = None
     workspace = _resolve_curate_workspace(workspace)
-    if workspace is not None:
-        from ..curate_yml import load_curate_spec
-        try:
-            curate_spec = load_curate_spec(workspace)
-            if curate_spec is not None:
-                console.print(
-                    f"[dim]curate.yml loaded for query: "
-                    f"project=[bold]{curate_spec.project}[/bold][/dim]"
-                )
-        except ValueError as e:
-            console.print(f"[yellow]Warning:[/yellow] curate.yml invalid: {e}. Proceeding without workspace scope.")
+    from ..curate_yml import CurationPolicyError, resolve_curate_policy
 
-    # Auto-sync: if there are pending sources, add them first (L1-L3)
-    pending = db.get_pending_count(paths.state_db)
-    if pending > 0:
-        console.print(f"[yellow]{pending} pending source(s) found — running add before query…[/yellow]")
-        add(path=None, recursive=True, force=False, no_sync=True)
+    # Reject an invalid selected workspace before starting a provider or entering
+    # the REPL. ContextService resolves it again at execution time so a file that
+    # changes after this UX preflight still cannot bypass the authoritative gate.
+    try:
+        resolve_curate_policy(workspace)
+    except CurationPolicyError as exc:
+        _err(f"Query configuration failed: {exc}")
+        raise typer.Exit(code=1) from None
 
     # Resolve search mode shortcuts
     if lex:
@@ -1477,7 +1469,7 @@ def query(
         rerank=not no_rerank,
         scope=scope,
         classify_intent_first=not no_intent_classify,
-        query_boost_terms=[x for x in ([curate_spec.persona.domain, curate_spec.persona.subdomain] + curate_spec.persona.disambiguation_keywords) if x] if curate_spec else None,
+        workspace_path=str(workspace) if workspace is not None else None,
         route=route,
     )
 
@@ -1488,8 +1480,10 @@ def query(
             paths, client, callbacks, run_kwargs,
             initial_question=question,
             update_knowledge=update,
-            curate_spec=curate_spec,
         )
+    except CurationPolicyError as exc:
+        _err(f"Query configuration failed: {exc}")
+        raise typer.Exit(code=1) from None
     finally:
         client.close()
 
