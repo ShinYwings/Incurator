@@ -788,6 +788,12 @@ wiki db autosync             # 피어 가져오기 + 충돌 병합 + 변경 시 
 wiki db autosync --dry-run   # 실제 변경 없이 미리 보기
 ```
 
+Autosync는 전체 스냅샷을 내용 기준으로 멱등 처리합니다. 피어의 새
+`export_id` 자체는 지식 변경으로 세지 않습니다. 복합 키 provenance 행을
+포함해 전체 기본 키가 같고 revision이 같거나 더 오래된 행은 건너뜁니다.
+Dry-run도 기록된 피어 high-water mark를 따르므로 이미 가져온 파일을 다시
+미리 보지 않고 실제 실행이 적용할 변경 수와 일치합니다.
+
 기기 간 안전성을 보장하는 방식:
 
 - **기기당 파일 1개.** 각 기기는 자기 `.curator/sync/dev-<id>.jsonl`만 쓰고 나머지는 읽기만 합니다. 두 기기가 같은 파일을 쓰지 않으므로 Syncthing이 쓰기-쓰기 충돌을 만들지 않습니다.

@@ -284,7 +284,7 @@ interface PluginSettings {
   // Cross-device knowledge auto-sync over Syncthing (optional; undefined = enabled for older data.json)
   autoSyncEnabled?: boolean;       // master switch for all auto-sync behavior
   autoSyncOnLoad?: boolean;        // run autosync once when Obsidian opens
-  autoSyncWatch?: boolean;         // watch .curator/sync for peer files (desktop only)
+  autoSyncWatch?: boolean;         // watch peer snapshots; filter the known self snapshot (desktop only)
   autoSyncNotify?: boolean;        // toast only when peers actually delivered changes
 
   // Zotero integration

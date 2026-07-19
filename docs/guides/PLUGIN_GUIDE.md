@@ -928,14 +928,19 @@ no manual export/import.
 
 - **Triggers**: one pass when Obsidian opens (Auto-sync on open), live detection when
   Syncthing delivers a peer file (Watch for incoming sync data — desktop only), a
-  60-second safety poll, and a manual **Sync Knowledge DB** ribbon button.
+  60-second safety poll, and a manual **Sync Knowledge DB** ribbon button. After
+  the backend identifies this device's exported snapshot filename, the watcher
+  ignores that self file instead of treating it as incoming peer data.
 - **What a pass does**: runs `wiki db autosync` in the backend — imports every other
   device's snapshot (`.curator/sync/dev-<id>.jsonl`), merges any Syncthing
   `*.sync-conflict-*` files, then writes this device's own snapshot if anything changed.
   All heavy work runs in the backend subprocess, so the Obsidian UI never freezes.
 - **Merge safety**: portable source keys remap replica-local numeric ids;
   row-level monotonic Last-Write-Wins + tombstones preserve concurrent reads and
-  disjoint-source edits. Deletes propagate. No whole-file overwrite.
+  disjoint-source edits. Composite primary keys are compared as complete keys,
+  and equivalent rows are skipped even when a peer sends a fresh full-snapshot
+  `export_id`, so unchanged snapshots cannot trigger re-export ping-pong. Deletes
+  propagate. No whole-file overwrite.
 - **Feedback**: a status-bar `⟳ Sync` while running, and a toast only when a sync actually
   applied changes (Notify on sync changes).
 
@@ -957,7 +962,7 @@ crashing.
 | --- | --- | --- |
 | Auto-sync knowledge DB | On | Master switch for all auto-sync behavior |
 | Auto-sync on Obsidian open | On | Run one sync pass at vault load |
-| Watch for incoming sync data | On | `fs.watch` `.curator/sync/` for peer files (desktop) |
+| Watch for incoming sync data | On | `fs.watch` peer snapshots in `.curator/sync/`; ignore the known self snapshot (desktop) |
 | Notify on sync changes | On | Toast only when a sync applied changes |
 
 > [!WARNING]
