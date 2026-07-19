@@ -204,11 +204,23 @@ def load_curate_spec(workspace_path: Path) -> Optional[CurateSpec]:
     file exists but contains invalid values.
     """
     curate_file = workspace_path / consts.FILE_CURATE_YML
-    if not curate_file.exists():
+    try:
+        curate_file.stat()
+    except FileNotFoundError:
         return None
+    except OSError as exc:
+        raise ValueError(
+            f"Cannot inspect curate.yml in {workspace_path}: {exc}"
+        ) from exc
 
     try:
-        raw = yaml.safe_load(curate_file.read_text(encoding="utf-8")) or {}
+        text = curate_file.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise ValueError(
+            f"Cannot read curate.yml in {workspace_path}: {exc}"
+        ) from exc
+    try:
+        raw = yaml.safe_load(text) or {}
     except yaml.YAMLError as exc:
         raise ValueError(f"curate.yml parse error in {workspace_path}: {exc}") from exc
 
@@ -235,15 +247,17 @@ def load_curate_spec(workspace_path: Path) -> Optional[CurateSpec]:
             return []
         return [str(v) for v in val if v]
 
-    # Parse sources block
-    sources_raw = raw.get("sources", {}) or {}
-    if isinstance(sources_raw, dict):
-        sources = CurateSources(
-            include=_str_list_from("include", sources_raw),
-            exclude=_str_list_from("exclude", sources_raw),
+    # Source scope is security-relevant: malformed values must not collapse to
+    # empty include/exclude lists, because empty include means unrestricted.
+    sources_raw = raw["sources"] if "sources" in raw else {}
+    if not isinstance(sources_raw, dict):
+        raise ValueError(
+            f"curate.yml in {workspace_path}: 'sources' must be a mapping"
         )
-    else:
-        sources = CurateSources()
+    sources = CurateSources(
+        include=_source_patterns_from("include", sources_raw, workspace_path),
+        exclude=_source_patterns_from("exclude", sources_raw, workspace_path),
+    )
 
     # Parse persona block
     persona_raw = raw.get("persona", {}) or {}
@@ -405,6 +419,22 @@ def _str_list_from(key: str, d: dict) -> list[str]:
     if not isinstance(val, list):
         return []
     return [str(v) for v in val if v]
+
+
+def _source_patterns_from(key: str, d: dict, workspace_path: Path) -> list[str]:
+    if key not in d:
+        return []
+    value = d[key]
+    if isinstance(value, str):
+        return [value] if value.strip() else []
+    if not isinstance(value, list) or any(
+        not isinstance(item, str) for item in value
+    ):
+        raise ValueError(
+            f"curate.yml in {workspace_path}: 'sources.{key}' must be a string "
+            "or a list of strings"
+        )
+    return [item for item in value if item.strip()]
 
 
 
@@ -604,3 +634,35 @@ def curate_spec_hash(workspace_path: Path) -> str:
         return ""
     data = curate_file.read_bytes()
     return hashlib.sha256(data).hexdigest()[:16]
+
+
+def resolve_curate_policy(
+    workspace_path: str | Path | None,
+    *,
+    require_spec: bool = False,
+) -> tuple[CurationPolicy, str]:
+    """Resolve one validated workspace policy, failing on existing invalid KRS."""
+    if not workspace_path:
+        if require_spec:
+            raise ValueError("no curate.yml in workspace")
+        return compile_curate_policy(CurateSpec(project="default")), ""
+
+    workspace = Path(workspace_path)
+    spec = load_curate_spec(workspace)
+    if spec is None:
+        if require_spec:
+            raise ValueError(f"no curate.yml in workspace {workspace}")
+        return compile_curate_policy(CurateSpec(project="default")), ""
+
+    errors = validate_curate_spec(spec)
+    if errors:
+        raise ValueError(
+            f"Invalid curate.yml in {workspace}: {'; '.join(errors)}"
+        )
+    policy = compile_curate_policy(spec, workspace)
+    spec_hash = curate_spec_hash(workspace)
+    if not spec_hash:
+        raise ValueError(
+            f"curate.yml in {workspace} disappeared before policy resolution completed"
+        )
+    return policy, spec_hash

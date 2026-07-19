@@ -179,6 +179,23 @@ def test_invalid_source_scope_shape_fails_closed(
         load_curate_spec(tmp_path)
 
 
+def test_curate_file_existence_probe_error_is_not_treated_as_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    curate_file = tmp_path / "curate.yml"
+    original_stat = Path.stat
+
+    def deny_curate_stat(path: Path, *args, **kwargs):
+        if path == curate_file:
+            raise PermissionError("curate stat denied")
+        return original_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", deny_curate_stat)
+
+    with pytest.raises(ValueError, match="inspect curate.yml"):
+        load_curate_spec(tmp_path)
+
+
 def test_backprop_enabled_string(tmp_path: Path):
     """backprop.enabled accepts string 'false'."""
     (tmp_path / "curate.yml").write_text("""

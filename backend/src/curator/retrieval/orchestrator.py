@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import time
 import uuid
-from pathlib import Path
 from typing import Any
 
 from .. import config as cfg
@@ -18,27 +17,6 @@ from .. import curate_yml, db, prompting
 from .models import QueryRequest, QueryResultV031
 
 __all__ = ["QueryOrchestrator"]
-
-_DEFAULT_POLICY_PROJECT = "default"
-
-
-def _default_policy() -> curate_yml.CurationPolicy:
-    spec = curate_yml.CurateSpec(project=_DEFAULT_POLICY_PROJECT)
-    return curate_yml.compile_curate_policy(spec)
-
-
-def _resolve_policy(workspace_path: str) -> tuple[curate_yml.CurationPolicy, str]:
-    if workspace_path:
-        try:
-            spec = curate_yml.load_curate_spec(Path(workspace_path))
-        except Exception:
-            spec = None
-        if spec is not None:
-            ws = Path(workspace_path)
-            policy = curate_yml.compile_curate_policy(spec, ws)
-            return policy, curate_yml.curate_spec_hash(ws)
-    return _default_policy(), ""
-
 
 def _context_evidence_block(items: list[dict[str, Any]]) -> str:
     chunks: list[str] = []
@@ -217,7 +195,7 @@ class QueryOrchestrator:
         are left intact — a synthesis failure never erases retrieved evidence.
         """
         contract = prompting.REGISTRY.get("curator.query_explore_expand")
-        policy, _ = _resolve_policy(request.workspace_path)
+        policy, _ = curate_yml.resolve_curate_policy(request.workspace_path)
         valid_spans = set(context_pack["source_span_ids"])
         input_obj = contract.input_model(
             question=request.question,

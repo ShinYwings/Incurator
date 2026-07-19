@@ -128,3 +128,13 @@ def test_resolve_policy_propagates_hash_read_failure(
 
     with pytest.raises(OSError, match="hash read denied"):
         cy.resolve_curate_policy(tmp_path)
+
+
+def test_resolve_policy_rejects_spec_disappearing_before_hash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "curate.yml").write_text('project: "valid"\n', encoding="utf-8")
+    monkeypatch.setattr(cy, "curate_spec_hash", lambda _workspace: "")
+
+    with pytest.raises(ValueError, match="disappeared"):
+        cy.resolve_curate_policy(tmp_path)

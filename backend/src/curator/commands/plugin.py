@@ -662,34 +662,31 @@ def plugin_curate_plan(
     """Compile + record the workspace curation plan; return JSON for the plugin."""
     from .. import curate_yml
     try:
-        spec = curate_yml.load_curate_spec(Path(workspace_path))
-        if spec is None:
-            _print_json({"ok": False, "error": "no curate.yml in workspace"})
-            raise typer.Exit(code=1)
+        policy, spec_hash = curate_yml.resolve_curate_policy(
+            workspace_path, require_spec=True
+        )
         paths = _plugin_paths(workspace_path)
-        errors = curate_yml.validate_curate_spec(spec)
-        policy = curate_yml.compile_curate_policy(spec, Path(workspace_path))
         plan_id = db.record_curation_plan(
             paths.state_db, workspace_id=policy.workspace_id, workspace_path=workspace_path,
-            project=policy.project, curate_spec_hash=curate_yml.curate_spec_hash(Path(workspace_path)),
+            project=policy.project, curate_spec_hash=spec_hash,
             route=policy.default_route,
             source_policy={"include": list(policy.source_include), "exclude": list(policy.source_exclude)},
             retrieval_policy={"allowed_routes": sorted(policy.allowed_routes)},
             prompt_profile=policy.prompt_profile,
         )
         _print_json({
-            "ok": not errors, "planId": plan_id, "workspaceId": policy.workspace_id,
-            "curateSpecHash": curate_yml.curate_spec_hash(Path(workspace_path)),
+            "ok": True, "planId": plan_id, "workspaceId": policy.workspace_id,
+            "curateSpecHash": spec_hash,
             "route": policy.default_route, "promptProfile": policy.prompt_profile,
             "selectedSources": list(policy.source_include),
             "excludedSources": [{"path": p, "reason": "curate.yml exclude"} for p in policy.source_exclude],
             "allowedModes": sorted(policy.allowed_routes), "knownGaps": [],
-            "validationErrors": errors,
+            "validationErrors": [],
         })
     except typer.Exit:
         raise
     except Exception as exc:
-        _print_json({"ok": False, "error": str(exc)})
+        _print_json({"ok": False, "error": str(exc), "validationErrors": [str(exc)]})
         raise typer.Exit(code=1)
 
 

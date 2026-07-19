@@ -139,6 +139,23 @@ class TestSyncState:
         with pytest.raises(RuntimeError, match="sync state"):
             db_sync.get_device_id(internal)
 
+    def test_state_existence_probe_error_is_not_treated_as_absent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        internal = tmp_path / ".curator"
+        state_path = db_sync._sync_state_path(internal)
+        original_stat = Path.stat
+
+        def deny_state_stat(path: Path, *args, **kwargs):
+            if path == state_path:
+                raise PermissionError("state stat denied")
+            return original_stat(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "stat", deny_state_stat)
+
+        with pytest.raises(RuntimeError, match="sync state"):
+            db_sync.read_sync_state(internal)
+
 
 class TestConstantsAndIgnore:
     def test_source_locators_are_not_device_local_columns(self) -> None:

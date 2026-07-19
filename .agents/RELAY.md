@@ -50,7 +50,12 @@ parity, and reproducible failure handling take priority over refactoring volume.
   with 125 passes, all on the reproduced false-success paths.
 - [x] P3 sync fail-closed implementation complete; focused backend tests pass
   (56) and the plugin client suite passes (33).
-- [ ] P4 shared validated curation-policy boundary in progress.
+- [x] P4 shared validated curation-policy boundary complete; source-scope shapes,
+  semantic validation, I/O probes, and load/hash disappearance fail closed before
+  query work or plan persistence.
+- [x] Combined focused state/scope suites pass (86); query orchestrator passes
+  (14); new public-query/MCP/plugin plan tests pass.
+- [ ] P5 full CI and gaussian_splatting testbed validation in progress.
 
 ## Critical Context / Blockers
 
@@ -63,5 +68,5 @@ parity, and reproducible failure handling take priority over refactoring volume.
 
 ## Immediate Next Action
 
-Implement and validate P4 curation-policy integrity, then complete full CI and
-testbed validation.
+Run full backend/plugin CI and gaussian_splatting testbed validation, then close
+the v0.36.2 release.

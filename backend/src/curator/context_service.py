@@ -18,7 +18,6 @@ from .retrieval.models import EvidenceItem, EvidencePack, QueryRequest, Structur
 
 __all__ = ["ContextService"]
 
-_DEFAULT_POLICY_PROJECT = "default"
 _DEFAULT_BUDGET_LIMIT = 16000
 _DEFAULT_RESERVED_TOKENS = 1000
 
@@ -76,24 +75,6 @@ _FEEDBACK_TYPES = frozenset(
 
 def _new_prefixed_id(prefix: str, payload: str) -> str:
     return f"{prefix}-{hashlib.sha256(payload.encode('utf-8')).hexdigest()[:12]}"
-
-
-def _default_policy() -> curate_yml.CurationPolicy:
-    spec = curate_yml.CurateSpec(project=_DEFAULT_POLICY_PROJECT)
-    return curate_yml.compile_curate_policy(spec)
-
-
-def _resolve_policy(workspace_path: str) -> tuple[curate_yml.CurationPolicy, str]:
-    if workspace_path:
-        try:
-            spec = curate_yml.load_curate_spec(Path(workspace_path))
-        except Exception:
-            spec = None
-        if spec is not None:
-            ws = Path(workspace_path)
-            policy = curate_yml.compile_curate_policy(spec, ws)
-            return policy, curate_yml.curate_spec_hash(ws)
-    return _default_policy(), ""
 
 
 def _question_hash(request: QueryRequest) -> str:
@@ -555,7 +536,9 @@ class ContextService:
         limit_tokens: int = _DEFAULT_BUDGET_LIMIT,
     ) -> dict[str, Any]:
         started = time.monotonic()
-        policy, policy_hash = _resolve_policy(request.workspace_path)
+        policy, policy_hash = curate_yml.resolve_curate_policy(
+            request.workspace_path
+        )
         snapshot = _snapshot(self.paths, policy_hash=policy_hash, request=request)
         if expected_snapshot_id and expected_snapshot_id != snapshot["snapshot_id"]:
             return _conflict_response(expected_snapshot_id, snapshot["snapshot_id"])
@@ -709,7 +692,7 @@ class ContextService:
 
     def context_manifest(self, *, limit_families: int = 5) -> dict[str, Any]:
         request = QueryRequest(question="", mode="auto")
-        _policy, policy_hash = _resolve_policy("")
+        _policy, policy_hash = curate_yml.resolve_curate_policy("")
         snapshot = _snapshot(self.paths, policy_hash=policy_hash, request=request)
         with db.connect(self.paths.state_db) as conn:
             families = [

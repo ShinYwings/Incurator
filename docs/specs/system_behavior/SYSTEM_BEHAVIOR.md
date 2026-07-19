@@ -1353,8 +1353,9 @@ failure marks the run `failed` and must not write a partial artifact.
   defaults.
 - Empty workspace context, or an explicit workspace directory with no
   `curate.yml`, uses the documented `default` policy. If `curate.yml` exists,
-  read/parse/shape/semantic/hash failures are fatal to policy resolution and
-  occur before retrieval, trace creation, or synthesis. In particular,
+  read/parse/root-shape/source-scope-shape/semantic/hash failures are fatal to
+  policy resolution and occur before retrieval, trace creation, or synthesis.
+  In particular,
   `sources` must be a mapping and its `include`/`exclude` values must be a string
   or list of strings; malformed values cannot become an empty unrestricted scope.
 

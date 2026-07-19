@@ -211,8 +211,12 @@ def _sync_state_path(internal_dir: Path) -> Path:
 def read_sync_state(internal_dir: Path) -> dict:
     """Read this device's local sync bookkeeping (device_id, peer high-water marks)."""
     p = _sync_state_path(internal_dir)
-    if not p.exists():
+    try:
+        p.stat()
+    except FileNotFoundError:
         return {}
+    except OSError as exc:
+        raise SyncStateError(f"Cannot inspect sync state {p}: {exc}") from exc
     try:
         state = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:

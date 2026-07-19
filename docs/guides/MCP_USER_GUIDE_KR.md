@@ -266,8 +266,8 @@ wiki mcp install
   `curator_fetch_context`를 사용하세요.
 - **워크스페이스 정책 실패**: 빈 경로나 `curate.yml`이 없는 디렉터리는
   `default` 정책을 사용합니다. 파일이 존재하지만 읽을 수 없거나, YAML이
-  잘못되었거나, 형태 또는 의미 검증에 실패하면 unrestricted default 정책으로
-  조용히 확장하지 않고 검색 전에 요청을 실패시킵니다.
+  잘못되었거나, 루트/소스 범위 형태 또는 의미 검증에 실패하면 unrestricted
+  default 정책으로 조용히 확장하지 않고 검색 전에 요청을 실패시킵니다.
 
 #### `promote_answer`
 
@@ -375,8 +375,8 @@ v0.3.2 큐레이션-네이티브 컴파일러를 노출하는 도구들입니다
 - **역할**: **큐레이션된 증거 팩**을 반환합니다 — 에이전트 자신의 추론 LLM이 근거로 삼아야 할, 워크스페이스 KRS로 편향된 증거 선택을 **합성된 답변 없이** 제공합니다. 이는 고정 파일이 아니라 *라이브 DAG 위의 동적 렌즈*로서의 큐레이션이며, 자체 합성을 수행하는 추론 에이전트(예: Obsidian 에이전트)의 1차 surface입니다. 광범위한 질문의 경우 팩은 공유 **L4 Synthesis** 노드를 앞세웁니다.
 - **워크스페이스 정책 실패**: 빈 경로나 `curate.yml`이 없는 디렉터리는
   `default` 정책을 사용합니다. 기존 파일을 읽을 수 없거나 YAML, 형태, 의미
-  검증에 실패하면 unrestricted default 정책으로 조용히 확장하지 않고 증거
-  검색 전에 요청을 실패시킵니다.
+  검증에 실패하면(형태 검증은 루트와 소스 범위 포함) unrestricted default
+  정책으로 조용히 확장하지 않고 증거 검색 전에 요청을 실패시킵니다.
 - **파라미터**: `query`, `workspace_path`(선택).
 - **반환**: `route`, `trace_id`(`QTR-…`), `retrieval_execution_id`(`RTR-…`), `workspace_id`, `evidence`(각 항목은 `kind` — `synthesis` | `community_report` | `entity` | `source_span` | `memory_path` | `search_hit` — 와 `id`/`title`/`text`/`score`, 출처 id, 그리고 span 기반 항목의 경우 `source_kind`/`relpath`/`heading`/`locator_status`를 포함하는 `locator` 딕셔너리 포함), `source_span_ids`, `community_report_ids`, `synthesis_node_ids`, `memory_path_ids`, `warnings`. 검색 hit 근거는 hydrate된 `source_span_ids`를 보존하며, `trace_id`는 하나의 authoritative orchestrated query trace를 식별하고, `retrieval_execution_id`는 Plan F가 소비하는 자식 RTR-* ID입니다. 의도적으로 `answer` 필드는 **없습니다**.
 

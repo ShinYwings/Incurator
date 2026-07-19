@@ -269,8 +269,9 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
   synthesis, use `curator_fetch_context`.
 - **Workspace policy failures**: An empty path or a directory without
   `curate.yml` uses the `default` policy. If the file exists but is unreadable,
-  malformed, wrong-shaped, or semantically invalid, the query fails before
-  retrieval instead of silently widening to the unrestricted default policy.
+  malformed, has an invalid root/source-scope shape, or is semantically invalid,
+  the query fails before retrieval instead of silently widening to the
+  unrestricted default policy.
 
 #### `promote_answer`
 
@@ -379,8 +380,9 @@ and plugin, and they never edit read-only source truth (`03_Notes/`,
   with the shared **L4 Synthesis** nodes.
 - **Workspace policy failures**: An empty path or a directory without
   `curate.yml` uses the `default` policy. If the file exists but is unreadable,
-  malformed, wrong-shaped, or semantically invalid, the request fails before
-  evidence retrieval instead of silently widening to the unrestricted default.
+  malformed, has an invalid root/source-scope shape, or is semantically invalid,
+  the request fails before evidence retrieval instead of silently widening to
+  the unrestricted default.
 - **Parameters**: `query`, `workspace_path` (optional).
 - **Returns**: `route`, `trace_id` (`QTR-…`), `retrieval_execution_id` (`RTR-…`),
   `workspace_id`, `evidence` (each item has `kind` — `synthesis` |
