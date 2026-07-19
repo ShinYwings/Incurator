@@ -284,7 +284,7 @@ interface PluginSettings {
   // Cross-device knowledge auto-sync over Syncthing (optional; undefined = enabled for older data.json)
   autoSyncEnabled?: boolean;       // master switch for all auto-sync behavior
   autoSyncOnLoad?: boolean;        // run autosync once when Obsidian opens
-  autoSyncWatch?: boolean;         // watch .curator/sync for peer files (desktop only)
+  autoSyncWatch?: boolean;         // watch peer snapshots; filter the known self snapshot (desktop only)
   autoSyncNotify?: boolean;        // toast only when peers actually delivered changes
 
   // Zotero integration
@@ -341,7 +341,10 @@ Rules:
 - `autoSyncEnabled`, `autoSyncOnLoad`, `autoSyncWatch`, and `autoSyncNotify` are
   optional for older `data.json` files. Runtime reads use the `!== false`
   convention, so absent values are treated as enabled and only explicit `false`
-  disables that auto-sync behavior.
+  disables that auto-sync behavior. The desktop incoming-data watcher MUST
+  register an error listener: directory deletion, rename, and permission errors
+  are logged instead of surfacing as unhandled Electron exceptions, while the
+  60-second safety poll remains available.
 - The chat sidebar footer may expose provider/model as one compact selector.
   Selecting a model from another provider must update both `provider` and `model`.
 - AI Provider settings must show model context-window information on the

@@ -6,9 +6,7 @@ Date: 2026-07-19
 
 - Working branch: `release/v0.35.0`
 - Current branch head before model-refresh planning: `c9f5726`
-- Current master before hotfix merge: `bcc4ac2`
-- Required predecessor: PR #86 (`hotfix/v0.34.1-knowledge-sync-loop`), head
-  `1a71771`; GitHub CI passed and the PR is mergeable/ready for review.
+- Merged hotfix baseline: `34636fd` (PR #86, merged 2026-07-19).
 
 ## Current Worktree Reality
 
@@ -43,8 +41,8 @@ Date: 2026-07-19
 
 ## Pre-Implementation Gates
 
-- Merge PR #86, update `master`, and rebase/update `release/v0.35.0` from the
-  merged master without overwriting the user-owned lockfile edit.
+- Update `release/v0.35.0` from merged master without overwriting the user-owned
+  lockfile edit.
 - Capture a fresh test baseline after that branch update.
 - Stop if the installed CLI catalogue changes again before implementation; the
   locked tables must be revalidated rather than guessed.

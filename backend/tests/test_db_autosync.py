@@ -191,6 +191,22 @@ class TestImportAllPeers:
         # No mtime change → skipped (not re-imported).
         assert peer.name not in db_sync.import_all_peers(_internal(vault), _db(vault))
 
+    def test_dry_run_skips_peer_already_at_recorded_export_id(
+        self, vault: Path
+    ) -> None:
+        peer = _make_peer(
+            vault,
+            "dev-peerDONE.jsonl",
+            "ATM-00000003",
+            "already imported",
+            "2026-06-03T00:00:00Z",
+        )
+        assert peer.name in db_sync.import_all_peers(_internal(vault), _db(vault))
+
+        dry = db_sync.import_all_peers(_internal(vault), _db(vault), dry_run=True)
+
+        assert peer.name not in dry
+
     def test_imports_replaced_snapshot_even_when_mtime_is_unchanged(
         self, vault: Path
     ) -> None:
@@ -516,6 +532,64 @@ class TestTwoDeviceE2E:
         res2 = db_sync.autosync(intB, dbB)
         assert all(s.inserted == 0 and s.updated == 0 for s in res2.imported.values())
         assert res2.exported is None
+
+    def test_equivalent_composite_rows_do_not_ping_pong(self, tmp_path: Path) -> None:
+        """A fresh export_id for identical full-snapshot content is a no-op.
+
+        Composite-PK rows previously always reported ``updated``. Once either
+        peer exported a merged full snapshot, the other peer re-exported the
+        same rows forever.
+        """
+        A = self._vault(tmp_path, "A-composite")
+        B = self._vault(tmp_path, "B-composite")
+        dbA, dbB = A / ".curator" / "state.sqlite", B / ".curator" / "state.sqlite"
+        intA, intB = A / ".curator", B / ".curator"
+
+        with db.connect(dbA) as conn:
+            conn.execute(
+                "INSERT INTO sources "
+                "(relpath, sync_key, content_hash, file_type, bytes, added_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "03_Notes/a.md",
+                    "vault:03_Notes/a.md",
+                    "hash-a",
+                    "md",
+                    10,
+                    "2026-06-01T00:00:00Z",
+                    "2026-06-01T00:00:00Z",
+                ),
+            )
+            source_id = conn.execute(
+                "SELECT id FROM sources WHERE sync_key = ?",
+                ("vault:03_Notes/a.md",),
+            ).fetchone()[0]
+            conn.execute(
+                "INSERT INTO source_pages (source_id, wiki_path, operation, at) "
+                "VALUES (?, ?, ?, ?)",
+                (
+                    source_id,
+                    "02_Atoms/ATM-A.md",
+                    "created",
+                    "2026-06-01T00:00:00Z",
+                ),
+            )
+
+        db_sync.autosync(intA, dbA)
+        self._sync_from_to(A, B)
+        first_b = db_sync.autosync(intB, dbB)
+        assert sum(s.inserted for s in first_b.imported.values()) >= 2
+
+        self._sync_from_to(B, A)
+        first_a = db_sync.autosync(intA, dbA)
+        assert sum(s.updated for s in first_a.imported.values()) == 0
+        assert first_a.exported is None
+
+        # Carry A's unchanged files once more: B must also remain quiescent.
+        self._sync_from_to(A, B)
+        second_b = db_sync.autosync(intB, dbB)
+        assert sum(s.updated for s in second_b.imported.values()) == 0
+        assert second_b.exported is None
 
 
 class TestCompositePkTombstone:

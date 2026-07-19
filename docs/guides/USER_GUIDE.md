@@ -823,6 +823,12 @@ wiki db autosync             # import peers, merge conflicts, export self if cha
 wiki db autosync --dry-run   # preview without writing
 ```
 
+Autosync is content-idempotent across full snapshots. A new peer `export_id`
+does not itself count as a knowledge change: rows with the same complete primary
+key and equal/older revision are skipped, including composite-key provenance
+rows. Dry-run also honors the recorded peer high-water mark, so its counts match
+what a real pass would apply rather than re-previewing an already imported file.
+
 How it stays safe across devices:
 
 - **One file per device.** Each device writes only its own `.curator/sync/dev-<id>.jsonl` and reads everyone else's. Because no two devices write the same file, Syncthing never creates write-write conflicts.

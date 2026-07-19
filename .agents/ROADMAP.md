@@ -26,10 +26,8 @@ No urgent items currently tracked.
 
 ### 🚨 Immediate Next Release
 
-- **v0.34.1 Knowledge Sync Loop Hotfix**: PR #86 is open, mergeable, ready for
-  review, and all GitHub CI checks pass. It fixes unchanged full-snapshot
-  re-import ping-pong, dry-run high-water handling, and self-snapshot watcher
-  filtering. Merge this before continuing v0.35.0.
+- **v0.35.0 Claude/Codex Model Catalogue Refresh**: approved and entering
+  implementation on `release/v0.35.0` after merged v0.34.1 baseline `34636fd`.
 
 ### 🚀 Priority Order
 
@@ -86,6 +84,13 @@ No urgent items currently tracked.
 
 ## ✅ Completed Milestones
 
+- **v0.34.1 — Knowledge Sync Loop Hotfix** (release-ready 2026-07-19): made
+  composite/immutable full-snapshot imports content-idempotent, made autosync
+  dry-run honor peer export-id high-water state, and filtered the plugin's known
+  self snapshot from incoming-file watcher triggers. Production before/after
+  dry-run moved from `updated=6650` / `would_export=true` to zero imports and
+  `would_export=false`; backend, plugin, build, and Gaussian Splatting testbed
+  validation passed.
 - **v0.34.0 — CM-1 Command Module God-file Decomposition** (shipped 2026-07-09, PR #85 merged): decomposed `cli.py`, `mcp_server.py`, and `plugin_api.py` into cohesive packages (`curator/commands/`, etc.) with compatibility facades preserved.
 - **v0.33.0 — Strict Sync Schema Enforcement & Startup Speedup** (shipped 2026-07-09, PR #84
   merged): removed legacy pre-v12 database schema migration and automatic fallback conversions;
@@ -221,9 +226,8 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: HOTFIX READY FOR MERGE; v0.35.0 PLAN AWAITING APPROVAL.
-- **Active Milestone**: v0.34.1 Knowledge Sync loop hotfix, followed by the
-  v0.35.0 Claude/Codex model catalogue and effort-contract refresh.
-- **Next actionable item**: Merge PR #86, approve
-  `.agents/plans/12_model_catalogue_refresh.md`, then update
-  `release/v0.35.0` from the merged `master` before implementation.
+- **Roadmap state**: v0.35.0 IMPLEMENTATION ACTIVE.
+- **Active Milestone**: Claude/Codex model catalogue and effort-contract
+  refresh on `release/v0.35.0`.
+- **Next actionable item**: Complete P0 baseline after updating from merged
+  master, then execute `.agents/plans/12_model_catalogue_refresh.md` P1-P6.

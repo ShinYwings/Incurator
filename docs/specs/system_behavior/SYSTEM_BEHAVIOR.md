@@ -1033,20 +1033,27 @@ device wall clock is behind.
 
 **Snapshot identity and loop prevention are structural.** Every export header
 has a fresh `export_id`; peer high-water state records that id, so a replaced
-snapshot with the same mtime is imported. There is no content-hash guard. (An earlier
-`sync_meta.json` `last_exported_hash`/`last_imported_hash` design was removed: it
-silently skipped legitimate imports and reported 0 changes.) Loops cannot form
-because: (a) LWW import is idempotent — re-importing a row at the same timestamp
-is a no-op; (b) a device never imports its own file; and (c) `wiki db autosync`
-exports this device's file only when something actually changed
-(`local_has_unexported_changes()` compares the DB's newest timestamp against the
-recorded `last_export_ts`). Importing peer data is therefore not, by itself, a
-reason to re-export.
+snapshot with the same mtime is imported. There is no whole-snapshot content-hash
+guard. (An earlier `sync_meta.json` `last_exported_hash`/`last_imported_hash`
+design was removed: it silently skipped legitimate imports and reported 0
+changes.) Import resolves the actual SQLite primary-key columns, including every
+column of a composite key. A row with the same key and equal/older LWW revision is
+`skipped`, not rewritten or counted as updated. Immutable rows without a revision
+clock compare full row content; equal content is skipped, while a malformed
+same-key disagreement uses a deterministic canonical-payload tie-break so both
+peers converge instead of alternating. Current-schema rows that omit a primary-key
+column are rejected rather than blindly replaced. Loops cannot form because:
+(a) row import is content-idempotent; (b) a device never imports its own file;
+and (c) `wiki db autosync` exports this device's file only when something actually
+changed (`local_has_unexported_changes()` compares the DB's newest timestamp
+against the recorded `last_export_ts`). Receiving a fresh `export_id` for an
+equivalent full snapshot is therefore not a reason to re-export.
 
 **Triggers.** The Obsidian plugin runs `wiki db autosync` (a) once when the
-vault loads, (b) when a `fs.watch` on `.curator/sync/` observes a peer file (a
-debounced/coalesced scheduler collapses Syncthing's chunked delivery into one
-pass and prevents overlapping runs), (c) on a 60-second fallback poll for
+vault loads, (b) when a `fs.watch` on `.curator/sync/` observes a peer file (once
+the backend reports this device's exported filename, the watcher filters that
+self snapshot; a debounced/coalesced scheduler collapses Syncthing's chunked
+delivery into one pass and prevents overlapping runs), (c) on a 60-second fallback poll for
 platforms where `fs.watch` is unavailable or misses events, and (d) from a manual
 "Sync Knowledge DB" ribbon action. The plugin never triggers export on
 `Vault.on('modify')` (a markdown-note save is not a DB mutation). Note that
@@ -1078,9 +1085,10 @@ errs toward one redundant re-export (idempotent under row-level LWW, and
 self-terminating because the extra export stamps a later `last_export_ts`)
 instead of stranding the mutation until an unrelated later change.
 
-**Dry-run observability.** `wiki db autosync --dry-run` reports, in addition to
-the would-be import counts, whether an export would run (`would_export`) so a
-stale-snapshot condition is visible without mutating anything.
+**Dry-run observability.** `wiki db autosync --dry-run` honors recorded peer
+`last_export_id` high-water marks, reports the changes a real pass would apply,
+and reports whether an export would run (`would_export`) so a stale-snapshot
+condition is visible without mutating anything.
 
 **Syncthing conflict files.** If a `*.sync-conflict-*` file appears in
 `.curator/sync/` (e.g. a duplicated `device_id`), `wiki db autosync` imports it

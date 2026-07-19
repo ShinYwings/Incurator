@@ -1,7 +1,7 @@
 # v0.35.0 Master Implementation Plan
 
 Date: 2026-07-19
-Status: DRAFT - Arena debate concluded; awaiting human approval and v0.34.1 merge.
+Status: APPROVED - Arena debate concluded; v0.34.1 merged; implementation active.
 
 ## 1. Objective
 
