@@ -1,64 +1,48 @@
-# RELAY - v0.36.0 PL-1 Release
+# RELAY - v0.36.1 XC-1 Silent Exception Hardening
 
 ## Goal
 
-Decompose the plugin god-files into cohesive internal modules while preserving
-all public imports, persisted data contracts, command construction, and visible
-Obsidian behavior.
+Eliminate silent internal broad-exception fallbacks in the decomposed command,
+MCP, and plugin API packages while preserving public CLI/MCP/plugin error
+envelopes and intended best-effort behavior.
 
 ## Plan Reference
 
-- Implemented plan artifacts are deleted from the active workspace per project
-  workflow; use Git history on `.agents/plans/` for the v0.36.0 PL-1 plan,
-  Arena, domain analyses, and evidence ledger.
+- Master Plan: `.agents/plans/12_xc1_silent_exception_hardening.md`
+- Evidence Ledger: `.agents/plans/12_roadmap_evidence.md`
+- Arena: `.agents/plans/12_xc1_silent_exception_hardening_arena/`
 
 ## Analysis & Reasoning
 
-- Branch: `release/v0.36.0`, created fresh from merged `master` at PR #87 merge
-  commit `9129908`.
-- The v0.36 plan was approved before v0.35 and intentionally deferred; no PL-1
-  implementation was mixed into the model-catalogue release.
-- Facade-first extraction is locked. Existing imports from `chatSidebar.ts`,
-  `llmClient.ts`, and `externalPdfView.ts` must remain valid.
-- This is an internal refactor. UI, persistence schemas, backend commands, MCP
-  behavior, providers, and models remain unchanged.
-- Original import paths are one-line facades over owners in `ui/chat/`,
-  `agent/llm/`, and `ui/pdf/`; `main.ts` required no import change.
+- Branch: `release/v0.36.1`, created from PR #88 merge commit `b2a26e3`.
+- The old diagnosis named monolithic `cli.py`, `mcp_server.py`, and
+  `plugin_api.py`; current owners are `commands/`, `mcp/server.py`, and
+  `plugin_api/` after CM-1.
+- Current broad-handler counts are 67/69/12 respectively. Most catch-and-return
+  handlers are intentional transport boundaries; this patch targets only silent
+  internal fallbacks and cleanup paths.
+- Python's official guidance distinguishes raised runtime errors from suppressed
+  best-effort failures: suppressed failures must be logged at an appropriate
+  level rather than silently discarded.
 
 ## Progress Status
 
-- [x] PR #87 merged and fresh v0.36 branch created from master.
-- [x] Refreshed rollback anchors and file sizes from merged commit `9129908`.
-- [x] P0 baseline: 65 plugin files / 678 tests; TypeScript and build passed.
-- [x] Found stale KR-only absolute-path ExternalPdfView restart documentation;
-  queued EN-first parity correction for P1.
-- [x] P0: facade/export characterization tests added.
-- [x] P1: internal ownership/facade contract and EN/KR guide parity documented.
-- [x] P2: LLM client moved behind stable facade; pure message helpers extracted.
-- [x] P3: external PDF view moved behind stable facade.
-- [x] P4: chat sidebar moved behind stable facade.
-- [x] P5: entrypoint verified unchanged against stable facades.
-- [x] P6: 1218 backend tests, 683 plugin tests, Ruff, Mypy, TypeScript, build,
-  and `gaussian_splatting` testbed passed. Autosync then dry-run was quiescent.
-- [x] Branch pushed and PR #88 opened.
-- [x] GitHub Backend Tests, Plugin Tests, and Version Consistency passed; PR #88
-  marked ready for review.
-- [x] Addressed all six lifecycle review findings: request-local abort ownership,
-  guarded controller cleanup, PDF close render invalidation, optional child
-  stdin, and missing MCP args. Plugin 688-test, TypeScript, build, and spec/docs
-  checks passed locally; follow-up pushed to PR #88 for GitHub validation.
-- [ ] Await human review/merge and address any actionable feedback on the same
-  branch.
+- [x] PR #88 merged; local `master` fast-forwarded to `b2a26e3`.
+- [x] Created patch branch `release/v0.36.1` from merged master.
+- [x] Recounted current broad handlers and isolated 28 syntactically silent
+  `except Exception` handlers across the three target packages.
+- [x] Completed official Python exception/logging prior-art review.
+- [x] Authored Arena, domain analyses, evidence ledger, and master plan.
+- [ ] Await plan approval before docs/tests/application changes.
 
 ## Critical Context / Blockers
 
-- No blockers.
-- Stop if extraction requires changing persisted DTOs, public behavior, or broad
-  `any` casts.
-- Source-contract tests must follow the real owning module; inert facade strings
-  are forbidden.
+- No implementation blocker.
+- Stop if a proposed narrowing changes a public error envelope, stdio protocol,
+  persistence/schema contract, or converts an intended non-fatal fallback into a
+  fatal path.
 
 ## Immediate Next Action
 
-Await follow-up CI and human review/merge of ready PR #88. Address any new
-actionable findings on the same branch.
+Review and approve `.agents/plans/12_xc1_silent_exception_hardening.md`; after
+approval, implement P1-P5 TDD-first without widening into all broad handlers.

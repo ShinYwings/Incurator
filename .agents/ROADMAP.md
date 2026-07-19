@@ -26,8 +26,10 @@ No urgent items currently tracked.
 
 ### 🚨 Immediate Next Release
 
-No release is currently staged. Select the next item from the priority queue
-after v0.36.0 merges.
+- **v0.36.1 XC-1 Silent Exception Hardening**: planning active on
+  `release/v0.36.1`. Scope is limited to silent internal broad-exception
+  fallbacks in `commands/`, `mcp/`, and `plugin_api/`; public boundary error
+  envelopes remain intact.
 
 ### 🚀 Priority Order
 
@@ -39,8 +41,14 @@ after v0.36.0 merges.
    - Briefing: `.agents/plans/system_stability_overhaul_arena/00_problem.md`
    - Delivered as a chain of incremental release PRs (starting from v0.34.0+).
    - **Shipped stability & hardening releases (v0.25.0 → v0.34.0)**: diagnosis G17–G19, XC-1/XC-4 robustness slices, DB-2 slices 1–2, CLI/MCP warning visibility, portable paths v0.29–v0.32, cross-device LWW sync v0.30, strict v12 schema/reindex speedup v0.33.0, and CM-1 command module decomposition v0.34.0.
-   - **Remaining Scope for Upcoming Releases (v0.37.0+)**:
-     - **Exception Handling Hardening (XC-1 Slices 2+)**: narrow broad exception blocks in `cli.py`, `mcp_server.py`, `plugin_api.py`.
+   - **Current (v0.36.1)**:
+     - **Exception Handling Hardening (XC-1 silent-swallow slice)**: classify,
+       narrow, or make observable silent internal exception fallbacks in the
+       decomposed CLI/MCP/plugin API packages without changing boundary envelopes.
+   - **Remaining Scope for Upcoming Releases**:
+     - **Exception Handling Hardening (XC-1 later slices)**: audit broad
+       catch-and-return boundary handlers and other backend modules after the
+       silent-swallow slice lands.
      - **Performance & UX Refinements**: RAG/DAG benchmark harness & retrieval hotspot optimization; chat/popover UX friction cleanup.
 
 2. **[Validation] `[[wikilink]]` Architecture Validation**
