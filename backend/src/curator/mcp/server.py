@@ -54,6 +54,8 @@ _log = logging.getLogger(__name__)
 
 def _close_client(client: Any, *, operation: str) -> None:
     """Close an arbitrary LLM client without hiding cleanup failures."""
+    if client is None:
+        return
     try:
         client.close()
     except Exception:
@@ -220,6 +222,8 @@ def _resolve_paths(hint_path: str = "") -> cfg.WikiPaths:
                 )
         except RuntimeError:
             raise
+        except FileNotFoundError:
+            pass
         except Exception as exc:
             raise RuntimeError(f"Cannot read workspace curate.yml: {exc}") from exc
 
@@ -2404,6 +2408,7 @@ def build_server() -> FastMCP:
                 ) else ""
             except (AttributeError, TypeError):
                 _log.debug("MCP client metadata was unavailable", exc_info=True)
+                client_name = ""
         agent = detect_agent_from_client_info(client_name)
 
         # ── 1b. Agent-only: try LLM integration of Curator into existing rules ──

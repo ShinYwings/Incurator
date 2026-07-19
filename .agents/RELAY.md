@@ -44,6 +44,9 @@ envelopes and intended best-effort behavior.
 - [x] Pushed `release/v0.36.1` and opened draft PR #89.
 - [x] Both GitHub CI runs passed Backend Tests and Plugin Tests; Version
   Consistency passed on the required run (the duplicate run skipped that job).
+- [x] Addressed all five PR #89 review threads: null-safe client cleanup,
+  missing-curate race guidance, explicit client-name initialization, direct
+  MCP test imports, and recursive policy scanning.
 
 ## Critical Context / Blockers
 
@@ -52,8 +55,10 @@ envelopes and intended best-effort behavior.
 - Plugin: 688 passed; TypeScript and production build passed.
 - Testbed autosync ran twice with zero imported/updated/deleted rows on both
   passes, so the Knowledge Sync loop regression did not recur.
+- Review follow-up focused tests: 6 passed; Ruff and Mypy passed.
 
 ## Immediate Next Action
 
-Review and merge PR #89. After merge, continue the System Stability Overhaul
-with the next bounded XC-1 broad catch-and-return audit slice.
+Push the PR #89 review follow-up, verify final CI, then review and merge. After
+merge, continue the System Stability Overhaul with the next bounded XC-1 broad
+catch-and-return audit slice.

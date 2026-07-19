@@ -7,8 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from curator import db
-from curator.mcp.server import _close_client, _resolve_paths
-from curator.mcp_server import build_server
+from curator.mcp.server import _close_client, _resolve_paths, build_server
 
 
 def _tools(tmp_path: Path, monkeypatch):
@@ -67,6 +66,13 @@ def test_client_cleanup_failure_is_non_fatal_and_logged(caplog) -> None:
     assert any("test operation client cleanup failed" in row.message for row in caplog.records)
 
 
+def test_missing_client_cleanup_is_a_noop(caplog) -> None:
+    with caplog.at_level(logging.DEBUG, logger="curator.mcp.server"):
+        _close_client(None, operation="client initialization")
+
+    assert not caplog.records
+
+
 def test_malformed_workspace_curate_spec_fails_with_context(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -74,4 +80,20 @@ def test_malformed_workspace_curate_spec_fails_with_context(
     monkeypatch.delenv("VAULT_ROOT", raising=False)
 
     with pytest.raises(RuntimeError, match="Cannot read workspace curate.yml"):
+        _resolve_paths(str(tmp_path))
+
+
+def test_disappearing_workspace_curate_spec_uses_missing_vault_guidance(
+    tmp_path: Path, monkeypatch
+) -> None:
+    def missing_curate(_path: Path):
+        raise FileNotFoundError("curate.yml disappeared")
+
+    monkeypatch.delenv("VAULT_ROOT", raising=False)
+    monkeypatch.setattr(
+        "curator.curate_yml.load_curate_spec",
+        missing_curate,
+    )
+
+    with pytest.raises(RuntimeError, match="Cannot resolve vault"):
         _resolve_paths(str(tmp_path))

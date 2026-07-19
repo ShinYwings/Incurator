@@ -32,7 +32,7 @@ def _is_silent_statement(statement: ast.stmt) -> bool:
 def test_target_packages_have_no_silent_broad_exception_handlers() -> None:
     silent: list[str] = []
     for target in TARGETS:
-        for path in sorted(target.glob("*.py")):
+        for path in sorted(target.rglob("*.py")):
             tree = ast.parse(path.read_text(encoding="utf-8"))
             for node in ast.walk(tree):
                 if (
