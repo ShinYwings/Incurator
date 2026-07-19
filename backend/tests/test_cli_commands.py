@@ -73,6 +73,28 @@ class V031CliTests(unittest.TestCase):
         self.assertEqual(payload["route"], "local")
         self.assertTrue(payload["planId"].startswith("PLAN-"))
 
+    def test_plugin_invalid_curate_plan_exits_nonzero_without_persisting(self) -> None:
+        import json
+
+        ws = self.root / "01_Workspaces" / "InvalidLab"
+        ws.mkdir(parents=True, exist_ok=True)
+        (ws / "curate.yml").write_text(
+            'project: "invalid"\nreasoning:\n  allowed_modes: [bogus]\n',
+            encoding="utf-8",
+        )
+
+        res = self.runner.invoke(
+            app, ["plugin", "curate", "plan", "--workspace-path", str(ws)]
+        )
+
+        self.assertEqual(res.exit_code, 1)
+        payload = json.loads(res.stdout)
+        self.assertFalse(payload["ok"])
+        self.assertTrue(payload["validationErrors"])
+        with db.connect(self.paths.state_db) as conn:
+            count = conn.execute("SELECT COUNT(*) FROM curation_plans").fetchone()[0]
+        self.assertEqual(count, 0)
+
     def test_plugin_insight_list_and_promote_json(self) -> None:
         import json
         ins = db.create_insight_candidate(

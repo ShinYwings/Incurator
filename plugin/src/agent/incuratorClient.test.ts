@@ -762,6 +762,20 @@ describe("IncuratorClient", () => {
     expect(res.exported).toBe("dev-self.jsonl");
   });
 
+  it("dbAutosync maps a structured backend failure without merged stats", async () => {
+    const client = new IncuratorClient(settings(), "0.36.2", async () => ({
+      ok: false,
+      error: "Peer dev-broken.jsonl import failed",
+      conflicts: ["dev-broken.sync-conflict.jsonl"],
+    }));
+
+    const res = await client.dbAutosync();
+
+    expect(res).toEqual({ ok: false, error: "Peer dev-broken.jsonl import failed" });
+    expect(res.conflicts).toBeUndefined();
+    expect(res.importedFiles).toBeUndefined();
+  });
+
   it("dbAutosync short-circuits when backend disabled", async () => {
     const s = settings();
     s.incuratorEnabled = false;

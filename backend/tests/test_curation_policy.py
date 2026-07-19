@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from curator import curate_yml as cy
 from curator.curate_yml import (
     CurateBackprop,
@@ -93,3 +95,36 @@ def test_validate_flags_bad_contradiction_policy() -> None:
     spec = _spec(verification=CurateVerification(contradiction_policy="ignore-it"))
     errs = cy.validate_curate_spec(spec)
     assert any("contradiction_policy" in e for e in errs)
+
+
+def test_resolve_policy_keeps_missing_workspace_default(tmp_path: Path) -> None:
+    policy, spec_hash = cy.resolve_curate_policy(tmp_path)
+
+    assert policy.project == "default"
+    assert spec_hash == ""
+
+
+def test_resolve_policy_rejects_semantically_invalid_existing_spec(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "curate.yml").write_text(
+        'project: "bad"\nreasoning:\n  allowed_modes: [bogus]\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="allowed_modes"):
+        cy.resolve_curate_policy(tmp_path)
+
+
+def test_resolve_policy_propagates_hash_read_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "curate.yml").write_text('project: "valid"\n', encoding="utf-8")
+
+    def fail_hash(_workspace: Path) -> str:
+        raise OSError("hash read denied")
+
+    monkeypatch.setattr(cy, "curate_spec_hash", fail_hash)
+
+    with pytest.raises(OSError, match="hash read denied"):
+        cy.resolve_curate_policy(tmp_path)

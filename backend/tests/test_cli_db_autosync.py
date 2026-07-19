@@ -48,6 +48,40 @@ def test_autosync_json_runs_on_empty_vault(tmp_path: Path) -> None:
     assert payload["inserted"] == 0
 
 
+def test_autosync_json_reports_corrupt_state_without_overwriting(tmp_path: Path) -> None:
+    runner = CliRunner()
+    vault = _init_vault(runner, tmp_path)
+    paths = cfg.paths_from_config(vault)
+    state_path = db_sync._sync_state_path(paths.internal)
+    state_path.parent.mkdir(parents=True)
+    payload = b"{broken"
+    state_path.write_bytes(payload)
+
+    result = runner.invoke(
+        app, ["db", "autosync", "--json"], env={"VAULT_ROOT": str(vault)}
+    )
+
+    assert result.exit_code == 1
+    response = json.loads(result.output)
+    assert response["ok"] is False
+    assert "sync state" in response["error"]
+    assert state_path.read_bytes() == payload
+
+
+def test_autosync_human_error_is_visible_and_nonzero(tmp_path: Path) -> None:
+    runner = CliRunner()
+    vault = _init_vault(runner, tmp_path)
+    paths = cfg.paths_from_config(vault)
+    state_path = db_sync._sync_state_path(paths.internal)
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text("{broken", encoding="utf-8")
+
+    result = runner.invoke(app, ["db", "autosync"], env={"VAULT_ROOT": str(vault)})
+
+    assert result.exit_code == 1
+    assert "Auto-sync failed" in click.unstyle(result.output)
+
+
 def test_export_hook_default_on_and_opt_out(tmp_path: Path) -> None:
     """v0.30.0: `auto_sync.enabled` defaults to true (opt-out).
 

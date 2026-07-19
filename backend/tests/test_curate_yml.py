@@ -1,4 +1,7 @@
 from pathlib import Path
+
+import pytest
+
 from curator.curate_yml import load_curate_spec
 
 
@@ -153,6 +156,27 @@ sources:
     assert spec.sources.include == ["03_Notes/**"], (
         "scalar include must be wrapped; empty list means 'all sources' which is wrong here"
     )
+
+
+@pytest.mark.parametrize(
+    "sources_yaml",
+    [
+        "sources: []",
+        "sources:\n  include: 42",
+        "sources:\n  include: {path: 03_Notes/**}",
+        "sources:\n  include: [03_Notes/**, 42]",
+        "sources:\n  exclude: [[03_Notes/private/**]]",
+    ],
+)
+def test_invalid_source_scope_shape_fails_closed(
+    tmp_path: Path, sources_yaml: str
+) -> None:
+    (tmp_path / "curate.yml").write_text(
+        f'project: "Scoped"\n{sources_yaml}\n', encoding="utf-8"
+    )
+
+    with pytest.raises(ValueError, match="sources"):
+        load_curate_spec(tmp_path)
 
 
 def test_backprop_enabled_string(tmp_path: Path):

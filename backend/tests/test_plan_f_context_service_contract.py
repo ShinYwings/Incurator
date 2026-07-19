@@ -7,6 +7,8 @@ import json
 import re
 from pathlib import Path
 
+import pytest
+
 from curator import config as cfg
 from curator import db
 from curator.retrieval.models import QueryRequest
@@ -181,6 +183,35 @@ def test_context_service_fetch_records_one_root_snapshot_and_ordered_actions(tmp
     assert context_trace["pack_id"] == response["pack_id"]
     assert context_trace["snapshot"]["snapshot_id"] == response["snapshot"]["snapshot_id"]
     assert context_trace["actions"] == response["actions"]
+
+
+@pytest.mark.parametrize("surface", ["context_service", "query_orchestrator"])
+def test_existing_invalid_workspace_policy_fails_before_retrieval_or_trace(
+    tmp_path: Path, surface: str
+) -> None:
+    from curator.context_service import ContextService
+    from curator.retrieval import QueryOrchestrator
+
+    paths, _span_id = _seed_context_vault(tmp_path)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "curate.yml").write_text(
+        'project: "broken"\nreasoning:\n  allowed_modes: [bogus]\n',
+        encoding="utf-8",
+    )
+    request = QueryRequest(
+        question="residual connection",
+        mode="local",
+        workspace_path=str(workspace),
+    )
+
+    with pytest.raises(ValueError, match="allowed_modes"):
+        if surface == "context_service":
+            ContextService(paths).context_fetch(request)
+        else:
+            QueryOrchestrator(paths, client=None).fetch_context(request)
+
+    assert db.list_query_traces(paths.state_db) == []
 
 
 def test_context_service_snapshot_id_is_stable_when_corpus_is_unchanged(tmp_path: Path) -> None:
