@@ -52,3 +52,18 @@
 - **Immediate next action**: push and open the v0.34.1 draft PR; after human
   review/merge, rebase the independent v0.35.0 release from `master`, incorporate
   the model-catalogue plan update, and resume PL-1.
+
+### Update (2026-07-19, Codex) — PR #86 Review Follow-up
+
+- Addressed both unresolved review threads.
+- `PRAGMA table_info` rows now use named `sqlite3.Row` access (`name`, `pk`)
+  instead of positional indices.
+- The desktop Knowledge Sync watcher registers an `error` listener, logs
+  directory/permission failures, and leaves the 60-second poll as fallback.
+- Updated the plugin spec and EN/KR guides; added a failing-then-passing watcher
+  regression test.
+- Validation: 31 autosync tests, 671 full plugin tests, ruff, TypeScript, and
+  production plugin build all pass.
+- Immediate next action: push commits `cf9a15e` and `1f5b7ea` to PR #86, wait
+  for GitHub CI, then report the result. Do not resolve/reply to review threads
+  unless the user explicitly requests that GitHub write.
