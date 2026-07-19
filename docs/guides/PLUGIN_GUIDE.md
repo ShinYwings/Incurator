@@ -930,7 +930,10 @@ no manual export/import.
   Syncthing delivers a peer file (Watch for incoming sync data — desktop only), a
   60-second safety poll, and a manual **Sync Knowledge DB** ribbon button. After
   the backend identifies this device's exported snapshot filename, the watcher
-  ignores that self file instead of treating it as incoming peer data.
+  ignores that self file instead of treating it as incoming peer data. If the
+  watched directory is deleted, renamed, or becomes inaccessible, the plugin
+  logs the watcher error instead of raising an unhandled Electron exception;
+  the 60-second poll continues to provide fallback coverage.
 - **What a pass does**: runs `wiki db autosync` in the backend — imports every other
   device's snapshot (`.curator/sync/dev-<id>.jsonl`), merges any Syncthing
   `*.sync-conflict-*` files, then writes this device's own snapshot if anything changed.
