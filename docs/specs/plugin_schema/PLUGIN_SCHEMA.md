@@ -221,6 +221,25 @@ The plugin must not direct users to a backend path-migration command. Backend
 source identity is assumed to use the current Zotero-key or named-root contract;
 unsupported legacy device-local DB recovery is outside the plugin UI.
 
+### 1.3 Internal module ownership and stable facades (v0.36.0)
+
+The plugin may decompose large implementation files behind stable TypeScript
+facades. The following import paths and their current public exports remain
+compatible for the entrypoint, plugin consumers, and tests:
+
+- `src/agent/llmClient.ts` — facade for `src/agent/llm/`
+- `src/ui/chatSidebar.ts` — facade for `src/ui/chat/`
+- `src/ui/externalPdfView.ts` — facade for `src/ui/pdf/`
+
+Implementation behavior belongs in the owner directories. A facade may declare
+stable constants/types or re-export owned symbols, but must not retain duplicate
+or inert implementation text merely to satisfy a source-string test. Tests for
+sandboxing, provider commands, PDF state, rendering, and chat orchestration must
+inspect or import the module that actually owns that behavior. `plugin/main.ts`
+remains the Obsidian lifecycle entrypoint and may consume either the stable
+facades or explicit owner modules without changing command IDs, view types,
+settings fields, persisted DTOs, or backend command envelopes.
+
 ## 2. Persisted Settings Schema
 
 > **Logging is not a setting.** Plugin logs go through a namespaced logger
