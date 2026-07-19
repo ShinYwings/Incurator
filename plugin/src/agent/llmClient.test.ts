@@ -335,6 +335,39 @@ describe("CLI tool-scope sandbox source contract (v0.23.0)", () => {
   });
 });
 
+describe("CLI model effort arguments", () => {
+  function commandFor(settings: PluginSettings): { args: string[] } {
+    const client = new LLMClient(settings, {} as never) as any;
+    client.syncClaudeMcpConfig = () => "/tmp/claude-mcp.json";
+    client.syncCodexMcpConfig = () => undefined;
+    client.allowedRoots = () => [];
+    client.wrapWithOsSandbox = (base: unknown) => base;
+    client._chatImagePaths = [];
+    client._chatImageRunDir = null;
+    return client.buildCliCommand("hello", undefined, settings.provider, false, "auto");
+  }
+
+  it("omits Claude --effort for a no-effort model", () => {
+    const command = commandFor({
+      ...DEFAULT_SETTINGS,
+      provider: "claude",
+      model: "claude-haiku-4-5",
+      claudeEffort: "",
+    });
+    expect(command.args).not.toContain("--effort");
+  });
+
+  it("passes Codex ultra through the CLI config override", () => {
+    const command = commandFor({
+      ...DEFAULT_SETTINGS,
+      provider: "openai",
+      model: "gpt-5.6-sol",
+      codexReasoningEffort: "ultra",
+    });
+    expect(command.args).toContain('model_reasoning_effort="ultra"');
+  });
+});
+
 describe("chat image channel (v0.28.0)", () => {
   const source = readFileSync(
     join(fileURLToPath(new URL(".", import.meta.url)), "llmClient.ts"),

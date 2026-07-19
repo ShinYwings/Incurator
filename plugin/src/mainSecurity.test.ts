@@ -82,7 +82,7 @@ describe("G17-4: model default migration must be catalogue-based", () => {
     expect(src).toContain("const knownModel = getModelOption(");
     expect(src).toContain("if (this.settings.model && knownModel) return false;");
     expect(src).not.toContain("unavailableDefaults");
-    expect(src).not.toContain("claude-opus-4-7");
+    expect(src).toContain("normalizePluginModelEffort(");
   });
 
   it("never resets a non-empty custom model for providers with open-ended ids (Ollama)", () => {

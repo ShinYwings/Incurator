@@ -26,6 +26,13 @@ describe("settings UI source contract", () => {
     expect(source).not.toContain('.setName("Context window")');
   });
 
+  it("resets model effort through the shared catalogue normalizer", () => {
+    const source = settingsSource();
+
+    expect(source).toContain("normalizePluginModelEffort(");
+    expect(source).toContain("this.plugin.settings, catalogue, true");
+  });
+
   it("renders Incurator backend status below the Enable row", () => {
     const source = settingsSource();
 
