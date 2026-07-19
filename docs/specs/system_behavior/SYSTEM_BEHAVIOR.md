@@ -778,8 +778,10 @@ Rules:
   an expected local refresh failure (file-system error, a locked `state.sqlite`,
   or a malformed config during `config set --local`), the command should still
   complete and report a warning.
-- Runtime snapshots may include local absolute paths. Their repo-cache location
-  makes them device-local without vault ignore rules.
+- Runtime snapshots and the live `wiki status --json` payload must not export
+  local absolute paths. They use vault-relative/portable identifiers and blank
+  machine-path fields; backend commands resolve machine-local paths only when a
+  requested operation needs them.
 - Mutating actions such as import, rebind, reset, query generation, and
   promotion must not be implemented by editing shared JSON files.
 - Dashboard buttons that change backend state must invoke backend code. The
