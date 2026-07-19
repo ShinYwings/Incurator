@@ -65,6 +65,10 @@ parity, and reproducible failure handling take priority over refactoring volume.
   checkpoint snapshot, preventing that snapshot from erasing the new identity.
 - [x] Review follow-up validation passes: focused tests 92, spec/docs parity 16,
   Ruff, Mypy (125 sources), and full backend 1265 passed / 6 skipped / 5 xfailed.
+- [x] Review follow-up commit `b9311b7` pushed to PR #90; both actionable
+  review threads are resolved and no unresolved threads remain.
+- [x] Refreshed push/PR CI is green for Backend Tests, Plugin Tests, and the
+  applicable Version Consistency job; PR #90 is clean and mergeable.
 
 ## Critical Context / Blockers
 
@@ -81,5 +85,5 @@ parity, and reproducible failure handling take priority over refactoring volume.
 
 ## Immediate Next Action
 
-Commit and push the PR review follow-up, resolve both review threads, and verify
-the refreshed GitHub checks and review state on PR #90.
+PR #90 is ready for human review and merge. After merge, update local `master`
+and truncate this file to the IDLE stub before starting the next queued item.
