@@ -3031,3 +3031,28 @@ The decision is recorded as `route_admission` on both the response and the root
 trace's `context_service` payload: `{requested, served, admitted_routes,
 disabled_routes, downgraded}`. Exactly one `RTR-*` retrieval execution attaches to
 the one root `QTR-*`; admission changes which route runs, never how many.
+
+## 32. Exception Boundaries And Observable Degradation (v0.36.1)
+
+CLI commands, MCP tools, and hidden plugin APIs may catch an unexpected
+exception at their outer transport boundary to preserve their established exit
+or JSON result contract. Internal operations must not use an unexplained silent
+`except Exception: pass` fallback.
+
+When an internal operation can recover:
+
+- deterministic parsing, filesystem, and conversion fallbacks catch the
+  specific expected exception classes;
+- optional LLM/provider/client and cleanup boundaries may retain a broad catch
+  only when arbitrary implementations can raise unknown exceptions, with an
+  explicit reason and module logging;
+- a requested operation that succeeds with degraded maintenance, discovery, or
+  indexing reports the degradation through an existing `warnings` field or CLI
+  warning where that surface already defines one;
+- MCP stdio diagnostics use logging and never write plain text to protocol
+  stdout.
+
+False success is forbidden. A response must not claim that a requested
+maintenance/indexing action completed when it was skipped after an exception.
+Optional classification or suggestion failures may preserve deterministic
+fallback output, but the suppressed cause remains observable in logs.
