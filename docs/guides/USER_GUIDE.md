@@ -464,6 +464,11 @@ Vault — it returns an answer + a `QTR-` trace and writes **no** vault file:
 > The active workspace path determines whether a `curate.yml` KRS biases the
 > query. Outside a workspace, the query uses the `default` vault scope.
 
+If an in-scope `curate.yml` exists but is invalid or unreadable, `wiki query`
+stops with a concise configuration error before retrieval. It never ignores the
+selected workspace or continues with the unrestricted `default` policy. A
+workspace directory with no `curate.yml` still uses the documented default.
+
 ### Agent Context Packs (Plan F target)
 
 For agents that perform their own reasoning, `curator_fetch_context` returns a

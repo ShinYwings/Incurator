@@ -512,6 +512,10 @@ VALID_CONTRADICTION_POLICIES: frozenset[str] = frozenset(
 )
 
 
+class CurationPolicyError(ValueError):
+    """An existing workspace policy could not be resolved safely."""
+
+
 @dataclass(frozen=True)
 class CurationPolicy:
     """Runtime policy compiled from a workspace's curate.yml.
@@ -656,27 +660,32 @@ def resolve_curate_policy(
     require_spec: bool = False,
 ) -> tuple[CurationPolicy, str]:
     """Resolve one validated workspace policy, failing on existing invalid KRS."""
-    if not workspace_path:
-        if require_spec:
-            raise ValueError("no curate.yml in workspace")
-        return compile_curate_policy(CurateSpec(project="default")), ""
+    try:
+        if not workspace_path:
+            if require_spec:
+                raise ValueError("no curate.yml in workspace")
+            return compile_curate_policy(CurateSpec(project="default")), ""
 
-    workspace = Path(workspace_path)
-    spec = load_curate_spec(workspace)
-    if spec is None:
-        if require_spec:
-            raise ValueError(f"no curate.yml in workspace {workspace}")
-        return compile_curate_policy(CurateSpec(project="default")), ""
+        workspace = Path(workspace_path)
+        spec = load_curate_spec(workspace)
+        if spec is None:
+            if require_spec:
+                raise ValueError(f"no curate.yml in workspace {workspace}")
+            return compile_curate_policy(CurateSpec(project="default")), ""
 
-    errors = validate_curate_spec(spec)
-    if errors:
-        raise ValueError(
-            f"Invalid curate.yml in {workspace}: {'; '.join(errors)}"
-        )
-    policy = compile_curate_policy(spec, workspace)
-    spec_hash = curate_spec_hash(workspace)
-    if not spec_hash:
-        raise ValueError(
-            f"curate.yml in {workspace} disappeared before policy resolution completed"
-        )
-    return policy, spec_hash
+        errors = validate_curate_spec(spec)
+        if errors:
+            raise ValueError(
+                f"Invalid curate.yml in {workspace}: {'; '.join(errors)}"
+            )
+        policy = compile_curate_policy(spec, workspace)
+        spec_hash = curate_spec_hash(workspace)
+        if not spec_hash:
+            raise ValueError(
+                f"curate.yml in {workspace} disappeared before policy resolution completed"
+            )
+        return policy, spec_hash
+    except CurationPolicyError:
+        raise
+    except (OSError, ValueError) as exc:
+        raise CurationPolicyError(str(exc)) from exc

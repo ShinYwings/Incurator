@@ -425,6 +425,11 @@ Incurator의 가장 핵심적인 작동 방식입니다. 당신은 그저 질문
 > 활성 workspace 경로가 `curate.yml` KRS 적용 여부를 결정합니다. workspace
 > 밖에서는 `default` vault scope를 사용합니다.
 
+스코프 안에 `curate.yml`이 있지만 유효하지 않거나 읽을 수 없으면 `wiki query`는
+검색 전에 간결한 설정 오류를 표시하고 중단합니다. 선택한 workspace를 무시하거나
+제한 없는 `default` 정책으로 계속하지 않습니다. `curate.yml`이 없는 workspace
+디렉터리는 문서화된 기본 정책을 그대로 사용합니다.
+
 ### 답변을 지속 지식으로 승격
 쿼리 답변은 저장되지 않습니다. 보존하려면 `02_Wiki/`(사람이 큐레이션하는 공간)로
 승격하세요 — 플러그인의 승격 동작 또는 MCP `curator_promote_insight` 도구를 사용합니다.

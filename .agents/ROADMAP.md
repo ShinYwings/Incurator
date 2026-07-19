@@ -27,7 +27,10 @@ No urgent items currently tracked.
 ### 🚨 Immediate Next Release
 
 - No additional patch batch is active. v0.36.2 is release-ready; continue the
-  approved System Stability Overhaul through the ordered follow-ups below.
+  approved System Stability Overhaul through the ordered follow-ups below. PR
+  #90 self-review also closed the human CLI workspace-scope bypass and removed
+  query-triggered pending ingestion that contradicted the documented read-only
+  query contract.
 
 ### 🚀 Priority Order
 
@@ -92,11 +95,13 @@ No urgent items currently tracked.
   (release-ready 2026-07-20): preserved corrupt device-local sync state instead
   of regenerating identity, surfaced peer/conflict/archive failures, made
   tombstone deletion transactional, and prevented existing invalid KRS files
-  from widening query scope or persisting curation plans. Backend 1259-test,
+  from widening query scope or persisting curation plans. Backend 1268-test,
   plugin 689-test, static-analysis, production build, version/docs consistency,
   Gaussian Splatting Reference Mode, lint 100/100, and repeated quiescent
   autosync gates passed. External Antigravity answer synthesis returned no
-  output; the resulting traceback UX is queued separately.
+  output; the resulting traceback UX is queued separately. PR self-review then
+  fixed `wiki query --workspace` dropping its KRS path, made invalid policy fail
+  before provider startup, and removed undocumented pending-source ingestion.
 - **v0.36.1 — XC-1 Silent Exception And False-Success Hardening**
   (release-ready 2026-07-19): eliminated 28 silent broad handlers across the
   decomposed CLI/MCP/plugin API packages; fixed empty-build false success,
@@ -261,8 +266,10 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: v0.36.0 IMPLEMENTATION ACTIVE.
-- **Active Milestone**: PL-1 plugin god-file decomposition on
-  `release/v0.36.0`.
-- **Next actionable item**: refresh the P0 evidence baseline, then execute the
-  facade-first extraction phases in `.agents/plans/11_pl1_plugin_decomposition.md`.
+- **Roadmap state**: System Stability Overhaul ACTIVE; v0.36.2 PR #90 is in
+  final review hardening on `release/v0.36.2`.
+- **Active Milestone**: exhaustive correctness, error-boundary, and docs↔code
+  parity hardening under `.agents/plans/01_system_stability_overhaul.md`.
+- **Next actionable item**: merge PR #90, then start the highest-priority
+  remaining schema-contract plan for composite-primary-key tombstones from a
+  fresh branch off updated `master`.

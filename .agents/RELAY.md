@@ -69,6 +69,22 @@ parity, and reproducible failure handling take priority over refactoring volume.
   review threads are resolved and no unresolved threads remain.
 - [x] Refreshed push/PR CI is green for Backend Tests, Plugin Tests, and the
   applicable Version Consistency job; PR #90 is clean and mergeable.
+- [x] Continued self-review found `wiki query --workspace` dropped the selected
+  workspace before QueryOrchestrator, so invalid KRS warned and continued with
+  unrestricted defaults; failing CLI tests reproduced both behaviors.
+- [x] Code/docs parity review found `wiki query` still called `add()` for pending
+  sources despite two guide contracts declaring query read-only with respect to
+  ingestion; a failing CLI regression test reproduced the hidden mutation.
+- [x] Both CLI gaps are fixed docs-first/TDD: typed policy errors fail before
+  provider startup, the workspace reaches QueryOrchestrator, and pending ingest
+  remains explicit. Focused CLI (13), policy/query integration (95), docs parity
+  (16), and Ruff checks pass.
+- [x] Full validation exposed a repo-helper bug: `backend-check pytest -q`
+  ignored the backend pytest config and created forbidden root `.pytest_cache`.
+  The helper now pins backend config and `.cache/pytest`; hygiene tests guard it.
+- [x] Final local gates pass: backend 1268 passed / 6 skipped / 5 xfailed, Ruff,
+  Mypy (125 sources), helper shell syntax, docs/version parity, and real testbed
+  invalid-KRS CLI (`exit 1`, concise error, no provider startup/traceback).
 
 ## Critical Context / Blockers
 
@@ -85,5 +101,5 @@ parity, and reproducible failure handling take priority over refactoring volume.
 
 ## Immediate Next Action
 
-PR #90 is ready for human review and merge. After merge, update local `master`
-and truncate this file to the IDLE stub before starting the next queued item.
+Commit and push the new PR #90 self-review fixes, resolve any new review
+feedback, and verify refreshed GitHub CI.

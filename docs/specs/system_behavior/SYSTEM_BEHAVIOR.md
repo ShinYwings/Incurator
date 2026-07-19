@@ -1356,6 +1356,9 @@ failure marks the run `failed` and must not write a partial artifact.
   `curate.yml`, uses the documented `default` policy. If `curate.yml` exists,
   read/parse/root-shape/source-scope-shape/semantic/hash failures are fatal to
   policy resolution and occur before retrieval, trace creation, or synthesis.
+  This boundary applies equally to human `wiki query --workspace`, MCP
+  `curator_query`, and hidden plugin query calls; no surface may discard the
+  selected workspace path or warn-and-continue with unrestricted defaults.
   In particular,
   `sources` must be a mapping and its `include`/`exclude` values must be a string
   or list of strings. Each explicit pattern must remain non-empty after trimming;

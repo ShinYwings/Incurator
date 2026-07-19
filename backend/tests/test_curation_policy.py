@@ -116,7 +116,7 @@ def test_resolve_policy_rejects_semantically_invalid_existing_spec(
         cy.resolve_curate_policy(tmp_path)
 
 
-def test_resolve_policy_propagates_hash_read_failure(
+def test_resolve_policy_types_hash_read_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     (tmp_path / "curate.yml").write_text('project: "valid"\n', encoding="utf-8")
@@ -126,8 +126,9 @@ def test_resolve_policy_propagates_hash_read_failure(
 
     monkeypatch.setattr(cy, "curate_spec_hash", fail_hash)
 
-    with pytest.raises(OSError, match="hash read denied"):
+    with pytest.raises(cy.CurationPolicyError, match="hash read denied") as exc_info:
         cy.resolve_curate_policy(tmp_path)
+    assert isinstance(exc_info.value.__cause__, OSError)
 
 
 def test_resolve_policy_rejects_spec_disappearing_before_hash(

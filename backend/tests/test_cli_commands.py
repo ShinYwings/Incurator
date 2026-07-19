@@ -6,6 +6,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from typer.testing import CliRunner
 
@@ -94,6 +95,76 @@ class V031CliTests(unittest.TestCase):
         with db.connect(self.paths.state_db) as conn:
             count = conn.execute("SELECT COUNT(*) FROM curation_plans").fetchone()[0]
         self.assertEqual(count, 0)
+
+    def test_query_forwards_selected_workspace_to_orchestrator(self) -> None:
+        ws = self.root / "01_Workspaces" / "ScopedLab"
+        ws.mkdir(parents=True, exist_ok=True)
+        (ws / "curate.yml").write_text('project: "scoped"\n', encoding="utf-8")
+        self.paths.concepts.mkdir(parents=True, exist_ok=True)
+        (self.paths.concepts / "CON-test.md").write_text("---\nname: test\n---\n")
+        captured: dict = {}
+
+        class FakeClient:
+            def close(self) -> None:
+                pass
+
+        def capture_repl(paths, client, callbacks, run_kwargs, **kwargs):
+            captured.update(run_kwargs)
+
+        with (
+            patch("curator.commands.core._start_client", return_value=FakeClient()),
+            patch("curator.commands.core._run_query_repl", side_effect=capture_repl),
+        ):
+            res = self.runner.invoke(
+                app, ["query", "scoped question", "--workspace", str(ws)]
+            )
+
+        self.assertEqual(res.exit_code, 0, res.stdout)
+        self.assertEqual(captured["workspace_path"], str(ws.resolve()))
+
+    def test_query_invalid_workspace_policy_fails_concisely(self) -> None:
+        ws = self.root / "01_Workspaces" / "InvalidQueryLab"
+        ws.mkdir(parents=True, exist_ok=True)
+        (ws / "curate.yml").write_text(
+            'project: "invalid"\nsources:\n  include: "   "\n',
+            encoding="utf-8",
+        )
+        self.paths.concepts.mkdir(parents=True, exist_ok=True)
+        (self.paths.concepts / "CON-test.md").write_text("---\nname: test\n---\n")
+
+        with (
+            patch("curator.commands.core._start_client") as start_client,
+            patch("curator.commands.core._run_query_repl") as run_repl,
+        ):
+            res = self.runner.invoke(
+                app, ["query", "scoped question", "--workspace", str(ws)]
+            )
+
+        self.assertEqual(res.exit_code, 1)
+        self.assertIn("Query configuration failed", res.stdout)
+        self.assertNotIn("Traceback", res.stdout)
+        start_client.assert_not_called()
+        run_repl.assert_not_called()
+
+    def test_query_does_not_process_pending_sources(self) -> None:
+        self.paths.concepts.mkdir(parents=True, exist_ok=True)
+        (self.paths.concepts / "CON-test.md").write_text("---\nname: test\n---\n")
+
+        class FakeClient:
+            def close(self) -> None:
+                pass
+
+        with (
+            patch("curator.commands.core.db.get_pending_count", return_value=3),
+            patch("curator.commands.core.add") as add_command,
+            patch("curator.commands.core._start_client", return_value=FakeClient()),
+            patch("curator.commands.core._run_query_repl"),
+        ):
+            res = self.runner.invoke(app, ["query", "read only question"])
+
+        self.assertEqual(res.exit_code, 0, res.stdout)
+        add_command.assert_not_called()
+        self.assertNotIn("running add before query", res.stdout)
 
     def test_plugin_insight_list_and_promote_json(self) -> None:
         import json

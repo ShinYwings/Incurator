@@ -35,7 +35,10 @@ run_pytest() {
     if [ "$#" -eq 0 ]; then
         set -- "$ROOT_DIR/backend/tests" -q
     fi
-    "$VENV_DIR/bin/pytest" "$@"
+    "$VENV_DIR/bin/pytest" \
+        -c "$ROOT_DIR/backend/pyproject.toml" \
+        -o "cache_dir=$ROOT_DIR/.cache/pytest" \
+        "$@"
 }
 
 run_python() {

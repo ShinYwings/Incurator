@@ -63,8 +63,11 @@ def test_backend_tooling_is_pinned_to_repo_root_state() -> None:
     assert 'cache-dir = "../.cache/ruff"' in pyproject
     assert 'cache_dir = "../.cache/mypy"' in pyproject
     assert backend_check.exists()
-    assert ".venv-dev/bin" in backend_check.read_text(encoding="utf-8")
-    assert '$ROOT_DIR/.cache/mypy' in backend_check.read_text(encoding="utf-8")
+    helper = backend_check.read_text(encoding="utf-8")
+    assert ".venv-dev/bin" in helper
+    assert '-c "$ROOT_DIR/backend/pyproject.toml"' in helper
+    assert 'cache_dir=$ROOT_DIR/.cache/pytest' in helper
+    assert '$ROOT_DIR/.cache/mypy' in helper
 
 
 def test_backend_validation_docs_do_not_reintroduce_active_uv_exports() -> None:
