@@ -55,3 +55,27 @@ Date: 2026-07-09
   - `./src/ui/externalPdfView`
 - Source-contract tests currently inspect the old source files directly and must
   move with the code they assert.
+
+## Post-Implementation Evidence
+
+- Stable public facades remain at the original import paths:
+  - `plugin/src/ui/chatSidebar.ts` → `ui/chat/ChatSidebarView.ts`
+  - `plugin/src/agent/llmClient.ts` → `agent/llm/LLMClient.ts`
+  - `plugin/src/ui/externalPdfView.ts` → `ui/pdf/ExternalPdfView.ts`
+- `plugin/main.ts` continues to import those facades; no entrypoint lifecycle or
+  persisted contract change was required.
+- Corrected the EN/KR External PDF guide pair to match portable
+  `zoteroAttachmentKey` / `externalRef` restoration in code and specs.
+- Plugin validation:
+  - Vitest: 66 files, 683 tests passed.
+  - TypeScript `--noEmit`: passed.
+  - Production build at v0.36.0: passed.
+- Backend validation:
+  - Pytest: 1218 passed, 6 skipped, 5 xfailed.
+  - Ruff: passed.
+  - Mypy: passed across 125 source files.
+- `gaussian_splatting` testbed:
+  - `wiki add`, `wiki sync`, and `wiki lint` passed; lint health 100/100.
+  - A real `wiki db autosync` followed by `--dry-run` reported zero inserts,
+    updates, and deletes with no pending export, preserving the v0.34.1
+    Knowledge Sync loop fix.
