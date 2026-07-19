@@ -33,7 +33,10 @@ envelopes and intended best-effort behavior.
   `except Exception` handlers across the three target packages.
 - [x] Completed official Python exception/logging prior-art review.
 - [x] Authored Arena, domain analyses, evidence ledger, and master plan.
-- [ ] Await plan approval before docs/tests/application changes.
+- [x] User approved implementation and explicitly prioritized finding/fixing
+  actual behavior bugs alongside exception cleanup.
+- [ ] P0: add failing silent-handler policy test and classify failure behavior.
+- [ ] P1-P4: docs-first TDD hardening across commands, MCP, and plugin API.
 
 ## Critical Context / Blockers
 
@@ -44,5 +47,5 @@ envelopes and intended best-effort behavior.
 
 ## Immediate Next Action
 
-Review and approve `.agents/plans/12_xc1_silent_exception_hardening.md`; after
-approval, implement P1-P5 TDD-first without widening into all broad handlers.
+Add the P0 policy test, verify the current 28-site failure, then update the
+behavior contract and implement each component TDD-first.

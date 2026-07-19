@@ -1,7 +1,7 @@
 # v0.36.1 Master Implementation Plan
 
 Date: 2026-07-19
-Status: DRAFT — Arena complete; awaiting user approval before implementation.
+Status: APPROVED — implementation active on `release/v0.36.1`.
 
 ## 1. Objective
 
@@ -9,6 +9,12 @@ Classify and harden the 28 syntactically silent broad-exception handlers in
 `commands/`, `mcp/`, and `plugin_api/`. Expected failures must be narrowed;
 intentional best-effort or cleanup failures must become observable without
 changing existing fallbacks, public envelopes, exit codes, or MCP stdio.
+
+The user explicitly prioritizes finding and fixing real system problems over a
+mechanical refactor. Failure injection at each site must therefore also test for
+false success, missing warnings, stale/incomplete status, and lost state. Any
+confirmed adjacent behavior bug in the target packages is in scope and must be
+fixed or recorded for a named follow-up slice with evidence.
 
 Definition of done:
 
@@ -19,7 +25,8 @@ Definition of done:
 
 ## 2. Explicit Non-Goals
 
-- No audit or rewrite of all 148 broad catch-and-return handlers.
+- No mechanical rewrite of all 148 broad catch-and-return handlers; they may be
+  inspected when failure injection identifies a connected behavior bug.
 - No new CLI flag, MCP tool parameter, plugin JSON field, schema, or migration.
 - No changes to retrieval, DAG compilation, prompts, or plugin UI.
 - No generic exception framework or decorator abstraction.
