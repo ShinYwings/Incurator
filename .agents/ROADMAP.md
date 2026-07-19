@@ -26,7 +26,18 @@ No urgent items currently tracked.
 
 ### 🚨 Immediate Next Release
 
-No release is currently active after the v0.36.1 PR handoff.
+- **v0.36.2 XC-1 Fail-Closed Correctness Hardening** *(queued after PR #89)*:
+  failure injection against the remaining backend broad catches confirmed four
+  P0 paths that must be planned and fixed before lower-risk cleanup:
+  - malformed/unreadable local sync state currently becomes `{}`, allowing a
+    new device ID and snapshot identity to be generated silently;
+  - failed Syncthing conflict import/archive can still be counted and displayed
+    as merged, leaving the conflict file to retrigger;
+  - a failed tombstone DELETE is reported as applied and the tombstone is still
+    recorded for propagation;
+  - malformed workspace `curate.yml` silently falls back to unrestricted default
+    policy in both ContextService and QueryOrchestrator, bypassing source scope.
+  Plan and implement from updated `master` after v0.36.1 merges.
 
 ### 🚀 Priority Order
 

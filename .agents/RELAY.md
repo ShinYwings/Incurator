@@ -23,6 +23,15 @@ envelopes and intended best-effort behavior.
 - Python's official guidance distinguishes raised runtime errors from suppressed
   best-effort failures: suppressed failures must be logged at an appropriate
   level rather than silently discarded.
+- The next read-only XC-1 pass counted 232 backend-wide broad handlers and 12
+  syntactically silent handlers outside the v0.36.1 target packages.
+- Failure injection confirmed four P0 follow-ups: corrupt sync state generates a
+  new device identity; failed conflict archiving is suppressed; failed tombstone
+  deletion still returns applied and records propagation; malformed curate.yml
+  becomes an unrestricted default retrieval policy.
+- `find_workspace_exhibition` has no callers and retains a retired Exhibition
+  contract; queue it for the later reachability-driven dead-code sweep rather
+  than mixing it into the P0 correctness patch.
 
 ## Progress Status
 
@@ -56,9 +65,11 @@ envelopes and intended best-effort behavior.
 - Testbed autosync ran twice with zero imported/updated/deleted rows on both
   passes, so the Knowledge Sync loop regression did not recur.
 - Review follow-up focused tests: 6 passed; Ruff and Mypy passed.
+- v0.36.2 diagnostics reproduced all four queued P0 paths in temporary state;
+  no application code was changed before the required plan/branch transition.
 
 ## Immediate Next Action
 
-Push the PR #89 review follow-up, verify final CI, then review and merge. After
-merge, continue the System Stability Overhaul with the next bounded XC-1 broad
-catch-and-return audit slice.
+Review and merge PR #89. Then update local `master`, create `release/v0.36.2`,
+author the fail-closed sync/policy plan, and stop for approval before changing
+the affected control flow.
