@@ -73,6 +73,32 @@ def test_missing_client_cleanup_is_a_noop(caplog) -> None:
     assert not caplog.records
 
 
+def test_provider_config_reports_unreadable_model_catalogue(
+    tmp_path: Path, monkeypatch
+) -> None:
+    class UnreadableModelCatalogue:
+        def joinpath(self, _name: str):
+            return self
+
+        def read_text(self, *, encoding: str) -> str:
+            assert encoding == "utf-8"
+            raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+
+    tools = _tools(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        "curator.mcp.server.resources.files",
+        lambda _package: UnreadableModelCatalogue(),
+    )
+
+    result = tools["curator_get_provider_config"].fn(
+        workspace_path=str(tmp_path)
+    )
+
+    assert result["ok"] is True
+    assert result["models_json"] == {}
+    assert "UnicodeDecodeError" in "\n".join(result["warnings"])
+
+
 def test_malformed_workspace_curate_spec_fails_with_context(
     tmp_path: Path, monkeypatch
 ) -> None:

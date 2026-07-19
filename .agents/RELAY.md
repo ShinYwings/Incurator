@@ -56,6 +56,9 @@ envelopes and intended best-effort behavior.
 - [x] Addressed all five PR #89 review threads: null-safe client cleanup,
   missing-curate race guidance, explicit client-name initialization, direct
   MCP test imports, and recursive policy scanning.
+- [x] Completed an independent full-diff review. Added a regression test and
+  `UnicodeError` degradation boundary so an unreadable packaged model catalogue
+  follows the documented `warnings` contract instead of aborting the MCP call.
 
 ## Critical Context / Blockers
 
@@ -65,6 +68,10 @@ envelopes and intended best-effort behavior.
 - Testbed autosync ran twice with zero imported/updated/deleted rows on both
   passes, so the Knowledge Sync loop regression did not recur.
 - Review follow-up focused tests: 6 passed; Ruff and Mypy passed.
+- Independent-review focused tests: 21 passed; Ruff, Mypy, and all 688 plugin
+  tests passed. The full backend run passed 1,227 tests with only the workspace
+  hygiene check failing on a pre-existing root `.pytest_cache`; after moving
+  that cache into the repository cache area, all 18 hygiene tests passed.
 - v0.36.2 diagnostics reproduced all four queued P0 paths in temporary state;
   no application code was changed before the required plan/branch transition.
 

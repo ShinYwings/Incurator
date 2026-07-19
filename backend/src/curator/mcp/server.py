@@ -955,7 +955,7 @@ def build_server() -> FastMCP:
                 models_data = parsed_models
             else:
                 raise TypeError("models.json root must be an object")
-        except (OSError, json.JSONDecodeError, TypeError) as exc:
+        except (OSError, UnicodeError, json.JSONDecodeError, TypeError) as exc:
             warning = f"Packaged model catalogue unavailable: {type(exc).__name__}: {exc}"
             warnings.append(warning)
             _log.warning(warning)
