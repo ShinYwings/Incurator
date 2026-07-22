@@ -870,7 +870,8 @@ wiki config provider
 
 - `claude-code` → `claude --effort <low|medium|high|xhigh|max>`
 - `codex-cli` → `codex -c model_reasoning_effort=<low|medium|high|xhigh|max|ultra>` (모델별 지원 범위가 다르며, `ultra`에서는 작업이 자동 위임될 수 있음)
-- `antigravity-cli` → `agy`는 별도 플래그가 없어, 선택한 강도가 프롬프트 힌트로 전달됩니다 (best-effort).
+- `antigravity-cli` → `agy --model <base-slug> --effort <low|medium|high>`
+  (Antigravity CLI 1.1.5 이상이며 지원 강도는 모델마다 다름)
 
 위자드는 모델별로 사용 가능한 강도만 보여주며 (예: Gemini 3.1 Pro 는 `low`/`high`), 강도가 하나뿐인 모델은 자동 선택됩니다. 플래그로 직접 지정할 수도 있습니다:
 

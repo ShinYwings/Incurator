@@ -908,7 +908,8 @@ After choosing a model you can also pick a **reasoning effort**, which maps 1:1 
 
 - `claude-code` → `claude --effort <low|medium|high|xhigh|max>`
 - `codex-cli` → `codex -c model_reasoning_effort=<low|medium|high|xhigh|max|ultra>` (model-specific; `ultra` may automatically delegate work)
-- `antigravity-cli` → `agy` has no flag, so the chosen effort is passed as a prompt hint (best-effort).
+- `antigravity-cli` → `agy --model <base-slug> --effort <low|medium|high>`
+  (Antigravity CLI 1.1.5+; the available levels remain model-specific).
 
 The wizard only shows the efforts a model actually supports (e.g. Gemini 3.1 Pro offers `low`/`high`); models with a single effort are auto-selected. You can also set it directly:
 

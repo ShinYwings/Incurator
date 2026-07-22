@@ -201,6 +201,17 @@ LLM이 제안 생성 → Diff 표시 → Accept / Reject
   OS 샌드박스를 쓸 수 없으면 **Antigravity는 차단**되고(컨테인먼트가 전혀 없으므로),
   **Claude와 Codex는** 자체 내장 제한(더 약함) 하에서 계속 실행됩니다. Windows CLI
   샌드박싱은 아직 미지원입니다.
+
+  Antigravity 1.1.3 이상은 플러그인이 `agy`를 headless(`-p`) 모드로 실행할 때
+  대화형 승인이 필요한 도구도 거부합니다. 따라서 플러그인은 기존 Antigravity CLI
+  설정을 보존하면서 `~/.gemini/antigravity-cli/settings.json`의
+  `permissions.allow`에 읽기 전용 `$read_file$()` 규칙만 추가합니다. 이 규칙은 열린
+  PDF나 첨부 이미지를 승인 프롬프트 없이 읽게 하지만 쓰기, 셸 명령, 네트워크 도구,
+  임의 경로를 승인하지 않습니다. 표시되는 vault/Zotero 디렉터리는 계속
+  `--add-dir`가 결정하고 쓰기는 계속 OS 샌드박스가 제한합니다. 잘못된 JSON 설정은
+  자동으로 덮어쓰지 않습니다. Incurator v0.36.3이 만들었던
+  `~/.gemini/policies/incurator-read.toml`은 Incurator 생성 파일 표식이 그대로 있을
+  때만 제거하며, 사용자가 작성한 정책은 건드리지 않습니다.
 - **Markdown 렌더링**: 스트림이 끝나면 답변은 Markdown(수식/LaTeX 포함)으로
   렌더링됩니다. 렌더링 전에 수식이 정규화되어, `` `$x^2$` `` 처럼 백틱으로 감싼
   수식은 `$x^2$` 로 풀려 모노스페이스 텍스트가 아니라 실제 수식으로 표시됩니다
@@ -469,6 +480,8 @@ ingest 비전은 기존 제공자의 **CLI 구독**(Ollama, 또는 `claude`/`agy
 `latexModel` 플러그인 설정을 대체합니다.
 
 플러그인은 Antigravity, Claude, OpenAI Codex, Ollama, DeepSeek를 지원합니다. 설정 탭에서는 제공자와 모델을 따로 조정할 수 있고, 채팅 사이드바 하단에서는 하나의 모델 선택 메뉴에서 `Provider · Model` 형식으로 함께 전환합니다. reasoning/effort 메뉴는 백엔드 카탈로그에서 effort 단계가 선언된 모델에만 표시됩니다.
+Antigravity CLI 1.1.5 이상에서는 선택한 강도를 `--effort`로 전달하며,
+`gemini-3.6-flash` 같은 base slug를 사용할 때 이 값이 필수입니다.
 
 > [!NOTE]
 > **Incurator Dashboard → Overview → LLM Provider** 카드는 현재 기기의 캐시 설정(`.cache/config/config.yml`)에 Primary/Fallback 모델을 저장합니다. 각 모델 드롭다운 옆에는 **effort 드롭다운**이 함께 표시되며, 선택한 모델이 노출하는 강도만 보여줍니다(강도가 없는 모델은 `—`). Apply 시 Primary/Fallback과 effort 값은 `wiki config`를 통해 저장되므로, 기기별 모델 선택이 동기화되는 vault의 `.curator/settings.yml`로 새지 않습니다. 모델 목록은 플러그인 빌드 시 백엔드의 `data/models.json` 카탈로그(단일 소스)에서 번들링되므로, 모델 이름 표시가 MCP 시작 여부에 의존하지 않습니다.

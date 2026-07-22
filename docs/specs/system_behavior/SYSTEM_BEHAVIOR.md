@@ -659,8 +659,10 @@ provider-native control:
   (`low|medium|high|xhigh|max|ultra`; availability is model-specific). Codex
   `ultra` is not merely a deeper scalar level: the CLI may automatically
   delegate tasks while it is selected.
-- `antigravity-cli` → `agy` has no effort flag, so the level is embedded as a
-  prompt hint (best-effort only).
+- `antigravity-cli` → Antigravity CLI 1.1.5+ receives
+  `agy --model <base-slug> --effort <level>`. Base slugs such as
+  `gemini-3.6-flash` require an explicit supported effort (`low|medium|high`);
+  models whose catalogue entry has no selectable effort omit the flag.
 - `deepseek-api` → OpenAI-compatible `https://api.deepseek.com/chat/completions`
   with `DEEPSEEK_API_KEY`, `llm.deepseek-api.api_key_secret`, or the legacy
   plaintext `llm.deepseek-api.api_key`. Environment variables take precedence.

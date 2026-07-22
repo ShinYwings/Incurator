@@ -1898,7 +1898,21 @@ the `find_mvg_text.py`-style exploit). This section governs the CLI path.
   - **agy** — its own `--sandbox` is INEFFECTIVE (it still creates files) and it
     has no tool-disable flag. `--dangerously-skip-permissions` + `*_TRUST_WORKSPACE`
     are REMOVED. Containment is the OS sandbox (below); agy is REFUSED if it cannot
-    be OS-sandboxed.
+    be OS-sandboxed. Antigravity CLI 1.1.3+ soft-denies a tool that would require
+    an interactive confirmation during `-p`/headless execution. Before launching
+    agy, the plugin MUST atomically merge the single read-only rule
+    `$read_file$()` into `permissions.allow` in the CLI-owned
+    `~/.gemini/antigravity-cli/settings.json`. It MUST preserve unknown top-level
+    keys, unknown `permissions` keys, and existing allow entries, and MUST refuse
+    to overwrite malformed JSON or a non-array `permissions.allow`. This approval
+    does not grant a path: non-ephemeral path visibility remains the separate
+    `--add-dir` set, while the popover still receives no added workspace dirs.
+    The plugin MUST NOT install `--dangerously-skip-permissions` or approve write,
+    shell, network, or wildcard tools.
+    Antigravity CLI 1.1.5+ also requires `--effort <level>` when a base model
+    slug with declared effort levels is passed through `--model`; the plugin
+    forwards the normalized `agentEffort` value and omits the flag only for
+    catalogue models without an effort dimension.
   - **claude** — controlled by its tool surface (no deny-without-prompt dir sandbox):
     popover `--tools ""` (no tools); sidechat `--disallowedTools Bash Read Write Edit
     WebFetch` (only the DB-scoped MCP curator tools remain; the plugin's
@@ -1945,6 +1959,12 @@ the `find_mvg_text.py`-style exploit). This section governs the CLI path.
     fall back to the vault, OS temp dir, or `~/.incurator`. CLI subprocess
     `TMPDIR`/`TEMP`/`TMP` are pointed at that
     same CLI cache root's `tmp/` directory.
+
+- **Antigravity settings migration.** The plugin does not use Gemini CLI's
+  user-writable TOML policy directory to configure Antigravity. If the obsolete
+  `~/.gemini/policies/incurator-read.toml` created by Incurator v0.36.3 exists,
+  the plugin may remove it only when its bytes begin with the exact
+  Incurator-generated marker. A same-named user-authored file is preserved.
   - **Automatic** — the plugin generates the profile/binds with no manual user setup.
     The READ/visibility set (`--add-dir`) is `allowedRoots()` = realpath-resolved
     vault + Zotero + `storage/` (empty/undefined dropped — never `--add-dir ""`); the
