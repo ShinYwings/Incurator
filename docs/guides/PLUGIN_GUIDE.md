@@ -211,6 +211,19 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
   If no OS sandbox is available, **Antigravity is blocked** (it would have no
   containment at all), while **Claude and Codex still run** under their own weaker
   built-in limits. Windows CLI sandboxing is not yet supported.
+
+  Antigravity 1.1.3 and later also deny tools that need an interactive approval
+  when the plugin launches `agy` in headless (`-p`) mode. The plugin therefore
+  preserves your Antigravity CLI settings and adds only the read-only
+  `$read_file$()` rule under `permissions.allow` in
+  `~/.gemini/antigravity-cli/settings.json`. This lets an open PDF or an attached
+  image be read without a prompt; it does not approve writes, shell commands,
+  network tools, or arbitrary paths. `--add-dir` still determines which vault and
+  configured Zotero directories are visible, and the OS sandbox still restricts
+  writes. Invalid JSON is never replaced automatically. The obsolete
+  `~/.gemini/policies/incurator-read.toml` created by Incurator v0.36.3 is removed
+  only when it retains Incurator's generated-file marker; user-authored policies
+  are left untouched.
 - **Markdown rendering**: The answer renders as Markdown (math/LaTeX included)
   once the stream completes. Math is normalized before rendering — backtick-wrapped
   spans such as `` `$x^2$` `` are unwrapped to `$x^2$` so LaTeX renders as a
@@ -506,6 +519,8 @@ Treat PDF chat and PDF knowledge refinement as separate workflows:
 ## 7. AI Provider Settings
 
 The plugin supports Antigravity, Claude, OpenAI Codex, Ollama, and DeepSeek. In settings, provider and model can be adjusted separately. In the chat sidebar footer, a single model menu switches both at once using `Provider · Model` labels. Reasoning/effort appears only for models whose backend catalogue entry declares effort levels.
+For Antigravity CLI 1.1.5+, the selected level is passed with `--effort`; this
+is required when using a base slug such as `gemini-3.6-flash`.
 
 The Settings page shows the selected model's context window on the **Model**
 row instead of as a separate setting. This is the provider/CLI token capacity;

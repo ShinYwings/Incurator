@@ -87,6 +87,14 @@ No urgent items currently tracked.
 
 ## ✅ Completed Milestones
 
+- **v0.36.4 — Antigravity Headless PDF Compatibility Hotfix**
+  (release-ready 2026-07-22): migrated headless `read_file` approval to the live
+  Antigravity CLI settings with lossless atomic merging, safely retired the
+  ineffective v0.36.3 TOML artifact, and forwarded required `--effort` values
+  for Gemini 3.6 Flash base slugs. Backend 1268-test, plugin 699-test, static
+  analysis, production build, testbed lint 100/100, and a real iCloud Zotero PDF
+  read through `agy -p` passed.
+
 - **v0.36.2 — XC-1 Fail-Closed Correctness Hardening**
   (shipped 2026-07-20, PR #90 merged): preserved corrupt device-local sync state instead
   of regenerating identity, surfaced peer/conflict/archive failures, made

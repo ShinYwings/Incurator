@@ -15,6 +15,14 @@
           "default_effort": "medium"
         },
         {
+          "id": "gemini-3.6-flash",
+          "label": "Gemini 3.6 Flash",
+          "context_window": 1000000,
+          "supports_vision": true,
+          "efforts": ["low", "medium", "high"],
+          "default_effort": "medium"
+        },
+        {
           "id": "gemini-3.1-pro",
           "label": "Gemini 3.1 Pro",
           "context_window": 1000000,
