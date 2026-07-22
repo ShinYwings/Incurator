@@ -419,6 +419,16 @@ describe("CLI tool-scope sandbox source contract (v0.23.0)", () => {
     expect(source).not.toContain('join(homedir(), ".incurator-obsidian-agent-cli")');
     expect(source).not.toContain('join(homedir(), ".incurator", "tmp_images")');
   });
+
+  it("syncAgyMcpConfig writes a read_file policy for headless auto-approval", () => {
+    // v0.29.0: --dangerously-skip-permissions was removed but nothing replaced
+    // the tool-level read_file approval. syncAgyReadPolicy writes a .toml to
+    // ~/.gemini/policies/ so headless agy auto-approves reads.
+    expect(source).toContain("this.syncAgyReadPolicy()");
+    expect(source).toContain('join(homedir(), ".gemini", "policies")');
+    expect(source).toContain('"incurator-read.toml"');
+    expect(source).toContain('toolName = "read_file"');
+  });
 });
 
 describe("CLI model effort arguments", () => {

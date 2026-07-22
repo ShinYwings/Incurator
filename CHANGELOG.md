@@ -2,6 +2,15 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.36.3] - 2026-07-22
+### Fixed
+- **Headless `agy` CLI `read_file` Policy Auto-Sync**
+  `syncAgyMcpConfig()` now automatically syncs a `read_file` policy to `~/.gemini/policies/incurator-read.toml` scoped to the plugin's allowed roots (vault + Zotero). This prevents headless `agy` (`-p --sandbox`) from auto-denying file reads following the v0.23.0 removal of `--dangerously-skip-permissions`.
+
+### Added
+- **Gemini 3.6 Flash Support in Antigravity Model Catalogue**
+  Added `gemini-3.6-flash` ("Gemini 3.6 Flash") to the single-source model catalogue (`backend/src/curator/data/models.json`) under the `antigravity` provider options.
+
 ---
 
 ## [0.36.2] - 2026-07-20
