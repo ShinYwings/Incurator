@@ -1,10 +1,10 @@
-# RELAY - ACTIVE
+# RELAY - RELEASE READY
 
 ## Goal
 Ship v0.36.5 Zotero import case-collision refresh hotfix.
 
 ## Plan Reference
-`.agents/plans/02_zotero_refresh_collision.md`
+Completed plan artifacts deleted per release workflow; history is preserved in Git.
 
 ## Analysis & Reasoning
 ZotMoov recreated the EWA Zotero item (`RBKB7NXE`, attachment `6SFC2FXA`). The
@@ -13,10 +13,10 @@ wizard renders `EWA Splatting.md`, but the existing note is
 macOS filesystem then rejects creation with `EEXIST`.
 
 ## Progress Status
-Implementation and all local release gates passed. Release finalization is in progress.
+v0.36.5 implementation and all local release gates passed. Branch is ready for review and merge.
 
 ## Critical Context / Blockers
 Preserve `03_Notes` content and refresh only from the explicit user import action.
 
 ## Immediate Next Action
-Delete completed plan artifacts, create the v0.36.5 release commit, push, and open the PR.
+Review and merge the v0.36.5 hotfix PR, then sync `master` and reset this relay to IDLE.
