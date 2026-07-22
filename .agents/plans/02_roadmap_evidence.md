@@ -15,4 +15,7 @@ Date: 2026-07-22
   change backend storage identity or Zotero data.
 - Pre-validation: current exact lookup falls through to `vault.create`, which
   produces the reported already-exists failure on macOS.
-- Post-validation: pending implementation and CI.
+- Post-validation: targeted writer tests passed; plugin 704/704 tests and
+  production build passed; backend 1268 tests passed with 6 skipped and 5
+  expected failures; ruff and mypy passed; version/spec sync 10/10 passed;
+  existing testbed status completed and lint scored 100/100.

@@ -13,10 +13,10 @@ wizard renders `EWA Splatting.md`, but the existing note is
 macOS filesystem then rejects creation with `EEXIST`.
 
 ## Progress Status
-Root cause reproduced. Isolated v0.36.5 plan approved; docs-first implementation started.
+Implementation and all local release gates passed. Release finalization is in progress.
 
 ## Critical Context / Blockers
 Preserve `03_Notes` content and refresh only from the explicit user import action.
 
 ## Immediate Next Action
-Add the failing collision-refresh tests, then implement the scoped writer fix.
+Delete completed plan artifacts, create the v0.36.5 release commit, push, and open the PR.
