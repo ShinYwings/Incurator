@@ -2,6 +2,22 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.36.4] - 2026-07-22
+### Fixed
+- **Antigravity Headless PDF Reads**
+  Antigravity CLI 1.1.3+ no longer auto-denies `read_file` when the Obsidian
+  Agent summarizes an open PDF. The plugin atomically preserves and merges the
+  narrow `$read_file$()` rule into the live
+  `~/.gemini/antigravity-cli/settings.json`, refuses to overwrite malformed
+  settings, and removes the ineffective v0.36.3 TOML artifact only when it still
+  bears Incurator's generated-file marker. Existing `--add-dir` visibility and
+  OS write containment remain unchanged.
+- **Gemini 3.6 Flash Effort Forwarding**
+  Antigravity CLI 1.1.5+ now receives the selected `--effort` value for base
+  model slugs such as `gemini-3.6-flash`, which otherwise fail before inference.
+
+---
+
 ## [0.36.3] - 2026-07-22
 ### Fixed
 - **Headless `agy` CLI `read_file` Policy Auto-Sync**
