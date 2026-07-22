@@ -605,6 +605,15 @@ metadata used by note templates plus path-oriented filters such as `pathSafe`,
 `firstAuthorLast`, `authorLast`, and `joinTags`. Rendered path segments must be
 sanitized before writing files into the vault.
 
+The import writer MUST preserve exact-path update behavior. If creation fails
+because a case-insensitive filesystem already contains the same vault path with
+different letter case, it MUST resolve exactly one case-insensitive existing
+file, read that file as the template's existing content, re-render, and modify
+the existing file. This user-triggered import refreshes the selected item's
+current Zotero links/keys while preserving persisted template regions. It MUST
+NOT swallow non-collision creation failures or guess a match beyond the output
+path.
+
 ### 2.1.2 Vision/PDF Extraction Model Rows (Dashboard, v0.22.0)
 
 The Dashboard **LLM Provider** card exposes TWO rows for the backend vision

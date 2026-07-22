@@ -1,19 +1,22 @@
-# RELAY - IDLE
+# RELAY - ACTIVE
 
 ## Goal
-None. The system is idle.
+Ship v0.36.5 Zotero import case-collision refresh hotfix.
 
 ## Plan Reference
-N/A
+`.agents/plans/02_zotero_refresh_collision.md`
 
 ## Analysis & Reasoning
-N/A
+ZotMoov recreated the EWA Zotero item (`RBKB7NXE`, attachment `6SFC2FXA`). The
+wizard renders `EWA Splatting.md`, but the existing note is
+`EWA splatting.md`. Obsidian's exact path lookup misses it; the case-insensitive
+macOS filesystem then rejects creation with `EEXIST`.
 
 ## Progress Status
-v0.36.4 shipped in merged PR #91.
+Root cause reproduced. Isolated v0.36.5 plan approved; docs-first implementation started.
 
 ## Critical Context / Blockers
-N/A
+Preserve `03_Notes` content and refresh only from the explicit user import action.
 
 ## Immediate Next Action
-Wait for the next milestone branch to be created and initialized.
+Add the failing collision-refresh tests, then implement the scoped writer fix.

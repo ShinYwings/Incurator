@@ -26,6 +26,15 @@ No urgent items currently tracked.
 
 ### 🚨 Immediate Next Release
 
+- **[Hotfix / Bug] Zotero Import Case-Collision Refresh** *(Priority 1)*
+  - ZotMoov-recreated EWA item renders `EWA Splatting.md`, while the existing
+    vault note is `EWA splatting.md`. Obsidian exact lookup misses it and macOS
+    rejects `vault.create()` with `File already exists`.
+  - Refresh the case-insensitive existing note after an `EEXIST` collision,
+    preserving persist blocks and updating the current Zotero keys.
+  - Active Plan: `.agents/plans/02_zotero_refresh_collision.md`
+  - Branch: `hotfix/v0.36.5-zotero-refresh-collision`
+
 - v0.36.2 PR #90 is merged. The next actionable item is the Composite-Primary-Key Tombstones schema contract update.
 
 ### 🚀 Priority Order

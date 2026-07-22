@@ -1189,6 +1189,15 @@ templating engine as Zotero note templates. Examples:
 
 Rendered path segments are sanitized before files are created in the vault.
 
+Import is also the explicit repair path after a Zotero item has been recreated
+or moved by an attachment manager such as ZotMoov. If the selected item's
+rendered filename differs from an existing note only by letter case, the wizard
+updates that existing note instead of failing with `File already exists`. It
+keeps the existing filename and persisted template regions, while refreshing
+the note from the selected item's current metadata, including its current
+parent-item and PDF-attachment links. Other filesystem creation errors are
+reported normally.
+
 ### Reload Zotero Item / PDF (`Cmd+Shift+R`)
 
 With a Zotero note (it has a `citekey` or `zotero_app_url` in frontmatter) or an

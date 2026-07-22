@@ -1,5 +1,5 @@
 import { logger } from "../utils/logger";
-import { App, Modal, Setting, Notice, SuggestModal, AbstractInputSuggest, TFolder } from "obsidian";
+import { App, Modal, Setting, Notice, SuggestModal, AbstractInputSuggest, TFile, TFolder } from "obsidian";
 import { PluginSettings, ZoteroImportProfile } from "../types";
 import { sanitizePathSegment, TemplateRenderer } from "../zotero/templateRenderer";
 import { localizeAnnotationImages } from "../zotero/assetLocalization";
@@ -70,6 +70,48 @@ export function rememberRecentZoteroItem(
     itemKey,
     ...existing.filter((key) => key !== itemKey),
   ].slice(0, limit);
+}
+
+function isAlreadyExistsError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: unknown; message?: unknown };
+  return candidate.code === "EEXIST"
+    || (typeof candidate.message === "string"
+      && /(?:already exists|file exists)/i.test(candidate.message));
+}
+
+function findUniqueCaseInsensitiveFile(app: App, path: string): TFile | null {
+  const foldedPath = path.toLocaleLowerCase();
+  const matches = app.vault.getFiles().filter(
+    (file) => file.path.toLocaleLowerCase() === foldedPath
+  );
+  return matches.length === 1 ? matches[0] : null;
+}
+
+export async function writeZoteroNote(
+  app: App,
+  outputPath: string,
+  renderMarkdown: (existingContent: string) => Promise<string>
+): Promise<{ file: TFile; created: boolean }> {
+  const exactFile = app.vault.getAbstractFileByPath(outputPath);
+  if (exactFile && "stat" in exactFile) {
+    const file = exactFile as TFile;
+    await app.vault.modify(file, await renderMarkdown(await app.vault.read(file)));
+    return { file, created: false };
+  }
+
+  const markdown = await renderMarkdown("");
+  try {
+    const file = await app.vault.create(outputPath, markdown);
+    return { file, created: true };
+  } catch (error) {
+    if (!isAlreadyExistsError(error)) throw error;
+    const collision = findUniqueCaseInsensitiveFile(app, outputPath);
+    if (!collision) throw error;
+    const existingContent = await app.vault.read(collision);
+    await app.vault.modify(collision, await renderMarkdown(existingContent));
+    return { file: collision, created: false };
+  }
 }
 
 // ─── Vault path autocomplete ──────────────────────────────────────────
@@ -472,29 +514,16 @@ export class ZoteroWizardModal extends Modal {
       // ── Render template and write note ──────────────────────────
       const outputPath = this.joinPath(outputFolderFull, `${resolvedFilename}.md`);
 
-      let existingContent = "";
-      const existingFile = this.app.vault.getAbstractFileByPath(outputPath);
-      if (existingFile && "stat" in existingFile) {
-        existingContent = await this.app.vault.read(existingFile as any);
-      }
-
-      const markdown = stampZoteroProfile(
-        await renderer.renderTemplate(this.templatePath, metadata, existingContent),
-        profileNameForNote
+      const result = await writeZoteroNote(this.app, outputPath, async (existingContent) =>
+        stampZoteroProfile(
+          await renderer.renderTemplate(this.templatePath, metadata, existingContent),
+          profileNameForNote
+        )
       );
-
-      if (existingFile && "stat" in existingFile) {
-        await this.app.vault.modify(existingFile as any, markdown);
-        new Notice("Zotero note updated successfully!");
-      } else {
-        await this.app.vault.create(outputPath, markdown);
-        new Notice("Zotero note created successfully!");
-      }
-
-      const newFile = this.app.vault.getAbstractFileByPath(outputPath);
-      if (newFile && "stat" in newFile) {
-        this.app.workspace.getLeaf(false).openFile(newFile as any);
-      }
+      new Notice(result.created
+        ? "Zotero note created successfully!"
+        : "Zotero note updated successfully!");
+      this.app.workspace.getLeaf(false).openFile(result.file);
 
       rememberRecentZoteroItem(this.settings, this.item.key);
       await this.saveSettings(this.settings);

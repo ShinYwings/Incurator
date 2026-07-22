@@ -24,6 +24,7 @@ import {
   prioritizeZoteroItems,
   rememberRecentZoteroItem,
   sortProfilesByRecency,
+  writeZoteroNote,
   ZoteroSearchModal,
   type ZoteroSearchResult,
   ZoteroWizardModal,
@@ -46,6 +47,116 @@ function item(key: string): ZoteroSearchResult {
 }
 
 describe("Zotero wizard helpers", () => {
+  it("updates an exact-path note without attempting creation", async () => {
+    const existingFile = { path: "Papers/Exact.md", stat: {} };
+    const vault = {
+      getAbstractFileByPath: vi.fn(() => existingFile),
+      getFiles: vi.fn(() => [existingFile]),
+      read: vi.fn(async () => "kept body"),
+      create: vi.fn(),
+      modify: vi.fn(async () => undefined),
+    };
+
+    const result = await writeZoteroNote(
+      { vault } as any,
+      "Papers/Exact.md",
+      async (content) => `refreshed:${content}`
+    );
+
+    expect(result).toEqual({ file: existingFile, created: false });
+    expect(vault.create).not.toHaveBeenCalled();
+    expect(vault.modify).toHaveBeenCalledWith(existingFile, "refreshed:kept body");
+  });
+
+  it("creates a note when the output path is unused", async () => {
+    const createdFile = { path: "Papers/New.md", stat: {} };
+    const vault = {
+      getAbstractFileByPath: vi.fn(() => null),
+      getFiles: vi.fn(() => []),
+      read: vi.fn(),
+      create: vi.fn(async () => createdFile),
+      modify: vi.fn(),
+    };
+
+    const result = await writeZoteroNote(
+      { vault } as any,
+      "Papers/New.md",
+      async (content) => `rendered:${content}`
+    );
+
+    expect(result).toEqual({ file: createdFile, created: true });
+    expect(vault.create).toHaveBeenCalledWith("Papers/New.md", "rendered:");
+    expect(vault.modify).not.toHaveBeenCalled();
+  });
+
+  it("refreshes a case-only existing note after create reports EEXIST", async () => {
+    const existingFile = { path: "03_Notes/Papers/EWA splatting.md", stat: {} };
+    const vault = {
+      getAbstractFileByPath: vi.fn(() => null),
+      getFiles: vi.fn(() => [existingFile]),
+      read: vi.fn(async () => "existing persist content"),
+      create: vi.fn(async () => {
+        throw Object.assign(new Error("File already exists"), { code: "EEXIST" });
+      }),
+      modify: vi.fn(async () => undefined),
+    };
+    const render = vi.fn(async (existing: string) => `rendered:${existing}`);
+
+    const result = await writeZoteroNote(
+      { vault } as any,
+      "03_Notes/Papers/EWA Splatting.md",
+      render
+    );
+
+    expect(result).toEqual({ file: existingFile, created: false });
+    expect(render).toHaveBeenNthCalledWith(1, "");
+    expect(render).toHaveBeenNthCalledWith(2, "existing persist content");
+    expect(vault.modify).toHaveBeenCalledWith(
+      existingFile,
+      "rendered:existing persist content"
+    );
+  });
+
+  it("does not turn unrelated create failures into note updates", async () => {
+    const existingFile = { path: "03_Notes/Papers/EWA splatting.md", stat: {} };
+    const failure = new Error("Disk is read-only");
+    const vault = {
+      getAbstractFileByPath: vi.fn(() => null),
+      getFiles: vi.fn(() => [existingFile]),
+      read: vi.fn(),
+      create: vi.fn(async () => { throw failure; }),
+      modify: vi.fn(),
+    };
+
+    await expect(writeZoteroNote(
+      { vault } as any,
+      "03_Notes/Papers/EWA Splatting.md",
+      async () => "rendered"
+    )).rejects.toBe(failure);
+    expect(vault.modify).not.toHaveBeenCalled();
+  });
+
+  it("refuses an ambiguous case-insensitive collision", async () => {
+    const failure = Object.assign(new Error("File already exists"), { code: "EEXIST" });
+    const vault = {
+      getAbstractFileByPath: vi.fn(() => null),
+      getFiles: vi.fn(() => [
+        { path: "Papers/EWA splatting.md", stat: {} },
+        { path: "Papers/ewa Splatting.md", stat: {} },
+      ]),
+      read: vi.fn(),
+      create: vi.fn(async () => { throw failure; }),
+      modify: vi.fn(),
+    };
+
+    await expect(writeZoteroNote(
+      { vault } as any,
+      "Papers/EWA Splatting.md",
+      async () => "rendered"
+    )).rejects.toBe(failure);
+    expect(vault.modify).not.toHaveBeenCalled();
+  });
+
   it("prioritizes recently imported Zotero items without dropping results", () => {
     const sorted = prioritizeZoteroItems(
       [item("C"), item("A"), item("B")],
