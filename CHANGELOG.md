@@ -2,6 +2,17 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.36.5] - 2026-07-22
+### Fixed
+- **Zotero Import Case-Collision Refresh**
+  `Import Zotero Item` now updates an existing note when Zotero metadata renders
+  a filename that differs only by letter case and the filesystem reports
+  `EEXIST`. The existing filename and persisted template regions are preserved,
+  while the selected item's current metadata and Zotero parent/attachment links
+  replace stale values. Unrelated create failures remain visible.
+
+---
+
 ## [0.36.4] - 2026-07-22
 ### Fixed
 - **Antigravity Headless PDF Reads**

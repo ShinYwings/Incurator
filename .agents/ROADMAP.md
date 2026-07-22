@@ -24,8 +24,6 @@ Source of Truth to identify unresolved items.
 
 No urgent items currently tracked.
 
-### 🚨 Immediate Next Release
-
 - v0.36.2 PR #90 is merged. The next actionable item is the Composite-Primary-Key Tombstones schema contract update.
 
 ### 🚀 Priority Order
@@ -86,6 +84,12 @@ No urgent items currently tracked.
 ---
 
 ## ✅ Completed Milestones
+
+- **v0.36.5 — Zotero Import Case-Collision Refresh Hotfix**
+  (release-ready 2026-07-22): an explicit Zotero re-import now refreshes the
+  case-insensitive existing note after `EEXIST`, preserving its filename and
+  persisted template content while replacing stale Zotero metadata and keys.
+  Non-collision filesystem errors remain visible.
 
 - **v0.36.4 — Antigravity Headless PDF Compatibility Hotfix**
   (release-ready 2026-07-22): migrated headless `read_file` approval to the live

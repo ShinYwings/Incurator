@@ -1030,6 +1030,13 @@ profile 데이터는 디스크에 복구 가능한 상태로 유지됩니다. �
 
 렌더링된 경로 segment는 Vault에 파일을 만들기 전에 안전한 파일명 형태로 정리됩니다.
 
+Import는 Zotero 항목이 다시 생성되었거나 ZotMoov 같은 첨부파일 관리 도구로 이동된
+뒤 사용하는 명시적 복구 경로이기도 합니다. 선택한 항목의 렌더링 파일명이 기존
+노트와 대소문자만 다르면 wizard는 `File already exists`로 실패하지 않고 그 기존
+노트를 업데이트합니다. 기존 파일명과 template의 persist 영역은 유지하면서, 현재
+parent item 및 PDF attachment 링크를 포함한 선택 항목의 최신 metadata로 노트를
+새로 렌더링합니다. 그 밖의 파일 생성 오류는 기존처럼 그대로 보고됩니다.
+
 ### Zotero 항목 / PDF 리로드 (`Cmd+Shift+R`)
 
 Zotero 노트(frontmatter에 `citekey` 또는 `zotero_app_url`이 있는 노트)나 외부 PDF
