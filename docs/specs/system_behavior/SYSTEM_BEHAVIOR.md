@@ -815,6 +815,11 @@ Rules:
   keys. Backend resolves the key, imports the resolved PDF as a Reference Mode
   source, and stores a stable logical source id such as
   `zotero:<attachmentKey>` in the local source registry.
+- When source import receives both a resolved local path and a Zotero attachment
+  key, the key remains authoritative for portable identity and the path is only
+  a current-device read hint. This Zotero flow must not fall through to generic
+  `external.path_roots` encoding; generic external references without an
+  integration identity remain subject to that allowlist.
 - Dashboard source summaries for Zotero-backed references should expose the
   portable `zotero://open-pdf/library/items/<attachmentKey>` identity for
   display/opening. The local absolute PDF path remains a device-local

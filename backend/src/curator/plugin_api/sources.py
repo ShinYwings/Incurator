@@ -149,21 +149,23 @@ def import_source(
     dry_run: bool = False,
     logical_source_id: str = "",
 ) -> dict[str, Any]:
-    if not file_path and zotero_attachment_key:
-        from .. import zotero_tools
+    if zotero_attachment_key:
+        effective_key = zotero_attachment_key
+        if not file_path:
+            from .. import zotero_tools
 
-        resolved = zotero_tools.resolve_pdf(zotero_attachment_key, paths, zotero_custom_paths)
-        if not resolved.get("ok") or not resolved.get("path"):
-            return {
-                "ok": False,
-                "state": str(resolved.get("state") or "zotero_pdf_unavailable"),
-                "error": str(resolved.get("error") or "Zotero PDF not found"),
-                "zotero_attachment_key": zotero_attachment_key,
-                "resolution": resolved,
-            }
-        file_path = str(resolved["path"])
-        effective_key = str(resolved.get("attachment_key") or zotero_attachment_key)
-        zotero_attachment_key = effective_key
+            resolved = zotero_tools.resolve_pdf(zotero_attachment_key, paths, zotero_custom_paths)
+            if not resolved.get("ok") or not resolved.get("path"):
+                return {
+                    "ok": False,
+                    "state": str(resolved.get("state") or "zotero_pdf_unavailable"),
+                    "error": str(resolved.get("error") or "Zotero PDF not found"),
+                    "zotero_attachment_key": zotero_attachment_key,
+                    "resolution": resolved,
+                }
+            file_path = str(resolved["path"])
+            effective_key = str(resolved.get("attachment_key") or zotero_attachment_key)
+            zotero_attachment_key = effective_key
         logical_source_id = logical_source_id or f"zotero:{effective_key}"
     if not file_path:
         return {"ok": False, "state": "missing_path", "error": "No source file path or Zotero attachment key provided"}
