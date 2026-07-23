@@ -36,14 +36,17 @@ identity, and leave generic external-root rejection unchanged.
 - [x] Passed backend 1270 tests, plugin 704 tests, ruff, mypy, production build,
   real-path dry-run, and active testbed lint 100/100.
 - [x] Bumped all manifests to v0.36.6 and updated the changelog.
-- [ ] Commit, push, and open the hotfix PR.
+- [x] Created fix/release commits, pushed the branch, and opened draft PR #93.
 
 ## Critical Context / Blockers
 
-- No blocker. The active local machine config has no generic external roots,
+- Implementation has no blocker. The active local machine config has no generic external roots,
   matching the user's failure condition. The regression uses a platform-neutral
   temporary directory and therefore exercises the same boundary on Linux CI.
+- Draft PR: https://github.com/ShinYwings/Incurator/pull/93 — awaiting human
+  review and merge.
 
 ## Immediate Next Action
 
-Create the fix and release commits, push the branch, and open the hotfix PR.
+User reviews and merges PR #93. After merge, reset this relay to the minimal IDLE
+stub from updated `master`.
