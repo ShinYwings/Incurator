@@ -2,6 +2,18 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.36.6] - 2026-07-23
+### Fixed
+- **Purple Pin Zotero Source Registration**
+  Purple Pin's **Add source** action now preserves the Zotero attachment key as
+  the portable source identity when the plugin also supplies its already
+  resolved local-filesystem PDF path, including linked attachments. Valid
+  Zotero references on macOS and Linux no longer fail with `root_unregistered`
+  when generic `external.path_roots` is empty, while unregistered non-Zotero
+  external paths remain blocked.
+
+---
+
 ## [0.36.5] - 2026-07-22
 ### Fixed
 - **Zotero Import Case-Collision Refresh**

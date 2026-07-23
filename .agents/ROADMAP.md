@@ -85,6 +85,13 @@ No urgent items currently tracked.
 
 ## ✅ Completed Milestones
 
+- **v0.36.6 — Purple Pin Zotero Source Registration Hotfix**
+  (release-ready 2026-07-23): Purple Pin Add source now preserves the explicit
+  Zotero attachment key as portable identity when a resolved local PDF path is
+  supplied on macOS or Linux. Generic unregistered external paths remain
+  blocked. Backend 1270-test, plugin 704-test, static-analysis, production
+  build, real-path dry-run, and testbed lint gates passed.
+
 - **v0.36.5 — Zotero Import Case-Collision Refresh Hotfix**
   (release-ready 2026-07-22): an explicit Zotero re-import now refreshes the
   case-insensitive existing note after `EEXIST`, preserving its filename and
@@ -274,6 +281,6 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: System Stability Overhaul ACTIVE; v0.36.2 PR #90 is merged.
+- **Roadmap state**: System Stability Overhaul ACTIVE; v0.36.6 is release-ready.
 - **Active Milestone**: None (System IDLE)
 - **Next actionable item**: Start the highest-priority remaining schema-contract plan for composite-primary-key tombstones from a fresh branch off updated `master`.
