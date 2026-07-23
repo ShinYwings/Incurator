@@ -1242,6 +1242,11 @@ attachment roots for `attachments:` paths.
 When the plugin has a Zotero attachment key, Add-to-Incurator can pass that key
 to backend source import directly; the backend resolves the PDF and records a
 stable `zotero:<attachmentKey>` logical source id for the local reference row.
+If the viewer has already resolved the PDF, the plugin may pass both the local
+path and attachment key. The backend still uses the key as the portable
+identity and treats the path only as a current-device read hint; Zotero
+registration must not require that path to appear in generic
+`external.path_roots`.
 Repeated registration of the same Zotero attachment reuses that logical source
 id instead of creating `-02` reference stubs. PDF crop/snipping context is
 temporary chat context; it is sent to the selected model when possible and must

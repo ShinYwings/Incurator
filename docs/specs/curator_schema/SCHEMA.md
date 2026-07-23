@@ -662,7 +662,9 @@ Rules:
 - Zotero-backed sources store only `logical_source_id:
   zotero:<effective-attachment-key>`. `external_ref` and `import_origin_ref`
   remain `NULL`; the backend resolves the key through the current device's
-  Zotero database whenever it needs the PDF.
+  Zotero database whenever it needs the PDF. A resolved absolute path supplied
+  alongside the Zotero key is a device-local import hint and does not change
+  this locator form or require a generic `external.path_roots` entry.
 - Other external sources store `external_ref` as
   `@<root_key>/<relative-posix-path>`. The matching absolute root exists only in
   repo-local `.cache/config/config.yml` under `external.path_roots`.

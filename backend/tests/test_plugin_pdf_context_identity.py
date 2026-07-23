@@ -312,3 +312,57 @@ def test_import_source_resolves_zotero_attachment_key_as_reference(
     assert registered["state"] == "queued"
     assert registered["l2_l3_queued"] is True
     assert registered["job_ids"]
+
+
+@patch("curator.parsers.parse", side_effect=_mock_parsed_doc)
+def test_import_source_uses_zotero_identity_when_path_and_key_are_supplied(
+    _mock_parse, tmp_path: Path, monkeypatch
+) -> None:
+    config = deepcopy(cfg.DEFAULT_CONFIG)
+    config["external"]["path_roots"] = {}
+    monkeypatch.setattr(cfg, "load_config", lambda _paths: config)
+    paths = cfg.WikiPaths(tmp_path / "vault")
+    db.init_db(paths.state_db)
+
+    pdf = tmp_path / "unregistered-zotero-root" / "paper.pdf"
+    pdf.parent.mkdir(parents=True)
+    pdf.write_bytes(b"%PDF-1.4 mock")
+
+    imported = plugin_api.import_source(
+        paths,
+        file_path=str(pdf),
+        zotero_attachment_key="ATTKEY",
+        policy="reference",
+    )
+
+    assert imported["ok"] is True
+    assert imported["zotero_attachment_key"] == "ATTKEY"
+    row = db.get_source_row(paths.state_db, paths.root, source_id=imported["source_id"])
+    assert row is not None
+    assert row["logical_source_id"] == "zotero:ATTKEY"
+    assert row["external_ref"] is None
+    assert row["import_origin_ref"] is None
+
+
+@patch("curator.parsers.parse", side_effect=_mock_parsed_doc)
+def test_import_source_still_rejects_unregistered_generic_reference_path(
+    _mock_parse, tmp_path: Path, monkeypatch
+) -> None:
+    config = deepcopy(cfg.DEFAULT_CONFIG)
+    config["external"]["path_roots"] = {}
+    monkeypatch.setattr(cfg, "load_config", lambda _paths: config)
+    paths = cfg.WikiPaths(tmp_path / "vault")
+    db.init_db(paths.state_db)
+
+    pdf = tmp_path / "unregistered-generic-root" / "paper.pdf"
+    pdf.parent.mkdir(parents=True)
+    pdf.write_bytes(b"%PDF-1.4 mock")
+
+    imported = plugin_api.import_source(
+        paths,
+        file_path=str(pdf),
+        policy="reference",
+    )
+
+    assert imported["ok"] is False
+    assert imported["message"].startswith("root_unregistered:")

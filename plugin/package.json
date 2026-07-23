@@ -1,6 +1,6 @@
 {
   "name": "incurator-obsidian-agent",
-  "version": "0.36.5",
+  "version": "0.36.6",
   "description": "Cursor/Antigravity style AI agent for Obsidian with inline edits, PDF context, and local Incurator backend commands.",
   "main": "main.js",
   "scripts": {

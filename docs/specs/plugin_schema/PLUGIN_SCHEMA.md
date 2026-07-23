@@ -510,7 +510,10 @@ Rules:
   returning to the previous chip state. Successful registration should return a
   queued or ready source state, and the generated `04_Resources` reference stub
   should identify the attachment with portable Zotero metadata rather than a
-  device-local PDF path.
+  device-local PDF path. When the plugin supplies both its resolved local path
+  and `zoteroAttachmentKey`, the backend must retain the key as the portable
+  source identity and must not require the path in generic
+  `external.path_roots`.
 - Zotero path settings may contain a data directory or a direct
   `zotero.sqlite` file path. Backend PDF resolution must normalize direct
   sqlite paths to their parent data directory before checking Zotero `storage/`
