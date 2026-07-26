@@ -247,7 +247,16 @@ To prevent context fragmentation and hallucinations when switching between AI co
 - **Format & Behavior**: 
   - **For Main Architecture Tasks / Goals**: Overwrite `.agents/RELAY.md` entirely using the standard template (Goal, Plan Reference, Analysis & Reasoning, Progress Status, Critical Context/Blockers, Immediate Next Action). Maintain a single active state for the core task.
   - **For Bug Fixes / Side-Tasks (Any Agent)**: When any agent handles a side-task or bug fix while a main goal is active, it must NOT overwrite the main relay state. Instead, **APPEND** a new section (e.g., `### Update (YYYY-MM-DD, AgentName)`) at the bottom of `.agents/RELAY.md` summarizing what was investigated, fixed, or modified. This ensures the primary agent's context is not destroyed by small interventions.
-  - **IDLE Cleanup**: When the goal is fully shipped (PR merged, no active task), truncate `.agents/RELAY.md` to a minimal IDLE stub — do NOT accumulate session history. Git log is the history; RELAY.md is live state only.
+  - **IDLE Cleanup (Feed-Forward Exception)**: When the goal is fully shipped
+    (PR merged, no active task), truncate `.agents/RELAY.md` to a minimal IDLE
+    stub — do NOT accumulate session history. Git log is the history; RELAY.md
+    is live state only. This exact cleanup is the sole exception to the normal
+    branch/PR rule: do not create a cleanup branch or PR. First update local
+    `master` with `git pull --ff-only origin master`, verify the only pending
+    path is `.agents/RELAY.md`, create one `chore(agents): reset relay after
+    vX.Y.Z` commit directly on `master`, and push it normally (never force-push).
+    If `master` cannot fast-forward or any other path is modified, stop using
+    this exception and use the normal `chore/*` branch + PR flow.
 
 ---
 
