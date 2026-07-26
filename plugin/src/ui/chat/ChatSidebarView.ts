@@ -4241,7 +4241,7 @@ export class ChatSidebarView extends ItemView {
         } else {
           if (ref.autoContextReady === false) {
             new Notice(
-              "This PDF tab is not ready for context capture. Select the tab once, then try again."
+              "This tab is not ready for context capture. Select the tab once, then try again."
             );
             return;
           }
@@ -4344,7 +4344,7 @@ export class ChatSidebarView extends ItemView {
                 this.addContextRef(ref);
               } else {
                 new Notice(
-                  "This PDF tab is not ready for context capture. Select the tab once, then try again."
+                  "This tab is not ready for context capture. Select the tab once, then try again."
                 );
               }
             } else if (tab.filePath) {

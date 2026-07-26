@@ -80,6 +80,7 @@ import { assessPluginActivation } from "./src/utils/pluginActivation";
 import { isSelectionRelevantKey } from "./src/utils/selectionKeys";
 import {
   buildOpenTabContextKey,
+  collectOpenTabLayoutContexts,
   isEligibleOpenTabView,
 } from "./src/context/openTabContext";
 import {
@@ -1865,18 +1866,30 @@ export default class ObsidianAIAgent extends Plugin {
     const tabs = new Map<string, OpenTabContext>();
 
     this.app.workspace.iterateAllLeaves((leaf) => {
-      const viewType = leaf.view.getViewType();
+      const viewState = leaf.getViewState();
+      const state = (viewState.state ?? {}) as Record<string, unknown>;
+      const viewType = viewState.type || leaf.view.getViewType();
       if (!isEligibleOpenTabView(viewType)) return;
 
+      const isActive = leaf === activeLeaf;
       const containerEl = (leaf as unknown as { containerEl?: HTMLElement }).containerEl;
-      let isVisible = true;
-      if (containerEl && leaf !== activeLeaf) {
+      let isVisible = isActive;
+      if (!isVisible && containerEl) {
         const rect = containerEl.getBoundingClientRect();
         isVisible = rect.width > 0 && rect.height > 0;
       }
 
-      const file = this.getLeafFile(leaf);
-      const isActive = leaf === activeLeaf;
+      const liveFile = this.getLeafFile(leaf);
+      const stateFile = typeof state.file === "string" ? state.file : undefined;
+      const file = liveFile ?? (
+        stateFile
+          ? {
+              path: stateFile,
+              basename:
+                stateFile.split("/").pop()?.replace(/\.[^/.]+$/, "") || stateFile,
+            }
+          : null
+      );
 
       let content: string | undefined;
       let selectedText: string | undefined;
@@ -1892,18 +1905,21 @@ export default class ObsidianAIAgent extends Plugin {
           selectedText = mdView.editor.getSelection() || undefined;
         }
       } else if (viewType === EXTERNAL_PDF_VIEW_TYPE) {
-        const extView = leaf.view as ExternalPdfView;
-        const state = extView.getState();
+        const extView =
+          leaf.view.getViewType() === EXTERNAL_PDF_VIEW_TYPE
+            ? leaf.view as ExternalPdfView
+            : null;
+        const extState = extView?.getState() ?? state as Partial<ExternalPdfState>;
         pageNum =
-          typeof state.currentPage === "number" ? state.currentPage : undefined;
-        sourceIdentity = state.zoteroAttachmentKey
-          ? `zotero:${state.zoteroAttachmentKey}`
-          : state.externalRef
-            ? `external:${state.externalRef}`
-            : state.docId
-              ? `document:${state.docId}`
+          typeof extState.currentPage === "number" ? extState.currentPage : undefined;
+        sourceIdentity = extState.zoteroAttachmentKey
+          ? `zotero:${extState.zoteroAttachmentKey}`
+          : extState.externalRef
+            ? `external:${extState.externalRef}`
+            : extState.docId
+              ? `document:${extState.docId}`
               : sourceIdentity;
-        if (isVisible) {
+        if (isVisible && extView) {
           try {
             pdfPage = withVisionFallback(
               extView.getActivePdfContext(this.settings.pdfCaptureMode),
@@ -1924,16 +1940,14 @@ export default class ObsidianAIAgent extends Plugin {
           }
         }
       } else if (viewType === "pdf") {
-        const statePage = (
-          leaf.getViewState().state as Record<string, unknown> | undefined
-        )?.page;
+        const statePage = state.page;
         pageNum =
           typeof statePage === "number"
             ? statePage
             : typeof statePage === "string" && Number.isFinite(Number(statePage))
               ? Number(statePage)
               : undefined;
-        if (isVisible) {
+        if (isVisible && leaf.view.getViewType() === "pdf") {
           try {
             pdfPage = withVisionFallback(
               getPdfContext(leaf, this.settings.pdfCaptureMode),
@@ -1957,7 +1971,11 @@ export default class ObsidianAIAgent extends Plugin {
       pageNum = pdfPage?.pageNum ?? pageNum;
 
       const tab: OpenTabContext = {
-        label: file?.basename || leaf.view.getDisplayText() || viewType,
+        label:
+          file?.basename ||
+          (typeof state.name === "string" ? state.name : undefined) ||
+          leaf.view.getDisplayText() ||
+          viewType,
         viewType,
         sourceIdentity,
         filePath: file?.path,
@@ -1980,6 +1998,22 @@ export default class ObsidianAIAgent extends Plugin {
         tabs.set(key, tab);
       }
     });
+
+    // Obsidian may defer inactive tabs inside pop-out tab groups, so they do
+    // not always exist as WorkspaceLeaf instances. The public saved layout is
+    // the complete identity inventory; these fallbacks stay hidden/not-ready
+    // until Obsidian materializes the corresponding leaf.
+    for (const layoutTab of collectOpenTabLayoutContexts(
+      this.app.workspace.getLayout()
+    )) {
+      const key = buildOpenTabContextKey(layoutTab);
+      if (tabs.has(key)) continue;
+      tabs.set(key, {
+        ...layoutTab,
+        isActive: false,
+        isVisible: false,
+      });
+    }
 
     return Array.from(tabs.values());
   }

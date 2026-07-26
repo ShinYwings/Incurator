@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildOpenTabContextKey,
+  collectOpenTabLayoutContexts,
   isEligibleOpenTabView,
   shouldIncludeOpenTab,
 } from "./openTabContext";
@@ -94,5 +95,109 @@ describe("open tab context policy", () => {
         pageNum: 4,
       })
     ).toBe('["ai-agent-external-pdf","zotero:ABCD1234",4]');
+  });
+
+  it("collects deferred pop-out tabs from the public workspace layout", () => {
+    const tabs = collectOpenTabLayoutContexts({
+      main: {
+        type: "split",
+        children: [
+          {
+            type: "leaf",
+            state: {
+              type: "ai-agent-external-pdf",
+              title: "paper.pdf",
+              state: {
+                docId: "paper",
+                zoteroAttachmentKey: "ABCD1234",
+                currentPage: 5,
+              },
+            },
+          },
+        ],
+      },
+      floating: {
+        type: "floating",
+        children: [
+          {
+            type: "window",
+            children: [
+              {
+                type: "tabs",
+                currentTab: 2,
+                children: [
+                  {
+                    type: "leaf",
+                    state: {
+                      type: "markdown",
+                      title: "First note",
+                      state: { file: "03_Notes/First note.md" },
+                    },
+                  },
+                  {
+                    type: "leaf",
+                    state: {
+                      type: "markdown",
+                      title: "Second note",
+                      state: { file: "03_Notes/Second note.md" },
+                    },
+                  },
+                  {
+                    type: "leaf",
+                    state: {
+                      type: "ai-agent-chat",
+                      state: {},
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(tabs).toEqual([
+      {
+        viewType: "ai-agent-external-pdf",
+        sourceIdentity: "zotero:ABCD1234",
+        filePath: undefined,
+        label: "paper.pdf",
+        pageNum: 5,
+      },
+      {
+        viewType: "markdown",
+        sourceIdentity: "03_Notes/First note.md",
+        filePath: "03_Notes/First note.md",
+        label: "First note",
+        pageNum: undefined,
+      },
+      {
+        viewType: "markdown",
+        sourceIdentity: "03_Notes/Second note.md",
+        filePath: "03_Notes/Second note.md",
+        label: "Second note",
+        pageNum: undefined,
+      },
+    ]);
+  });
+
+  it("keeps deferred copies of the same PDF on different pages distinct", () => {
+    const tabs = collectOpenTabLayoutContexts({
+      type: "tabs",
+      children: [3, 4].map((currentPage) => ({
+        type: "leaf",
+        state: {
+          type: "ai-agent-external-pdf",
+          title: "paper.pdf",
+          state: {
+            zoteroAttachmentKey: "ABCD1234",
+            currentPage,
+          },
+        },
+      })),
+    });
+
+    expect(tabs.map((tab) => tab.pageNum)).toEqual([3, 4]);
   });
 });

@@ -357,11 +357,18 @@ describe("chat sidebar context chip source contract", () => {
       source.indexOf("private getLeafFile(")
     );
 
+    expect(openTabs).toContain("const viewState = leaf.getViewState()");
+    expect(openTabs).toContain("const viewType = viewState.type || leaf.view.getViewType()");
+    expect(openTabs).toContain('typeof state.file === "string"');
     expect(openTabs).toContain("isEligibleOpenTabView(viewType)");
     expect(openTabs).toContain("isVisible = rect.width > 0 && rect.height > 0");
-    expect(openTabs).toContain("if (isVisible)");
+    expect(openTabs).toContain("if (isVisible && extView)");
+    expect(openTabs).toContain('if (isVisible && leaf.view.getViewType() === "pdf")');
     expect(openTabs).toContain("sourceIdentity");
     expect(openTabs).toContain("pageNum");
+    expect(openTabs).toContain(
+      "collectOpenTabLayoutContexts(\n      this.app.workspace.getLayout()"
+    );
     expect(openTabs).not.toContain("if (rect.width === 0 && rect.height === 0) return");
   });
 
