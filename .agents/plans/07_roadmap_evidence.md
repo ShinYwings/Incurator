@@ -65,3 +65,44 @@ Date: 2026-07-26
 - No application code written.
 - Plan requires user approval before P1/P2.
 
+## Post-Implementation Result
+
+- User approved the plan on 2026-07-26.
+- The running bundle is fingerprinted at plugin load. Every provider call now
+  compares that fingerprint/version with the active vault's installed bundle
+  before authentication or CLI startup.
+- Plugin updates preflight and copy `main.js`, `manifest.json`, and `styles.css`
+  as a complete set; the update UI then requires an actual Obsidian renderer
+  reload.
+- `iterateAllLeaves()` remains the materialized-content source. The public
+  `workspace.getLayout()` supplements it with identity-only entries for
+  deferred inactive tabs in pop-out tab groups.
+- Exact `(view type, portable source identity, page)` keys deduplicate only true
+  duplicates. Visible/materialized tabs default eye-on; deferred hidden tabs
+  default eye-off and cannot contribute placeholder content to prompts.
+- Live Obsidian validation after deployment showed all four expected chips:
+  the external PDF page and active Markdown tab eye-on, and the two inactive
+  pop-out Markdown tabs eye-off.
+- Two live Antigravity PDF-context questions completed normally without
+  `jetski`, `read_file`, or auto-denial errors.
+- A 50 ms poll during the second live request observed `$read_file$()` in
+  `~/.gemini/antigravity-cli/settings.json` immediately before launch.
+  Antigravity 1.1.7 subsequently normalized the file and removed that field;
+  this is post-launch CLI behavior, not a missing pre-spawn sync.
+- Repository and deployed `main.js` SHA-256 matched:
+  `0f5b580498feb979ad2e30f5dec5bc18cae1da11a7f7c482c2a06bfa182746bf`.
+
+## Validation Ledger
+
+- Targeted hotfix tests: 45/45 passed after the deferred-layout fix.
+- Full plugin suite: 68 files, 721 tests passed.
+- `npx tsc --noEmit`: passed.
+- Plugin production build: passed.
+- Backend suite: 1270 passed, 6 skipped, 5 xfailed.
+- Ruff: passed.
+- Mypy: passed for 125 source files.
+- Version/spec synchronization: 10 passed.
+- `complex_math_backprop` testbed status and lint ran without changing its
+  configuration; lint scored 100/100. Status retained the pre-existing testbed
+  schema-v0/backend-schema-v1 warning, which is unrelated to this plugin-only
+  hotfix.

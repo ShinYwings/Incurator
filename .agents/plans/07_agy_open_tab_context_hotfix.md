@@ -1,7 +1,7 @@
 # v0.36.7 Master Implementation Plan
 
 Date: 2026-07-26
-Status: DRAFT — Arena debate concluded; awaiting user approval before code.
+Status: APPROVED 2026-07-26 — implementation and validation complete.
 
 ## 1. Objective
 
@@ -139,4 +139,3 @@ Definition of done:
   - Remove implemented plan artifacts, clean roadmap item, and update relay.
   - Commit incrementally, finish with `chore(release): v0.36.7`, push, and open a
     detailed PR.
-
