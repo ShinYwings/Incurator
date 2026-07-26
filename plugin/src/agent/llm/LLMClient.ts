@@ -545,19 +545,22 @@ export class LLMClient {
   private vaultRoot: string;
   private persistSettings?: () => Promise<void>;
   private mcpManager?: MCPManager;
+  private beforeProviderLaunch?: () => void | Promise<void>;
 
   constructor(
     settings: PluginSettings,
     auth: CLIAuthResolver,
     vaultRoot: string = "",
     persistSettings?: () => Promise<void>,
-    mcpManager?: MCPManager
+    mcpManager?: MCPManager,
+    beforeProviderLaunch?: () => void | Promise<void>
   ) {
     this.settings = settings;
     this.auth = auth;
     this.vaultRoot = vaultRoot;
     this.persistSettings = persistSettings;
     this.mcpManager = mcpManager;
+    this.beforeProviderLaunch = beforeProviderLaunch;
     // Best-effort startup sweep of crash-leftover chat image temp dirs (v0.28.0).
     this.sweepStaleChatImages();
   }
@@ -673,6 +676,7 @@ export class LLMClient {
     onChunk: (chunk: StreamChunk) => void,
     opts?: { toolPolicy?: ToolPolicy }
   ): Promise<string> {
+    await this.beforeProviderLaunch?.();
     const toolPolicy: ToolPolicy = opts?.toolPolicy ?? "auto";
     // Capture the manager once so its presence is stable across the async tool
     // loop below (no state drift if this.mcpManager is swapped mid-flight) and so
@@ -981,6 +985,7 @@ export class LLMClient {
     messages: LLMMessage[],
     opts?: { model?: string; toolPolicy?: ToolPolicy }
   ): Promise<string> {
+    await this.beforeProviderLaunch?.();
     const provider = this.settings.provider;
     // Per-call model override (v0.21.0): a task-specialized light model (e.g.
     // Convert-to-LaTeX) may run on a smaller model than the main chat `model`.

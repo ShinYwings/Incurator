@@ -75,7 +75,13 @@ import {
   upsertFileScrollPosition,
 } from "./src/utils/scrollPositions";
 import { getBundledModelCatalogue } from "./src/utils/bundledModelCatalogue";
+import { hashFileSha256 } from "./src/utils/fileHash";
+import { assessPluginActivation } from "./src/utils/pluginActivation";
 import { isSelectionRelevantKey } from "./src/utils/selectionKeys";
+import {
+  buildOpenTabContextKey,
+  isEligibleOpenTabView,
+} from "./src/context/openTabContext";
 import {
   isSelectionInReadingView,
   selectionContainsRenderedMath,
@@ -139,6 +145,7 @@ export default class ObsidianAIAgent extends Plugin {
   private sessionPersistPromise: Promise<void> = Promise.resolve();
   private deletedZoteroProfiles: Record<string, number> = {};
   private localIncuratorRepoPathHint = "";
+  private runtimePluginBundleHash: string | null = null;
 
   async onload(): Promise<void> {
     logger.debug("Loading Obsidian AI Agent plugin");
@@ -151,6 +158,15 @@ export default class ObsidianAIAgent extends Plugin {
 
     // ── Initialize core services ──
     this.vaultRoot = (this.app.vault.adapter as any).getBasePath?.() || "";
+    try {
+      this.runtimePluginBundleHash = await hashFileSha256(
+        join(this.getInstalledPluginDir(), "main.js")
+      );
+    } catch (error) {
+      logger.warn(
+        `Could not fingerprint the running plugin bundle; version verification will be used: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
     await this.applyLocalRepoPathHint();
     this.settings.incuratorRepoPath = this.resolveRepoPath() || "";
     await this.syncDeviceRegistryFromSyncthing();
@@ -159,7 +175,8 @@ export default class ObsidianAIAgent extends Plugin {
       this.authResolver,
       this.vaultRoot,
       () => this.persistSettings(),
-      this.mcpManager
+      this.mcpManager,
+      () => this.assertActivePluginBundle()
     );
     this.incuratorClient = new IncuratorClient(
       this.settings,
@@ -1246,6 +1263,42 @@ export default class ObsidianAIAgent extends Plugin {
     return this.settings.incuratorRepoPath?.trim() || this.localIncuratorRepoPathHint;
   }
 
+  private getInstalledPluginDir(): string {
+    if (!this.vaultRoot) {
+      throw new Error("Cannot locate the active vault plugin directory.");
+    }
+    const manifestDir =
+      this.manifest.dir || join(".obsidian", "plugins", this.manifest.id);
+    return join(this.vaultRoot, manifestDir);
+  }
+
+  async assertActivePluginBundle(): Promise<void> {
+    const pluginDir = this.getInstalledPluginDir();
+    let manifestText: string;
+    let installedBundleHash: string;
+    try {
+      [manifestText, installedBundleHash] = await Promise.all([
+        fs.readFile(join(pluginDir, "manifest.json"), "utf8"),
+        hashFileSha256(join(pluginDir, "main.js")),
+      ]);
+    } catch (error) {
+      throw new Error(
+        `Cannot verify the installed Incurator plugin bundle. Reload Obsidian after checking the plugin files. (${error instanceof Error ? error.message : String(error)})`
+      );
+    }
+    const activation = assessPluginActivation(
+      this.manifest.version,
+      manifestText,
+      this.runtimePluginBundleHash ?? undefined,
+      installedBundleHash
+    );
+    if (activation.reloadRequired) {
+      throw new Error(
+        `Incurator was updated on disk (${activation.installedVersion}) but Obsidian is still running ${activation.runtimeVersion}. Click “Reload Obsidian” before sending another request.`
+      );
+    }
+  }
+
   private async applyLocalRepoPathHint(): Promise<void> {
     if (this.settings.incuratorRepoPath?.trim() || !this.vaultRoot) return;
     const workspaceRoot = dirname(this.vaultRoot);
@@ -1261,11 +1314,11 @@ export default class ObsidianAIAgent extends Plugin {
     }
   }
 
-  async updateIncuratorBackend(): Promise<void> {
+  async updateIncuratorBackend(): Promise<boolean> {
     const repoPath = this.resolveRepoPath();
     if (!repoPath) {
       new Notice("This backend is not an editable install — nothing to update from. (Set a repository path in settings to override.)");
-      return;
+      return false;
     }
 
     try {
@@ -1278,26 +1331,25 @@ export default class ObsidianAIAgent extends Plugin {
       const vaultBase = (this.app.vault.adapter as any).getBasePath?.() || this.vaultRoot;
       if (!vaultBase) {
         new Notice("Cannot locate vault path. Update the plugin manually.");
-        return;
+        return false;
       }
-      const destDir = `${vaultBase}/.obsidian/plugins/incurator-obsidian-agent`;
+      const destDir = this.getInstalledPluginDir();
       const fsSync = require("fs") as typeof import("fs");
-      let copied = 0;
-      for (const fname of ["main.js", "manifest.json", "styles.css"]) {
+      const artifacts = ["main.js", "manifest.json", "styles.css"];
+      for (const fname of artifacts) {
         const src = `${repoPath}/plugin/${fname}`;
-        try {
-          fsSync.copyFileSync(src, `${destDir}/${fname}`);
-          copied++;
-        } catch { /* ignore — file may not exist if setup.sh hasn't run yet */ }
+        fsSync.accessSync(src);
       }
-      if (copied === 0) {
-        new Notice("Plugin files not found in repo. Run setup.sh first, then try again.");
-        return;
+      for (const fname of artifacts) {
+        const src = `${repoPath}/plugin/${fname}`;
+        fsSync.copyFileSync(src, `${destDir}/${fname}`);
       }
       new Notice("Plugin updated. Reload Obsidian to apply the changes.");
+      return true;
     } catch (e: any) {
       logger.error("Failed to update Incurator backend:", e);
       new Notice("Failed to update Incurator backend: " + (e.message || "Unknown error"));
+      return false;
     }
   }
 
@@ -1810,26 +1862,27 @@ export default class ObsidianAIAgent extends Plugin {
   }
 
   private getOpenTabContexts(activeLeaf: WorkspaceLeaf | null): OpenTabContext[] {
-    const tabs: OpenTabContext[] = [];
+    const tabs = new Map<string, OpenTabContext>();
 
     this.app.workspace.iterateAllLeaves((leaf) => {
-      if (leaf.view.getViewType() === CHAT_VIEW_TYPE) return;
+      const viewType = leaf.view.getViewType();
+      if (!isEligibleOpenTabView(viewType)) return;
 
-      // Only include leaves actually visible on screen.
-      // Leaves in a non-active tab group have a containerEl with zero dimensions.
       const containerEl = (leaf as unknown as { containerEl?: HTMLElement }).containerEl;
-      if (containerEl) {
+      let isVisible = true;
+      if (containerEl && leaf !== activeLeaf) {
         const rect = containerEl.getBoundingClientRect();
-        if (rect.width === 0 && rect.height === 0) return;
+        isVisible = rect.width > 0 && rect.height > 0;
       }
 
       const file = this.getLeafFile(leaf);
-      const viewType = leaf.view.getViewType();
       const isActive = leaf === activeLeaf;
 
       let content: string | undefined;
       let selectedText: string | undefined;
       let pdfPage: OpenTabContext["pdfPage"];
+      let pageNum: number | undefined;
+      let sourceIdentity = file?.path || leaf.view.getDisplayText() || viewType;
       if (viewType === "markdown" && file) {
         const mdView = leaf.view as unknown as {
           editor?: { getValue(): string; getSelection(): string };
@@ -1839,60 +1892,96 @@ export default class ObsidianAIAgent extends Plugin {
           selectedText = mdView.editor.getSelection() || undefined;
         }
       } else if (viewType === EXTERNAL_PDF_VIEW_TYPE) {
-        try {
-          const extView = leaf.view as ExternalPdfView;
-          pdfPage = withVisionFallback(
-            extView.getActivePdfContext(this.settings.pdfCaptureMode),
-            this.settings.pdfCaptureMode,
-            this.settings.pdfVisionFallback,
-            () => extView.getActivePdfContext("image")?.imageBase64
-          ) || undefined;
-          // Capture PDF text selection + cropped image for external PDF tabs.
-          const pdfSel = getPdfSelection(leaf);
-          if (pdfSel) {
-            selectedText = pdfSel.text;
-            if (pdfPage && pdfSel.imageBase64) {
-              pdfPage.selectedImageBase64 = pdfSel.imageBase64;
+        const extView = leaf.view as ExternalPdfView;
+        const state = extView.getState();
+        pageNum =
+          typeof state.currentPage === "number" ? state.currentPage : undefined;
+        sourceIdentity = state.zoteroAttachmentKey
+          ? `zotero:${state.zoteroAttachmentKey}`
+          : state.externalRef
+            ? `external:${state.externalRef}`
+            : state.docId
+              ? `document:${state.docId}`
+              : sourceIdentity;
+        if (isVisible) {
+          try {
+            pdfPage = withVisionFallback(
+              extView.getActivePdfContext(this.settings.pdfCaptureMode),
+              this.settings.pdfCaptureMode,
+              this.settings.pdfVisionFallback,
+              () => extView.getActivePdfContext("image")?.imageBase64
+            ) || undefined;
+            // Capture PDF text selection + cropped image for external PDF tabs.
+            const pdfSel = getPdfSelection(leaf);
+            if (pdfSel) {
+              selectedText = pdfSel.text;
+              if (pdfPage && pdfSel.imageBase64) {
+                pdfPage.selectedImageBase64 = pdfSel.imageBase64;
+              }
             }
+          } catch (err) {
+            logger.warn("Failed to capture open external PDF context:", err);
           }
-        } catch (err) {
-          logger.warn("Failed to capture open external PDF context:", err);
         }
       } else if (viewType === "pdf") {
-        try {
-          pdfPage = withVisionFallback(
-            getPdfContext(leaf, this.settings.pdfCaptureMode),
-            this.settings.pdfCaptureMode,
-            this.settings.pdfVisionFallback,
-            () => getPdfContext(leaf, "image")?.imageBase64
-          ) || undefined;
-          // Capture PDF text selection + cropped image for non-active tabs too.
-          // Without this, selectedImageBase64 is always undefined in openTabs,
-          // causing buildAutoContextRefs to fall back to the full-page image.
-          const pdfSel = getPdfSelection(leaf);
-          if (pdfSel) {
-            selectedText = pdfSel.text;
-            if (pdfPage && pdfSel.imageBase64) {
-              pdfPage.selectedImageBase64 = pdfSel.imageBase64;
+        const statePage = (
+          leaf.getViewState().state as Record<string, unknown> | undefined
+        )?.page;
+        pageNum =
+          typeof statePage === "number"
+            ? statePage
+            : typeof statePage === "string" && Number.isFinite(Number(statePage))
+              ? Number(statePage)
+              : undefined;
+        if (isVisible) {
+          try {
+            pdfPage = withVisionFallback(
+              getPdfContext(leaf, this.settings.pdfCaptureMode),
+              this.settings.pdfCaptureMode,
+              this.settings.pdfVisionFallback,
+              () => getPdfContext(leaf, "image")?.imageBase64
+            ) || undefined;
+            // Capture PDF text selection + cropped image for visible non-active splits.
+            const pdfSel = getPdfSelection(leaf);
+            if (pdfSel) {
+              selectedText = pdfSel.text;
+              if (pdfPage && pdfSel.imageBase64) {
+                pdfPage.selectedImageBase64 = pdfSel.imageBase64;
+              }
             }
+          } catch (err) {
+            logger.warn("Failed to capture open PDF context:", err);
           }
-        } catch (err) {
-          logger.warn("Failed to capture open PDF context:", err);
         }
       }
+      pageNum = pdfPage?.pageNum ?? pageNum;
 
-      tabs.push({
+      const tab: OpenTabContext = {
         label: file?.basename || leaf.view.getDisplayText() || viewType,
         viewType,
+        sourceIdentity,
         filePath: file?.path,
+        pageNum,
         isActive,
+        isVisible,
         content,
         selectedText,
         pdfPage,
+      };
+      const key = buildOpenTabContextKey({
+        viewType,
+        sourceIdentity,
+        filePath: tab.filePath,
+        label: tab.label,
+        pageNum: tab.pageNum,
       });
+      const existing = tabs.get(key);
+      if (!existing || tab.isActive || (tab.isVisible && !existing.isVisible)) {
+        tabs.set(key, tab);
+      }
     });
 
-    return tabs;
+    return Array.from(tabs.values());
   }
 
   private getLeafFile(leaf: WorkspaceLeaf): { path: string; basename: string } | null {

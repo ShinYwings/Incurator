@@ -70,6 +70,11 @@ describe("backend command boundary", () => {
     // Copies pre-built plugin files from repo — does not re-run setup.sh or git pull
     expect(source).toContain("copyFileSync");
     expect(source).toContain("main.js");
+    expect(source).toContain('const artifacts = ["main.js", "manifest.json", "styles.css"]');
+    expect(source).toContain("fsSync.accessSync(src)");
+    expect(source).toContain("return true;");
+    expect(source).toContain("return false;");
+    expect(source).not.toContain("if (copied === 0)");
     expect(source).not.toContain("git pull");
     expect(source).not.toContain('execAsync("./setup.sh"');
   });

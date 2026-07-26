@@ -37,7 +37,7 @@ if command -v npm &> /dev/null; then
                 [ -f "$ROOT_DIR/plugin/$f" ] && cp "$ROOT_DIR/plugin/$f" "$PLUGIN_DEST/$f"
             done
             echo "✓ Plugin deployed to $PLUGIN_DEST"
-            echo "ℹ️  Reload the Incurator plugin in Obsidian to apply the update."
+            echo "⚠️  RELOAD REQUIRED: Obsidian is still running the previous Incurator bundle until you reload the app."
         else
             echo "⚠️  last_root vault not found at $VAULT_ROOT — skipping deploy."
         fi

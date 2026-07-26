@@ -66,6 +66,10 @@ import {
   shouldSuppressEditAffordances,
 } from "../../context/chatContextPriority";
 import { buildMarkdownOutline } from "../../context/quickQueryContext";
+import {
+  buildOpenTabContextKey,
+  shouldIncludeOpenTab,
+} from "../../context/openTabContext";
 import { parseAnswerLinkTarget, type AnswerLinkTarget } from "../../context/answerLinkNavigation";
 import { resolveSelectionReferencesBlock } from "../../context/pdfReferenceContext";
 import {
@@ -87,6 +91,7 @@ import {
   type IncuratorSourceStatus,
   type LLMMessage,
   type LLMContentPart,
+  type OpenTabContext,
   type PdfPageContext,
   type LLMProvider,
   type StreamChunk,
@@ -133,8 +138,8 @@ export class ChatSidebarView extends ItemView {
   private inputAreaEl!: HTMLElement;
   private dropOverlayEl!: HTMLElement;
   private pendingContextRefs: ContextRef[] = [];
-  private cachedAutoContextRefs: ContextRef[] = [];
   private activeContextExcludedKeys: Set<string> = new Set();
+  private activeContextIncludedKeys: Set<string> = new Set();
   private isGenerating = false;
   private thinkingTimer: ReturnType<typeof setInterval> | null = null;
   private thinkingStartTime = 0;
@@ -256,6 +261,13 @@ export class ChatSidebarView extends ItemView {
     // render chips for those keys, so they are harmlessly ignored).
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => {
+        setTimeout(() => {
+          this.renderContextChips();
+        }, 0);
+      })
+    );
+    this.registerEvent(
+      this.app.workspace.on("layout-change", () => {
         setTimeout(() => {
           this.renderContextChips();
         }, 0);
@@ -976,6 +988,12 @@ export class ChatSidebarView extends ItemView {
     }
     const content = this.inputEl.value.trim();
     if (!content) return;
+    try {
+      await this.plugin.assertActivePluginBundle();
+    } catch (error) {
+      new Notice(error instanceof Error ? error.message : String(error));
+      return;
+    }
 
     // Guard: Ollama requires a model name before sending
     if (this.plugin.settings.provider === "ollama" && !this.plugin.settings.model.trim()) {
@@ -1368,8 +1386,9 @@ export class ChatSidebarView extends ItemView {
       systemText += `\n\n<obsidian_incurator_context>\n${incuratorContext}\n</obsidian_incurator_context>`;
     }
 
-    if (activeCtx?.openTabs && activeCtx.openTabs.length > 0) {
-      const tabLines = activeCtx.openTabs
+    const promptTabs = this.getPromptIncludedTabs(activeCtx);
+    if (promptTabs.length > 0) {
+      const tabLines = promptTabs
         .map((tab) => {
           const marker = tab.isActive ? "*" : "-";
           const path = tab.filePath ? ` (${tab.filePath})` : "";
@@ -1378,7 +1397,7 @@ export class ChatSidebarView extends ItemView {
         .join("\n");
       systemText += `\n\nOpen Obsidian tabs (* = active):\n${tabLines}`;
 
-      const nonActiveMdTabs = activeCtx.openTabs.filter(
+      const nonActiveMdTabs = promptTabs.filter(
         (tab) => !tab.isActive && tab.viewType === "markdown" && tab.content
       );
       if (nonActiveMdTabs.length > 0) {
@@ -1396,7 +1415,7 @@ export class ChatSidebarView extends ItemView {
         systemText += `\n\n<open_tabs_content>\n${tabContents}\n</open_tabs_content>`;
       }
 
-      const markdownOutlines = activeCtx.openTabs
+      const markdownOutlines = promptTabs
         .filter((tab) => tab.viewType === "markdown" && tab.content)
         .map((tab) => {
           const outline = buildMarkdownOutline(tab.content || "");
@@ -1411,11 +1430,12 @@ export class ChatSidebarView extends ItemView {
       }
     }
 
-    if (activeCtx?.filePath) {
+    const activeTabIncluded = promptTabs.some((tab) => tab.isActive);
+    if (activeCtx?.filePath && activeTabIncluded) {
       const displayPath = activeCtx.absolutePath || activeCtx.filePath;
       systemText += `\n\nCurrently active file: ${displayPath}`;
     }
-    if (activeCtx?.viewType === "pdf" && activeCtx.pdfPage) {
+    if (activeCtx?.viewType === "pdf" && activeCtx.pdfPage && activeTabIncluded) {
       systemText += `\n\nThe user is viewing a PDF. Current page: ${activeCtx.pdfPage.pageNum}`;
     }
 
@@ -1574,7 +1594,7 @@ export class ChatSidebarView extends ItemView {
   private buildOpenMarkdownEditTargetContext(
     activeCtx: ReturnType<ObsidianAIAgent["refreshActiveContext"]>
   ): string {
-    const tabs = activeCtx?.openTabs ?? [];
+    const tabs = this.getPromptIncludedTabs(activeCtx);
     const markdownTabs = tabs.filter((tab) => tab.viewType === "markdown" && tab.filePath && tab.content);
     if (markdownTabs.length === 0) return "";
 
@@ -1626,13 +1646,7 @@ export class ChatSidebarView extends ItemView {
 
     const autoRefs = includedContextRefs(this.buildAutoContextRefs(activeCtx));
     if (autoRefs.length > 0) {
-      lines.push(`Visible context: ${autoRefs.map((ref) => ref.label).join(", ")}`);
-    } else if (this.cachedAutoContextRefs.length > 0) {
-      lines.push(
-        `Recently visible context: ${includedContextRefs(this.cachedAutoContextRefs)
-          .map((ref) => ref.label)
-          .join(", ")}`
-      );
+      lines.push(`Prompt-included context: ${autoRefs.map((ref) => ref.label).join(", ")}`);
     }
 
     const recentMessages = this.messages
@@ -1664,7 +1678,7 @@ export class ChatSidebarView extends ItemView {
     const sections: string[] = [];
     const client = this.getIncuratorClient();
     const pdfSourceStatuses: IncuratorSourceStatus[] = [];
-    const pdfTabs = (activeCtx?.openTabs ?? []).filter(
+    const pdfTabs = this.getPromptIncludedTabs(activeCtx).filter(
       (tab) =>
         (tab.viewType === "pdf" || tab.viewType === EXTERNAL_PDF_VIEW_TYPE) &&
         tab.pdfPage
@@ -1945,7 +1959,52 @@ export class ChatSidebarView extends ItemView {
   }
 
   private getAutoContextKey(ref: ContextRef): string {
-    return `${ref.type}:${ref.filePath || ref.label.replace(/ p\.\d+$/, "")}`;
+    if (ref.openTabKey) return ref.openTabKey;
+    const viewType =
+      ref.sourceViewType && ref.sourceViewType !== "auto"
+        ? ref.sourceViewType
+        : ref.type === "file"
+          ? "markdown"
+          : ref.type;
+    return buildOpenTabContextKey({
+      viewType,
+      filePath: ref.filePath,
+      label: ref.label.replace(/ p\.\d+$/, ""),
+      pageNum: ref.pageNum,
+    });
+  }
+
+  private getOpenTabKey(tab: OpenTabContext): string {
+    return buildOpenTabContextKey({
+      viewType: tab.viewType,
+      sourceIdentity: tab.sourceIdentity,
+      filePath: tab.filePath,
+      label: tab.label,
+      pageNum: tab.pageNum,
+    });
+  }
+
+  private isOpenTabReady(tab: OpenTabContext): boolean {
+    if (tab.viewType === "markdown") return tab.content !== undefined;
+    return Boolean(tab.pdfPage);
+  }
+
+  private shouldIncludeOpenTabContext(tab: OpenTabContext): boolean {
+    const key = this.getOpenTabKey(tab);
+    return shouldIncludeOpenTab({
+      isVisible: tab.isVisible,
+      isReady: this.isOpenTabReady(tab),
+      explicitlyIncluded: this.activeContextIncludedKeys.has(key),
+      explicitlyExcluded: this.activeContextExcludedKeys.has(key),
+    });
+  }
+
+  private getPromptIncludedTabs(
+    activeCtx: ReturnType<ObsidianAIAgent["refreshActiveContext"]>
+  ): OpenTabContext[] {
+    return (activeCtx?.openTabs ?? []).filter((tab) =>
+      this.shouldIncludeOpenTabContext(tab)
+    );
   }
 
   private buildAutoContextRefs(
@@ -1958,6 +2017,8 @@ export class ChatSidebarView extends ItemView {
 
     for (const tab of activeCtx.openTabs) {
       let ref: ContextRef | null = null;
+      const openTabKey = this.getOpenTabKey(tab);
+      const autoContextReady = this.isOpenTabReady(tab);
       if (tab.viewType === "markdown" && tab.filePath) {
         let finalContent = tab.content ? this.truncateContext(tab.content) : "";
         if (tab.selectedText && tab.selectedText.trim()) {
@@ -1977,56 +2038,76 @@ export class ChatSidebarView extends ItemView {
           content: this.truncateContext(finalContent),
           filePath: tab.filePath,
           sourceViewType: "auto",
+          openTabKey,
+          autoContextReady,
         };
-      } else if ((tab.viewType === "pdf" || tab.viewType === EXTERNAL_PDF_VIEW_TYPE) && tab.pdfPage) {
-        let finalContent = tab.pdfPage.text
-          ? this.truncateContext(tab.pdfPage.text)
-          : "(No extractable text on this page. If you need visual information, please attach the image manually.)";
-        
-        const hasTextSelection = tab.selectedText && tab.selectedText.trim();
-        const hasImageSelection = Boolean(tab.pdfPage.selectedImageBase64 || (tab.pdfPage.isScannedLike && tab.pdfPage.imageBase64));
+      } else if (tab.viewType === "pdf" || tab.viewType === EXTERNAL_PDF_VIEW_TYPE) {
+        if (!tab.pdfPage) {
+          ref = {
+            type: "pdf-page",
+            label: tab.pageNum ? `${tab.label} p.${tab.pageNum}` : tab.label,
+            content: "",
+            filePath: tab.filePath,
+            pageNum: tab.pageNum,
+            sourceViewType: "auto",
+            openTabKey,
+            autoContextReady: false,
+          };
+        } else {
+          let finalContent = tab.pdfPage.text
+            ? this.truncateContext(tab.pdfPage.text)
+            : "(No extractable text on this page. If you need visual information, please attach the image manually.)";
 
-        if (hasTextSelection) {
-          const sel = tab.selectedText || "";
-          if (finalContent.includes(sel)) {
-            finalContent = finalContent.replace(sel, `\n<primary_focus_selection>\n${sel}\n</primary_focus_selection>\n`);
+          const hasTextSelection = tab.selectedText && tab.selectedText.trim();
+          const hasImageSelection = Boolean(
+            tab.pdfPage.selectedImageBase64 ||
+            (tab.pdfPage.isScannedLike && tab.pdfPage.imageBase64)
+          );
+
+          if (hasTextSelection) {
+            const sel = tab.selectedText || "";
+            if (finalContent.includes(sel)) {
+              finalContent = finalContent.replace(sel, `\n<primary_focus_selection>\n${sel}\n</primary_focus_selection>\n`);
+              finalContent = `<background_reference_only>\n${finalContent}\n</background_reference_only>`;
+            } else {
+              finalContent = `\n<primary_focus_selection>\n${sel}\n</primary_focus_selection>\n\n<background_reference_only>\n${finalContent}\n</background_reference_only>`;
+            }
+          } else if (hasImageSelection) {
             finalContent = `<background_reference_only>\n${finalContent}\n</background_reference_only>`;
           } else {
-            finalContent = `\n<primary_focus_selection>\n${sel}\n</primary_focus_selection>\n\n<background_reference_only>\n${finalContent}\n</background_reference_only>`;
+            // Even without any selection, if this is an auto-injected background tab,
+            // wrap it to ensure it doesn't overpower explicit user queries or explicit pinned images.
+            finalContent = `<background_reference_only>\n${finalContent}\n</background_reference_only>`;
           }
-        } else if (hasImageSelection) {
-          finalContent = `<background_reference_only>\n${finalContent}\n</background_reference_only>`;
-        } else {
-          // Even without any selection, if this is an auto-injected background tab,
-          // wrap it to ensure it doesn't overpower explicit user queries or explicit pinned images.
-          finalContent = `<background_reference_only>\n${finalContent}\n</background_reference_only>`;
+
+          ref = {
+            type: "pdf-page",
+            label: `${tab.label} p.${tab.pdfPage.pageNum}`,
+            content: finalContent,
+            filePath: tab.filePath,
+            fileHash: tab.pdfPage.fileHash,
+            pageNum: tab.pdfPage.pageNum,
+            pageLabels: tab.pdfPage.pageLabels,
+            zoteroAttachmentKey: tab.pdfPage.zoteroAttachmentKey,
+            windowPages: tab.pdfPage.windowPages,
+            outline: tab.pdfPage.outline,
+            ragHits: tab.pdfPage.ragHits,
+            textQuality: tab.pdfPage.textQuality,
+            isScannedLike: tab.pdfPage.isScannedLike,
+            sourceViewType: "auto",
+            openTabKey,
+            autoContextReady,
+            // Only send the full page image if the PDF is scanned (vision fallback).
+            // Otherwise, only send an explicitly cropped image (if any).
+            imageBase64: tab.pdfPage.selectedImageBase64 || (tab.pdfPage.isScannedLike ? tab.pdfPage.imageBase64 : undefined),
+          };
         }
-        
-        ref = {
-          type: "pdf-page",
-          label: `${tab.label} p.${tab.pdfPage.pageNum}`,
-          content: finalContent,
-          filePath: tab.filePath,
-          fileHash: tab.pdfPage.fileHash,
-          pageNum: tab.pdfPage.pageNum,
-          pageLabels: tab.pdfPage.pageLabels,
-          zoteroAttachmentKey: tab.pdfPage.zoteroAttachmentKey,
-          windowPages: tab.pdfPage.windowPages,
-          outline: tab.pdfPage.outline,
-          ragHits: tab.pdfPage.ragHits,
-          textQuality: tab.pdfPage.textQuality,
-          isScannedLike: tab.pdfPage.isScannedLike,
-          sourceViewType: "auto",
-          // Only send the full page image if the PDF is scanned (vision fallback).
-          // Otherwise, only send an explicitly cropped image (if any).
-          imageBase64: tab.pdfPage.selectedImageBase64 || (tab.pdfPage.isScannedLike ? tab.pdfPage.imageBase64 : undefined),
-        };
       }
 
       if (!ref) continue;
       const key = this.getAutoContextKey(ref);
       if (seen.has(key)) continue;
-      if (this.activeContextExcludedKeys.has(key)) ref.includeInPrompt = false;
+      ref.includeInPrompt = this.shouldIncludeOpenTabContext(tab);
       seen.add(key);
       refs.push(ref);
     }
@@ -2049,41 +2130,8 @@ export class ChatSidebarView extends ItemView {
     };
   }
 
-  private createPinnedPdfRef(tab: {
-    label: string;
-    viewType: string;
-    filePath?: string;
-  }): ContextRef | null {
-    let pdfCtx: PdfPageContext | null = null;
-
-    if (tab.viewType === EXTERNAL_PDF_VIEW_TYPE) {
-      for (const leaf of this.app.workspace.getLeavesOfType(EXTERNAL_PDF_VIEW_TYPE)) {
-        const view = leaf.view as ExternalPdfView;
-        if (view.getDisplayText() === tab.label) {
-          pdfCtx = withVisionFallback(
-            view.getActivePdfContext(this.plugin.settings.pdfCaptureMode),
-            this.plugin.settings.pdfCaptureMode,
-            this.plugin.settings.pdfVisionFallback,
-            () => view.getActivePdfContext("image")?.imageBase64
-          );
-          break;
-        }
-      }
-    } else if (tab.filePath) {
-      for (const leaf of this.app.workspace.getLeavesOfType("pdf")) {
-        const view = leaf.view as unknown as { file?: TFile };
-        if (view.file?.path === tab.filePath) {
-          pdfCtx = withVisionFallback(
-            getPdfContext(leaf, this.plugin.settings.pdfCaptureMode),
-            this.plugin.settings.pdfCaptureMode,
-            this.plugin.settings.pdfVisionFallback,
-            () => getPdfContext(leaf, "image")?.imageBase64
-          );
-          break;
-        }
-      }
-    }
-
+  private createPinnedPdfRef(tab: OpenTabContext): ContextRef | null {
+    const pdfCtx = tab.pdfPage;
     if (!pdfCtx) return null;
     return {
       type: "pdf-page",
@@ -2095,6 +2143,7 @@ export class ChatSidebarView extends ItemView {
       pageLabels: pdfCtx.pageLabels,
       isPinned: true,
       sourceViewType: tab.viewType,
+      openTabKey: this.getOpenTabKey(tab),
     };
   }
 
@@ -2646,12 +2695,24 @@ export class ChatSidebarView extends ItemView {
       btn.style.cursor = "pointer";
       btn.style.padding = "4px 8px";
       btn.style.borderRadius = "4px";
-      
+      const applyLabel = updateClient.updateActionLabel || "Run Setup";
+      let reloadReady = false;
+
       btn.addEventListener("click", async () => {
+        if (reloadReady) {
+          window.location.reload();
+          return;
+        }
         btn.disabled = true;
         btn.setText("Running setup...");
-        await this.plugin.updateIncuratorBackend();
-        btn.setText("Restart Required");
+        const updateReady = await this.plugin.updateIncuratorBackend();
+        btn.disabled = false;
+        if (updateReady) {
+          reloadReady = true;
+          btn.setText("Reload Obsidian");
+        } else {
+          btn.setText(applyLabel);
+        }
       });
     }
 
@@ -4132,47 +4193,9 @@ export class ChatSidebarView extends ItemView {
 
     const activeCtx = this.plugin.refreshActiveContext();
     const freshAutoRefs = this.buildAutoContextRefs(activeCtx);
-    if (freshAutoRefs.length > 0) {
-      this.cachedAutoContextRefs = this.mergeAutoContextRefs(
-        this.cachedAutoContextRefs,
-        freshAutoRefs
-      );
-    }
+    const autoRefs = freshAutoRefs;
 
-    // When fresh context lacks PDF data (pdfPage not yet captured), restore cached PDF refs
-    // for tabs that are still open so the chip doesn't flicker away on leaf-change.
-    const openPdfTabKeys = new Set<string>();
-    this.plugin.app.workspace.iterateAllLeaves((leaf) => {
-      const viewType = leaf.view.getViewType();
-      if (viewType === "pdf" || viewType === EXTERNAL_PDF_VIEW_TYPE) {
-        if (viewType === EXTERNAL_PDF_VIEW_TYPE) {
-          const runtimePath = (leaf.view as ExternalPdfView).getRuntimePath();
-          if (runtimePath) openPdfTabKeys.add(runtimePath);
-          openPdfTabKeys.add(leaf.view.getDisplayText());
-        } else {
-          // Internal PDF view
-          const file = (leaf.view as any).file;
-          if (file && file.path) openPdfTabKeys.add(file.path);
-          openPdfTabKeys.add(leaf.view.getDisplayText());
-        }
-      }
-    });
-    
-    const cachedPdfsStillOpen = this.cachedAutoContextRefs.filter((r) => {
-      if (r.type !== "pdf-page") return false;
-      return openPdfTabKeys.has(r.filePath || r.label.replace(/ p\.\d+$/, ""));
-    });
-    let autoRefs: ContextRef[];
-    if (freshAutoRefs.length > 0) {
-      const freshHasPdf = freshAutoRefs.some((r) => r.type === "pdf-page");
-      autoRefs = (!freshHasPdf && cachedPdfsStillOpen.length > 0)
-        ? this.mergeAutoContextRefs(cachedPdfsStillOpen, freshAutoRefs)
-        : freshAutoRefs;
-    } else {
-      autoRefs = this.cachedAutoContextRefs;
-    }
-
-    // Auto context chips show every visible markdown/PDF split.
+    // Auto context chips show every open Markdown/PDF tab, including hidden leaves.
     for (const ref of autoRefs) {
       let isSuppressed = false;
       for (const pinned of this.pendingContextRefs) {
@@ -4183,11 +4206,7 @@ export class ChatSidebarView extends ItemView {
         if (pinned.type === "pdf-page" && pinned.label && (pinned.label.includes("(Crop)") || pinned.label.includes("(Selection)"))) continue;
 
         // If it's a full file or full PDF page pin, check if it matches this auto chip
-        if (ref.filePath && pinned.filePath === ref.filePath) {
-          isSuppressed = true;
-          break;
-        }
-        if (!ref.filePath && pinned.label.replace(/ p\.\d+$/, "") === ref.label.replace(/ p\.\d+$/, "")) {
+        if (this.getAutoContextKey(pinned) === this.getAutoContextKey(ref)) {
           isSuppressed = true;
           break;
         }
@@ -4217,15 +4236,24 @@ export class ChatSidebarView extends ItemView {
       visibilityBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         if (shouldIncludeContext(ref)) {
+          this.activeContextIncludedKeys.delete(activeKey);
           this.activeContextExcludedKeys.add(activeKey);
         } else {
+          if (ref.autoContextReady === false) {
+            new Notice(
+              "This PDF tab is not ready for context capture. Select the tab once, then try again."
+            );
+            return;
+          }
           this.activeContextExcludedKeys.delete(activeKey);
+          this.activeContextIncludedKeys.add(activeKey);
         }
         this.renderContextChips();
       });
       const removeBtn = chip.createSpan({ cls: "ai-agent-context-chip-remove", text: "×" });
       removeBtn.addEventListener("click", (e) => {
         e.stopPropagation();
+        this.activeContextIncludedKeys.delete(activeKey);
         this.activeContextExcludedKeys.add(activeKey);
         this.renderContextChips();
       });
@@ -4290,31 +4318,14 @@ export class ChatSidebarView extends ItemView {
     }
   }
 
-  private mergeAutoContextRefs(
-    cachedRefs: ContextRef[],
-    freshRefs: ContextRef[]
-  ): ContextRef[] {
-    const merged = new Map<string, ContextRef>();
-    for (const ref of cachedRefs) {
-      merged.set(this.getAutoContextKey(ref), ref);
-    }
-    for (const ref of freshRefs) {
-      merged.set(this.getAutoContextKey(ref), ref);
-    }
-    return Array.from(merged.values());
-  }
-
   private showAddContextMenu(e: MouseEvent): void {
     const openTabs = this.plugin.refreshActiveContext()?.openTabs ?? [];
-    const addableTabs = openTabs.filter((t) => {
-      if (t.viewType === EXTERNAL_PDF_VIEW_TYPE || t.viewType === "pdf") {
-        return !this.pendingContextRefs.some((r) => r.label.startsWith(t.label));
-      }
-      return (
-        t.filePath &&
-        !this.pendingContextRefs.some((r) => r.filePath === t.filePath)
-      );
-    });
+    const addableTabs = openTabs.filter(
+      (tab) =>
+        !this.pendingContextRefs.some(
+          (ref) => this.getAutoContextKey(ref) === this.getOpenTabKey(tab)
+        )
+    );
 
     const menu = new Menu();
 
@@ -4329,7 +4340,13 @@ export class ChatSidebarView extends ItemView {
           item.onClick(async () => {
             if (isPdf) {
               const ref = this.createPinnedPdfRef(tab);
-              if (ref) this.addContextRef(ref);
+              if (ref) {
+                this.addContextRef(ref);
+              } else {
+                new Notice(
+                  "This PDF tab is not ready for context capture. Select the tab once, then try again."
+                );
+              }
             } else if (tab.filePath) {
               const vaultFile = this.app.vault.getAbstractFileByPath(tab.filePath);
               if (vaultFile instanceof TFile) {

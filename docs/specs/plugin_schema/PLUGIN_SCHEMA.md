@@ -399,9 +399,18 @@ Rules:
   list, including local fallback entries that Syncthing does not list as remote
   devices. The Overview System table must not duplicate device identity.
 - Purple context pins may be removed down to zero for the current turn. Automatic
-  visible context may be re-created on the next turn. Pinned purple chips must
-  expose eye/eye-off prompt inclusion controls and excluded refs must not be sent
-  to the provider.
+  visible context may be re-created on the next turn. The plugin MUST enumerate
+  every eligible open Markdown/PDF leaf and record whether that leaf is currently
+  visible in its split. Every unique `(view type, portable source/file identity,
+  page when present)` context key renders a chip. Visible leaves default to
+  eye-on; hidden tab-group leaves default to eye-off. Only eye-on or explicitly
+  pinned/materialized refs may contribute to provider tab lists, bodies, outlines,
+  continuity summaries, primary-context detection, or edit targets. Hidden
+  identity-only PDF chips MUST NOT be sent with placeholder content; inclusion
+  must first materialize the page or surface an actionable capture failure.
+  Pinned purple chips must expose eye/eye-off prompt inclusion controls and
+  excluded refs must not be sent to the provider. Tab open/close/layout changes
+  must refresh this inventory in addition to active-leaf changes.
 - Zotero data-directory configuration must have a single visible entry point:
   **Backend Zotero status > Open setup**. The setup dialog defaults to
   `~/Zotero`, displays home-directory paths with `~` instead of an absolute
@@ -427,6 +436,12 @@ Rules:
   `build.git_commit`, and `build.schema` fallback fields so the update check has
   a stable JSON shape. If `incuratorRepoPath` is set, clicking the banner executes
   `cd <incuratorRepoPath> && ./setup.sh`; it must not force `git pull`.
+  The runtime MUST also compare its own bundled build identity with the plugin
+  bundle installed in the active vault. A disk/runtime mismatch means a newer or
+  different bundle has been copied but not loaded; sidechat provider launch MUST
+  stop before credential/provider startup and expose a reload action. The update
+  action may offer renderer reload only after every required plugin artifact has
+  copied successfully; a partial copy must remain an error and must not reload.
 - `mcpServers` entries are for external/non-Incurator MCP servers. Incurator's
   own plugin integration must not require MCP tool discovery for static
   metadata such as model choices.
@@ -1921,6 +1936,11 @@ the `find_mvg_text.py`-style exploit). This section governs the CLI path.
     `--add-dir` set, while the popover still receives no added workspace dirs.
     The plugin MUST NOT install `--dangerously-skip-permissions` or approve write,
     shell, network, or wildcard tools.
+    The active-bundle gate above applies before this boundary: an installed
+    permission hotfix does not count as active until the running bundle identity
+    matches the installed bundle. Once active, the invocation-time atomic merge
+    remains the compatibility boundary for Antigravity releases that require the
+    explicit headless read approval.
     Antigravity CLI 1.1.5+ also requires `--effort <level>` when a base model
     slug with declared effort levels is passed through `--model`; the plugin
     forwards the normalized `agentEffort` value and omits the flag only for
