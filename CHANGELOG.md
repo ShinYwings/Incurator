@@ -2,6 +2,25 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.36.7] - 2026-07-26
+### Fixed
+- **Antigravity Hotfix Activation**
+  Provider startup now verifies the running Obsidian bundle against the active
+  vault's installed `main.js` and manifest before authentication or CLI launch.
+  A copied-but-not-reloaded hotfix is blocked with a reload instruction instead
+  of silently continuing with stale permission code. The update action requires
+  all three plugin artifacts and then performs an actual Obsidian renderer
+  reload.
+- **Complete Open-Tab Context Inventory**
+  The purple context row now enumerates every open Markdown/PDF tab, including
+  hidden members of tab groups. Visible tabs default to included; hidden tabs
+  default to eye-off and cannot enter tab lists, bodies, outlines, edit targets,
+  or continuity context until explicitly included and materialized. Exact
+  source/page keys preserve distinct PDF pages and prevent stale cached PDFs
+  from returning after tabs close.
+
+---
+
 ## [0.36.6] - 2026-07-23
 ### Fixed
 - **Purple Pin Zotero Source Registration**

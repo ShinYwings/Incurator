@@ -22,23 +22,12 @@ Source of Truth to identify unresolved items.
 
 `USER_REPORT.md` is currently empty. The following queue is the ordered roadmap.
 
-One urgent hotfix is currently tracked.
+No urgent hotfix is currently tracked.
 
-- v0.36.2 PR #90 is merged. After the v0.36.7 hotfix, the next actionable item
-  is the Composite-Primary-Key Tombstones schema contract update.
+- v0.36.2 PR #90 is merged. The next actionable item is the
+  Composite-Primary-Key Tombstones schema contract update.
 
 ### 🚀 Priority Order
-
-0. **[Hotfix v0.36.7] Obsidian Agent Headless Read + Open-Tab Context Integrity** *(ACTIVE)*
-   - Recurrent `jetski` headless `read_file` denial remains possible after the
-     v0.36.4 on-disk hotfix when Obsidian has not reloaded the updated plugin.
-   - The purple PDF/Add-source context row currently enumerates only visible
-     splits, not every open Markdown/PDF tab, so hidden tab-group leaves are
-     absent from both the chips and prompt context.
-   - Treat missing tab context as a trigger that can increase native
-     `read_file` use, but keep permission lifecycle and tab enumeration as two
-     separately tested root causes.
-   - Target: `.agents/plans/07_agy_open_tab_context_hotfix.md`
 
 1. **[Major Update] System Stability Overhaul — Exhaustive Diagnosis & Refactoring** *(ACTIVE)*
    - Absorbs the prompt-architecture milestone. Whole-codebase diagnosis (bugs,
@@ -96,6 +85,15 @@ One urgent hotfix is currently tracked.
 ---
 
 ## ✅ Completed Milestones
+
+- **v0.36.7 — Obsidian Agent Activation + Open-Tab Context Hotfix**
+  (release-ready 2026-07-26): provider launch now fails closed when Obsidian is
+  still running a stale plugin bundle; complete plugin updates lead to a real
+  renderer reload. The purple context row inventories materialized leaves plus
+  deferred pop-out tabs from the public workspace layout, while hidden tabs
+  remain eye-off and outside prompts. Full backend 1270-test, plugin 721-test,
+  static-analysis, build, testbed lint 100/100, four-chip live UI, and two live
+  Antigravity PDF-query gates passed.
 
 - **v0.36.6 — Purple Pin Zotero Source Registration Hotfix**
   (release-ready 2026-07-23): Purple Pin Add source now preserves the explicit

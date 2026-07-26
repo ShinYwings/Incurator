@@ -33,18 +33,22 @@ purple context chips without weakening sandbox or prompt privacy.
   identity/page dedupe, layout refresh, and complete-update reload.
 - Implementation complete: provider launch hash/version gate, complete
   three-artifact update + reload action, all-leaf chip enumeration, hidden-tab
-  eye-off policy, prompt filtering, and stale PDF-cache removal.
-- `npx tsc --noEmit` and all 719 plugin tests pass.
+  eye-off policy, deferred pop-out layout inventory, prompt filtering, and stale
+  PDF-cache removal.
+- Live Obsidian shows four expected chips with correct eye defaults.
+- Two Antigravity PDF questions completed without permission denial; the narrow
+  allow-rule was observed immediately before launch.
+- `npx tsc --noEmit` and all 721 plugin tests pass. Backend pytest/ruff/mypy,
+  production build, version sync, and testbed status/lint gates also pass.
 
 ## Critical Context / Blockers
 
-- The currently running Obsidian instance still needs one reload after v0.36.7
-  is deployed; the new guard prevents this state from recurring silently.
 - Active testbed scenario: `complex_math_backprop`.
-- `agy` self-updated from 1.1.5 to 1.1.7 during read-only diagnosis; its settings
-  hash did not change.
+- `agy` self-updated from 1.1.5 to 1.1.7 during diagnosis. Version 1.1.7
+  normalizes the CLI settings after execution, but the pre-launch read rule was
+  directly observed and both live requests succeeded.
 
 ## Immediate Next Action
 
-Commit the implementation, bump v0.36.7/changelog, run full backend/plugin and
-testbed validation, delete the completed hotfix plan, then push and open the PR.
+Commit the final evidence/release metadata, delete the completed hotfix plan,
+then push and open the PR for human review.
