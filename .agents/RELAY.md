@@ -42,6 +42,12 @@ purple context chips without weakening sandbox or prompt privacy.
   production build, version sync, and testbed status/lint gates also pass.
 - Release v0.36.7 is committed and pushed.
 - Draft PR #95: https://github.com/ShinYwings/Incurator/pull/95
+- Initial PR CI failed because Ruff 0.16.0 expanded its implicit default rules
+  while the repository relied on the older default selection. Commit `f191c44`
+  makes the established `E4`, `E7`, `E9`, and `F` contract explicit, adds a
+  regression test, and synchronizes the EN/KR contribution guides.
+- Ruff 0.15.17 and 0.16.0, Mypy, local backend pytest (1270 passed), and both
+  GitHub Actions push/PR runs pass after the CI fix.
 
 ## Critical Context / Blockers
 
