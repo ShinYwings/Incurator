@@ -55,6 +55,26 @@ describe("LLM request lifecycle hardening", () => {
     } as unknown as Response;
   }
 
+  it("runs the active-bundle guard before authentication or provider startup", async () => {
+    const resolveCredential = vi.fn();
+    const client = new LLMClient(
+      { ...DEFAULT_SETTINGS, provider: "openai", model: "test-model" },
+      { resolveCredential } as never,
+      "",
+      undefined,
+      undefined,
+      () => {
+        throw new Error("reload required");
+      }
+    );
+    (client as any).shouldUseCli = () => false;
+
+    await expect(client.streamChat(messages, vi.fn())).rejects.toThrow(
+      "reload required"
+    );
+    expect(resolveCredential).not.toHaveBeenCalled();
+  });
+
   it("keeps the current request controller usable if abort runs during async authentication", async () => {
     let resolveCredential!: (value: { type: "bearer"; token: string }) => void;
     const credential = new Promise<{ type: "bearer"; token: string }>((resolve) => {

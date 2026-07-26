@@ -61,6 +61,8 @@ def test_backend_tooling_is_pinned_to_repo_root_state() -> None:
     assert "managed = false" in pyproject
     assert 'cache_dir = "../.cache/pytest"' in pyproject
     assert 'cache-dir = "../.cache/ruff"' in pyproject
+    assert "[tool.ruff.lint]" in pyproject
+    assert 'select = ["E4", "E7", "E9", "F"]' in pyproject
     assert 'cache_dir = "../.cache/mypy"' in pyproject
     assert backend_check.exists()
     helper = backend_check.read_text(encoding="utf-8")

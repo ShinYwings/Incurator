@@ -20,7 +20,7 @@ describe("chat sidebar context chip source contract", () => {
     expect(source).not.toContain("this.pendingContextRefs.length <= 2");
     expect(source).toContain("ai-agent-context-chip-visibility");
     expect(source).toContain('setIcon(visibilityBtn, shouldIncludeContext(ref) ? "eye" : "eye-off")');
-    expect(source).toContain('this.activeContextExcludedKeys.has(key)) ref.includeInPrompt = false');
+    expect(source).toContain("ref.includeInPrompt = this.shouldIncludeOpenTabContext(tab)");
     expect(source).toContain('if (!shouldIncludeContext(ref)) chip.addClass("is-excluded")');
     expect(source).toContain("this.activeContextExcludedKeys.add(activeKey)");
     expect(source).toContain("this.activeContextExcludedKeys.delete(activeKey)");
@@ -304,6 +304,72 @@ describe("chat sidebar context chip source contract", () => {
     // The eye-off mechanism itself must still work
     expect(source).toContain("this.activeContextExcludedKeys.add(activeKey)");
     expect(source).toContain("this.activeContextExcludedKeys.delete(activeKey)");
+  });
+
+  it("refreshes context chips for tab-group layout changes and supports explicit hidden-tab inclusion", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
+
+    expect(source).toContain('this.app.workspace.on("layout-change"');
+    expect(source).toContain("private activeContextIncludedKeys: Set<string> = new Set();");
+    expect(source).toContain("private getPromptIncludedTabs(");
+    expect(source).toContain("this.activeContextIncludedKeys.add(activeKey)");
+    expect(source).toContain("this.activeContextIncludedKeys.delete(activeKey)");
+  });
+
+  it("filters every prompt path through the same open-tab inclusion policy", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
+
+    expect(source).toContain("const promptTabs = this.getPromptIncludedTabs(activeCtx);");
+    expect(source).toContain("const tabs = this.getPromptIncludedTabs(activeCtx);");
+    expect(source).toContain("const pdfTabs = this.getPromptIncludedTabs(activeCtx).filter(");
+  });
+
+  it("turns a complete plugin update into an actual Obsidian reload", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
+
+    expect(source).toContain('btn.setText("Reload Obsidian")');
+    expect(source).toContain("window.location.reload()");
+    expect(source).toContain("const updateReady = await this.plugin.updateIncuratorBackend()");
+  });
+
+  it("blocks stale plugin code before mutating the chat session", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
+    const handleSend = source.slice(
+      source.indexOf("private async handleSend()"),
+      source.indexOf("private async executeGitSidechatCommand")
+    );
+
+    const guard = handleSend.indexOf("await this.plugin.assertActivePluginBundle()");
+    const mutation = handleSend.indexOf("this.messages.push(userMsg)");
+    expect(guard).toBeGreaterThanOrEqual(0);
+    expect(mutation).toBeGreaterThan(guard);
+  });
+
+  it("enumerates hidden Markdown/PDF leaves without materializing hidden PDFs", () => {
+    const dir = fileURLToPath(new URL("../../", import.meta.url));
+    const source = readFileSync(join(dir, "main.ts"), "utf8");
+    const openTabs = source.slice(
+      source.indexOf("private getOpenTabContexts("),
+      source.indexOf("private getLeafFile(")
+    );
+
+    expect(openTabs).toContain("const viewState = leaf.getViewState()");
+    expect(openTabs).toContain("const viewType = viewState.type || leaf.view.getViewType()");
+    expect(openTabs).toContain('typeof state.file === "string"');
+    expect(openTabs).toContain("isEligibleOpenTabView(viewType)");
+    expect(openTabs).toContain("isVisible = rect.width > 0 && rect.height > 0");
+    expect(openTabs).toContain("if (isVisible && extView)");
+    expect(openTabs).toContain('if (isVisible && leaf.view.getViewType() === "pdf")');
+    expect(openTabs).toContain("sourceIdentity");
+    expect(openTabs).toContain("pageNum");
+    expect(openTabs).toContain(
+      "collectOpenTabLayoutContexts(\n      this.app.workspace.getLayout()"
+    );
+    expect(openTabs).not.toContain("if (rect.width === 0 && rect.height === 0) return");
   });
 
   it("allows distinct crop images from the same PDF page to coexist as separate context refs", () => {

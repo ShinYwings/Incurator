@@ -22,9 +22,10 @@ Source of Truth to identify unresolved items.
 
 `USER_REPORT.md` is currently empty. The following queue is the ordered roadmap.
 
-No urgent items currently tracked.
+No urgent hotfix is currently tracked.
 
-- v0.36.2 PR #90 is merged. The next actionable item is the Composite-Primary-Key Tombstones schema contract update.
+- v0.36.2 PR #90 is merged. The next actionable item is the
+  Composite-Primary-Key Tombstones schema contract update.
 
 ### 🚀 Priority Order
 
@@ -84,6 +85,15 @@ No urgent items currently tracked.
 ---
 
 ## ✅ Completed Milestones
+
+- **v0.36.7 — Obsidian Agent Activation + Open-Tab Context Hotfix**
+  (release-ready 2026-07-26): provider launch now fails closed when Obsidian is
+  still running a stale plugin bundle; complete plugin updates lead to a real
+  renderer reload. The purple context row inventories materialized leaves plus
+  deferred pop-out tabs from the public workspace layout, while hidden tabs
+  remain eye-off and outside prompts. Full backend 1270-test, plugin 721-test,
+  static-analysis, build, testbed lint 100/100, four-chip live UI, and two live
+  Antigravity PDF-query gates passed.
 
 - **v0.36.6 — Purple Pin Zotero Source Registration Hotfix**
   (release-ready 2026-07-23): Purple Pin Add source now preserves the explicit

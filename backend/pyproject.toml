@@ -1,6 +1,6 @@
 [project]
 name = "incurator"
-version = "0.36.6"
+version = "0.36.7"
 description = "An LLM-maintained personal wiki, per Karpathy's pattern. Local-first, enterprise-grade."
 readme = "../docs/README.md"
 requires-python = ">=3.10"
@@ -78,6 +78,12 @@ cache_dir = "../.cache/pytest"
 
 [tool.ruff]
 cache-dir = "../.cache/ruff"
+
+[tool.ruff.lint]
+# Keep the repository's established lint contract stable across Ruff releases.
+# Ruff 0.16 expanded its implicit defaults, so relying on defaults made a fresh
+# CI environment report hundreds of unrelated historical diagnostics.
+select = ["E4", "E7", "E9", "F"]
 
 [tool.mypy]
 mypy_path = "stubs"

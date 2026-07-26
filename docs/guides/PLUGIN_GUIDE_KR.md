@@ -300,6 +300,14 @@ Incurator PDF 뷰어의 텍스트 선택은 실제 텍스트 span 위에서만 �
 
 사이드챗에서 메시지를 보낼 때 선택 영역, 라인 참조, PDF 스니핑으로 명시적으로 추가한 컨텍스트가 현재 턴의 중심 맥락으로 취급됩니다. 명시적으로 선택한 snippet, 선택 텍스트, crop, line range는 pin 된 뒤에도 중심 맥락으로 유지됩니다. 반면 전체 파일이나 전체 PDF 페이지를 pin 한 context와 자동으로 보이는 탭은 질문에서 직접 요구하지 않는 한 배경 맥락으로만 사용됩니다. pin 또는 첨부 context chip은 invisible/excluded 상태로 전환할 수 있으며, 이 상태에서는 chip row에는 남아 있지만 다시 visible로 바꾸기 전까지 모델 prompt에는 포함되지 않습니다.
 
+context row는 **열린 탭**과 **prompt에 포함되는 탭**을 구분합니다. 같은 tab
+group에서 선택되지 않아 뒤에 숨은 탭을 포함해, 열린 Markdown/PDF 탭은 모두 chip으로
+표시됩니다. 각 split에서 현재 보이는 탭은 기본 eye-on이며 배경 context에 포함됩니다.
+숨은 tab-group 탭은 기본 eye-off이며, 사용자가 eye를 켜거나 pin 하기 전까지 tab
+목록, 파일 본문, outline, continuity summary, edit target 어디에도 전달되지 않습니다.
+같은 source/page를 가리키는 완전히 동일한 view는 chip 하나를 공유할 수 있지만, 같은
+PDF의 서로 다른 page는 별도 context로 유지됩니다.
+
 선택 영역 중심 질문에서는 현재 페이지 구조도 배경 grounding으로 함께 전달됩니다. Markdown heading은 compact outline으로, PDF는 가능한 경우 outline/window context로 전달됩니다. 이 outline/page 블록은 보조 자료일 뿐이며, 선택한 텍스트, line range, crop이 여전히 답변의 대상입니다.
 
 **긴 세션에서의 국소적 초점 (v0.19.0):** 긴 대화에서 — 특히 앞서 문서 전체를 편집한 뒤 — 새로 추가한 `Cmd+Shift+L` 선택이 무시되고 에이전트가 다시 파일 전체를 수정하려는 문제가 있었습니다. 이제 플러그인은 각 요청의 맨 끝(모델 attention이 가장 강한 위치)에 고우선순위 invariant 블록을 덧붙여 "현재 선택 영역에 대해서만 답하고, 명시적으로 요청하지 않는 한 문서 전체를 편집하지 말 것"을 재확인합니다. 따라서 긴 세션 후반의 국소적 질문도 앞선 턴과 무관하게 존중됩니다.
@@ -345,7 +353,7 @@ curator 레이어 링크 대상만 재작성됩니다.
 
 선택한 Markdown line range가 첨부된 상태에서 사용자가 해당 텍스트를 고치거나, 다시 쓰거나, 다듬거나, 번역하라고 요청하면 assistant는 `ai-agent-edit` SEARCH/REPLACE 제안을 반환해야 합니다. 선택 영역에 대한 단순 질문이면 파일 수정 제안 없이 답변만 합니다.
 
-최신 요청이 선택한 PDF/text 영역을 예시로 삼아 Markdown 파일 안의 모든 비슷한 부분을 바꾸라고 요청하면, 선택 영역은 유일한 수정 대상이 아니라 pattern을 이해하기 위한 단서로 취급합니다. 플러그인은 열린 Markdown 탭의 전체 내용을 edit-target context로 보내므로 assistant가 파일 전체에서 같은 HTML/Markdown line 형태를 찾고, 기존 문법 형식을 보존한 SEARCH/REPLACE hunk를 Markdown 편집기 안에서 review할 수 있게 제안해야 합니다.
+최신 요청이 선택한 PDF/text 영역을 예시로 삼아 Markdown 파일 안의 모든 비슷한 부분을 바꾸라고 요청하면, 선택 영역은 유일한 수정 대상이 아니라 pattern을 이해하기 위한 단서로 취급합니다. 플러그인은 prompt에 포함된 Markdown 탭의 전체 내용만 edit-target context로 보내므로 assistant가 파일 전체에서 같은 HTML/Markdown line 형태를 찾고, 기존 문법 형식을 보존한 SEARCH/REPLACE hunk를 Markdown 편집기 안에서 review할 수 있게 제안해야 합니다. 열려 있어도 eye-off인 숨은 탭은 edit target이 아닙니다.
 
 ### Markdown 작업 위치 복원
 
@@ -704,11 +712,20 @@ fingerprint가 없거나 서로 다르면 채팅 창 상단에 setup/rebuild 배
 일반(non-editable) 설치이면 `repo_path`가 `null`이 되어 배너를 숨기므로, 동작하지
 않는 업데이트 버튼이 뜨지 않습니다.
 
-업데이트 버튼을 누르면 `<repo>/plugin/`에서 새로 빌드된 `main.js`와
-`manifest.json`을 **현재 열린 vault**의 플러그인 디렉토리로 복사합니다. `git pull`이나
-`./setup.sh`를 실행하지 않습니다 — 백엔드와 플러그인 빌드는 업데이트를 pull한 뒤
-직접 실행하는 `./setup.sh`의 역할입니다. 다른 vault는 다음에 열릴 때 각자
-업데이트됩니다. 복사 완료 후에는 plugin reload 또는 Obsidian 재시작이 필요합니다.
+업데이트 버튼을 누르면 `<repo>/plugin/`에서 새로 빌드된 `main.js`,
+`manifest.json`, `styles.css`를 **현재 열린 vault**의 플러그인 디렉토리로
+복사합니다. `git pull`이나 `./setup.sh`를 실행하지 않습니다 — 백엔드와 플러그인
+빌드는 업데이트를 pull한 뒤 직접 실행하는 `./setup.sh`의 역할입니다. 다른 vault는
+다음에 열릴 때 각자 업데이트됩니다. 필요한 plugin artifact가 모두 성공적으로
+복사되면 버튼은 **Reload Obsidian**으로 바뀌며, 새 bundle을 활성화하는 renderer
+reload를 실제로 수행합니다.
+
+Obsidian이 열린 상태에서 `./setup.sh`, Syncthing, 또는 다른 외부 배포가 plugin 파일을
+교체해도 메모리에서는 이전 bundle이 계속 실행됩니다. AI provider를 시작하기 전에
+plugin은 현재 실행 중인 bundle build identity와 디스크에 설치된 bundle을 비교합니다.
+둘이 다르면 stale code로 질문을 실행하지 않고 reload를 요구합니다. 따라서 보안 또는
+provider hotfix가 디스크에는 설치됐지만 구 runtime이 계속 답변하는 상태를 허용하지
+않습니다.
 
 `Use Incurator backend`는 local Incurator backend command 사용 여부를 제어합니다.
 켜면 plugin이 `wiki` 실행 파일을 찾고, backend runtime snapshot을 읽으며, source,

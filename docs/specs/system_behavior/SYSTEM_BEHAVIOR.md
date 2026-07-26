@@ -841,10 +841,15 @@ Rules:
   `build.plugin_version`, `build.git_commit`, and `build.schema`; if the packaged
   `build_manifest.json` is absent, these fields fall back to the installed
   backend version and current schema constants rather than an empty object.
-- The plugin update action copies the freshly built `main.js` and
-  `manifest.json` from `<repo>/plugin/` into the currently open vault's plugin
+- The plugin update action copies the freshly built `main.js`, `manifest.json`,
+  and `styles.css` from `<repo>/plugin/` into the currently open vault's plugin
   directory only. It must not run `git pull` or `setup.sh`; building is the
-  user's explicit `setup.sh` step. Other vaults update when next opened.
+  user's explicit `setup.sh` step. Other vaults update when next opened. Only a
+  complete copy may transition the UI to a renderer reload action. The running
+  plugin compares its bundled build identity with the installed active-vault
+  bundle before an AI provider starts. A mismatch is a reload-required state and
+  fails before credential/provider startup; the plugin must not continue with
+  stale in-memory code merely because the new manifest is present on disk.
 
 ### 11.3 Agent Access Scenarios
 

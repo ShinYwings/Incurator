@@ -288,6 +288,10 @@ export interface ContextRef {
   includeInPrompt?: boolean;
   /** Original view type for pinned open-tab context. */
   sourceViewType?: string;
+  /** Exact session-local identity for an automatically discovered open tab. */
+  openTabKey?: string;
+  /** False when a discovered tab has identity only and cannot yet be sent. */
+  autoContextReady?: boolean;
   /** Base64-encoded image for PDF page captures */
   imageBase64?: string;
   fileHash?: string;
@@ -477,8 +481,14 @@ export interface ExternalPdfState {
 export interface OpenTabContext {
   label: string;
   viewType: string;
+  /** Portable source identity used for exact open-tab deduplication. */
+  sourceIdentity: string;
   filePath?: string;
+  /** Current page identity, including when the PDF body is not materialized. */
+  pageNum?: number;
   isActive: boolean;
+  /** Whether this leaf is currently rendered rather than hidden in a tab group. */
+  isVisible: boolean;
   content?: string;
   selectedText?: string;
   pdfPage?: PdfPageContext;

@@ -329,6 +329,15 @@ pinned or attached context chip can be toggled invisible/excluded; it stays
 visible in the chip row but is not sent to the model until toggled visible
 again.
 
+The context row distinguishes **open** tabs from **prompt-included** tabs.
+Every open Markdown/PDF tab appears as a chip, including an inactive tab hidden
+behind the selected tab in the same tab group. The currently visible tab in
+each split starts eye-on and is included as background context. Hidden
+tab-group members start eye-off and are not sent in tab lists, file bodies,
+outlines, continuity summaries, or edit targets until you explicitly turn
+their eye on or pin them. Exact duplicate views of the same source/page may
+share one chip; different PDF pages remain distinct.
+
 For selected-context questions, the plugin also supplies current-page structure
 as background grounding: Markdown headings are sent as a compact outline, and
 PDF outline/window context is included when available. These outline/page blocks
@@ -404,9 +413,10 @@ does not propose an edit.
 When the latest request uses a selected PDF/text region as an example and asks
 to change all similar Markdown-file occurrences, the selected region is treated
 as a clue, not as the only edit target. The plugin sends the full content of
-open Markdown tabs as edit-target context so the assistant can find matching
-HTML/Markdown lines across the file, preserve the existing syntax form, and
-propose SEARCH/REPLACE hunks for review in the Markdown editor.
+prompt-included Markdown tabs as edit-target context so the assistant can find
+matching HTML/Markdown lines across the file, preserve the existing syntax form,
+and propose SEARCH/REPLACE hunks for review in the Markdown editor. An open but
+eye-off hidden tab is never an edit target.
 
 ### Markdown Position Restore
 
@@ -793,12 +803,22 @@ The plugin resolves the repo path in this order: the optional
 (non-editable) install with no repo, `repo_path` is `null` and the banner is
 hidden so there is no dead update button.
 
-Clicking the update button copies the freshly built `main.js` and
-`manifest.json` from `<repo>/plugin/` into the **currently open vault's** plugin
-directory. It does **not** run `git pull` or `./setup.sh` — building the backend
-and plugin is the job of `./setup.sh`, which you run manually after pulling
-updates. Other vaults update themselves the next time they are opened. Reload the
-plugin or restart Obsidian after the copy completes.
+Clicking the update button copies the freshly built `main.js`, `manifest.json`,
+and `styles.css` from `<repo>/plugin/` into the **currently open vault's**
+plugin directory. It does **not** run `git pull` or `./setup.sh` — building the
+backend and plugin is the job of `./setup.sh`, which you run manually after
+pulling updates. Other vaults update themselves the next time they are opened.
+After all required plugin artifacts copy successfully, the button becomes
+**Reload Obsidian** and performs the renderer reload needed to activate the new
+bundle.
+
+If plugin files are replaced by `./setup.sh`, Syncthing, or another external
+deployment while Obsidian remains open, the old bundle is still running in
+memory. Before starting an AI provider, the plugin compares the active bundled
+build identity with the installed bundle on disk. A mismatch blocks the request
+and asks you to reload instead of silently running stale code. This activation
+gate is why a security or provider hotfix cannot appear installed while the old
+runtime continues answering questions.
 
 `Use Incurator backend` controls whether the plugin uses local Incurator backend
 commands. When enabled, the plugin discovers the `wiki` binary, reads backend
