@@ -7,9 +7,9 @@ purple context chips without weakening sandbox or prompt privacy.
 
 ## Plan Reference
 
-- `.agents/plans/07_agy_open_tab_context_hotfix.md`
-- `.agents/plans/07_roadmap_evidence.md`
-- Arena: `.agents/plans/agy_open_tab_context_hotfix_arena/`
+- Implemented plan artifacts were deleted after validation.
+- Historical plan/evidence/Arena documents are preserved at commit `a8c5251`;
+  inspect them with `git show`.
 
 ## Analysis & Reasoning
 
@@ -40,6 +40,8 @@ purple context chips without weakening sandbox or prompt privacy.
   allow-rule was observed immediately before launch.
 - `npx tsc --noEmit` and all 721 plugin tests pass. Backend pytest/ruff/mypy,
   production build, version sync, and testbed status/lint gates also pass.
+- Release v0.36.7 is committed and pushed.
+- Draft PR #95: https://github.com/ShinYwings/Incurator/pull/95
 
 ## Critical Context / Blockers
 
@@ -50,5 +52,5 @@ purple context chips without weakening sandbox or prompt privacy.
 
 ## Immediate Next Action
 
-Commit the final evidence/release metadata, delete the completed hotfix plan,
-then push and open the PR for human review.
+Human review and merge of draft PR #95. After merge, truncate this relay to the
+minimal IDLE stub.
