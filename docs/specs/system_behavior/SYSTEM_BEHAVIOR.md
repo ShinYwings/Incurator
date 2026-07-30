@@ -662,7 +662,11 @@ provider-native control:
 - `antigravity-cli` → Antigravity CLI 1.1.5+ receives
   `agy --model <base-slug> --effort <level>`. Base slugs such as
   `gemini-3.6-flash` require an explicit supported effort (`low|medium|high`);
-  models whose catalogue entry has no selectable effort omit the flag.
+  explicit non-failover slots such as `latex_extract_model` use that model's
+  catalogue `default_effort` when they have no separate effort setting. Models
+  whose catalogue entry has no selectable effort omit the flag. The actual
+  request is the value of `agy --print`; it MUST NOT be replaced by a generic
+  placeholder with the request supplied only on stdin.
 - `deepseek-api` → OpenAI-compatible `https://api.deepseek.com/chat/completions`
   with `DEEPSEEK_API_KEY`, `llm.deepseek-api.api_key_secret`, or the legacy
   plaintext `llm.deepseek-api.api_key`. Environment variables take precedence.
@@ -2032,7 +2036,10 @@ rendered page instead.
     transcribe prompt asks for exactly one `<transcription>...</transcription>`
     block; the backend normalizes the result by extracting that block when present
     and stripping common explanatory prose, labels, and fences before returning
-    JSON to the plugin.
+    JSON to the plugin. For Antigravity, the backend passes that full prompt
+    directly as the `agy --print` value, applies the resolved model and effort,
+    and never substitutes provider scratch-workspace narration for selected prose
+    plus LaTeX.
   - **Cmd+Shift+X "Snip PDF Region to Chat"** routes by the *main chat model's*
     vision capability (`modelSupportsVision`):
     - **Vision-capable main model** (antigravity / claude / codex CLI, or a vision

@@ -351,7 +351,11 @@ Rules:
   `latex_extract_model → vision_model → (main chat model if vision-capable)` in the
   backend; its returned text MUST be normalized (one
   `<transcription>...</transcription>` block; explanatory prose, labels, and fences
-  stripped) before the plugin copies or injects it.
+  stripped) before the plugin copies or injects it. An Antigravity-backed
+  extraction passes the complete transcription request as the `agy --print`
+  prompt, the resolved model through `--model`, and the explicit or
+  catalogue-default effort through `--effort`; stdin-only prompt transport or
+  scratch-agent progress narration is not a successful transcription.
   **Cmd+Shift+X "Snip PDF Region to Chat" (v0.28.0)** routes by the *main chat
   model's* vision capability instead (SYSTEM_BEHAVIOR §26.2a): a vision-capable
   main model receives the crop image DIRECTLY via the interactive chat image

@@ -478,10 +478,13 @@ Settings 화면에서는 선택된 model의 context window를 별도 항목으�
   영역-OCR 모델(그리고 채팅 스닙의 text-only 폴백). 비우면 PDF ingest 모델로 폴백.
   Convert to LaTeX는 backend extractor를 호출하며, extractor는 엄격한
   `<transcription>...</transcription>` 블록을 요청하고 복사 전에 흔한 설명 문구를
-  제거합니다. **참고 (v0.28.0):** 메인 채팅 모델이 vision을 지원하면 **Cmd+Shift+X**
-  채팅 스닙은 더 이상 이 경로를 타지 않습니다 — 그 모델이 크롭 이미지를 직접
-  읽습니다(더 빠르고 이중 왕복이 없음). 이 경량 모델은 채팅 모델이 text-only일 때만
-  적용됩니다.
+  제거합니다. 선택한 본문은 그대로 보존하고 수식은 `$...$` / `$$...$$` LaTeX
+  구분자로 변환합니다. Antigravity에서는 backend가 전체 변환 요청을
+  `agy --print` 프롬프트로 전달하고, 선택한 `--model`과 설정된 또는 카탈로그 기본
+  `--effort`를 적용합니다. 제공자의 작업 로그는 변환 결과로 취급하지 않습니다.
+  **참고 (v0.28.0):** 메인 채팅 모델이 vision을 지원하면 **Cmd+Shift+X** 채팅 스닙은
+  더 이상 이 경로를 타지 않습니다 — 그 모델이 크롭 이미지를 직접 읽습니다(더
+  빠르고 이중 왕복이 없음). 이 경량 모델은 채팅 모델이 text-only일 때만 적용됩니다.
 
 ingest 비전은 기존 제공자의 **CLI 구독**(Ollama, 또는 `claude`/`agy`/`codex` CLI)으로
 동작 — **추가 API 키 불필요**. 드롭다운에는 비전 가능 모델만 표시됩니다. v0.21.0의

@@ -549,10 +549,14 @@ separate from your main chat model. Two rows:
   snips). Leave empty to fall back to the PDF ingest model. Convert to LaTeX calls
   the backend extractor, which requests a strict
   `<transcription>...</transcription>` block and strips common explanatory prose
-  before copying the result. **Note (v0.28.0):** the **Cmd+Shift+X** chat snip no
-  longer routes here when your main chat model is vision-capable — that model now
-  reads the crop image directly (faster, no double round-trip). This light model
-  still applies when the chat model is text-only.
+  before copying the result. The selected prose is preserved and equations are
+  rewritten with `$...$` / `$$...$$` LaTeX delimiters. For Antigravity, the
+  backend passes the full transcription request as the `agy --print` prompt and
+  applies the selected `--model` plus its configured or catalogue-default
+  `--effort`; provider work logs are not transcription output. **Note (v0.28.0):**
+  the **Cmd+Shift+X** chat snip no longer routes here when your main chat model is
+  vision-capable — that model now reads the crop image directly (faster, no double
+  round-trip). This light model still applies when the chat model is text-only.
 
 Ingest vision runs on your existing provider's **CLI subscription** (Ollama, or the
 `claude`/`agy`/`codex` CLIs) — **no extra API keys**. Only vision-capable models
