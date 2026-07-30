@@ -2,6 +2,31 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.37.0] - 2026-07-30
+### Changed
+- **Schema-v13 Composite Tombstone Contract**
+  Composite-primary-key deletes now use a closed, versioned canonical-JSON key
+  registry. Source page keys carry `sources.sync_key` instead of replica-local
+  numeric ids, malformed or legacy ambiguous tokens fail closed, and v12/v13
+  snapshots never partially interoperate.
+
+### Fixed
+- **Cross-Device Delete Convergence**
+  All six synchronized composite-key tables now delete by their complete key.
+  Equal/newer tombstones block stale rows, strictly newer mutable rows clear an
+  older tombstone, immutable rows cannot resurrect, and dry-run remains
+  read-only. Local PDF provenance, claim-support, artifact-dependency, relation
+  support, and entity-lineage writers clear or emit exact tombstones as rows
+  become live or absent. First-import dry-runs now resolve source-scoped keys
+  from the incoming source map, so their counts match the real pass without
+  writing parent or child rows.
+- **Transactional Source Tombstones**
+  Imported and local source deletion now share one dependent-cleanup path for
+  job events, jobs, ingest runs, page provenance, DAG edges, and PDF pages.
+  Delete, tombstone recording, and import statistics remain atomic per file.
+
+---
+
 ## [0.36.8] - 2026-07-30
 ### Fixed
 - **PDF Convert-to-LaTeX Antigravity Prompt Transport**
