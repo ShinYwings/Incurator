@@ -441,8 +441,18 @@ def _record_pdf_pages_conn(conn, source_id: int | None, relpath: str, parsed) ->
     pages = parsed.metadata.get("pdf_pages") or []
     if not isinstance(pages, list):
         return
+    from .db_sync import (
+        clear_row_tombstone_on_connection,
+        delete_rows_with_tombstones_on_connection,
+    )
+
     now = _now_iso()
-    conn.execute("DELETE FROM source_pdf_pages WHERE source_id = ?", (source_id,))
+    delete_rows_with_tombstones_on_connection(
+        conn,
+        "source_pdf_pages",
+        "source_id = ?",
+        (source_id,),
+    )
     for page in pages:
         page_number = int(page.get("page") or page.get("page_number") or 0)
         if page_number <= 0:
@@ -470,6 +480,29 @@ def _record_pdf_pages_conn(conn, source_id: int | None, relpath: str, parsed) ->
                 json.dumps(metadata, ensure_ascii=False, sort_keys=True),
                 now,
             ),
+        )
+        clear_row_tombstone_on_connection(
+            conn,
+            "source_pdf_pages",
+            {
+                "source_id": source_id,
+                "page_number": page_number,
+            },
+        )
+
+
+def _clear_source_tombstone_conn(conn, source_id: int) -> None:
+    from .db_sync import clear_row_tombstone_on_connection
+
+    source = conn.execute(
+        "SELECT sync_key FROM sources WHERE id = ?",
+        (source_id,),
+    ).fetchone()
+    if source is not None:
+        clear_row_tombstone_on_connection(
+            conn,
+            "sources",
+            {"sync_key": source["sync_key"]},
         )
 
 
@@ -2036,6 +2069,9 @@ def add_file(
             ),
         )
         source_id = cur.lastrowid
+        if source_id is None:
+            raise RuntimeError("failed to create source row")
+        _clear_source_tombstone_conn(conn, int(source_id))
         _record_pdf_pages_conn(conn, source_id, relpath, parsed)
         if parsed.is_empty:
             conn.execute(
@@ -2285,6 +2321,7 @@ def import_source_file(
                     raise RuntimeError("failed to create source row")
                 source_id = int(cur.lastrowid)
 
+            _clear_source_tombstone_conn(conn, source_id)
             _record_pdf_pages_conn(conn, source_id, relpath, parsed)
             if parsed.is_empty:
                 conn.execute(
@@ -2441,21 +2478,11 @@ def remove_source(
     file_path = paths.root / row["relpath"]
 
     from .db_sync import record_tombstone_on_connection
+    from .db.sources import _delete_source_on_connection
 
     with db.connect(paths.state_db) as conn:
         sync_key = str(row["sync_key"] or "")
-        conn.execute("DELETE FROM source_pages WHERE source_id = ?", (source_id,))
-        conn.execute("DELETE FROM ingest_runs WHERE source_id = ?", (source_id,))
-        # job_events FK → ingest_jobs FK → sources; dag_edges FK → sources.
-        # Must delete dependents before sources or PRAGMA foreign_keys raises IntegrityError.
-        conn.execute(
-            "DELETE FROM job_events WHERE job_id IN "
-            "(SELECT id FROM ingest_jobs WHERE source_id = ?)",
-            (source_id,),
-        )
-        conn.execute("DELETE FROM ingest_jobs WHERE source_id = ?", (source_id,))
-        conn.execute("DELETE FROM dag_edges WHERE source_id = ?", (source_id,))
-        conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))
+        _delete_source_on_connection(conn, source_id)
         record_tombstone_on_connection(conn, "sources", sync_key)
 
     deleted_file = False

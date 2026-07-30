@@ -27,21 +27,21 @@ failure UX, and authored-wikilink architecture validation.
 - Phase A diagnosis is complete and consolidated.
 - Current code/schema/test paths for all three workstreams have been rechecked.
 - Stale `.agents` status labels have been reconciled with the current Git state.
-- The v0.37.0 Arena plan and evidence ledger are complete; no application code
-  has been changed.
+- The v0.37.0 Arena plan and evidence ledger are complete, and the user approved
+  the schema/wire contract. Docs-first/TDD implementation is underway.
 
 ## Critical Context / Blockers
 
-- A tombstone wire-contract change requires a schema-version bump and an
-  explicit policy for legacy unsupported composite tombstones.
+- The approved wire contract bumps the schema to v13 and fails closed on
+  unsupported legacy composite tombstones.
 - `source_pages` and `source_pdf_pages` use replica-local `source_id` in their
   primary keys, so their transport identity must use `sources.sync_key`.
 - Failure Atlas/test F9 means authored wikilink topology, while
   `SYSTEM_BEHAVIOR.md` §27 reuses F9 for broad-span grounding. The wikilink slice
   must resolve that contract collision before changing code.
-- The schema-change approval gate remains in force before implementation.
+- Provider-error UX and wikilink validation remain out of this release.
 
 ## Immediate Next Action
 
-Obtain approval for the v0.37.0 schema/wire contract, then update specs and
-guides before writing failing tests.
+Finish the v0.37.0 EN/KR spec and guide updates, then write the failing
+composite tombstone convergence tests before application logic.

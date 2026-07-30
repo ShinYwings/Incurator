@@ -843,6 +843,10 @@ How it stays safe across devices:
 - **Last-Write-Wins merge.** Records merge row-by-row by monotonic revision;
   deletes propagate via tombstones. Concurrent reads and edits to different
   source records are safe.
+- **Complete delete identity.** Composite-primary-key tombstones contain every
+  key field in validated canonical JSON. Source-scoped keys use the portable
+  source key rather than a device's numeric id, so stale snapshots cannot
+  recreate a deleted provenance/support row.
 - **No infinite loops** — without any fragile hash guard. A device never imports its own file, and it re-exports only when something actually changed.
 - **Snapshot identity.** Each JSONL header has an export id, so a replaced file
   is not skipped merely because its mtime is unchanged.
@@ -855,6 +859,11 @@ existing file — with a new identity and never calls an unarchived conflict
 “merged.” Some earlier peer files may already have been applied before a later
 file fails; fix the reported file/permission problem and rerun the command.
 Row-level imports are idempotent, so the retry is safe.
+
+Schema-v12 and schema-v13 snapshots are intentionally incompatible. Upgrade all
+devices and let each one publish a new snapshot. If an old manually created
+composite tombstone has no structured key, import/export stops and reports its
+table and token for operator review instead of guessing or deleting data.
 
 The local DB, runtime, staging, reports, and PDF/CLI caches live under repo
 `.cache`. Sync bookkeeping lives under

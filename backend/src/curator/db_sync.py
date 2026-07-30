@@ -15,7 +15,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import IO, Callable as _Callable
+from typing import IO, Any, Callable as _Callable, Mapping
 
 from . import db
 
@@ -146,6 +146,260 @@ _PK_COL: dict[str, str | None] = {
 }
 
 
+@dataclass(frozen=True)
+class _CompositeKeySpec:
+    transport_fields: tuple[tuple[str, type], ...]
+    physical_columns: tuple[str, ...]
+    source_scoped: bool = False
+
+
+_COMPOSITE_KEY_SPECS: dict[str, _CompositeKeySpec] = {
+    "source_pages": _CompositeKeySpec(
+        (
+            ("source_sync_key", str),
+            ("wiki_path", str),
+            ("at", str),
+        ),
+        ("source_id", "wiki_path", "at"),
+        source_scoped=True,
+    ),
+    "source_pdf_pages": _CompositeKeySpec(
+        (
+            ("source_sync_key", str),
+            ("page_number", int),
+        ),
+        ("source_id", "page_number"),
+        source_scoped=True,
+    ),
+    "claim_supports": _CompositeKeySpec(
+        (
+            ("knowledge_unit_id", str),
+            ("source_span_id", str),
+            ("support_role", str),
+        ),
+        ("knowledge_unit_id", "source_span_id", "support_role"),
+    ),
+    "graph_relation_supports": _CompositeKeySpec(
+        (
+            ("relation_id", str),
+            ("knowledge_unit_id", str),
+            ("support_hash", str),
+        ),
+        ("relation_id", "knowledge_unit_id", "support_hash"),
+    ),
+    "entity_resolution_lineage": _CompositeKeySpec(
+        (
+            ("decision_id", str),
+            ("origin_entity_id", str),
+        ),
+        ("decision_id", "origin_entity_id"),
+    ),
+    "artifact_dependencies": _CompositeKeySpec(
+        (
+            ("artifact_id", str),
+            ("depends_on_id", str),
+            ("depends_on_type", str),
+        ),
+        ("artifact_id", "depends_on_id", "depends_on_type"),
+    ),
+}
+
+
+def _canonical_composite_key(
+    table_name: str,
+    key: Mapping[str, object],
+) -> str:
+    spec = _COMPOSITE_KEY_SPECS.get(table_name)
+    if spec is None:
+        raise ValueError(f"Table {table_name!r} has no composite tombstone key")
+
+    expected = {name: value_type for name, value_type in spec.transport_fields}
+    actual_fields = set(key)
+    expected_fields = set(expected)
+    if actual_fields != expected_fields:
+        missing = sorted(expected_fields - actual_fields)
+        extra = sorted(actual_fields - expected_fields)
+        detail = []
+        if missing:
+            detail.append(f"missing fields: {', '.join(missing)}")
+        if extra:
+            detail.append(f"unknown fields: {', '.join(extra)}")
+        raise ValueError(
+            f"Invalid composite tombstone for {table_name!r}: {'; '.join(detail)}"
+        )
+
+    normalized: dict[str, object] = {}
+    for name, value_type in spec.transport_fields:
+        value = key[name]
+        if type(value) is not value_type:
+            raise ValueError(
+                f"Invalid composite tombstone for {table_name!r}: "
+                f"{name} must be {value_type.__name__}"
+            )
+        if value_type is str and not str(value):
+            raise ValueError(
+                f"Invalid composite tombstone for {table_name!r}: "
+                f"{name} must not be empty"
+            )
+        normalized[name] = value
+
+    return json.dumps(
+        {"key": normalized, "v": 1},
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def _unique_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for name, value in pairs:
+        if name in result:
+            raise ValueError(f"duplicate JSON field {name!r}")
+        result[name] = value
+    return result
+
+
+def _decode_composite_key(
+    table_name: str,
+    token: str,
+) -> dict[str, object]:
+    try:
+        payload = json.loads(token, object_pairs_hook=_unique_json_object)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise ValueError(
+            f"Invalid composite tombstone for {table_name!r}: "
+            f"record_id {token!r} is not supported canonical JSON ({exc})"
+        ) from exc
+    if type(payload) is not dict or set(payload) != {"key", "v"}:
+        raise ValueError(
+            f"Invalid composite tombstone for {table_name!r}: "
+            "payload must contain exactly 'key' and 'v'"
+        )
+    if type(payload["v"]) is not int or payload["v"] != 1:
+        raise ValueError(
+            f"Invalid composite tombstone for {table_name!r}: "
+            f"unsupported token version {payload['v']!r}"
+        )
+    key = payload["key"]
+    if type(key) is not dict:
+        raise ValueError(
+            f"Invalid composite tombstone for {table_name!r}: key must be an object"
+        )
+    canonical = _canonical_composite_key(table_name, key)
+    if token != canonical:
+        raise ValueError(
+            f"Invalid composite tombstone for {table_name!r}: "
+            "record_id is valid JSON but not canonical"
+        )
+    return key
+
+
+_MISSING = object()
+
+
+def _row_value(
+    row: Mapping[str, Any],
+    name: str,
+    default: object = _MISSING,
+) -> Any:
+    try:
+        return row[name]
+    except (IndexError, KeyError):
+        if default is _MISSING:
+            raise
+        return default
+
+
+def _record_key_for_row(
+    conn: "db.sqlite3.Connection",
+    table_name: str,
+    row: Mapping[str, Any],
+) -> str:
+    spec = _COMPOSITE_KEY_SPECS.get(table_name)
+    if spec is None:
+        pk_col = _PK_COL.get(table_name)
+        if not pk_col:
+            raise ValueError(f"Table {table_name!r} has no transport key")
+        value = _row_value(row, pk_col, None)
+        token = str(value or "")
+        if not token:
+            raise ValueError(
+                f"Table {table_name!r} row is missing transport key {pk_col!r}"
+            )
+        return token
+
+    key: dict[str, object] = {}
+    for field_name, _value_type in spec.transport_fields:
+        if field_name == "source_sync_key":
+            source_id = _row_value(row, "source_id", None)
+            source = conn.execute(
+                "SELECT sync_key FROM sources WHERE id = ?",
+                (source_id,),
+            ).fetchone()
+            if source is None or not str(source["sync_key"] or ""):
+                raise ValueError(
+                    f"Table {table_name!r} row references unknown local "
+                    f"source_id {source_id!r}"
+                )
+            key[field_name] = str(source["sync_key"])
+        else:
+            value = _row_value(row, field_name, _MISSING)
+            if value is _MISSING:
+                raise ValueError(
+                    f"Table {table_name!r} row is missing key field {field_name!r}"
+                )
+            key[field_name] = value
+    return _canonical_composite_key(table_name, key)
+
+
+def _physical_key_for_token(
+    conn: "db.sqlite3.Connection",
+    table_name: str,
+    token: str,
+) -> tuple[tuple[str, ...], tuple[object, ...] | None]:
+    spec = _COMPOSITE_KEY_SPECS.get(table_name)
+    if spec is None:
+        pk_col = _PK_COL.get(table_name)
+        if not pk_col:
+            raise ValueError(f"Table {table_name!r} has no transport key")
+        return (pk_col,), (token,)
+
+    key = _decode_composite_key(table_name, token)
+    values: list[object] = []
+    for column in spec.physical_columns:
+        if column == "source_id":
+            source = conn.execute(
+                "SELECT id FROM sources WHERE sync_key = ?",
+                (key["source_sync_key"],),
+            ).fetchone()
+            if source is None:
+                return spec.physical_columns, None
+            values.append(int(source["id"]))
+        else:
+            values.append(key[column])
+    return spec.physical_columns, tuple(values)
+
+
+def _validate_tombstone_token(table_name: str, token: object) -> str:
+    if not isinstance(token, str) or not token:
+        raise ValueError(
+            f"Invalid tombstone for {table_name!r}: record_id must be a non-empty string"
+        )
+    if table_name in _COMPOSITE_KEY_SPECS:
+        _decode_composite_key(table_name, token)
+    return token
+
+
+def _require_timestamp(value: object, *, context: str) -> str:
+    if (
+        not isinstance(value, str)
+        or _timestamp_key(value) == datetime.min.replace(tzinfo=timezone.utc)
+    ):
+        raise ValueError(f"{context} must be a valid timestamp")
+    return value
+
+
 @dataclass
 class ExportStats:
     total_rows: int = 0
@@ -181,12 +435,66 @@ def record_tombstone_on_connection(
     """Record a canonical delete in the caller's transaction."""
     if table_name not in SYNC_TABLES or table_name == "deleted_records":
         raise ValueError(f"Table {table_name!r} is not syncable")
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    record_id = _validate_tombstone_token(table_name, record_id)
+    now = datetime.now(timezone.utc).isoformat(timespec="microseconds").replace(
+        "+00:00", "Z"
+    )
     conn.execute(
         "INSERT OR REPLACE INTO deleted_records (table_name, record_id, deleted_at)"
         " VALUES (?, ?, ?)",
         (table_name, record_id, now),
     )
+
+
+def record_row_tombstone_on_connection(
+    conn: "db.sqlite3.Connection",
+    table_name: str,
+    row: Mapping[str, Any],
+) -> str:
+    """Record the portable key of a row being hard-deleted by a local writer."""
+    token = _record_key_for_row(conn, table_name, row)
+    record_tombstone_on_connection(conn, table_name, token)
+    return token
+
+
+def clear_row_tombstone_on_connection(
+    conn: "db.sqlite3.Connection",
+    table_name: str,
+    row: Mapping[str, Any],
+) -> None:
+    """Clear the exact tombstone after a local writer makes that row live."""
+    token = _record_key_for_row(conn, table_name, row)
+    conn.execute(
+        "DELETE FROM deleted_records WHERE table_name = ? AND record_id = ?",
+        (table_name, token),
+    )
+
+
+def delete_rows_with_tombstones_on_connection(
+    conn: "db.sqlite3.Connection",
+    table_name: str,
+    where_sql: str,
+    params: tuple[object, ...],
+) -> int:
+    """Delete selected composite rows and record their portable keys atomically.
+
+    ``where_sql`` is supplied only by static application call sites. JSONL input
+    never reaches this helper.
+    """
+    if table_name not in _COMPOSITE_KEY_SPECS:
+        raise ValueError(f"Table {table_name!r} is not a composite-key table")
+    rows = conn.execute(
+        f"SELECT * FROM {table_name} WHERE {where_sql}",
+        params,
+    ).fetchall()
+    tokens = [_record_key_for_row(conn, table_name, row) for row in rows]
+    cursor = conn.execute(
+        f"DELETE FROM {table_name} WHERE {where_sql}",
+        params,
+    )
+    for token in tokens:
+        record_tombstone_on_connection(conn, table_name, token)
+    return cursor.rowcount
 
 
 def record_tombstone(db_path: Path, table_name: str, record_id: str) -> None:
@@ -360,9 +668,29 @@ def export_knowledge(
 
                     count = 0
                     for row in rows:
+                        row_payload = dict(row)
+                        if tbl == "deleted_records":
+                            target_table = row_payload.get("table_name")
+                            if (
+                                target_table not in SYNC_TABLES
+                                or target_table == "deleted_records"
+                            ):
+                                raise ValueError(
+                                    f"Tombstone table {target_table!r} is not syncable"
+                                )
+                            _validate_tombstone_token(
+                                target_table,
+                                row_payload.get("record_id"),
+                            )
+                            _require_timestamp(
+                                row_payload.get("deleted_at"),
+                                context=(
+                                    f"Tombstone for {target_table!r} deleted_at"
+                                ),
+                            )
                         f.write(
                             json.dumps(
-                                {"type": "row", "table": tbl, "row": dict(row)}
+                                {"type": "row", "table": tbl, "row": row_payload}
                             ) + "\n"
                         )
                         count += 1
@@ -435,7 +763,7 @@ def import_knowledge(
                 ]
                 for table, columns in table_info.items()
             }
-            source_id_map: dict[int, int] = {}
+            source_id_map: dict[int, int | None] = {}
 
             for line in f:
                 line = line.strip()
@@ -496,7 +824,11 @@ def import_knowledge(
                                 f"Table {tbl!r} references unmapped source_id "
                                 f"{remote_source_id!r}"
                             )
-                        row["source_id"] = source_id_map[remote_source_id]
+                        local_source_id = source_id_map[remote_source_id]
+                        if local_source_id is None:
+                            stats.skipped += 1
+                            continue
+                        row["source_id"] = local_source_id
                     result = _lw_upsert(
                         conn,
                         tbl,
@@ -525,39 +857,47 @@ def _apply_tombstone(
     Returns True if the tombstone would be applied."""
     if table_name not in SYNC_TABLES or table_name == "deleted_records":
         raise ValueError(f"Table {table_name!r} is not syncable")
+    record_id = _validate_tombstone_token(table_name, record_id)
+    deleted_at = _require_timestamp(
+        deleted_at,
+        context=f"Tombstone for {table_name!r} deleted_at",
+    )
 
     # Check if there is already a newer tombstone
     existing_tombstone = conn.execute(
         "SELECT deleted_at FROM deleted_records WHERE table_name = ? AND record_id = ?",
         (table_name, record_id),
     ).fetchone()
-    if existing_tombstone and existing_tombstone[0] >= deleted_at:
+    if existing_tombstone and _timestamp_key(
+        existing_tombstone[0]
+    ) >= _timestamp_key(deleted_at):
         return False
 
     # Check if the local record is newer than the tombstone
-    pk_col = _PK_COL.get(table_name)
     updated_col = _UPDATED_AT_COL.get(table_name)
-    if table_name == "sources":
-        pk_col = "sync_key"
-    if pk_col and updated_col:
+    key_columns, key_values = _physical_key_for_token(
+        conn,
+        table_name,
+        record_id,
+    )
+    where = " AND ".join(f"{column} IS ?" for column in key_columns)
+    if key_values is not None and updated_col:
         local_record = conn.execute(
-            f"SELECT {updated_col} FROM {table_name} WHERE {pk_col} = ?",
-            (record_id,),
+            f"SELECT {updated_col} FROM {table_name} WHERE {where}",
+            key_values,
         ).fetchone()
-        if local_record and (local_record[0] or "") >= deleted_at:
+        if local_record and _timestamp_key(local_record[0]) > _timestamp_key(
+            deleted_at
+        ):
             return False
 
     if not dry_run:
-        if pk_col:
-            conn.execute(f"DELETE FROM {table_name} WHERE {pk_col} = ?", (record_id,))
-        else:
-            # Composite-PK tables cannot be deleted by a single record_id. The
-            # tombstone is still recorded for propagation, but the local row is not
-            # removed here — surface it rather than failing silently.
-            logger.warning(
-                "Tombstone for composite-PK table %r (record_id=%r) recorded but not "
-                "applied as a delete; composite-key deletion is unsupported.",
-                table_name, record_id,
+        if table_name == "sources" and key_values is not None:
+            _delete_source_by_sync_key(conn, record_id)
+        elif key_values is not None:
+            conn.execute(
+                f"DELETE FROM {table_name} WHERE {where}",
+                key_values,
             )
         # Record tombstone so this device also propagates the deletion on future exports.
         conn.execute(
@@ -568,6 +908,22 @@ def _apply_tombstone(
     return True
 
 
+def _delete_source_by_sync_key(
+    conn: "db.sqlite3.Connection",
+    sync_key: str,
+) -> None:
+    source = conn.execute(
+        "SELECT id FROM sources WHERE sync_key = ?",
+        (sync_key,),
+    ).fetchone()
+    if source is None:
+        return
+    source_id = int(source["id"])
+    from .db.sources import _delete_source_on_connection
+
+    _delete_source_on_connection(conn, source_id)
+
+
 def _source_sync_key(row: dict) -> str:
     sync_key = str(row.get("sync_key") or "").strip()
     if sync_key:
@@ -575,18 +931,68 @@ def _source_sync_key(row: dict) -> str:
     raise ValueError("Source row is missing sync_key")
 
 
+def _row_is_blocked_by_tombstone(
+    conn: "db.sqlite3.Connection",
+    table_name: str,
+    row: Mapping[str, Any],
+    *,
+    dry_run: bool,
+) -> bool:
+    token = _record_key_for_row(conn, table_name, row)
+    tombstone = conn.execute(
+        "SELECT deleted_at FROM deleted_records "
+        "WHERE table_name = ? AND record_id = ?",
+        (table_name, token),
+    ).fetchone()
+    if tombstone is None:
+        return False
+
+    deleted_at = _require_timestamp(
+        tombstone["deleted_at"],
+        context=f"Tombstone for {table_name!r} deleted_at",
+    )
+    updated_col = _UPDATED_AT_COL.get(table_name)
+    if updated_col is None:
+        return True
+    remote_ts_fn = _REMOTE_TS_FN.get(table_name)
+    row_revision = (
+        remote_ts_fn(dict(row))
+        if remote_ts_fn is not None
+        else _row_value(row, updated_col, None)
+    )
+    row_revision = _require_timestamp(
+        row_revision,
+        context=f"Table {table_name!r} row revision",
+    )
+    if _timestamp_key(deleted_at) >= _timestamp_key(row_revision):
+        return True
+    if not dry_run:
+        conn.execute(
+            "DELETE FROM deleted_records WHERE table_name = ? AND record_id = ?",
+            (table_name, token),
+        )
+    return False
+
+
 def _lw_upsert_source(
     conn: "db.sqlite3.Connection",
     row: dict,
     *,
     dry_run: bool = False,
-) -> tuple[str, int]:
+) -> tuple[str, int | None]:
     """Merge a source by portable key while preserving the local integer id."""
     sync_key = _source_sync_key(row)
     row["sync_key"] = sync_key
     remote_ts = _REMOTE_TS_FN["sources"](row)
     if _timestamp_key(remote_ts) == datetime.min.replace(tzinfo=timezone.utc):
         raise ValueError("Source row is missing a valid updated_at revision")
+    if _row_is_blocked_by_tombstone(
+        conn,
+        "sources",
+        row,
+        dry_run=dry_run,
+    ):
+        return "skipped", None
     remote_id = row.get("id")
     existing = conn.execute(
         "SELECT * FROM sources WHERE sync_key = ?",
@@ -642,6 +1048,13 @@ def _lw_upsert(
     key_columns = primary_keys or ([pk_col] if pk_col else [])
 
     if key_columns and all(key in row for key in key_columns):
+        if _row_is_blocked_by_tombstone(
+            conn,
+            table_name,
+            row,
+            dry_run=dry_run,
+        ):
+            return "skipped"
         where = " AND ".join(f"{key} IS ?" for key in key_columns)
         existing = conn.execute(
             f"SELECT * FROM {table_name} WHERE {where}",
@@ -919,9 +1332,12 @@ def _timestamp_key(value: object) -> datetime:
     if not isinstance(value, str):
         return datetime.min.replace(tzinfo=timezone.utc)
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return datetime.min.replace(tzinfo=timezone.utc)
+    if parsed.tzinfo is None:
+        return datetime.min.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _local_max_ts(db_path: Path) -> str:

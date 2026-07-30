@@ -62,6 +62,7 @@ class TestSchemaVersion:
 def test_timestamp_key_rejects_non_string_values() -> None:
     assert _timestamp_key(None) == _timestamp_key("")
     assert _timestamp_key(42) == _timestamp_key("")
+    assert _timestamp_key("2026-01-01T00:00:00") == _timestamp_key("")
 
 
 @pytest.mark.parametrize("updated_at", ["", "not-a-timestamp"])

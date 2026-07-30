@@ -33,8 +33,8 @@ def db_path() -> Path:
         yield path
 
 
-def test_schema_version_is_12() -> None:
-    assert db.SCHEMA_VERSION == 12
+def test_schema_version_is_13() -> None:
+    assert db.SCHEMA_VERSION == 13
 
 
 def test_connect_stamps_current_schema_version_on_self_healed_db(tmp_path: Path) -> None:

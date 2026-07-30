@@ -767,17 +767,16 @@ class TestTwoDeviceE2E:
 
 
 class TestCompositePkTombstone:
-    def test_composite_pk_tombstone_warns_not_silent(self, vault: Path, caplog) -> None:
-        """A tombstone for a composite-PK table cannot delete by single record_id;
-        it must log a warning rather than fail silently (review #3)."""
+    def test_legacy_composite_pk_tombstone_fails_closed(self, vault: Path) -> None:
+        """An ambiguous pre-v13 token blocks the peer without being checkpointed."""
         peer = _peer_with_tombstone(
             vault, "dev-peerJJJJ.jsonl", "source_pages", "some-id", "2026-06-02T00:00:00Z"
         )
         assert peer.exists()
-        import logging
-        with caplog.at_level(logging.WARNING, logger="curator.db_sync"):
+        with pytest.raises(db_sync.AutosyncError, match="source_pages"):
             db_sync.import_all_peers(_internal(vault), _db(vault))
-        assert any("composite-PK" in r.message for r in caplog.records)
+        state = db_sync.read_sync_state(_internal(vault))
+        assert "dev-peerJJJJ.jsonl" not in state.get("peers", {})
 
 
 class TestLocalUnexported:

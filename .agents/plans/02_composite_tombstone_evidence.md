@@ -1,7 +1,7 @@
 # v0.37.0 Composite Tombstone Evidence Ledger
 
 Date: 2026-07-30
-Status: BASELINE LOCKED — no application code changed; schema approval pending.
+Status: IMPLEMENTATION APPROVED — docs-first/TDD execution underway.
 
 ## Rollback anchor
 
@@ -57,4 +57,3 @@ Composite synchronized primary keys:
 ## Post-validation
 
 Pending implementation approval.
-

@@ -288,17 +288,11 @@ def _auto_discover_pending(paths: cfg.WikiPaths) -> tuple[int, int]:
     removed = 0
     if orphans:
         from .db_sync import record_tombstone_on_connection
+        from .db.sources import _delete_source_on_connection
 
         with db.connect(paths.state_db) as conn:
-            ph = ','.join('?' * len(orphans))
-            conn.execute(f"DELETE FROM job_events WHERE job_id IN (SELECT id FROM ingest_jobs WHERE source_id IN ({ph}))", orphans)
-            conn.execute(f"DELETE FROM ingest_jobs WHERE source_id IN ({ph})", orphans)
-            conn.execute(f"DELETE FROM ingest_runs WHERE source_id IN ({ph})", orphans)
-            conn.execute(f"DELETE FROM source_pages WHERE source_id IN ({ph})", orphans)
-            conn.execute(f"DELETE FROM dag_edges WHERE source_id IN ({ph})", orphans)
-            conn.execute(f"DELETE FROM source_pdf_pages WHERE source_id IN ({ph})", orphans)
-            conn.execute(f"DELETE FROM sources WHERE id IN ({ph})", orphans)
             for source_id in orphans:
+                _delete_source_on_connection(conn, source_id)
                 record_tombstone_on_connection(
                     conn,
                     "sources",

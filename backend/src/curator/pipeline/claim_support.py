@@ -255,27 +255,34 @@ def _clear_claim_supports(
     longer cites, is stale and is cleared too (would otherwise linger / dangle —
     SCHEMA §20.5 #3).
     """
+    from ..db_sync import delete_rows_with_tombstones_on_connection
+
     with db._maybe_conn(db_path, conn) as c:
         if not preserve_formula or not has_formula:
-            c.execute(
-                "DELETE FROM claim_supports WHERE knowledge_unit_id = ?",
+            delete_rows_with_tombstones_on_connection(
+                c,
+                "claim_supports",
+                "knowledge_unit_id = ?",
                 (unit_id,),
             )
             return
         kept = list(declared or [])
         if kept:
             placeholders = ",".join("?" for _ in kept)
-            c.execute(
-                "DELETE FROM claim_supports "
-                "WHERE knowledge_unit_id = ? "
+            delete_rows_with_tombstones_on_connection(
+                c,
+                "claim_supports",
+                "knowledge_unit_id = ? "
                 "AND (support_role != 'formula' OR source_span_id NOT IN "
                 f"({placeholders}))",
                 (unit_id, *kept),
             )
         else:
             # No declared spans → every formula support is dangling.
-            c.execute(
-                "DELETE FROM claim_supports WHERE knowledge_unit_id = ?",
+            delete_rows_with_tombstones_on_connection(
+                c,
+                "claim_supports",
+                "knowledge_unit_id = ?",
                 (unit_id,),
             )
 
@@ -543,6 +550,11 @@ def _reuse_verified_candidate(
 ) -> None:
     """Move a verified semantic-match candidate onto the prior stable id.
     Pass ``conn`` to run inside a caller's transaction (atomic publish)."""
+    from ..db_sync import (
+        clear_row_tombstone_on_connection,
+        delete_rows_with_tombstones_on_connection,
+    )
+
     with db._maybe_conn(db_path, conn) as c:
         candidate = c.execute(
             "SELECT * FROM knowledge_units WHERE id = ?", (candidate_id,)
@@ -560,7 +572,12 @@ def _reuse_verified_candidate(
             f"UPDATE knowledge_units SET {assignments}, updated_at = ? WHERE id = ?",
             tuple(candidate[field] for field in fields) + (candidate["updated_at"], old_id),
         )
-        c.execute("DELETE FROM claim_supports WHERE knowledge_unit_id = ?", (old_id,))
+        delete_rows_with_tombstones_on_connection(
+            c,
+            "claim_supports",
+            "knowledge_unit_id = ?",
+            (old_id,),
+        )
         c.execute(
             """
             INSERT INTO claim_supports
@@ -573,6 +590,16 @@ def _reuse_verified_candidate(
             """,
             (old_id, candidate_id),
         )
+        for support in c.execute(
+            "SELECT knowledge_unit_id, source_span_id, support_role "
+            "FROM claim_supports WHERE knowledge_unit_id = ?",
+            (old_id,),
+        ).fetchall():
+            clear_row_tombstone_on_connection(
+                c,
+                "claim_supports",
+                support,
+            )
     db.retire_knowledge_unit(db_path, candidate_id, conn=conn)
 
 

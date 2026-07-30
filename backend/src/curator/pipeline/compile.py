@@ -488,6 +488,8 @@ def _discard_staged_units(db_path: Path, generation_id: str) -> None:
     """Delete a staged generation's knowledge_units + their claim_supports
     (copy-on-stage discard, §26.3). The staged rows are distinct from the prior
     authoritative generation's rows, so this never touches served state."""
+    from ..db_sync import delete_rows_with_tombstones_on_connection
+
     with db.connect(db_path) as conn:
         unit_ids = [
             str(r[0]) for r in conn.execute(
@@ -496,7 +498,12 @@ def _discard_staged_units(db_path: Path, generation_id: str) -> None:
             ).fetchall()
         ]
         for uid in unit_ids:
-            conn.execute("DELETE FROM claim_supports WHERE knowledge_unit_id = ?", (uid,))
+            delete_rows_with_tombstones_on_connection(
+                conn,
+                "claim_supports",
+                "knowledge_unit_id = ?",
+                (uid,),
+            )
         conn.execute("DELETE FROM knowledge_units WHERE generation_id = ?", (generation_id,))
 
 

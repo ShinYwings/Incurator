@@ -1,4 +1,4 @@
-# Incurator - Schema & Operating Conventions (v0.36.0)
+# Incurator - Schema & Operating Conventions (v0.37.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -731,7 +731,7 @@ on emitted markdown:
   in the same backend write path. Projection re-emission is an Obsidian
   convenience step, not a retrieval prerequisite.
 
-## 11. SQLite State Schema (`SCHEMA_VERSION = 12`)
+## 11. SQLite State Schema (`SCHEMA_VERSION = 13`)
 
 v0.4.0 set `db.SCHEMA_VERSION` to `7`; v0.8.0 (Plan B) bumps it to `8`; v0.9.0
 (Plan C — Graph Quality) bumps it to `9`. The v0.3.2 tables remain in use.
@@ -767,6 +767,10 @@ use typed string prefixes so they are self-describing in traces and frontmatter.
 > `SCHEMA_VERSION = 11` adds `sources.updated_at` as the source-row LWW clock.
 > `SCHEMA_VERSION = 12` adds `sources.sync_key`, a portable transport identity,
 > and `compiler_generations.updated_at`.
+> `SCHEMA_VERSION = 13` adds the versioned composite-primary-key tombstone
+> transport contract. The SQLite table shape is unchanged: existing scalar
+> tombstones remain valid, while composite tombstones use validated canonical
+> JSON and source-scoped keys use `sources.sync_key`.
 >
 > **v0.33.0 strict state-schema policy:** runtime DB initialization no longer
 > carries pre-v12 automatic migration shims. Current databases are created from
@@ -1446,7 +1450,7 @@ All ids are generated backend-side. Generated content (knowledge units,
 entities, relations, reports, paths, synthesis nodes) must reference only ids that
 already exist; prompt validators reject invented ids.
 
-## 11.17 `deleted_records` — Cross-Device Sync Tombstones (`SCHEMA_VERSION = 12`)
+## 11.17 `deleted_records` — Cross-Device Sync Tombstones (`SCHEMA_VERSION = 13`)
 
 Records deleted on one device are propagated to other devices on the next `wiki db import`. The tombstone table stores the table name and the deleted record's primary key so the deletion can be applied without needing the original row.
 
@@ -1461,21 +1465,56 @@ CREATE TABLE IF NOT EXISTS deleted_records (
         'source_spans','knowledge_units','graph_entities','graph_relations',
         'community_reports','memory_paths','prompt_runs','dag_edges',
         'curation_plans','insight_candidates','artifact_dependencies',
-        'synthesis','query_traces','source_pages','source_pdf_pages'
+        'synthesis','query_traces','source_pages','source_pdf_pages',
+        'claim_supports','compiler_generations',
+        'entity_aliases','entity_merge_proposals','entity_resolution_lineage',
+        'graph_relation_supports'
     ))
 );
 ```
 
 **Invariants:**
-- `record_tombstone(db_path, table_name, record_id)` must be called whenever a canonical row is hard-deleted. It records the deletion and enables other devices to apply it on import.
+- `record_tombstone(db_path, table_name, record_id)` must be called whenever a
+  canonical row is hard-deleted. `record_id` is the portable transport-key token,
+  not necessarily one physical SQLite column.
 - A `sources` tombstone stores the portable `sources.sync_key`, never the
   replica-local integer `sources.id`.
-- During `wiki db import`, tombstones are applied **before** upserts. A tombstone beats a concurrent update (deletion wins over modification).
+- Scalar-primary-key tables keep their existing raw string token. Composite keys
+  use compact, sorted JSON with no insignificant whitespace:
+  `{"key":{...},"v":1}`. The accepted fields and scalar types are closed:
+
+  | Table | Tombstone transport fields |
+  | --- | --- |
+  | `source_pages` | `source_sync_key: string`, `wiki_path: string`, `at: string` |
+  | `source_pdf_pages` | `source_sync_key: string`, `page_number: integer` |
+  | `claim_supports` | `knowledge_unit_id: string`, `source_span_id: string`, `support_role: string` |
+  | `graph_relation_supports` | `relation_id: string`, `knowledge_unit_id: string`, `support_hash: string` |
+  | `entity_resolution_lineage` | `decision_id: string`, `origin_entity_id: string` |
+  | `artifact_dependencies` | `artifact_id: string`, `depends_on_id: string`, `depends_on_type: string` |
+
+  Unknown, missing, extra, duplicate, or wrongly typed key fields and unsupported
+  token versions fail closed. SQL table/column identifiers always come from this
+  registry; JSONL input supplies bound values only.
+- `source_pages` and `source_pdf_pages` tombstones never transmit the
+  replica-local `source_id`. The receiver resolves `source_sync_key` against its
+  own `sources` row. If that source is not present yet, the dependent row is
+  already absent; the portable tombstone is still retained so a later stale row
+  cannot resurrect it.
+- During `wiki db import`, tombstones are applied **before** upserts. For a
+  mutable row, `deleted_at >= row_revision` means the tombstone wins. A strictly
+  newer row removes the older exact tombstone and proceeds through normal LWW.
+  For an immutable row without a revision clock, an existing tombstone wins.
 - Applying an imported tombstone is one SQLite transaction: the target `DELETE`
   must complete before the tombstone is recorded and the deleted counter is
   incremented. A `DELETE` exception aborts the input-file transaction, leaves
   the local row/tombstone state unchanged, and is surfaced to the caller. A
   zero-row delete is still valid when the target was already absent.
+- Applying a `sources` tombstone performs the same non-cascading dependent
+  cleanup as local source removal before deleting the source row.
+- A pre-v13 raw token stored for a composite table is ambiguous. Export or import
+  reports its table and token and stops without rewriting or discarding it.
+  v12/v13 JSONL snapshots do not interoperate; every device must upgrade and
+  re-export before autosync resumes.
 - Device-local tables (`search_embeddings`, `ingest_jobs`, `job_events`, `page_hashes`, FTS5 virtual tables) are **never** listed as `table_name` in tombstones and are excluded from `wiki db export`.
 
 **Portable source locators (`SCHEMA_VERSION = 11`):** `sources` has no
@@ -1691,13 +1730,15 @@ Rules (Arena decision 8 — staged atomic publish):
 - Every status transition advances `updated_at` monotonically. A stale
   `staged`/`discarded` snapshot cannot overwrite a newer authoritative row.
 
-### 20.3.1 JSONL Import Boundary (`SCHEMA_VERSION = 12`)
+### 20.3.1 JSONL Import Boundary (`SCHEMA_VERSION = 13`)
 
 - Export headers include a unique `export_id`; peer high-water state records
   this id rather than relying on filesystem mtime.
 - Import accepts only frozen `SYNC_TABLES` entries and columns declared by the
   local table schema.
-- Schema v11 snapshots are unsupported once v12 is active.
+- Schema v12 snapshots are unsupported once v13 is active. v13 adds the
+  composite tombstone token and convergence rules in §11.17; mixed-version peers
+  must upgrade and re-export rather than partially applying a snapshot.
 
 ### 20.4 Formula Recovery Candidates (`source_spans.metadata.formula_recovery`)
 

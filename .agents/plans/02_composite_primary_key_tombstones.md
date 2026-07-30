@@ -1,7 +1,7 @@
 # v0.37.0 Master Implementation Plan
 
 Date: 2026-07-30
-Status: PROPOSED — Arena debate concluded; awaiting schema-contract approval.
+Status: ACTIVE — schema/wire contract approved; docs-first implementation underway.
 
 ## 1. Objective
 
@@ -119,4 +119,3 @@ Definition of done:
 - **P7 — Release**
   - Update changelog/roadmap/relay, delete completed v0.37 plan artifacts,
     create `chore(release): v0.37.0`, push, open PR, and monitor CI/review.
-
