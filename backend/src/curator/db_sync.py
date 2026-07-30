@@ -893,7 +893,7 @@ def _reconcile_authoritative_generations(conn: "db.sqlite3.Connection") -> None:
     now = datetime.now(timezone.utc).isoformat(timespec="microseconds").replace(
         "+00:00", "Z"
     )
-    for generations in by_source.values():
+    for source_id, generations in by_source.items():
         if len(generations) < 2:
             continue
 
@@ -920,25 +920,117 @@ def _reconcile_authoritative_generations(conn: "db.sqlite3.Connection") -> None:
         losing_ids = sorted(
             str(row["id"]) for row in generations if row["id"] != winner["id"]
         )
+        winner_relation_ids = _generation_authored_relation_ids(winner)
+        winner_membership = set(winner_relation_ids or ())
+        prior_memberships: list[set[str]] = []
+        prior_membership_known = True
+        for generation in generations:
+            if generation["id"] == winner["id"]:
+                continue
+            relation_ids = _generation_authored_relation_ids(generation)
+            if relation_ids is None:
+                prior_membership_known = False
+            else:
+                prior_memberships.append(set(relation_ids))
+        common_prior_membership = (
+            set.intersection(*prior_memberships)
+            if prior_membership_known and prior_memberships
+            else set()
+        )
+        newly_added_ids = (
+            winner_membership - common_prior_membership
+            if prior_membership_known
+            else winner_membership
+        )
+        owned_relation_ids: set[str] = set()
+        if source_id is not None:
+            owned_relation_ids = {
+                str(row[0])
+                for row in conn.execute(
+                    "SELECT r.id FROM graph_relations r "
+                    "JOIN compiler_generations g ON g.id = r.generation_id "
+                    "WHERE r.edge_class = 'authored' AND g.source_id = ?",
+                    (source_id,),
+                ).fetchall()
+            }
+        relation_revisions: list[str] = []
+        for relation_id in sorted(owned_relation_ids | winner_membership):
+            relation_row = conn.execute(
+                "SELECT updated_at FROM graph_relations WHERE id = ?",
+                (relation_id,),
+            ).fetchone()
+            if relation_row is not None:
+                relation_revisions.append(str(relation_row["updated_at"] or ""))
+        revision = max(
+            [
+                now,
+                *(str(row["updated_at"] or "") for row in generations),
+                *relation_revisions,
+            ],
+            key=_timestamp_key,
+        )
         placeholders = ",".join("?" for _ in losing_ids)
         conn.execute(
             "UPDATE compiler_generations SET status = 'discarded', "
             "discarded_at = ?, updated_at = ? "
             f"WHERE id IN ({placeholders})",
-            (now, now, *losing_ids),
+            (revision, revision, *losing_ids),
         )
-        relation_ids = [
-            str(row[0])
-            for row in conn.execute(
-                "SELECT id FROM graph_relations "
-                "WHERE edge_class = 'authored' AND lifecycle_status != 'retired' "
-                f"AND generation_id IN ({placeholders})",
-                tuple(losing_ids),
-            ).fetchall()
-        ]
-        if not relation_ids:
-            continue
-        db.retire_graph_relations_on_connection(conn, relation_ids, now=now)
+        newly_active_ids: list[str] = []
+        for relation_id in sorted(winner_membership):
+            row = conn.execute(
+                "SELECT edge_class FROM graph_relations WHERE id = ?",
+                (relation_id,),
+            ).fetchone()
+            if row is None or str(row["edge_class"]) != "authored":
+                continue
+            conn.execute(
+                "UPDATE graph_relations SET generation_id = ?, "
+                "lifecycle_status = 'provisional', quarantine_reason = '', "
+                "reeval_trigger = '', updated_at = ? WHERE id = ?",
+                (winner["id"], revision, relation_id),
+            )
+            # Authored classification returns before any path-backed bridge-risk
+            # lookup, so a placeholder Path is sufficient for this conn-owned
+            # reconciliation.
+            status = db.compile_relation_lifecycle(
+                Path("."),
+                relation_id=relation_id,
+                conn=conn,
+            )
+            if status == "active" and relation_id in newly_added_ids:
+                newly_active_ids.append(relation_id)
+            conn.execute(
+                "UPDATE graph_relations SET updated_at = ? WHERE id = ?",
+                (revision, relation_id),
+            )
+        db.retire_community_reports_for_relation_endpoints_on_connection(
+            conn,
+            newly_active_ids,
+            now=revision,
+        )
+        db.retire_graph_relations_on_connection(
+            conn,
+            owned_relation_ids - winner_membership,
+            now=revision,
+        )
+
+
+def _generation_authored_relation_ids(row: Any) -> tuple[str, ...] | None:
+    try:
+        audit = json.loads(str(row["audit_json"] or "{}"))
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(audit, dict):
+        return None
+    raw = audit.get("authored_relation_ids")
+    if (
+        not isinstance(raw, list)
+        or any(not isinstance(value, str) or not value for value in raw)
+        or raw != sorted(set(raw))
+    ):
+        return None
+    return tuple(raw)
 
 
 def _apply_tombstone(

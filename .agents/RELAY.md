@@ -2,73 +2,62 @@
 
 ## Goal
 
-Ship v0.39.0 by closing canonical Failure Atlas F9: compile exact authored
-Markdown wikilinks, embeds, tags, and frontmatter references into deterministic
-graph topology without treating them as LLM-extracted factual support.
+Complete a second adversarial review of draft PR #101 and harden v0.39.0
+authored-note topology before merge.
 
 ## Plan Reference
 
-- Completed F9 planning/evidence artifacts were deleted per release workflow;
-  history is preserved in commits `13cc0bf`, `9b13f60`, and `8cd7e7b`.
+- `.agents/plans/03_authored_topology_review_hardening.md`
+- `.agents/plans/03_authored_topology_review_evidence.md`
+- `.agents/plans/authored_topology_review_arena/`
+- `.agents/plans/A_authored_parser_review.md`
+- `.agents/plans/B_authored_generation_review.md`
+- `.agents/plans/C_authored_serving_review.md`
 
 ## Analysis & Reasoning
 
-- Branch `release/v0.39.0` starts from clean `master` rollback anchor
-  `f7f0b08`; v0.38.0 shipped in PR #100.
-- Schema v13 already contains the required authored/extracted, lifecycle,
-  topology-weight, generation, and source-span fields; no migration is planned.
-- The canonical F9 oracle now invokes the real compiler and passes without
-  xfail; the Atlas case is retired in the working tree.
-- Authored structure may shape graph topology, but factual report relation ids,
-  citations, and independent-lineage support remain extracted-only.
-- F9-created note/asset/tag entities and authored relations require stable
-  portable ids so independent replicas converge under existing DB sync.
-- Authored extraction is staged in memory and reconciled inside the successful
-  compiler publish transaction. Failed compilation preserves prior topology.
-- Ordinary explore traversal must become active-only; diagnostic materialization
-  may retain labeled non-active rows.
+- Review anchor is `d4420ea`; draft PR #101 was green before this review.
+- Read-only adversarial tests confirmed parser false positives/negatives,
+  `.markdown` exclusion, discarded-generation ownership, replica-clock
+  convergence loss, stale reports, and stale authored search documents.
+- Schema v13 already has sufficient storage. Exact authored relation membership
+  can be recorded in generation `audit_json`; no migration is planned.
+- DB-only generation republish must carry membership only for an unchanged
+  source fingerprint. Content changes must retire prior authored ownership.
+- Three-way replica reconciliation must compare winner membership against every
+  loser, not their union, or a report from a replica missing the edge can stay
+  served.
+- Broad extracted-data source-deletion closure is pre-existing System Stability
+  scope and is deliberately separated from the F9 patch.
 
 ## Progress Status
 
-- P0 repository/schema/compiler/consumer/sync audit: complete.
-- Official Obsidian syntax and read-only user-vault pattern measurement:
-  complete.
-- Arena, domain plans, master plan, and evidence ledger: approved.
-- P1 docs/spec contract, v0.39 spec-line/manifests, and F9 identifier cleanup:
-  complete. Spec/docs/atlas contract tests: 121 passed; Ruff: green.
-- P2 production-boundary/parser/lifecycle/reconciliation/replica/consumer tests:
-  complete; the red baseline was captured before implementation.
-- P3 deterministic extraction, Unicode-portable identity, atomic persistence,
-  source ownership, and shared retirement: complete.
-- P4 active-only traversal and topology/factual-evidence separation: complete.
-- Code review fixed three cross-path defects: duplicate lifecycle decisions,
-  replica imports leaving multiple authoritative generations, and re-assertion
-  resetting existing extracted lifecycle metadata.
-- Focused compiler/graph/sync/search regression: 283 passed, 4 expected xfails.
-  Focused Ruff and full Mypy (126 files): green.
-- P5 full local CI: 1,335 backend passed (6 skipped, 4 expected xfails);
-  Ruff/Mypy green; plugin 737 passed; production build green; npm audit 0.
-- Isolated ResNet smoke: authenticated build succeeded, 3/3 authored relations
-  active/current-generation-owned, authored supports 0, graph audit clean, lint
-  100/100. Active testbed checksum remained unchanged.
-- CHANGELOG and roadmap cleanup: complete.
-- Completed F9 plans: deleted from the active workspace.
-- Final release commit: `16441a9 chore(release): v0.39.0`.
-- Branch pushed; draft PR #101 targets `master`.
-- Current phase: CI/review and human merge.
+- Docs/specs and 25 authored-topology regression tests: complete.
+- Parser/resolver, exact generation membership, DB-only/type-change
+  reconciliation, two-/three-way replica repair, and report/search freshness:
+  implemented.
+- Full backend: 1,351 passed, 6 skipped, 4 expected xfails. Ruff and Mypy pass.
+- Plugin: 737 passed; production build passes; npm audit reports 0
+  vulnerabilities.
+- Isolated authenticated Antigravity `.markdown` compile/removal gate and lint:
+  pass. Production vault and active testbed were not modified.
+- Gemini MCP and repository last-root state both point to
+  `/Users/shin/shinywings/second_brain`; disposable validation data was moved
+  to Trash.
+- Current phase: preserve planning history, delete completed active plans,
+  commit release follow-up, push, and wait for PR #101 latest-head CI.
 
 ## Critical Context / Blockers
 
-- If implementation demonstrates a schema migration is required, stop and
-  revise the contract before coding the migration.
-- Do not mutate the production vault or overwrite the active ResNet Dynamics
-  testbed. Use an isolated temporary copy for F9 smoke validation.
-- Do not broaden F9 into fuzzy resolution, general alias merging, plugin-specific
-  citation grammar, or L1 span redesign.
-- Later Plan C comments reuse “F9” for unrelated fallback/hierarchy behavior;
-  relabel them during the docs-first phase.
+- Do not broaden the patch into a full Markdown parser, fuzzy resolution,
+  schema migration, or broad inventory optimization.
+- Do not mutate the production vault or active testbed.
+- Changes to D2 holdout-tracked files require synchronized
+  `docs/specs/failure_atlas/D2_HOLDOUT_RESULT.yml` evidence and hashes; the
+  consumed holdout itself must not be rerun.
 
 ## Immediate Next Action
 
-Review PR #101 and its CI. After merge, fast-forward local `master` and apply
-the documented IDLE relay cleanup.
+Commit the verified correction with planning evidence, remove the completed
+active plan artifacts per workflow, create the v0.39.0 release follow-up commit,
+push `release/v0.39.0`, and wait for PR #101 latest-head CI.

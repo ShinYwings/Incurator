@@ -906,23 +906,66 @@ def retire_graph_relations_on_connection(
     if not ids:
         return 0
     retired_at = now or _now_iso()
-    placeholders = ",".join("?" for _ in ids)
-    result = conn.execute(
-        "UPDATE graph_relations SET lifecycle_status = 'retired', "
-        "quarantine_reason = '', reeval_trigger = '', updated_at = ? "
-        f"WHERE id IN ({placeholders}) AND lifecycle_status != 'retired'",
-        (retired_at, *ids),
-    )
-    conn.execute(
+    retired = 0
+    for chunk in _chunked(ids):
+        placeholders = ",".join("?" for _ in chunk)
+        result = conn.execute(
+            "UPDATE graph_relations SET lifecycle_status = 'retired', "
+            "quarantine_reason = '', reeval_trigger = '', updated_at = ? "
+            f"WHERE id IN ({placeholders}) AND lifecycle_status != 'retired'",
+            (retired_at, *chunk),
+        )
+        retired += result.rowcount
+        conn.execute(
+            "UPDATE community_reports SET retired_at = ?, updated_at = ? "
+            "WHERE retired_at IS NULL AND id IN ("
+            "SELECT artifact_id FROM artifact_dependencies "
+            "WHERE artifact_type = 'community_report' "
+            "AND depends_on_type = 'relation' "
+            f"AND depends_on_id IN ({placeholders}))",
+            (retired_at, retired_at, *chunk),
+        )
+    return retired
+
+
+def retire_community_reports_for_relation_endpoints_on_connection(
+    conn: sqlite3.Connection,
+    relation_ids: Iterable[str],
+    *,
+    now: str | None = None,
+) -> int:
+    """Retire reports predating newly-active topology at either endpoint."""
+    endpoint_ids: set[str] = set()
+    for relation_id in sorted(set(relation_ids)):
+        row = conn.execute(
+            "SELECT source_entity_id, target_entity_id FROM graph_relations "
+            "WHERE id = ? AND lifecycle_status = 'active'",
+            (relation_id,),
+        ).fetchone()
+        if row is not None:
+            endpoint_ids.update((str(row[0]), str(row[1])))
+    if not endpoint_ids:
+        return 0
+
+    report_ids = [
+        str(row["id"])
+        for row in conn.execute(
+            "SELECT id, entity_ids FROM community_reports WHERE retired_at IS NULL"
+        ).fetchall()
+        if endpoint_ids.intersection(
+            str(value) for value in _loads_list(row["entity_ids"])
+        )
+    ]
+    if not report_ids:
+        return 0
+
+    retired_at = now or _now_iso()
+    conn.executemany(
         "UPDATE community_reports SET retired_at = ?, updated_at = ? "
-        "WHERE retired_at IS NULL AND id IN ("
-        "SELECT artifact_id FROM artifact_dependencies "
-        "WHERE artifact_type = 'community_report' "
-        "AND depends_on_type = 'relation' "
-        f"AND depends_on_id IN ({placeholders}))",
-        (retired_at, retired_at, *ids),
+        "WHERE id = ? AND retired_at IS NULL",
+        [(retired_at, retired_at, report_id) for report_id in report_ids],
     )
-    return result.rowcount
+    return len(report_ids)
 
 
 def upsert_graph_relation_support(

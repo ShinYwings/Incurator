@@ -26,6 +26,15 @@ All notable changes to Incurator are documented here.
   restores one authoritative generation per source and retires losing authored
   rows. Relation re-assertion now preserves existing lifecycle metadata unless
   explicitly replaced.
+- **Adversarial Authored-Topology Correctness**
+  Masked Markdown no longer joins unrelated text into invented links or tags;
+  escapes, numeric-only pseudo-tags, fenced blocks, balanced destinations,
+  vault-bounded parent paths, `.markdown` notes, and ambiguous resolution obey
+  the fail-closed contract. Generation audits retain exact authored membership,
+  clock-skewed replica merges preserve shared edges, DB-only/type-change
+  republishes cannot leave discarded-generation ownership, topology additions
+  invalidate stale reports, and rematerialization removes authored search
+  ghosts.
 
 ---
 

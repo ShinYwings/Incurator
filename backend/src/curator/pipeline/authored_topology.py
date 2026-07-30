@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import string
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -22,25 +23,19 @@ __all__ = [
     "AuthoredPersistence",
     "AuthoredRelation",
     "AuthoredTopology",
+    "empty_authored_topology",
     "extract_authored_topology",
+    "is_markdown_path",
     "persist_authored_topology",
 ]
 
 EntityType = Literal["vault_note", "vault_asset", "tag"]
 RelationType = Literal["links_to", "embeds", "tagged_with", "property_ref"]
 
-_WIKILINK_RE = re.compile(r"(?P<embed>!)?\[\[(?P<target>[^\]\n]+)\]\]")
-_MARKDOWN_LINK_RE = re.compile(
-    r"(?P<embed>!)?\[(?P<label>[^\]\n]*)\]\((?P<target>[^)\n]+)\)"
-)
-_FENCED_CODE_RE = re.compile(
-    r"(?ms)^[ \t]*(?P<fence>`{3,}|~{3,})[^\n]*\n.*?^[ \t]*(?P=fence)[ \t]*$"
-)
-_INLINE_CODE_RE = re.compile(r"(?s)(?P<fence>`+).*?(?P=fence)")
-_HTML_COMMENT_RE = re.compile(r"(?s)<!--.*?-->")
-_OBSIDIAN_COMMENT_RE = re.compile(r"(?s)%%.*?%%")
 _TAG_RE = re.compile(r"(?<![\w/])#([^\s#.,;:!?()[\]{}'\"`<>]+)", re.UNICODE)
 _URI_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
+_MARKDOWN_SUFFIXES = {".md", ".markdown"}
+_MAX_MARKDOWN_PAREN_DEPTH = 32
 
 
 @dataclass(frozen=True, order=True)
@@ -90,6 +85,15 @@ class AuthoredPersistence:
     entity_ids: tuple[str, ...] = ()
     relation_ids: tuple[str, ...] = ()
     retired_relation_ids: tuple[str, ...] = ()
+    activated_relation_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class _LinkMatch:
+    start: int
+    end: int
+    target: str
+    embed: bool
 
 
 @dataclass(frozen=True)
@@ -109,6 +113,10 @@ def _stable_id(prefix: str, *parts: str) -> str:
 def _portable_relpath(value: str) -> str:
     normalized = unicodedata.normalize("NFC", value)
     return PurePosixPath(normalized.replace("\\", "/").lstrip("/")).as_posix()
+
+
+def is_markdown_path(value: str | Path) -> bool:
+    return Path(str(value)).suffix.casefold() in _MARKDOWN_SUFFIXES
 
 
 def _is_visible_relpath(relpath: str) -> bool:
@@ -156,12 +164,16 @@ def _build_inventory(root: Path) -> _VaultInventory:
             continue
         relpaths.append(relpath)
         _add_candidate(by_path_raw, relpath, relpath)
-        if path.suffix.casefold() == ".md":
-            _add_candidate(by_path_raw, relpath[:-3], relpath)
+        if is_markdown_path(path):
+            _add_candidate(
+                by_path_raw,
+                PurePosixPath(relpath).with_suffix("").as_posix(),
+                relpath,
+            )
         _add_candidate(by_name_raw, path.name, relpath)
         _add_candidate(by_name_raw, path.stem, relpath)
 
-        if path.suffix.casefold() != ".md":
+        if not is_markdown_path(path):
             continue
         parsed = page_writer.read_page(path)
         if parsed is None or parsed.is_invalid:
@@ -181,11 +193,191 @@ def _build_inventory(root: Path) -> _VaultInventory:
     )
 
 
+def _blank_range(chars: list[str], start: int, end: int) -> None:
+    for index in range(start, end):
+        if chars[index] not in {"\n", "\r"}:
+            chars[index] = " "
+
+
+def _is_escaped(text: str, index: int) -> bool:
+    backslashes = 0
+    cursor = index - 1
+    while cursor >= 0 and text[cursor] == "\\":
+        backslashes += 1
+        cursor -= 1
+    return backslashes % 2 == 1
+
+
+def _fenced_region_end(text: str, start: int) -> int | None:
+    line_end = text.find("\n", start)
+    if line_end < 0:
+        line_end = len(text)
+    line = text[start:line_end].rstrip("\r")
+    opener = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+    if opener is None or (
+        opener.group(1).startswith("`") and "`" in opener.group(2)
+    ):
+        return None
+
+    marker = opener.group(1)[0]
+    minimum = len(opener.group(1))
+    cursor = min(line_end + 1, len(text))
+    while cursor < len(text):
+        candidate_end = text.find("\n", cursor)
+        if candidate_end < 0:
+            candidate_end = len(text)
+        candidate = text[cursor:candidate_end].rstrip("\r")
+        close = re.fullmatch(
+            rf" {{0,3}}({re.escape(marker)}+)[ \t]*",
+            candidate,
+        )
+        if close is not None and len(close.group(1)) >= minimum:
+            return min(candidate_end + 1, len(text))
+        cursor = min(candidate_end + 1, len(text))
+    return len(text)
+
+
 def _mask_body(text: str) -> str:
-    masked = _FENCED_CODE_RE.sub("", text)
-    masked = _INLINE_CODE_RE.sub("", masked)
-    masked = _HTML_COMMENT_RE.sub("", masked)
-    return _OBSIDIAN_COMMENT_RE.sub("", masked)
+    chars = list(text)
+    index = 0
+    while index < len(text):
+        if index == 0 or text[index - 1] == "\n":
+            fenced_end = _fenced_region_end(text, index)
+            if fenced_end is not None:
+                _blank_range(chars, index, fenced_end)
+                index = fenced_end
+                continue
+        if text.startswith("<!--", index):
+            closing_start = text.find("-->", index + 4)
+            end = len(text) if closing_start < 0 else closing_start + 3
+            _blank_range(chars, index, end)
+            index = end
+            continue
+        if text.startswith("%%", index):
+            closing_start = text.find("%%", index + 2)
+            end = len(text) if closing_start < 0 else closing_start + 2
+            _blank_range(chars, index, end)
+            index = end
+            continue
+        if text[index] != "`" or _is_escaped(text, index):
+            index += 1
+            continue
+        run_end = index
+        while run_end < len(text) and text[run_end] == "`":
+            run_end += 1
+        run_length = run_end - index
+        cursor = run_end
+        closing_end: int | None = None
+        while cursor < len(text):
+            if text[cursor] != "`":
+                cursor += 1
+                continue
+            candidate_end = cursor
+            while candidate_end < len(text) and text[candidate_end] == "`":
+                candidate_end += 1
+            if candidate_end - cursor == run_length:
+                closing_end = candidate_end
+                break
+            cursor = candidate_end
+        if closing_end is None:
+            index = run_end
+            continue
+        _blank_range(chars, index, closing_end)
+        index = closing_end
+    return "".join(chars)
+
+
+def _iter_wikilinks(text: str) -> Iterable[_LinkMatch]:
+    index = 0
+    while index < len(text) - 1:
+        embed = text[index] == "!" and text.startswith("[[", index + 1)
+        opening = index + 1 if embed else index
+        if not text.startswith("[[", opening) or _is_escaped(text, opening):
+            index += 1
+            continue
+        cursor = opening + 2
+        while cursor < len(text) - 1:
+            if text[cursor] in {"\n", "\r"}:
+                break
+            if text.startswith("]]", cursor) and not _is_escaped(text, cursor):
+                yield _LinkMatch(
+                    start=index if embed else opening,
+                    end=cursor + 2,
+                    target=text[opening + 2 : cursor],
+                    embed=embed,
+                )
+                index = cursor + 2
+                break
+            cursor += 1
+        else:
+            index += 1
+            continue
+        if cursor >= len(text) - 1 or text[cursor] in {"\n", "\r"}:
+            index += 1
+
+
+def _iter_markdown_links(text: str) -> Iterable[_LinkMatch]:
+    index = 0
+    while index < len(text):
+        if text[index] != "[" or _is_escaped(text, index):
+            index += 1
+            continue
+        embed = index > 0 and text[index - 1] == "!" and not _is_escaped(text, index - 1)
+        start = index - 1 if embed else index
+        label_end = index + 1
+        while label_end < len(text):
+            if text[label_end] in {"\n", "\r"}:
+                break
+            if text[label_end] == "]" and not _is_escaped(text, label_end):
+                break
+            label_end += 1
+        if (
+            label_end >= len(text)
+            or text[label_end] != "]"
+            or label_end + 1 >= len(text)
+            or text[label_end + 1] != "("
+        ):
+            index += 1
+            continue
+
+        target_start = label_end + 2
+        cursor = target_start
+        depth = 1
+        while cursor < len(text):
+            char = text[cursor]
+            if char in {"\n", "\r"}:
+                break
+            if _is_escaped(text, cursor):
+                cursor += 1
+                continue
+            elif char == "(":
+                depth += 1
+                if depth > _MAX_MARKDOWN_PAREN_DEPTH:
+                    break
+            elif char == ")":
+                depth -= 1
+                if depth == 0:
+                    yield _LinkMatch(
+                        start=start,
+                        end=cursor + 1,
+                        target=text[target_start:cursor],
+                        embed=embed,
+                    )
+                    index = cursor + 1
+                    break
+            cursor += 1
+        else:
+            index += 1
+            continue
+        if cursor >= len(text) or depth != 0:
+            index += 1
+
+
+def _mask_matches(text: str, matches: Iterable[_LinkMatch]) -> str:
+    chars = list(text)
+    for match in matches:
+        _blank_range(chars, match.start, match.end)
+    return "".join(chars)
 
 
 def _clean_markdown_target(raw: str) -> str:
@@ -194,7 +386,21 @@ def _clean_markdown_target(raw: str) -> str:
         target = target[1 : target.index(">")]
     else:
         target = re.sub(r"""\s+["'].*["']\s*$""", "", target)
-    return unquote(target.replace("\\ ", " ")).strip()
+    target = target.replace("\\ ", " ")
+    cleaned: list[str] = []
+    index = 0
+    while index < len(target):
+        if (
+            target[index] == "\\"
+            and index + 1 < len(target)
+            and target[index + 1] in string.punctuation
+        ):
+            cleaned.append(target[index + 1])
+            index += 2
+            continue
+        cleaned.append(target[index])
+        index += 1
+    return unquote("".join(cleaned)).strip()
 
 
 def _clean_internal_target(raw: str) -> str:
@@ -206,13 +412,34 @@ def _clean_internal_target(raw: str) -> str:
     ]
     if fragment_positions:
         target = target[: min(fragment_positions)]
-    return _portable_relpath(target.strip())
+    return unicodedata.normalize("NFC", target.strip()).replace("\\", "/")
 
 
-def _one(candidates: tuple[str, ...] | None) -> str | None:
-    if not candidates or len(candidates) != 1:
-        return None
-    return candidates[0]
+def _normalize_vault_path(base: PurePosixPath, target: str) -> str | None:
+    parts = [] if target.startswith("/") else list(base.parts)
+    for part in target.lstrip("/").split("/"):
+        if part in {"", "."}:
+            continue
+        if part == "..":
+            if not parts:
+                return None
+            parts.pop()
+            continue
+        parts.append(part)
+    normalized = PurePosixPath(*parts).as_posix()
+    return normalized if _is_visible_relpath(normalized) else None
+
+
+def _resolve_stage(
+    index: dict[str, tuple[str, ...]],
+    key: str | None,
+) -> tuple[bool, str | None]:
+    if not key:
+        return False, None
+    candidates = index.get(key.casefold())
+    if not candidates:
+        return False, None
+    return True, candidates[0] if len(candidates) == 1 else None
 
 
 def _resolve_target(
@@ -229,39 +456,40 @@ def _resolve_target(
     ):
         return None
     target = _clean_internal_target(raw)
-    if not target or not _is_visible_relpath(target):
+    if not target:
         return None
 
     source_parent = PurePosixPath(source_relpath).parent
-    relative = (source_parent / target).as_posix()
-    if not _is_visible_relpath(relative):
+    root_candidate = _normalize_vault_path(PurePosixPath(), target)
+    relative_candidate = _normalize_vault_path(source_parent, target)
+    target_parts = target.lstrip("/").split("/")
+    if any(
+        part.startswith(".") and part not in {".", ".."}
+        for part in target_parts
+    ):
+        return None
+    if ".." in target_parts and relative_candidate is None:
         return None
 
-    for candidate_key in (target, relative):
-        resolved = _one(inventory.by_path.get(candidate_key.casefold()))
-        if resolved:
-            return _endpoint_for_path(resolved)
-        if PurePosixPath(candidate_key).suffix == "":
-            resolved = _one(inventory.by_path.get(f"{candidate_key}.md".casefold()))
-            if resolved:
-                return _endpoint_for_path(resolved)
+    for candidate_key in (root_candidate, relative_candidate):
+        matched, resolved = _resolve_stage(inventory.by_path, candidate_key)
+        if matched:
+            return _endpoint_for_path(resolved) if resolved is not None else None
 
     basename = PurePosixPath(target).name
-    resolved = _one(inventory.by_name.get(basename.casefold()))
-    if resolved:
-        return _endpoint_for_path(resolved)
-    if PurePosixPath(basename).suffix == "":
-        resolved = _one(inventory.by_name.get(f"{basename}.md".casefold()))
-        if resolved:
-            return _endpoint_for_path(resolved)
+    matched, resolved = _resolve_stage(inventory.by_name, basename)
+    if matched:
+        return _endpoint_for_path(resolved) if resolved is not None else None
 
-    resolved = _one(inventory.by_alias.get(target.casefold()))
-    return _endpoint_for_path(resolved) if resolved else None
+    matched, resolved = _resolve_stage(inventory.by_alias, target)
+    if matched:
+        return _endpoint_for_path(resolved) if resolved is not None else None
+    return None
 
 
 def _endpoint_for_path(relpath: str) -> AuthoredEndpoint:
     entity_type: EntityType = (
-        "vault_note" if PurePosixPath(relpath).suffix.casefold() == ".md"
+        "vault_note" if is_markdown_path(relpath)
         else "vault_asset"
     )
     return AuthoredEndpoint(entity_type=entity_type, canonical_key=relpath)
@@ -271,8 +499,14 @@ def _tag_values(value: Any) -> Iterable[str]:
     for raw in _flatten_strings(value):
         for tag in re.split(r"[\s,]+", raw):
             normalized = tag.strip().lstrip("#").casefold()
-            if normalized:
+            if _is_valid_tag(normalized):
                 yield normalized
+
+
+def _is_valid_tag(tag: str) -> bool:
+    return bool(tag) and any(
+        not char.isdigit() for char in tag.replace("/", "")
+    )
 
 
 def _frontmatter_relations(
@@ -293,11 +527,11 @@ def _frontmatter_relations(
         if str(key).casefold() in {"aliases", "tags"}:
             continue
         for raw_value in _flatten_strings(value):
-            for match in _WIKILINK_RE.finditer(raw_value):
+            for match in _iter_wikilinks(raw_value):
                 target = _resolve_target(
                     inventory,
                     source_relpath=source_relpath,
-                    raw_target=match.group("target"),
+                    raw_target=match.target,
                 )
                 if target is not None:
                     yield AuthoredRelation(
@@ -315,37 +549,40 @@ def _body_relations(
     source_relpath: str,
 ) -> Iterable[AuthoredRelation]:
     safe_body = _mask_body(body)
-    for match in _WIKILINK_RE.finditer(safe_body):
+    wikilinks = tuple(_iter_wikilinks(safe_body))
+    markdown_links = tuple(_iter_markdown_links(safe_body))
+    for match in wikilinks:
         target = _resolve_target(
             inventory,
             source_relpath=source_relpath,
-            raw_target=match.group("target"),
+            raw_target=match.target,
         )
         if target is not None:
             yield AuthoredRelation(
                 source=source,
                 target=target,
-                relation_type="embeds" if match.group("embed") else "links_to",
+                relation_type="embeds" if match.embed else "links_to",
             )
 
-    for match in _MARKDOWN_LINK_RE.finditer(safe_body):
+    for match in markdown_links:
         target = _resolve_target(
             inventory,
             source_relpath=source_relpath,
-            raw_target=match.group("target"),
+            raw_target=match.target,
         )
         if target is not None:
             yield AuthoredRelation(
                 source=source,
                 target=target,
-                relation_type="embeds" if match.group("embed") else "links_to",
+                relation_type="embeds" if match.embed else "links_to",
             )
 
-    tag_body = _WIKILINK_RE.sub("", safe_body)
-    tag_body = _MARKDOWN_LINK_RE.sub("", tag_body)
-    for match in _TAG_RE.finditer(tag_body):
-        tag = match.group(1).strip().lstrip("#").casefold()
-        if tag:
+    tag_body = _mask_matches(safe_body, (*wikilinks, *markdown_links))
+    for tag_match in _TAG_RE.finditer(tag_body):
+        if _is_escaped(tag_body, tag_match.start()):
+            continue
+        tag = tag_match.group(1).strip().lstrip("#").casefold()
+        if _is_valid_tag(tag):
             yield AuthoredRelation(
                 source=source,
                 target=AuthoredEndpoint(entity_type="tag", canonical_key=tag),
@@ -364,7 +601,9 @@ def extract_authored_topology(
         entity_type="vault_note",
         canonical_key=normalized_source,
     )
-    if not _is_visible_relpath(normalized_source):
+    if not is_markdown_path(normalized_source) or not _is_visible_relpath(
+        normalized_source
+    ):
         return AuthoredTopology(source=source)
 
     inventory = _build_inventory(vault_root)
@@ -391,6 +630,15 @@ def extract_authored_topology(
     return AuthoredTopology(source=source, relations=tuple(sorted(relations)))
 
 
+def empty_authored_topology(source_relpath: str) -> AuthoredTopology:
+    return AuthoredTopology(
+        source=AuthoredEndpoint(
+            entity_type="vault_note",
+            canonical_key=_portable_relpath(source_relpath),
+        )
+    )
+
+
 def persist_authored_topology(
     db_path: Path,
     topology: AuthoredTopology,
@@ -406,6 +654,16 @@ def persist_authored_topology(
             "SELECT r.id FROM graph_relations r "
             "JOIN compiler_generations g ON g.id = r.generation_id "
             "WHERE r.edge_class = 'authored' AND g.source_id = ?",
+            (source_id,),
+        ).fetchall()
+    }
+    prior_active_ids = {
+        str(row[0])
+        for row in conn.execute(
+            "SELECT r.id FROM graph_relations r "
+            "JOIN compiler_generations g ON g.id = r.generation_id "
+            "WHERE r.edge_class = 'authored' AND g.source_id = ? "
+            "AND r.lifecycle_status = 'active'",
             (source_id,),
         ).fetchall()
     }
@@ -447,4 +705,5 @@ def persist_authored_topology(
         entity_ids=tuple(sorted(entity_ids)),
         relation_ids=tuple(sorted(current_ids)),
         retired_relation_ids=tuple(retired_ids),
+        activated_relation_ids=tuple(sorted(current_ids - prior_active_ids)),
     )

@@ -561,12 +561,16 @@ What this means in practice:
   decided. Any accepted merge can be undone exactly, restoring the original
   entities and every relationship.
 - **Authored structure is compiled directly**: internal note wikilinks, embeds,
-  tags, and frontmatter wikilinks become deterministic graph topology. Display
-  aliases and heading/block fragments still point to the same page; ambiguous,
-  external, hidden, or unsafe targets are ignored rather than guessed. Editing,
-  renaming, or deleting a note retires stale authored edges. Portable paths are
-  Unicode-normalized, and importing another replica reconciles concurrent
-  compiler generations back to one authoritative generation per source.
+  tags, and frontmatter wikilinks in `.md` and `.markdown` notes become
+  deterministic graph topology. Display aliases and heading/block fragments
+  still point to the same page; balanced Markdown destinations and safe
+  parent-relative paths work. Escaped syntax, numeric-only pseudo-tags,
+  code/comments, ambiguous targets, external paths, hidden paths, and traversal
+  outside the vault are ignored rather than guessed. Editing, renaming,
+  deleting, or changing a note to a non-Markdown type retires stale authored
+  edges. Portable paths are Unicode-normalized, and importing another replica
+  restores the exact authored membership of one authoritative generation per
+  source.
 - **Extracted support is counted honestly**: a relationship backed by ten
   copies of the same source counts as one independent confirmation, not ten.
   Re-running a build accumulates genuine support instead of overwriting it.
@@ -582,6 +586,9 @@ What this means in practice:
   connect graph neighborhoods, but only independently supported extracted
   relations can ground community-report facts. An authored-only component does
   not generate a fabricated factual report.
+- **Removed authored structure leaves no search ghosts**: retired authored
+  relations and authored note/asset/tag entities with no active edge disappear
+  from graph search after recompilation or explicit source removal.
 - **Weak extracted edges are quarantined, not hidden**: self-loops, contradictions,
   unsupported edges, and risky "bridge" links are set aside with a stated reason
   and a condition for re-admission — they never quietly shape your community

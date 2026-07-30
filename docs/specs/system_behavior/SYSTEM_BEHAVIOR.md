@@ -2467,29 +2467,44 @@ heuristics never compensate for unchecked or broadly grounded claims.
 
 #### 27.3.1 v0.39 Authored-Note Compiler Contract (Failure Atlas F9)
 
-- **Source boundary.** Only registered, visible Markdown source files may emit
-  authored topology. PDF/external attachment content and derived `.curator`
-  projections never emit it.
+- **Source boundary.** Only registered, visible Markdown source files with a
+  case-insensitive `.md` or `.markdown` suffix may emit authored topology.
+  PDF/external attachment content and derived `.curator` projections never
+  emit it. If a previously compiled Markdown source becomes non-Markdown, its
+  prior authored set retires in the next successful publish.
 - **Closed syntax set.** Body `[[wikilinks]]`, note/asset `![[embeds]]`,
   internal Markdown links/images, body/YAML tags, and quoted/list-valued
   frontmatter wikilinks compile respectively to `links_to`, `embeds`,
   `tagged_with`, or `property_ref`. Fenced code, inline code, and comments are
-  masked. Plugin-specific citation grammars are outside the contract unless
-  represented by an ordinary internal vault link.
+  masked without joining text across the masked region. Backslash-escaped
+  syntax and numeric-only pseudo-tags emit nothing. A fenced block closes with
+  the same marker type and at least the opening marker length; an unclosed
+  fence masks through end of file. Markdown destinations support balanced
+  parentheses. Plugin-specific citation grammars are outside the contract
+  unless represented by an ordinary internal vault link.
 - **Endpoint identity.** Pipe display text, `#heading`/`^block` fragments, and
   embed sizes are presentation only and are removed before identity. Endpoint
   types are `vault_note`, `vault_asset`, and `tag`. `aliases` may resolve a
   target but do not create an edge or semantic entity merge.
 - **Fail-closed resolution.** Resolution tries exact vault-root path, exact
-  source-relative path, unique visible filename/stem, then unique visible
-  frontmatter alias. External URLs, hidden/control paths, traversal outside the
-  vault, ambiguity, and unresolved targets emit no relation.
+  source-relative path (including lexically normalized `.`/`..` segments that
+  remain inside the vault), unique visible filename/stem, then unique visible
+  frontmatter alias. Each stage is tri-state: a unique match resolves, no match
+  advances, and multiple matches terminate without falling through to a later
+  alias. External URLs, hidden/control paths, traversal outside the vault,
+  ambiguity, and unresolved targets emit no relation.
 - **Portable deterministic identity.** F9-created entity ids hash the entity
   type and Unicode-NFC canonical portable vault key; authored relation ids hash
   source id, target id, and relation type. Existing extracted identity behavior
   is unchanged. On DB import, concurrent authoritative generations for the same
   portable source reconcile to the source-fingerprint match and then newest
-  publication; authored rows owned only by losing generations retire. Unchanged
+  publication. The generation audit records the exact sorted authored relation
+  ids. Import reassigns shared winner-member rows to the winning generation and
+  retires only loser-exclusive rows; a relation-row LWW clock cannot override
+  the winning generation's membership. With three or more concurrent
+  generations, a winner relation is a topology addition if any losing
+  generation omitted it, so endpoint reports from that replica retire. A
+  legacy/malformed audit fails closed and never resurrects topology. Unchanged
   builds and independent-device compilation therefore converge to one logical,
   serving generation under DB sync.
 - **Publication and ownership.** Extraction completes in memory before graph
@@ -2497,8 +2512,11 @@ heuristics never compensate for unchecked or broadly grounded claims.
   current source generation upserts the deterministic set and retires prior
   source-owned authored relations absent from that set. Failed compilation
   leaves the previous authored set byte/logically unchanged. Source
-  edit/delete/rename retires stale source-owned edges; rename publishes the new
-  portable identity.
+  edit/delete/rename/type-change retires stale source-owned edges; rename
+  publishes the new portable identity. A DB-only republish carries authored
+  membership only when the source content fingerprint is unchanged; otherwise
+  it retires the prior set rather than attaching stale structure to the new
+  generation.
 - **Epistemic separation.** Authored edges use `edge_class='authored'`,
   `assertion_source='source_states'`, an exact structural topology weight, and
   the current `generation_id`. They may shape active topology and explore paths
@@ -2633,8 +2651,11 @@ migration may touch a real vault DB, encoded as tests in P3:
   and regenerated or retired. For authored relations, the current
   source-generation set is reconciled by deterministic relation id: removed
   links retire, unchanged links retain identity, and link changes invalidate
-  communities whose membership dependency includes them. The closure is
-  measured and asserted by tests, not assumed.
+  communities whose membership dependency includes them. A newly active
+  authored edge also retires any live report containing either endpoint,
+  because the report predates the changed topology even though it cannot yet
+  depend on the new relation id. The closure is measured and asserted by tests,
+  not assumed.
 - **Atomic graph/report publish.** Graph resolution, support aggregation,
   community construction, and report generation for a scope publish together or
   not at all, inside the publish transaction (extending §26.3). A failed graph

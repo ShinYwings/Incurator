@@ -417,10 +417,15 @@ path stays unchanged because only authoritative records are ever materialized.
   relations may be indexed as labeled topology for discovery, but they have no
   synthetic `graph_relation_supports` and are never emitted as factual evidence
   or citations.
+- Canonical extracted entity types retain their existing materialization
+  behavior. Authored endpoint types (`vault_note`, `vault_asset`, and `tag`)
+  materialize only while they are an endpoint of an `active` relation, so link
+  removal cannot leave an orphan authored entity search document.
 - An accepted-merge reversal or a source edit/delete that changes the
   authoritative graph generation re-emits the affected graph-derived search state
   from the post-reconciliation authoritative DB; it never leaves materialized
-  rows pointing at a reversed merge or a retired relation.
+  rows pointing at a reversed merge or a retired relation. Explicit source
+  removal performs this re-emission after the deletion transaction commits.
 
 ### 11.2 Community-Report Documents And Retirement
 

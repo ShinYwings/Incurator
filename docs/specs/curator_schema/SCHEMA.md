@@ -1741,6 +1741,14 @@ Rules (Arena decision 8 — staged atomic publish):
 - `compiler_generations` is canonical and synced (tombstone CHECK +
   `wiki db export`), since authoritative-generation identity must agree across
   devices.
+- `audit_json` contains the exact sorted `authored_relation_ids` owned by the
+  generation in addition to claim/unit audit fields. The field is the
+  membership authority during replica reconciliation: shared deterministic
+  relation ids are reassigned to the winning generation, and only
+  loser-exclusive ids retire. Missing, malformed, or non-list membership fails
+  closed and cannot resurrect an authored row. For report invalidation, a
+  winner-member relation counts as newly active when it is absent from any
+  losing generation's valid membership.
 - Every status transition advances `updated_at` monotonically. A stale
   `staged`/`discarded` snapshot cannot overwrite a newer authoritative row.
 
@@ -2130,14 +2138,18 @@ relation rather than quarantining either row.
 wrote) vs `extracted` (LLM-extracted semantic relations). v0.39 compiles four
 authored relation types: `links_to`, `embeds`, `tagged_with`, and
 `property_ref`, with endpoint entity types `vault_note`, `vault_asset`, and
-`tag`. F9-created entity ids derive from `(entity_type, canonical portable vault
-key)` and relation ids derive from `(source entity id, target entity id,
-relation_type)`. Portable vault keys use Unicode NFC before hashing. After DB
-import, multiple authoritative generations for one portable source are
-reconciled to the generation matching the LWW source content fingerprint (then
-newest publication), and authored relations owned only by losing generations
-retire. Unchanged builds and independent-device compilation therefore converge
-under id-based DB sync. Existing extracted ids are unchanged.
+  `tag`. F9-created entity ids derive from `(entity_type, canonical portable vault
+  key)` and relation ids derive from `(source entity id, target entity id,
+  relation_type)`. Portable vault keys use Unicode NFC before hashing. After DB
+  import, multiple authoritative generations for one portable source are
+  reconciled to the generation matching the LWW source content fingerprint (then
+  newest publication). Exact sorted authored membership comes from the winning
+  generation's `audit_json`: shared deterministic relation ids are assigned to
+  the winner and have lifecycle recompiled, while only loser-exclusive ids
+  retire. Missing/malformed membership fails closed. Unchanged builds and
+  independent-device compilation therefore converge under id-based DB sync even
+  when relation-row and generation LWW clocks disagree. Existing extracted ids
+  are unchanged.
 
 The two classes stay distinct through weighting, hierarchy, audit, and reports
 (Arena decision 9). `topology_weight` is the partition-input weight and is
@@ -2169,6 +2181,9 @@ Rules:
   dependency closure: eligible verified extracted supports plus the stable ids
   of active authored relations that shaped membership. Authored relation ids
   invalidate topology/report membership but never become factual report support.
+- A newly active authored relation retires each live report whose `entity_ids`
+  contains either endpoint. This endpoint rule closes the addition case where
+  an older report cannot yet have an artifact dependency on the new relation.
 - `level` (existing column, §11.5) now carries the real hierarchy depth (0 =
   leaf). `parent_community_key` records the hierarchy edge.
 - `config_hash` pins the partition algorithm, seed, and thresholds that produced

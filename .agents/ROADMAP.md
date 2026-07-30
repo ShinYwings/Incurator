@@ -22,12 +22,24 @@ Source of Truth to identify unresolved items.
 
 `USER_REPORT.md` is currently empty. The following queue is the ordered roadmap.
 
-No urgent hotfix is currently tracked. v0.39.0 Failure Atlas F9 authored-note
-topology is release-ready and has left the live queue.
+No urgent hotfix is currently tracked. Draft PR #101 is back in active review
+after an adversarial pass reproduced correctness defects in v0.39.0
+authored-note topology.
 
 ### 🚀 Priority Order
 
-1. **[Major Update] System Stability Overhaul — Exhaustive Diagnosis & Refactoring** *(ACTIVE)*
+1. **[Patch-in-release] v0.39.0 Authored-Topology Deep-Review Hardening** *(ACTIVE)*
+   - Draft PR #101 remains on `release/v0.39.0`; the release has not merged, so
+     these corrections keep the same version and public contract.
+   - Confirmed failures cover destructive Markdown masking, escaped/numeric
+     pseudo-syntax, valid link targets and `.markdown` notes, generation-owned
+     authored membership, replica clock skew, stale community reports, and
+     stale authored search documents.
+   - Master Plan: `.agents/plans/03_authored_topology_review_hardening.md`
+   - Evidence Ledger:
+     `.agents/plans/03_authored_topology_review_evidence.md`
+
+2. **[Major Update] System Stability Overhaul — Exhaustive Diagnosis & Refactoring** *(ACTIVE)*
    - Absorbs the prompt-architecture milestone. Whole-codebase diagnosis (bugs,
      redundancy, architectural debt) + refactoring with architectural redesign
      allowed; prompt-v2 for cross-model output consistency; legacy/dead-code sweep.
@@ -41,6 +53,11 @@ topology is release-ready and has left the live queue.
      fail-closed sync/KRS integrity, PDF/Antigravity transport hotfixes,
      grounded Sidechat vault links, and authored-note graph topology.
    - **Remaining Scope for Upcoming Releases**:
+     - **Source-Deletion Closure**: separately plan and repair the pre-existing
+       extracted-data deletion path so source removal cannot leave active
+       generations, knowledge units, graph support, or serving artifacts.
+       This is broader than F9 authored-topology hardening and must not be
+       smuggled into PR #101 without its own evidence and plan.
      - **Exception Handling Hardening (XC-1 later slices)**: audit broad
        catch-and-return boundary handlers and other backend modules after the
        silent-swallow slice lands. Provider follow-ups found during v0.37.1
@@ -50,22 +67,22 @@ topology is release-ready and has left the live queue.
        no-JSON plugin command errors.
      - **Performance & UX Refinements**: RAG/DAG benchmark harness & retrieval hotspot optimization; chat/popover UX friction cleanup.
 
-2. **[Minor Update] Chat Session Context Compaction**
+3. **[Minor Update] Chat Session Context Compaction**
    - Confirm full-session history behavior.
    - Add a Claude-Code-style circular token usage meter under the query box and a click-to-compact action.
    - Detailed analysis: `.agents/drafts/chat_context_compaction.md`
 
-3. **[Minor Update] Vault Storage Governance & Quota Visibility**
+4. **[Minor Update] Vault Storage Governance & Quota Visibility**
    - Separate authoritative, derived, cache, and external storage accounting.
    - Add capacity guidance, safe admission control, and CLI/plugin visibility.
    - Detailed analysis: `.agents/drafts/vault_storage_governance.md`
 
-4. **[Major Update] Native PDF Annotation & Asset System**
+5. **[Major Update] Native PDF Annotation & Asset System**
    - Native annotation highlight/memo synchronization using Obsidian's built-in PDF viewer.
    - In-PDF full-text search and strict-spelling mode remain here.
    - Detailed analysis: `.agents/drafts/pdf_annotation_system.md`
 
-5. **[Minor Update] Web Search Integration**
+6. **[Minor Update] Web Search Integration**
    - Design and integrate web search capabilities for local models (Ollama, Deepseek, etc.).
    - Investigate API options (Brave, SerpAPI) and implement `web_search.py`.
    - The former quick-wins draft was deleted after triage; create a fresh
@@ -74,17 +91,6 @@ topology is release-ready and has left the live queue.
 ---
 
 ## ✅ Completed Milestones
-
-- **v0.39.0 — Failure Atlas F9 Authored-Note Topology**
-  (release-ready 2026-07-30): registered visible Markdown notes compile exact
-  wikilinks, embeds, tags, and frontmatter references as deterministic,
-  lifecycle-aware authored topology without fabricating factual support.
-  Publication/reconciliation is atomic; edit/rename/delete and replica imports
-  retire stale ownership; Unicode-portable IDs converge; active-only traversal
-  and community membership remain separate from extracted report evidence. F9
-  is retired. Backend 1,335-test, plugin 737-test, static analysis, production
-  build, zero-vulnerability npm audit, authenticated isolated ResNet build,
-  graph audit, and lint 100/100 gates passed.
 
 - **v0.38.0 — Sidechat Vault-Page Wikilinks**
   (shipped 2026-07-30, PR #100): every selectable Sidechat provider receives the

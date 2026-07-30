@@ -239,8 +239,14 @@ def materialize_search_documents(
         entities = [
             dict(row)
             for row in conn.execute(
-                "SELECT * FROM graph_entities "
-                "WHERE resolution_state = 'canonical' ORDER BY id"
+                "SELECT e.* FROM graph_entities e "
+                "WHERE e.resolution_state = 'canonical' "
+                "AND (e.entity_type NOT IN ('vault_note', 'vault_asset', 'tag') "
+                "OR EXISTS ("
+                "SELECT 1 FROM graph_relations r "
+                "WHERE r.lifecycle_status = 'active' "
+                "AND (r.source_entity_id = e.id OR r.target_entity_id = e.id)"
+                ")) ORDER BY e.id"
             ).fetchall()
         ]
         relations = [

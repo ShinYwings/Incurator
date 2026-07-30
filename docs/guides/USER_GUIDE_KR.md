@@ -533,13 +533,16 @@ SYSTEM_BEHAVIOR.md §27).
   엔티티를 조용히 합치지 않습니다. 동의어와 약어는 안전 검사를 통과한 뒤에만
   병합되고, 모호한 이름(동음이의어)은 결정 전까지 분리해 둡니다. 수락된 병합은
   원본 엔티티와 모든 관계를 복원하며 정확히 되돌릴 수 있습니다.
-- **작성 구조를 직접 컴파일합니다**: 내부 노트 wikilink, embed, tag,
-  frontmatter wikilink는 결정론적 그래프 토폴로지가 됩니다. 표시 alias와
-  heading/block fragment는 같은 페이지를 가리키며, 모호하거나
-  외부·숨김·안전하지 않은 대상은 추측하지 않고 무시합니다. 노트를 편집하거나
-  이름을 바꾸거나 삭제하면 오래된 작성 엣지가 retire 처리됩니다. portable
-  경로는 Unicode로 정규화되며, 다른 replica를 import하면 소스마다 하나의
-  authoritative generation만 남도록 동시 compiler generation을 조정합니다.
+- **작성 구조를 직접 컴파일합니다**: `.md` 및 `.markdown` 노트의 내부
+  wikilink, embed, tag, frontmatter wikilink는 결정론적 그래프 토폴로지가
+  됩니다. 표시 alias와 heading/block fragment는 같은 페이지를 가리키며,
+  괄호가 균형 잡힌 Markdown 대상과 vault 내부의 안전한 상위 상대 경로도
+  동작합니다. escape된 문법, 숫자로만 된 의사 태그, 코드/주석, 모호한 대상,
+  외부·숨김 경로, vault 밖 traversal은 추측하지 않고 무시합니다. 노트를
+  편집하거나 이름을 바꾸거나 삭제하거나 비-Markdown 형식으로 바꾸면 오래된
+  작성 엣지가 retire 처리됩니다. portable 경로는 Unicode로 정규화되며,
+  다른 replica를 import하면 소스마다 승자 authoritative generation의
+  정확한 membership을 복원합니다.
 - **추출 지지는 정직하게 셉니다**: 같은 소스의 복사본 10개가 뒷받침하는
   관계는 10번이 아니라 1번의 독립 확인으로 셉니다. 빌드를 다시 실행하면
   지지를 덮어쓰지 않고 진짜 지지를 누적합니다.
@@ -555,6 +558,9 @@ SYSTEM_BEHAVIOR.md §27).
   연결할 수 있지만, 독립적으로 지지된 추출 관계만 커뮤니티 보고서의 사실
   근거가 됩니다. 작성 엣지만 있는 컴포넌트는 가짜 사실 보고서를 만들지
   않습니다.
+- **제거된 작성 구조는 검색에 남지 않습니다**: retire된 작성 관계와 active
+  엣지가 없는 작성 note/asset/tag 엔티티는 재컴파일 또는 명시적 소스 삭제 후
+  그래프 검색에서 사라집니다.
 - **약한 추출 엣지는 숨기지 않고 격리합니다**: self-loop, 모순, 지지 없는 엣지,
   위험한 "다리(bridge)" 링크는 사유와 재admission 조건과 함께 따로 보관되어
   커뮤니티 요약을 조용히 좌우하지 않습니다. active 관계만 그래프 토폴로지를

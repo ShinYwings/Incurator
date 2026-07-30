@@ -549,12 +549,15 @@ fully published claim generation:
   source's lineage; `wiki build`/`wiki update`'s L3 then grounds reports only on the
   corroborated `active` relations).
 - **Authored note topology**: exact internal wikilinks, embeds, tags, and
-  frontmatter wikilinks from registered visible Markdown notes compile as
-  deterministic `authored` edges. Pipe labels and heading/block fragments still
-  resolve to the note/asset page; ambiguous, external, hidden, or unsafe targets
-  fail closed. Portable paths are Unicode-normalized. Edits, renames, and deletes
-  retire stale edges atomically; replica import restores one authoritative
-  compiler generation per source before authored topology is served.
+  frontmatter wikilinks from registered visible `.md` and `.markdown` notes
+  compile as deterministic `authored` edges. Pipe labels and heading/block
+  fragments still resolve to the note/asset page; balanced Markdown
+  destinations and safe parent-relative paths work. Escaped syntax,
+  numeric-only pseudo-tags, code/comments, ambiguous targets, external paths,
+  hidden paths, and traversal outside the vault fail closed. Portable paths are
+  Unicode-normalized. Edits, renames, deletes, and file-type changes retire
+  stale edges atomically; replica import restores exact winner-generation
+  membership before authored topology is served.
 - **Relation lifecycle**: an extracted relation is `active` only with verified
   independent support and resolved endpoints. An authored relation is `active`
   when its exact structure belongs to the current successful source generation;
@@ -577,6 +580,9 @@ fully published claim generation:
   components produce no fabricated factual report. The broad "whole community"
   fallback is removed. Reports whose inputs change retire and regenerate before
   synthesis uses them.
+- **Fresh graph search**: retired authored relations and authored note/asset/tag
+  entities with no active edge are removed when graph search is rematerialized,
+  including after explicit source removal.
 - **Confidence is not a noise dial**: relation `confidence` is *not* used as a
   serving-time filter (production values were all 0.9–1.0); quarantine decisions
   use support eligibility and structure, not a raw-confidence cutoff.

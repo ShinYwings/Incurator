@@ -333,8 +333,8 @@ def compile_source_l2(
         paths.state_db, prompt_contract_version=PROMPT_CONTRACT_VERSION, source_id=source_id
     )
     try:
-        authored_data: authored_topology.AuthoredTopology | None = None
-        if Path(str(relpath)).suffix.casefold() == ".md":
+        authored_data = authored_topology.empty_authored_topology(str(relpath))
+        if authored_topology.is_markdown_path(str(relpath)):
             source_text = (paths.root / str(relpath)).read_text(
                 encoding="utf-8", errors="replace"
             )
@@ -383,21 +383,37 @@ def compile_source_l2(
                 paths.state_db, graph_data, conn=conn,
                 units=staged_units, source_lineage_hash=source["content_hash"],
             )
-            if authored_data is not None:
-                authored_graph = authored_topology.persist_authored_topology(
-                    paths.state_db,
-                    authored_data,
-                    source_id=source_id,
-                    generation_id=gen_id,
-                    conn=conn,
-                )
-            _publish_generation(paths.state_db, source_id, gen_id, fingerprint, conn=conn)
+            authored_graph = authored_topology.persist_authored_topology(
+                paths.state_db,
+                authored_data,
+                source_id=source_id,
+                generation_id=gen_id,
+                conn=conn,
+            )
+            _publish_generation(
+                paths.state_db,
+                source_id,
+                gen_id,
+                fingerprint,
+                authored_relation_ids=authored_graph.relation_ids,
+                conn=conn,
+            )
+            newly_active: list[str] = []
             for relation_id in authored_graph.relation_ids:
-                db.compile_relation_lifecycle(
+                status = db.compile_relation_lifecycle(
                     paths.state_db,
                     relation_id=relation_id,
                     conn=conn,
                 )
+                if (
+                    status == "active"
+                    and relation_id in authored_graph.activated_relation_ids
+                ):
+                    newly_active.append(relation_id)
+            db.retire_community_reports_for_relation_endpoints_on_connection(
+                conn,
+                newly_active,
+            )
     except Exception as e:
         # KEEP broad: transactional rollback boundary — ANY staged-compile failure
         # must discard the staged generation and surface (l2 error), so a partial
@@ -555,7 +571,13 @@ def _retire_prior_generation_units(
 
 
 def _publish_generation(
-    db_path: Path, source_id: int, generation_id: str, fingerprint: str, *, conn: Any = None
+    db_path: Path,
+    source_id: int,
+    generation_id: str,
+    fingerprint: str,
+    *,
+    authored_relation_ids: tuple[str, ...] = (),
+    conn: Any = None,
 ) -> None:
     """Atomically publish a staged generation: retire the source's prior-generation
     units, then flip this generation authoritative (prior → discarded). Assumes the
@@ -566,10 +588,88 @@ def _publish_generation(
         str(u["id"]) for u in db.list_generation_units(db_path, generation_id, conn=conn)
     )
     audit_json = json.dumps(
-        {"content_hash": fingerprint, "unit_ids": verified_ids, "unit_count": len(verified_ids)},
+        {
+            "authored_relation_ids": sorted(set(authored_relation_ids)),
+            "content_hash": fingerprint,
+            "unit_ids": verified_ids,
+            "unit_count": len(verified_ids),
+        },
         sort_keys=True,
     )
     db.publish_compiler_generation(db_path, generation_id, audit_json=audit_json, conn=conn)
+
+
+def _generation_authored_relation_ids(generation: dict | None) -> tuple[str, ...] | None:
+    if generation is None:
+        return None
+    try:
+        audit = json.loads(generation.get("audit_json") or "{}")
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(audit, dict):
+        return None
+    raw = audit.get("authored_relation_ids")
+    if (
+        not isinstance(raw, list)
+        or any(not isinstance(value, str) or not value for value in raw)
+        or raw != sorted(set(raw))
+    ):
+        return None
+    return tuple(raw)
+
+
+def _reconcile_db_only_authored_membership(
+    *,
+    source_id: int,
+    prior: dict | None,
+    generation_id: str,
+    fingerprint: str,
+    conn: Any,
+) -> tuple[str, ...]:
+    source_owned_ids = {
+        str(row[0])
+        for row in conn.execute(
+            "SELECT r.id FROM graph_relations r "
+            "JOIN compiler_generations g ON g.id = r.generation_id "
+            "WHERE r.edge_class = 'authored' AND g.source_id = ?",
+            (source_id,),
+        ).fetchall()
+    }
+    carried: tuple[str, ...] = ()
+    if prior is not None:
+        try:
+            prior_audit = json.loads(prior.get("audit_json") or "{}")
+        except (TypeError, ValueError):
+            prior_audit = {}
+        requested = _generation_authored_relation_ids(prior)
+        prior_ids = {
+            str(row[0])
+            for row in conn.execute(
+                "SELECT id FROM graph_relations "
+                "WHERE edge_class = 'authored' AND generation_id = ?",
+                (prior["id"],),
+            ).fetchall()
+        }
+        if (
+            isinstance(prior_audit, dict)
+            and prior_audit.get("content_hash") == fingerprint
+            and requested is not None
+            and set(requested) == prior_ids
+        ):
+            carried = requested
+
+    for relation_id in carried:
+        conn.execute(
+            "UPDATE graph_relations SET generation_id = ?, "
+            "lifecycle_status = 'provisional', quarantine_reason = '', "
+            "reeval_trigger = '', updated_at = ? WHERE id = ?",
+            (generation_id, db._now_iso(), relation_id),
+        )
+    db.retire_graph_relations_on_connection(
+        conn,
+        source_owned_ids - set(carried),
+    )
+    return carried
 
 
 def recompile_source(
@@ -632,7 +732,27 @@ def recompile_source(
                 "WHERE source_id = ? AND retired_at IS NULL",
                 (gen_id, source_id),
             )
-            _publish_generation(db_path, source_id, gen_id, fingerprint, conn=conn)
+            authored_relation_ids = _reconcile_db_only_authored_membership(
+                source_id=source_id,
+                prior=prior,
+                generation_id=gen_id,
+                fingerprint=fingerprint,
+                conn=conn,
+            )
+            _publish_generation(
+                db_path,
+                source_id,
+                gen_id,
+                fingerprint,
+                authored_relation_ids=authored_relation_ids,
+                conn=conn,
+            )
+            for relation_id in authored_relation_ids:
+                db.compile_relation_lifecycle(
+                    db_path,
+                    relation_id=relation_id,
+                    conn=conn,
+                )
     except Exception:
         # KEEP broad: transactional rollback — discard the staged generation on
         # any failure and re-raise so the caller sees the real error.
@@ -641,6 +761,7 @@ def recompile_source(
 
     published = db.get_authoritative_generation(db_path, source_id)
     assert published is not None  # just published above
+    materializer.materialize_search_documents(db_path)
     return _generation_summary(source_id, published)
 
 
