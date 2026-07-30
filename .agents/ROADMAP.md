@@ -22,7 +22,18 @@ Source of Truth to identify unresolved items.
 
 `USER_REPORT.md` is currently empty. The following queue is the ordered roadmap.
 
-No urgent hotfix is currently tracked.
+### Urgent hotfix
+
+- **v0.36.8 — PDF Convert-to-LaTeX Antigravity prompt transport**
+  - `wiki plugin pdf transcribe` passes the real transcription prompt to
+    Antigravity CLI over stdin while `agy 1.1.8` reads the `--print` argument,
+    so the CLI sees only a generic “provided input” instruction and returns
+    scratch-workspace planning narration that the plugin copies as a successful
+    transcription.
+  - The same backend path does not pass the selected `--model` or required
+    catalogue effort, so the Dashboard's LaTeX/region model choice is not
+    faithfully applied.
+  - Plan: `.agents/plans/02_latex_transcribe_hotfix.md`
 
 - v0.36.2 PR #90 is merged. The next actionable item is the
   Composite-Primary-Key Tombstones schema contract update.
@@ -291,6 +302,7 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: System Stability Overhaul ACTIVE; v0.36.6 is release-ready.
-- **Active Milestone**: None (System IDLE)
-- **Next actionable item**: Start the highest-priority remaining schema-contract plan for composite-primary-key tombstones from a fresh branch off updated `master`.
+- **Roadmap state**: System Stability Overhaul ACTIVE; v0.36.8 hotfix in progress.
+- **Active Milestone**: v0.36.8 PDF Convert-to-LaTeX Antigravity prompt transport.
+- **Next actionable item**: Complete and ship the v0.36.8 hotfix, then resume the
+  composite-primary-key tombstones schema-contract plan.
