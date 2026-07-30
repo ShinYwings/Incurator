@@ -80,6 +80,19 @@ def get_model_efforts(provider: str, model_id: str) -> list[str]:
     return []
 
 
+def get_backend_model_efforts(backend_key: str, model_id: str) -> list[str]:
+    """Return effort levels for a persisted backend-key/model pair."""
+    data = load_models_catalogue()
+    for provider in data.get("providers", {}).values():
+        if provider.get("backend_key") != backend_key:
+            continue
+        for model in provider.get("models", []):
+            if model.get("id") == model_id:
+                return list(model.get("efforts", []) or [])
+        return []
+    return []
+
+
 def get_default_effort(provider: str, model_id: str) -> str:
     """Return the default effort for a provider/model, or '' if none."""
     data = load_models_catalogue()

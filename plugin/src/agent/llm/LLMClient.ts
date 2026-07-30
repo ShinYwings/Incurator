@@ -1893,6 +1893,7 @@ export class LLMClient {
     switch (p) {
       case "antigravity": {
         this.syncAgyMcpConfig();
+        const antigravityModelArgs = model ? ["--model", model] : [];
         const antigravityEffortArgs = this.settings.agentEffort
           ? ["--effort", this.settings.agentEffort]
           : [];
@@ -1907,6 +1908,7 @@ export class LLMClient {
             // (P0) — the OS sandbox (wrapWithOsSandbox) does. NO blanket skip / trust.
             "--sandbox",
             ...addDirs, // empty in ephemeral (tool-free popover) mode
+            ...antigravityModelArgs,
             ...antigravityEffortArgs,
             "-p", prompt,
           ],

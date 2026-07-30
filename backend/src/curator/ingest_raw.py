@@ -1492,11 +1492,22 @@ def _resolve_extract_client(config: dict, main_client):
     Empty → fall through to the vision chain; configured-bad → raise. (Provided for
     completeness / future server-side region tasks; ingest does NOT use this.)
     """
-    from . import llm
+    from . import llm, models
+    from .config import split_provider_model
 
-    lm = (config.get("llm", {}).get("latex_extract_model") or "").strip()
-    if lm:
-        return _require_vision(llm.make_client_for(lm, config), "latex_extract_model")
+    llm_config = config.get("llm", {})
+    latex_model = (llm_config.get("latex_extract_model") or "").strip()
+    vision_model = (llm_config.get("vision_model") or "").strip()
+    selected = latex_model or vision_model
+    if selected:
+        slot = "latex_extract_model" if latex_model else "vision_model"
+        provider, model = split_provider_model(selected)
+        efforts = models.get_backend_model_efforts(provider, model)
+        effort = "low" if "low" in efforts else ""
+        return _require_vision(
+            llm.make_client_for(selected, config, effort=effort),
+            slot,
+        )
     return _resolve_vision_client(config, main_client)
 
 

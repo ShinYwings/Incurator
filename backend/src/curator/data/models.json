@@ -35,18 +35,14 @@
           "label": "Claude Sonnet 4.6 (Thinking)",
           "context_window": 200000,
           "supports_vision": true,
-          "supports_thinking": true,
-          "efforts": ["thinking"],
-          "default_effort": "thinking"
+          "supports_thinking": true
         },
         {
-          "id": "claude-opus-4-6",
+          "id": "claude-opus-4-6-thinking",
           "label": "Claude Opus 4.6 (Thinking)",
           "context_window": 200000,
           "supports_vision": true,
-          "supports_thinking": true,
-          "efforts": ["thinking"],
-          "default_effort": "thinking"
+          "supports_thinking": true
         },
         {
           "id": "gpt-oss-120b",

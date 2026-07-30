@@ -212,7 +212,7 @@ DEFAULT_CONFIG: dict = {
         "primary":  f"{consts.BACKEND_ANTIGRAVITY_CLI}::{consts.DEFAULT_ANTIGRAVITY_MODEL}",
         "fallback": "",
         # Reasoning/effort level per slot (claude --effort, codex
-        # model_reasoning_effort, agy prompt hint). Empty = CLI default.
+        # model_reasoning_effort, agy --effort). Empty = CLI default.
         "primary_effort":  "",
         "fallback_effort": "",
         "temperature": 0.3,

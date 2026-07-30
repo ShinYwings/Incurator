@@ -121,7 +121,7 @@ DEFAULT_RERANK_GGUF_FILE = "qwen3-reranker-0.6b-q8_0.gguf"
 
 # Default reasoning/effort levels per CLI backend. Empty = let the CLI use its
 # own default. These map to: claude `--effort`, codex `-c model_reasoning_effort`,
-# and an embedded prompt hint for the agy (Antigravity) CLI.
+# and agy (Antigravity) `--effort`.
 DEFAULT_CLAUDE_EFFORT = "high"
 DEFAULT_CODEX_EFFORT = "low"
 DEFAULT_ANTIGRAVITY_EFFORT = "medium"

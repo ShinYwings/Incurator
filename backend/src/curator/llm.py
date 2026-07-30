@@ -1608,12 +1608,13 @@ def _make_by_key(key: str, backend_cfg: dict):
     return None
 
 
-def make_client_for(provider_model: str, config: dict):
+def make_client_for(provider_model: str, config: dict, *, effort: str = ""):
     """Build an INDEPENDENT client for an explicit ``provider::model`` value.
 
     Unlike ``make_client_by_key`` (which derives the model from primary/fallback),
     this uses the model embedded in ``provider_model`` — used for the decoupled
-    ``vision_model`` / ``latex_extract_model`` slots (v0.22.0). Returns None for an
+    ``vision_model`` / ``latex_extract_model`` slots (v0.22.0). ``effort`` is a
+    caller-owned task policy; this factory only forwards it. Returns None for an
     empty/unparseable value.
     """
     from .config import split_provider_model
@@ -1625,9 +1626,13 @@ def make_client_for(provider_model: str, config: dict):
     if provider == consts.BACKEND_OLLAMA:
         backend_cfg = {**llm_cfg.get(consts.BACKEND_OLLAMA, {}), "model": model}
     elif provider == consts.BACKEND_DEEPSEEK_API:
-        backend_cfg = {**llm_cfg.get(consts.BACKEND_DEEPSEEK_API, {}), "model": model}
+        backend_cfg = {
+            **llm_cfg.get(consts.BACKEND_DEEPSEEK_API, {}),
+            "model": model,
+            "effort": effort,
+        }
     else:
-        backend_cfg = {"model": model}
+        backend_cfg = {"model": model, "effort": effort}
     return _make_by_key(provider, backend_cfg)
 
 
