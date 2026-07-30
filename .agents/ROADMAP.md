@@ -22,8 +22,8 @@ Source of Truth to identify unresolved items.
 
 `USER_REPORT.md` is currently empty. The following queue is the ordered roadmap.
 
-No urgent hotfix is currently tracked. The active delivery item is v0.37.1
-Query Provider Failure UX.
+No urgent hotfix is currently tracked. v0.37.1 is release-ready; the next
+planned Stability slice is authored-wikilink architecture validation.
 
 ### 🚀 Priority Order
 
@@ -40,10 +40,8 @@ Query Provider Failure UX.
      strict v12 schema/reindex speedup, CM-1 command decomposition,
      fail-closed sync/KRS integrity, and the PDF/Antigravity transport hotfixes.
    - **Remaining Scope for Upcoming Releases**:
-     - **Integrity workstreams (ordered)**: query-provider failure UX, then
-       authored-wikilink topology validation. These share the Stability goal
-       but ship separately so each boundary has an isolated contract, rollback,
-       and test matrix.
+     - **Integrity workstream**: authored-wikilink topology validation, with its
+       own isolated contract, rollback, and test matrix.
      - **Exception Handling Hardening (XC-1 later slices)**: audit broad
        catch-and-return boundary handlers and other backend modules after the
        silent-swallow slice lands. Provider follow-ups found during v0.37.1
@@ -53,26 +51,7 @@ Query Provider Failure UX.
        no-JSON plugin command errors.
      - **Performance & UX Refinements**: RAG/DAG benchmark harness & retrieval hotspot optimization; chat/popover UX friction cleanup.
 
-2. **[Stability / Bug] Query Provider Failure UX** *(ACTIVE — v0.37.1)*
-   - A real Gaussian Splatting testbed query reached retrieval successfully, but
-     Antigravity CLI returned no output during JSON repair and `wiki query`
-     exposed a full Rich traceback instead of a concise provider-error message.
-   - Plan a typed query/provider boundary that preserves failed prompt traces,
-     exits non-zero, and reports actionable CLI/MCP/plugin errors without hiding
-     the original provider failure.
-   - Proposed implementation:
-     `.agents/plans/02_query_provider_failure_ux.md`; measured baseline:
-     `.agents/plans/02_query_provider_failure_evidence.md`.
-   - Arena consensus: reuse the existing `LLMError` hierarchy and public
-     error/QTR/PTR/provenance fields; normalize blank/non-zero provider results,
-     fix Codex failover parity, and remove duplicated MCP/plugin query handling.
-     No new DB schema or public error fields.
-   - Follow-up findings kept outside v0.37.1: cancellation trace finalization,
-     trace-storage outage recovery, malformed provider-wire payloads,
-     post-failover prompt-provider attribution, and generic no-JSON plugin
-     command errors.
-
-3. **[Stability / Validation] `[[wikilink]]` Architecture Validation**
+2. **[Stability / Validation] `[[wikilink]]` Architecture Validation** *(NEXT)*
    - Core entities in the backend pipeline documents are not explicitly marked with `[[wikilink]]`.
    - Validate `backend/src/curator/page_writer.py` and `sync.py` backlink parsing logic against `[[wikilink]]` syntax.
    - Current evidence: `backend/tests/test_failure_atlas_repro.py` F9 and
@@ -83,22 +62,22 @@ Query Provider Failure UX.
      F9 for broad-span/report grounding. No wikilink code change starts while
      those two meanings share one failure id.
 
-4. **[Minor Update] Chat Session Context Compaction**
+3. **[Minor Update] Chat Session Context Compaction**
    - Confirm full-session history behavior.
    - Add a Claude-Code-style circular token usage meter under the query box and a click-to-compact action.
    - Detailed analysis: `.agents/drafts/chat_context_compaction.md`
 
-5. **[Minor Update] Vault Storage Governance & Quota Visibility**
+4. **[Minor Update] Vault Storage Governance & Quota Visibility**
    - Separate authoritative, derived, cache, and external storage accounting.
    - Add capacity guidance, safe admission control, and CLI/plugin visibility.
    - Detailed analysis: `.agents/drafts/vault_storage_governance.md`
 
-6. **[Major Update] Native PDF Annotation & Asset System**
+5. **[Major Update] Native PDF Annotation & Asset System**
    - Native annotation highlight/memo synchronization using Obsidian's built-in PDF viewer.
    - In-PDF full-text search and strict-spelling mode remain here.
    - Detailed analysis: `.agents/drafts/pdf_annotation_system.md`
 
-7. **[Minor Update] Web Search Integration**
+6. **[Minor Update] Web Search Integration**
    - Design and integrate web search capabilities for local models (Ollama, Deepseek, etc.).
    - Investigate API options (Brave, SerpAPI) and implement `web_search.py`.
    - The former quick-wins draft was deleted after triage; create a fresh
@@ -107,6 +86,15 @@ Query Provider Failure UX.
 ---
 
 ## ✅ Completed Milestones
+
+- **v0.37.1 — Query Provider Failure UX**
+  (release-ready 2026-07-30): Ollama, Claude, Codex, and failover paths now
+  normalize blank/non-zero provider results through the existing `LLMError`
+  boundary. Failed synthesis retains QTR/PTR/evidence diagnostics, CLI exits
+  non-zero without a Rich traceback, and CLI/MCP/hidden-plugin/plugin UI
+  surfaces share the existing failure meaning. Backend 1,325-test, plugin
+  725-test, Ruff, Mypy, production build, zero-vulnerability npm audit,
+  ResNet testbed lint 100/100, and authenticated Antigravity query gates passed.
 
 - **v0.37.0 — Composite-Primary-Key Tombstone Convergence**
   (shipped 2026-07-30, PR #98 merged): schema v13 adds a closed canonical-JSON transport

@@ -104,7 +104,7 @@ prompt-consistency harness shows measured improvement over baseline.
   wikilink topology validation are Stability workstreams, not exclusions.
 - **Delivery model**: each phase below is a standalone PR. Branch per phase off
   `master`. The first integrity slice shipped in v0.37.0; the provider-failure
-  slice is planned on `release/v0.37.1` from updated `master`.
+  slice is release-ready on `release/v0.37.1`.
 - **Stop conditions** — agent MUST halt and ask the user when:
   - any DB schema change is required (P1-contract approval gate).
   - a characterization test reveals existing behavior is itself buggy (decide:
@@ -118,8 +118,9 @@ prompt-consistency harness shows measured improvement over baseline.
   `00_problem.md §2`; Phase A completed all G01–G19 diagnosis groups and folded
   them into `01_roadmap_evidence.md`.
 - **Current worktree**: `release/v0.37.1`, created from clean, synchronized
-  `master` after v0.37.0 merged. The query-provider failure Arena plan and
-  measured baseline are complete; no application code has changed.
+  `master` after v0.37.0 merged. The query-provider failure implementation,
+  documentation, regression matrix, static analysis, full suites, plugin build,
+  npm audit, and non-destructive testbed validation are complete.
 - **Rollback anchor**: each slice records its `master` merge-base before
   implementation and remains independently revertible via `git revert -m 1`.
 - **Per-phase evidence**: P1 produces `01_roadmap_evidence.md` (the findings
@@ -233,12 +234,11 @@ green + testbed parity for backend) and starts with prior-art research.
 - **Phase B — Ordered Integrity Workstreams** (**ACTIVE**)
   1. Composite-primary-key tombstones: **shipped in v0.37.0 / PR #98** with the
      portable key codec, v13 boundary, fail-closed import, and multi-peer tests.
-  2. Query-provider failure UX (**v0.37.1 PROPOSED — awaiting approval**):
-     existing-`LLMError` provider/query boundary, cross-provider blank/non-zero
-     normalization, retained failed QTR/PTR/evidence, non-zero CLI exit, and one
-     existing-field contract across CLI/MCP/plugin. Plan:
-     `.agents/plans/02_query_provider_failure_ux.md`.
-  3. Authored-wikilink validation: reconcile projection backlink parsing with
+  2. Query-provider failure UX: **release-ready in v0.37.1** with the existing
+     `LLMError` boundary, cross-provider blank/non-zero normalization, retained
+     failed QTR/PTR/evidence, non-zero CLI exit, and one existing-field contract
+     across CLI/MCP/plugin.
+  3. Authored-wikilink validation (**NEXT**): reconcile projection backlink parsing with
      Failure Atlas F9, first resolve the conflicting F9 meaning in
      `SYSTEM_BEHAVIOR.md` §27, then decide whether topology compilation is
      required.
@@ -253,5 +253,5 @@ green + testbed parity for backend) and starts with prior-art research.
 ---
 
 > Versioning: pre-1.0, so architectural/breaking changes ride **Minor** slots;
-> compatible fixes remain **Patch** releases. The composite tombstone
-> wire-contract change shipped in v0.37.0.
+> compatible fixes remain **Patch** releases. Query-provider failure UX is
+> release-ready as the backward-compatible v0.37.1 patch.

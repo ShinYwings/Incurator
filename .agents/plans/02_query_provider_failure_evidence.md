@@ -1,7 +1,7 @@
 # v0.37.1 Query Provider Failure UX Evidence Ledger
 
 Date: 2026-07-30
-Status: IMPLEMENTING — baseline locked; user approved implementation.
+Status: COMPLETE — implementation and release validation passed.
 
 ## Rollback anchor
 
@@ -142,4 +142,23 @@ orchestrator/surface handoff.
 
 ## Post-validation
 
-Pending implementation approval.
+- Focused provider boundary: `46 passed`; Ruff passed.
+- Query/prompt boundary: `23 passed`; Ruff passed.
+- Backend surface contract: `45 passed`; Mypy passed.
+- Plugin focused surface suite: `125 passed`; production build passed.
+- Full backend suite:
+  `1325 passed, 6 skipped, 5 xfailed, 7 warnings in 464.33s`.
+- Full plugin suite: `68 files / 725 tests passed`.
+- Full Ruff and Mypy gates passed (`125` source files checked).
+- Plugin production build passed and `npm audit` reported zero vulnerabilities.
+- Non-destructive ResNet testbed checks:
+  `wiki status` completed, `wiki lint` scored `100/100` with zero issues, and
+  an authenticated Antigravity query exited `0` and printed its non-streaming
+  answer without a traceback.
+- The materialized testbed remains intentionally stale at schema v0 with no L3
+  concepts; it was not reinitialized or migrated because Gaussian production
+  data is not a disposable fixture. The authenticated query nevertheless
+  validated provider transport and CLI success rendering against the current
+  backend.
+- No DB migration or new public field was introduced. The patch preserves the
+  existing query envelope and schema v13.

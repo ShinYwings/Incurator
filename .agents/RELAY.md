@@ -1,56 +1,50 @@
-# RELAY — ACTIVE
+# RELAY — v0.37.1 RELEASE HANDOFF
 
 ## Goal
 
-Implement v0.37.1 Query Provider Failure UX so provider/repair failures preserve
-diagnostics and prompt traces while CLI, MCP, and plugin surfaces return concise,
-actionable errors instead of raw Rich tracebacks.
+Continue the System Stability Overhaul through independently reviewable
+integrity releases. Query Provider Failure UX is complete in v0.37.1;
+authored-wikilink architecture validation is the next workstream after merge.
 
 ## Plan Reference
 
 - Umbrella: `.agents/plans/01_system_stability_overhaul.md`
 - Evidence: `.agents/plans/01_roadmap_evidence.md`
 - Current branch: `release/v0.37.1`
-- Slice plan: `.agents/plans/02_query_provider_failure_ux.md`
-- Slice evidence: `.agents/plans/02_query_provider_failure_evidence.md`
-- Arena: `.agents/plans/query_provider_failure_arena/`
+- Completed slice history: v0.37.1 branch commits (active plan artifacts are
+  removed in the release commit)
 
 ## Analysis & Reasoning
 
-- This is a backward-compatible bug fix/refactor and targets patch release
-  v0.37.1; it adds no public fields or DB schema.
-- The known production failure reached retrieval, then Antigravity returned no
-  output during JSON repair; `wiki query` exposed an internal traceback.
-- The slice must preserve the original provider failure and failed prompt trace,
-  while keeping CLI non-zero exit semantics and MCP/plugin parity.
-- Arena consensus reuses `LLMError` as the typed expected-provider boundary,
-  rejects blank/non-zero provider output consistently, repairs Codex failover,
-  recovers PTRs through the existing QTR index, and removes duplicated
-  MCP/plugin query orchestration.
+- Provider output is accepted only after successful process completion and
+  non-blank validation; all `LLMError` subtypes participate in failover.
+- The query boundary catches only expected provider failures after a QTR exists,
+  then retains failed PTRs, evidence provenance, warnings, and failed synthesis
+  actions without hiding the original diagnosis.
+- CLI, MCP, hidden-plugin JSON, and plugin UI use the existing failure envelope;
+  unexpected runtime/storage defects still propagate.
 
 ## Progress Status
 
 - v0.37.0 merged in PR #98 and the release branch was cleaned.
-- v0.37.1 branch was created from synchronized `master`.
-- Repository/code/docs/test evidence, prior art, two domain analyses, Arena
-  proposal/critique/defense, and the Master Plan are complete.
-- A deterministic repair-failure reproduction produced one failed PTR
-  (`retry_count=1`) but an empty QTR prompt list and zero synthesis actions.
-- Existing prompt/query safety nets pass unchanged (`20 passed`).
-- The user approved implementation on 2026-07-30.
-- P1 docs-first contract synchronization is in progress; no application code
-  has changed yet.
+- v0.37.1 implementation, EN/KR docs, TDD, code review, version sync, changelog,
+  and testbed validation are complete.
+- Final gates: backend 1,325 passed; plugin 725 passed; Ruff and Mypy passed;
+  production build passed; npm audit found zero vulnerabilities.
+- ResNet testbed lint scored 100/100, and an authenticated Antigravity query
+  printed its non-streaming answer and exited 0 without a traceback.
+- The release branch is ready for PR review and merge.
 
 ## Critical Context / Blockers
 
-- Do not hide the original provider exception behind a generic repair error.
-- Do not add a DB schema or new CLI/MCP/plugin capability in this patch.
-- Do not catch arbitrary exceptions as provider failures.
-- Keep cancellation, trace-storage outage recovery, malformed provider wire
-  shapes, and prompt-provider attribution as separate follow-ups.
-- Authored-wikilink validation remains a separate later release.
+- Cancellation trace finalization, trace-storage outage recovery, malformed
+  provider wire shapes, prompt-provider attribution, early Antigravity temp-log
+  cleanup, and generic no-JSON plugin command handling remain deferred.
+- Authored-wikilink validation remains a separate release and must first
+  reconcile the conflicting Failure Atlas F9 meanings.
 
 ## Immediate Next Action
 
-Complete P1 docs, then write the P2 provider/prompt regression tests before
-changing application logic.
+Review and merge the v0.37.1 PR from `release/v0.37.1`. After merge, update
+local `master` and begin authored-wikilink architecture validation from that
+clean base.
