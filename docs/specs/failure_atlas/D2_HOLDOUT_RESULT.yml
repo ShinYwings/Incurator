@@ -48,6 +48,16 @@ evaluated_code:
       non-reference rows, so no evaluated query, retrieval, FTS ranking, projection,
       or citation path changes. The consumed holdout cannot be rerun after run_count=3;
       this hash update re-arms the existing code-drift tripwire.
+  composite_tombstones_v13_rearm:
+    date: '2026-07-30'
+    prior_schema_sha256: b9ce5f796b47efc06815d2d3398d6cc0663a67f9a7bf2c696d67e562385d59cb
+    prior_entities_sha256: c34156c88311a27834068f17ab7ab9a46efc28ed26a154554796db8963849df0
+    prior_sources_sha256: d22fcc1ae311fa6c5db343e012c6bb525274e040f3be740db614053af5bd49e2
+    reason: Schema v13 changes only cross-device tombstone identity, delete/update
+      convergence, and local lifecycle cleanup for composite-key records. It does
+      not change retrieval documents, FTS ranking, fusion, projection, chunking,
+      or the Q06 fixture corpus. The consumed holdout cannot be rerun after
+      run_count=3; these hashes re-arm its existing code-drift tripwire.
   plan_b_p6_rearm:
     date: '2026-06-13'
     prior_db_sha256: 21554038b3b98e7301a6974151737fbd3767ea4855d5ca465540e05e008cc3de
@@ -275,10 +285,10 @@ evaluated_code:
     backend/src/curator/retrieval/embedding.py: ba7b3a500b9d3602bdf6c48095fa35f45609f67d04dc18bd9a067c97770252bf
     backend/src/curator/retrieval/chunking.py: 8c45af7ba7457f5930fc05c0a3f0de10eb6cc424c4b70b722510dd2decd59255
     backend/src/curator/db/__init__.py: 9d9b18355372e1f77534aef353a07c3ee1f3e9ce3413ffec7d8030da86a4a16c
-    backend/src/curator/db/schema.py: b9ce5f796b47efc06815d2d3398d6cc0663a67f9a7bf2c696d67e562385d59cb
-    backend/src/curator/db/_entities.py: c34156c88311a27834068f17ab7ab9a46efc28ed26a154554796db8963849df0
+    backend/src/curator/db/schema.py: 8df87784f5d998cf3a7d682b7702135f81b49b11e8872e5215c8e3932be53961
+    backend/src/curator/db/_entities.py: 2226d1a4bda32d9e69a5f949e888c32e08143d52b892713e2152b71413e6fa43
     backend/src/curator/db/jobs.py: 33d772f0709c3b549b40f29dac7028edee58c882c06dc6e7f38706bd71e9b320
-    backend/src/curator/db/sources.py: d22fcc1ae311fa6c5db343e012c6bb525274e040f3be740db614053af5bd49e2
+    backend/src/curator/db/sources.py: 26b1c013c21cb93e1e44b01e8f7a11d3a6495f5b3dcf3b4a21ac63662fe3c515
   preflight_family_metrics:
     direct-factual:
       query_count: 7
