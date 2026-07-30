@@ -10,8 +10,10 @@ planning narration.
 
 - Branch: `hotfix/v0.36.8-latex-transcribe`
 - Draft PR: `https://github.com/ShinYwings/Incurator/pull/96`
-- Completed hotfix plans were deleted after validation; use branch Git history
-  to inspect the master plan and evidence ledger.
+- Active review follow-up plan:
+  `.agents/plans/02_v0368_latex_model_dispatch_followup.md`
+- Active evidence ledger:
+  `.agents/plans/02_v0368_latex_model_dispatch_evidence.md`
 
 ## Analysis & Reasoning
 
@@ -31,6 +33,11 @@ planning narration.
   install resolved `mcp==1.29.0`, imported FastMCP, and passed mypy.
 - After the dependency boundary fix, both Backend CI jobs, both Plugin CI jobs,
   and Version Consistency passed on PR #96.
+- User review found that the dedicated extraction task should use low effort
+  when supported and requested a simplification review.
+- The review confirmed that the plugin Antigravity command passes effort but
+  omits the selected model, the backend extraction task inherits general
+  catalogue defaults, and the Antigravity Opus catalogue slug is stale.
 
 ## Progress Status
 
@@ -44,6 +51,10 @@ planning narration.
 - [x] Bump v0.36.8, update changelog, and remove plan artifacts.
 - [x] Push and open draft PR #96.
 - [x] Push the MCP 2.0 compatibility follow-up and confirm rerun CI.
+- [x] Capture and plan the PR #96 model-dispatch review follow-up.
+- [ ] Add failing backend/plugin dispatch tests.
+- [ ] Implement task-scoped low effort, exact model IDs, and plugin model forwarding.
+- [ ] Re-run full validation and complete the code review.
 
 ## Critical Context / Blockers
 
@@ -54,5 +65,4 @@ planning narration.
 
 ## Immediate Next Action
 
-Human review and merge of draft PR #96. After merge, apply the documented IDLE
-relay cleanup exception on updated `master`.
+Write the approved follow-up's failing tests before implementation.

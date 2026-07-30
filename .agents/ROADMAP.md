@@ -22,7 +22,14 @@ Source of Truth to identify unresolved items.
 
 `USER_REPORT.md` is currently empty. The following queue is the ordered roadmap.
 
-No urgent hotfix is currently tracked.
+- **[PR #96 Review Follow-up] v0.36.8 model dispatch simplification**
+  - Ensure plugin Antigravity chat passes the selected `--model`.
+  - Use `low` for explicit Convert-to-LaTeX models only when supported; omit
+    effort for fixed/no-effort models.
+  - Correct the Antigravity Opus slug and review the full PR for duplicated or
+    roundabout model/effort logic.
+  - Master plan:
+    `.agents/plans/02_v0368_latex_model_dispatch_followup.md`
 
 - v0.36.2 PR #90 is merged. The next actionable item is the
   Composite-Primary-Key Tombstones schema contract update.
@@ -300,7 +307,8 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: System Stability Overhaul ACTIVE; v0.36.8 is release-ready.
-- **Active Milestone**: None (v0.36.8 awaits human PR review/merge).
-- **Next actionable item**: After v0.36.8 merges, resume the
+- **Roadmap state**: System Stability Overhaul ACTIVE; v0.36.8 review follow-up
+  is in progress on PR #96.
+- **Active Milestone**: Simplify and verify model/effort dispatch.
+- **Next actionable item**: Complete the approved follow-up plan, then resume the
   composite-primary-key tombstones schema-contract plan.

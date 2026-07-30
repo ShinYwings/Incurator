@@ -529,8 +529,9 @@ Treat PDF chat and PDF knowledge refinement as separate workflows:
 ## 7. AI Provider Settings
 
 The plugin supports Antigravity, Claude, OpenAI Codex, Ollama, and DeepSeek. In settings, provider and model can be adjusted separately. In the chat sidebar footer, a single model menu switches both at once using `Provider · Model` labels. Reasoning/effort appears only for models whose backend catalogue entry declares effort levels.
-For Antigravity CLI 1.1.5+, the selected level is passed with `--effort`; this
-is required when using a base slug such as `gemini-3.6-flash`.
+For Antigravity CLI 1.1.5+, chat passes the selected model with `--model` and
+the selected level with `--effort`; the latter is required for a base slug such
+as `gemini-3.6-flash`.
 
 The Settings page shows the selected model's context window on the **Model**
 row instead of as a separate setting. This is the provider/CLI token capacity;
@@ -552,8 +553,11 @@ separate from your main chat model. Two rows:
   before copying the result. The selected prose is preserved and equations are
   rewritten with `$...$` / `$$...$$` LaTeX delimiters. For Antigravity, the
   backend passes the full transcription request as the `agy --print` prompt and
-  applies the selected `--model` plus its configured or catalogue-default
-  `--effort`; provider work logs are not transcription output. **Note (v0.28.0):**
+  applies the exact selected `--model`. An explicit LaTeX or PDF-ingest fallback
+  model uses `low` when that model supports it; fixed/no-effort models omit the
+  effort flag. If neither dedicated row is configured, the main-model fallback
+  keeps its selected effort. Provider work logs are not transcription output.
+  **Note (v0.28.0):**
   the **Cmd+Shift+X** chat snip no longer routes here when your main chat model is
   vision-capable — that model now reads the crop image directly (faster, no double
   round-trip). This light model still applies when the chat model is text-only.
@@ -587,8 +591,11 @@ agy login
 | Model | Description |
 |-------|-------------|
 | `gemini-3.5-flash` | Default. Fast and efficient |
+| `gemini-3.6-flash` | Current fast Gemini vision model |
 | `gemini-3.1-pro` | High-quality reasoning |
-| `gemini-3-flash` | Previous-generation Flash |
+| `claude-sonnet-4-6` | Fixed-thinking Claude variant exposed by `agy` |
+| `claude-opus-4-6-thinking` | Fixed-thinking Opus variant exposed by `agy` |
+| `gpt-oss-120b` | Text-only medium-effort model |
 
 `antigravityPrintTimeoutSec`: Maximum wait time for CLI response (default 300 seconds)
 

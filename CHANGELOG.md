@@ -7,10 +7,13 @@ All notable changes to Incurator are documented here.
 - **PDF Convert-to-LaTeX Antigravity Prompt Transport**
   The backend now sends the complete PDF transcription request as the
   `agy --print` prompt instead of placing it on ignored stdin behind a generic
-  placeholder. It also passes the selected `--model` and explicit or
-  catalogue-default native `--effort`. Convert to LaTeX therefore preserves the
-  selected prose, rewrites equations with LaTeX delimiters, and no longer copies
-  Antigravity scratch-workspace planning narration as a successful result.
+  placeholder. It also passes the exact selected `--model`; dedicated extraction
+  slots use `low` when supported and omit effort for fixed/no-effort models.
+  The plugin's Antigravity chat command now forwards its selected model as well,
+  and the catalogue uses the live `claude-opus-4-6-thinking` slug. Convert to
+  LaTeX therefore preserves the selected prose, rewrites equations with LaTeX
+  delimiters, and no longer copies Antigravity scratch-workspace planning
+  narration as a successful result.
 - **MCP 2.0 Dependency Boundary**
   Fresh validation environments now retain the supported MCP Python SDK 1.x
   line. MCP 2.0 removed the `mcp.server.fastmcp` API used by the current server

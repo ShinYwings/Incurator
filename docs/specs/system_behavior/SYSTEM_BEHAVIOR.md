@@ -662,11 +662,14 @@ provider-native control:
 - `antigravity-cli` → Antigravity CLI 1.1.5+ receives
   `agy --model <base-slug> --effort <level>`. Base slugs such as
   `gemini-3.6-flash` require an explicit supported effort (`low|medium|high`);
-  explicit non-failover slots such as `latex_extract_model` use that model's
-  catalogue `default_effort` when they have no separate effort setting. Models
-  whose catalogue entry has no selectable effort omit the flag. The actual
-  request is the value of `agy --print`; it MUST NOT be replaced by a generic
-  placeholder with the request supplied only on stdin.
+  normal chat and ingest calls use their explicit or catalogue-default effort.
+  Interactive Convert-to-LaTeX is a task-scoped exception: an explicit
+  `latex_extract_model` or `vision_model` fallback uses `low` when supported,
+  otherwise omits the flag. Its final main-model fallback retains the
+  user-selected effort. Fixed-thinking variants encode thinking in their model
+  slug and expose no selectable effort. The actual request is the value of
+  `agy --print`; it MUST NOT be replaced by a generic placeholder with the
+  request supplied only on stdin.
 - `deepseek-api` → OpenAI-compatible `https://api.deepseek.com/chat/completions`
   with `DEEPSEEK_API_KEY`, `llm.deepseek-api.api_key_secret`, or the legacy
   plaintext `llm.deepseek-api.api_key`. Environment variables take precedence.
@@ -681,10 +684,16 @@ The interactive `wiki config provider` wizard and the plugin dashboard LLM card
 must offer only the efforts a chosen model declares, and changing the model must
 reset its effort to that model's `default_effort`.
 
-The v0.35 CLI-backed catalogue is locked to the installed runtime contract:
+The v0.36.8 CLI-backed catalogue is locked to the installed runtime contract:
 
 | Provider | Model | Context | Efforts | Default |
 | --- | --- | ---: | --- | --- |
+| Antigravity | `gemini-3.5-flash` | 1,000,000 | `low`, `medium`, `high` | `medium` |
+| Antigravity | `gemini-3.6-flash` | 1,000,000 | `low`, `medium`, `high` | `medium` |
+| Antigravity | `gemini-3.1-pro` | 1,000,000 | `low`, `high` | `high` |
+| Antigravity | `claude-sonnet-4-6` | 200,000 | none (fixed thinking variant) | none |
+| Antigravity | `claude-opus-4-6-thinking` | 200,000 | none (fixed thinking variant) | none |
+| Antigravity | `gpt-oss-120b` | 128,000 | `medium` | `medium` |
 | Claude Code | `claude-sonnet-4-6` | 1,000,000 | `low`, `medium`, `high`, `max` | `high` |
 | Claude Code | `claude-fable-5` | 1,000,000 | `low`, `medium`, `high`, `xhigh`, `max` | `high` |
 | Claude Code | `claude-opus-4-8` | 1,000,000 | `low`, `medium`, `high`, `xhigh`, `max` | `high` |
@@ -2036,10 +2045,12 @@ rendered page instead.
     transcribe prompt asks for exactly one `<transcription>...</transcription>`
     block; the backend normalizes the result by extracting that block when present
     and stripping common explanatory prose, labels, and fences before returning
-    JSON to the plugin. For Antigravity, the backend passes that full prompt
-    directly as the `agy --print` value, applies the resolved model and effort,
-    and never substitutes provider scratch-workspace narration for selected prose
-    plus LaTeX.
+    JSON to the plugin. For an explicit extraction slot, the backend selects
+    `low` only when the resolved model declares it and otherwise omits effort;
+    the final main-model fallback keeps its user-selected effort. For
+    Antigravity, it passes the full prompt directly as the `agy --print` value,
+    applies the exact resolved `--model`, and never substitutes provider
+    scratch-workspace narration for selected prose plus LaTeX.
   - **Cmd+Shift+X "Snip PDF Region to Chat"** routes by the *main chat model's*
     vision capability (`modelSupportsVision`):
     - **Vision-capable main model** (antigravity / claude / codex CLI, or a vision
