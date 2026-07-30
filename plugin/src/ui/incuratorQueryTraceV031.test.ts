@@ -39,6 +39,13 @@ describe("incuratorQueryTrace v0.3.1 rendering", () => {
     expect(source).toContain("result.warnings");
   });
 
+  it("renders a traced query failure reason", () => {
+    expect(source).toContain("result.error");
+    expect(source).toContain("incurator-trace-error");
+    expect(styles).toContain(".incurator-trace-error");
+    expect(styles).toContain("var(--text-error)");
+  });
+
   it("renders exact ContextService pack metadata, items, locators, and handles", () => {
     expect(source).toContain("result.context_pack");
     expect(source).toContain("function renderContextPack(");

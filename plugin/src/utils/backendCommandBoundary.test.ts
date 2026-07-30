@@ -26,6 +26,19 @@ describe("backend command boundary", () => {
     expect(chatSidebar).toContain("this.plugin.runBackendJsonCommand.bind(this.plugin)");
   });
 
+  it("parses JSON stdout before treating a non-zero backend exit as opaque", () => {
+    const root = fileURLToPath(new URL("../../", import.meta.url));
+    const source = readFileSync(join(root, "main.ts"), "utf8");
+    const runner = source.slice(
+      source.indexOf("async runBackendJsonCommand"),
+      source.indexOf("async searchZoteroItems")
+    );
+
+    expect(runner).toContain('const text = (result.output || "").trim()');
+    expect(runner).toContain("return JSON.parse(text)");
+    expect(runner).not.toContain("if (!result.ok)");
+  });
+
   it("dashboard uses the shared backend command runner", () => {
     const root = fileURLToPath(new URL("../../", import.meta.url));
     const dashboard = readFileSync(join(root, "src/ui/incuratorDashboardModal.ts"), "utf8");

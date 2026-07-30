@@ -92,6 +92,8 @@ export function formatMcpToolResultForDisplay(toolName: string, raw: string): st
       trace_id: parsed.trace_id,
       fallback: parsed.fallback,
       error: parsed.error,
+      prompt_trace_ids: parsed.prompt_trace_ids,
+      warnings: parsed.warnings,
       trace: parsed.trace,
     };
     return JSON.stringify(compact, null, 2);

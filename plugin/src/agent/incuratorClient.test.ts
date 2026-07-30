@@ -470,6 +470,49 @@ describe("IncuratorClient", () => {
     expect(result.trace?.l3_complete).toBe(true);
   });
 
+  it("curatorQuery preserves failed QTR, PTR, provenance, and warnings", async () => {
+    const client = new IncuratorClient(settings(), "0.37.1", async () => ({
+      ok: false,
+      question: "Why did synthesis fail?",
+      error: "Antigravity CLI returned no output.",
+      route: "local",
+      trace_id: "QTR-failed01",
+      pack_id: "PACK-failed01",
+      snapshot: { snapshot_id: "SNAP-failed01" },
+      budget: { used_tokens: 42, limit_tokens: 128 },
+      prompt_trace_ids: ["PTR-failed01"],
+      source_span_ids: ["SPAN-failed01"],
+      community_report_ids: ["REP-failed01"],
+      warnings: ["retrieval evidence retained"],
+      trace: {
+        matched_concepts: [],
+        source_ids: [],
+        source_paths: ["04_Resources/source.md"],
+        trace_id: "QTR-failed01",
+        route: "local",
+        pack_id: "PACK-failed01",
+        snapshot: { snapshot_id: "SNAP-failed01" },
+        budget: { used_tokens: 42, limit_tokens: 128 },
+        prompt_trace_ids: ["PTR-failed01"],
+        source_span_ids: ["SPAN-failed01"],
+        latency_ms: 12,
+        l3_complete: true,
+      },
+    }));
+
+    const result = await client.curatorQuery("Why did synthesis fail?");
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("Antigravity CLI returned no output.");
+    expect(result.trace_id).toBe("QTR-failed01");
+    expect(result.prompt_trace_ids).toEqual(["PTR-failed01"]);
+    expect(result.source_span_ids).toEqual(["SPAN-failed01"]);
+    expect(result.community_report_ids).toEqual(["REP-failed01"]);
+    expect(result.warnings).toEqual(["retrieval evidence retained"]);
+    expect(result.trace?.trace_id).toBe("QTR-failed01");
+    expect(result.trace?.prompt_trace_ids).toEqual(["PTR-failed01"]);
+  });
+
   it("fetchContext requests a backend evidence pack without synthesis", async () => {
     const calls: string[][] = [];
     const client = new IncuratorClient(settings(), "0.3.1", async (args: string[]) => {

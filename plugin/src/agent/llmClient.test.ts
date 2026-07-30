@@ -272,6 +272,36 @@ describe("MCP tool result display", () => {
     expect(display).not.toContain("AAAA");
   });
 
+  it("keeps curator_query failure diagnostics and top-level trace lists", () => {
+    const raw = JSON.stringify({
+      ok: false,
+      question: "Why did synthesis fail?",
+      route: "local",
+      trace_id: "QTR-failed01",
+      error: "Antigravity CLI returned no output.",
+      prompt_trace_ids: ["PTR-failed01"],
+      warnings: ["retrieval evidence retained"],
+      trace: {
+        trace_id: "QTR-failed01",
+        prompt_trace_ids: ["PTR-failed01"],
+        source_span_ids: ["SPAN-failed01"],
+        latency_ms: 12,
+        l3_complete: true,
+      },
+    });
+
+    const display = formatMcpToolResultForDisplay(
+      "mcp_incurator_curator_query",
+      raw
+    );
+    const parsed = JSON.parse(display);
+
+    expect(parsed.error).toBe("Antigravity CLI returned no output.");
+    expect(parsed.prompt_trace_ids).toEqual(["PTR-failed01"]);
+    expect(parsed.warnings).toEqual(["retrieval evidence retained"]);
+    expect(parsed.trace.prompt_trace_ids).toEqual(["PTR-failed01"]);
+  });
+
   it("still truncates non-curator tool results", () => {
     const display = formatMcpToolResultForDisplay("mcp_other_tool", "A".repeat(1000));
 
