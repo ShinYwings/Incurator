@@ -22,7 +22,11 @@ Source of Truth to identify unresolved items.
 
 `USER_REPORT.md` is currently empty. The following queue is the ordered roadmap.
 
-No urgent hotfix is currently tracked.
+- **[Chore] Plugin npm audit PostCSS advisory**
+  - Update only the transitive lockfile resolution from vulnerable
+    `postcss@8.5.15` to a patched release accepted by Vite's existing range.
+  - Do not add PostCSS as a direct dependency or bundle unrelated upgrades.
+  - Verify `npm audit`, plugin tests, and production build.
 
 - v0.36.2 PR #90 is merged. The next actionable item is the
   Composite-Primary-Key Tombstones schema contract update.
@@ -302,8 +306,7 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: System Stability Overhaul ACTIVE; v0.36.8 is release-ready
-  on PR #96.
-- **Active Milestone**: None (v0.36.8 awaits human review/merge).
-- **Next actionable item**: After v0.36.8 merges, resume the
+- **Roadmap state**: System Stability Overhaul ACTIVE; v0.36.8 shipped.
+- **Active Milestone**: Resolve the plugin's PostCSS npm audit advisory.
+- **Next actionable item**: Complete the dependency-only audit chore, then resume the
   composite-primary-key tombstones schema-contract plan.
