@@ -1,7 +1,7 @@
 # v0.38.0 Sidechat Vault-Page Wikilinks Master Implementation Plan
 
 Date: 2026-07-30
-Status: PROPOSED — Arena debate concluded; awaiting user approval.
+Status: APPROVED — implementation authorized by the user.
 
 ## 1. Objective
 

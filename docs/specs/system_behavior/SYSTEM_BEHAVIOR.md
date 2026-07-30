@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.37.0)
+# Incurator - System Behavior (v0.38.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -584,6 +584,16 @@ answer. `wiki plugin query` remains available only for explicit backend
 synthesis. If the latest turn is centered on selected Markdown, a line-range
 edit, a PDF page reference, or a selected PDF/image crop, sidechat treats that
 selected context as primary.
+
+Every Obsidian sidechat provider shares one grounded vault-link contract. When
+the prompt already contains the exact vault-relative path of an existing target
+from included open/pinned context, a usable ContextService locator, or a
+provider tool result, the final answer should cite it as an Obsidian wikilink.
+Markdown targets omit `.md`; other suffixes remain intact; a known heading or
+block anchor is preserved, with an explicit block id taking precedence. The
+provider must never guess a vault path or convert uncertain plain-text page
+names into links. The plugin does not inject a whole-vault filename inventory
+and does not post-process arbitrary answer prose into links.
 
 For PDF selected-context turns, a selected phrase that is itself a pointer
 (`Section A4.2`, `p580`, `Figure 19.1`, `Eq. (19.6)`, etc.) changes the target

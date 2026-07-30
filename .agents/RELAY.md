@@ -34,6 +34,7 @@ the exact page, heading, or block.
 - Repository/docs/history audit and official Obsidian API research are complete.
 - Existing F9 baseline and 31 focused plugin link/prompt tests pass.
 - Arena, domain analyses, Master Plan, and evidence ledger are complete.
+- The user approved the v0.38.0 plan and implementation is in progress.
 - No application code has changed.
 
 ## Critical Context / Blockers
@@ -47,5 +48,5 @@ the exact page, heading, or block.
 
 ## Immediate Next Action
 
-Obtain user approval for the v0.38.0 plan, then begin docs-first/TDD
-implementation.
+Update the EN/KR guide and static specs, then write the focused failing plugin
+tests before application code.

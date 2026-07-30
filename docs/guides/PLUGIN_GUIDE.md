@@ -375,6 +375,23 @@ block anchor, such as `Auto Calibration#^8f735d` or a rendered label like
 `Auto Calibration > ^8f735d`, open through Obsidian's normal vault-link
 navigation.
 
+### Assistant Vault-Page Wikilinks
+
+When the Sidechat provider has an exact vault-relative path from the context you
+included, a usable Incurator evidence locator, or a tool result, it can cite that
+page as an Obsidian wikilink such as
+`[[02_Wiki/Optimization/Auto Calibration|Auto Calibration]]`. A known heading
+or block is retained (`[[02_Wiki/Optimization/Auto Calibration#Method]]` or
+`[[02_Wiki/Optimization/Auto Calibration#^8f735d]]`). Markdown targets omit the
+`.md` suffix, while non-Markdown suffixes such as `.pdf` are preserved.
+
+This contract is shared by every selectable Sidechat provider and model. It does
+not send a whole-vault filename list to the model, guess links from page-like
+words, or rewrite ordinary answer text after generation. If the exact target is
+not grounded, the assistant must leave the name as plain text. Valid visible-note
+links are rendered and opened by Obsidian itself, preserving native click,
+modifier-click, and hover behavior.
+
 ### Curator DAG Wikilinks
 
 The Curator knowledge DAG (L1–L4 nodes: `CTX-`, `ATM-`, `CON-`, `SYN-`) is stored

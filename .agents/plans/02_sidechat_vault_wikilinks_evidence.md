@@ -1,7 +1,7 @@
 # v0.38.0 Sidechat Vault-Page Wikilinks Evidence Ledger
 
 Date: 2026-07-30
-Status: PLANNING — baseline locked; awaiting plan approval.
+Status: IMPLEMENTING — baseline locked; plan approved.
 
 ## Rollback anchor
 
@@ -77,4 +77,4 @@ Status: PLANNING — baseline locked; awaiting plan approval.
 
 ## Post-validation
 
-Pending implementation approval.
+Pending implementation and release validation.
