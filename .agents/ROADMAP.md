@@ -53,7 +53,7 @@ active v0.39.0 planning item.
        no-JSON plugin command errors.
      - **Performance & UX Refinements**: RAG/DAG benchmark harness & retrieval hotspot optimization; chat/popover UX friction cleanup.
 
-2. **[Minor / Compiler] v0.39.0 Failure Atlas F9 Authored-Note Topology** *(ACTIVE — PLAN REVIEW)*
+2. **[Minor / Compiler] v0.39.0 Failure Atlas F9 Authored-Note Topology** *(ACTIVE — TDD)*
    - Compile human-authored note wikilinks/embeds/tags/frontmatter references as
      topology distinct from LLM-extracted relations.
    - Re-pin the existing Program 2 oracle to the real compiler boundary, publish

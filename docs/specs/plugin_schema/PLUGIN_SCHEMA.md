@@ -1,7 +1,13 @@
-# Incurator Plugin Schema & API Contract (v0.38.0)
+# Incurator Plugin Schema & API Contract (v0.39.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
+> **v0.39.0 note (Authored-Note Topology):** no plugin settings or wire shape
+> change. Existing graph/explore surfaces consume only backend-authoritative
+> `active` relations. Human-authored links may shape topology but never appear as
+> fabricated factual support or citations; diagnostic rows retain their explicit
+> lifecycle/edge-class labels. See SYSTEM_BEHAVIOR §27.3.1.
+>
 > **v0.9.0 note (Plan C — Graph Quality):** the v0.9.0 release changes no plugin
 > contract. The graph audit is a CLI surface (`wiki lint` Graph Quality section),
 > and the plugin observes Plan C only through better backend evidence (canonical

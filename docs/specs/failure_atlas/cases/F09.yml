@@ -23,24 +23,26 @@ impact: >
   strongest signal the vault offers (vault-as-codebase: imports are ignored).
 boundary:
   module: backend/src/curator/pipeline
-  symbol: compile_source
+  symbol: compile_source_l2
   detail: >
-    grep for "wikilink" across backend/src/curator/pipeline/ returns zero
-    hits. Wikilinks are parsed elsewhere (page_writer.py, lint.py, sync.py)
-    for index/lint purposes, but the L1→L4 compile path
-    (source_spans/knowledge_units/graph_index) never converts an authored
-    [[link]], embed, tag, or frontmatter ref into a graph edge or any other
-    topology record.
+    The L1→L4 compile path (source_spans/knowledge_units/graph_index) never
+    converts an authored [[link]], embed, tag, or frontmatter ref into a graph
+    edge. The baseline fixture records this absence at L1; the v0.39 oracle is
+    deliberately re-pinned to the real compile/publish boundary so a row-count
+    helper cannot falsely claim closure.
 fixture: backend/tests/test_failure_atlas_repro.py::test_f9_baseline_authored_wikilinks_not_compiled
 commands:
   - scripts/backend-check pytest "backend/tests/test_failure_atlas_repro.py::test_f9_baseline_authored_wikilinks_not_compiled" -q
 oracles:
   deterministic: >
-    Compiling a note containing authored [[wikilinks]] produces distinct
-    high-confidence topology records (e.g. graph_relations with an
-    assertion_source identifying human authorship, or a dedicated authored
-    edge table) that remain distinguishable from LLM-extracted relations and
-    from semantic similarity.
+    Compiling a registered visible Markdown note through the real production
+    boundary produces deterministic active graph_relations with
+    edge_class=authored, current generation ownership, exact canonical
+    endpoints, and relation types for supported links/embeds/tags/frontmatter
+    refs. They affect active topology but create no graph_relation_supports and
+    never become factual report evidence. Unchanged rebuilds and cross-device
+    compilation converge; edits, rename/delete, ambiguity, unsafe targets, and
+    failed publication reconcile or fail closed without stale/partial topology.
   semantic: null
 before_state_evidence: >
   At baseline, storing L1 spans for a markdown note containing [[Residual
@@ -57,9 +59,13 @@ snapshot:
 assignment:
   program: program-2
   gate: >
-    Authored wikilinks, embeds, backlinks, aliases, tags, frontmatter refs,
-    and citations compiled as distinct high-confidence topology (umbrella
-    P2.1).
+    v0.39 production-boundary tests prove deterministic authored wikilinks,
+    embeds, derived backlinks, exact alias resolution, tags, and frontmatter
+    refs compile as lifecycle-aware topology distinct from extracted factual
+    support, including atomic reconciliation and replica convergence.
 notes: >
-  Oracle test: test_f9_oracle_authored_links_compiled_as_topology
-  (strict xfail).
+  Oracle test: test_f9_oracle_authored_links_compiled_as_topology (strict
+  xfail until v0.39 implementation). The 2026-07-30 approved plan strengthens
+  the original non-zero-row oracle because it did not call the production
+  compiler; capture-before-repair evidence and the original baseline remain
+  unchanged.

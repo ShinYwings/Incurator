@@ -106,6 +106,7 @@ documented Obsidian core contract.
 
 | Gate | Pre | Post |
 |---|---|---|
+| P1 docs/spec/atlas contract | not implemented | 121 passed; Ruff green |
 | Real F9 production-boundary oracle | strict xfail / needs re-pin | pending |
 | Authored-vs-extracted lifecycle tests | missing | pending |
 | Edit/delete/rename/failure tests | missing | pending |

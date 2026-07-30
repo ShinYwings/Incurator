@@ -629,7 +629,7 @@ def compile_global_l3(
 
     A relation grounds a report only once **≥2 independent sources** corroborate it
     (§27.2); a single uncorroborated source produces no community report — there is
-    no broad community-span fallback (F9). The deterministic
+    no broad community-span fallback (SYSTEM_BEHAVIOR §27.5). The deterministic
     ``db.rebuild_graph_generation`` builds the report identity + grounding and
     retires stale communities BEFORE this prose pass / synthesis consume them.
 

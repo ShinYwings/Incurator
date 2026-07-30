@@ -560,27 +560,37 @@ What this means in practice:
   after safety checks; ambiguous names (homonyms) are left separate until
   decided. Any accepted merge can be undone exactly, restoring the original
   entities and every relationship.
-- **Support is counted honestly**: a relationship backed by ten copies of the
-  same source counts as one independent confirmation, not ten. Re-running a build
-  accumulates genuine support instead of overwriting it.
-- **Community reports need corroboration (≥2 independent sources)**: a
-  relationship becomes *active* — eligible to ground a community report — only
-  once **two genuinely independent sources** assert it. A claim found in just one
+- **Authored structure is compiled directly**: internal note wikilinks, embeds,
+  tags, and frontmatter wikilinks become deterministic graph topology. Display
+  aliases and heading/block fragments still point to the same page; ambiguous,
+  external, hidden, or unsafe targets are ignored rather than guessed. Editing,
+  renaming, or deleting a note retires stale authored edges.
+- **Extracted support is counted honestly**: a relationship backed by ten
+  copies of the same source counts as one independent confirmation, not ten.
+  Re-running a build accumulates genuine support instead of overwriting it.
+- **Community reports need corroboration (≥2 independent sources)**: an
+  extracted relationship becomes *active* — eligible to ground a community
+  report — only once **two genuinely independent sources** assert it. A claim found in just one
   source (however many times it is re-stated there) stays uncorroborated and does
   not yet build a community. In practice this means a vault with a single source
   per topic produces few or no community reports until a second independent source
   corroborates the same relationships; this is intentional — Plan C reports are
   grounded only on cross-source–confirmed facts.
-- **Weak edges are quarantined, not hidden**: self-loops, contradictions,
+- **Authored structure is not a factual citation**: active authored edges can
+  connect graph neighborhoods, but only independently supported extracted
+  relations can ground community-report facts. An authored-only component does
+  not generate a fabricated factual report.
+- **Weak extracted edges are quarantined, not hidden**: self-loops, contradictions,
   unsupported edges, and risky "bridge" links are set aside with a stated reason
   and a condition for re-admission — they never quietly shape your community
-  summaries. Only fully supported relations build communities.
+  summaries. Only active relations shape graph topology, and only supported
+  extracted relations ground report facts.
 - **Stable, explainable communities**: the same graph produces the same
   community hierarchy every time. Community reports cite exact supporting claims;
   the old "summarize the whole cluster" fallback is gone, and outdated reports
   retire and regenerate when their inputs change.
 - **`wiki lint` audits the graph too**: lint gains a Graph Quality section that
-  flags references to merged-away entities, unsupported active relations,
+  flags references to merged-away entities, invalid active relations,
   unresolved endpoints, ungrounded report findings, and any homonym false merge,
   exiting non-zero on release-blocking findings.
 

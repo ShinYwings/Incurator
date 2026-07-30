@@ -36,9 +36,11 @@ graph topology without treating them as LLM-extracted factual support.
 - P0 repository/schema/compiler/consumer/sync audit: complete.
 - Official Obsidian syntax and read-only user-vault pattern measurement:
   complete.
-- Arena, domain plans, master plan, and evidence ledger: authored.
-- Application code/spec/guide changes: not started.
-- Current gate: user approval of the v0.39.0 plan.
+- Arena, domain plans, master plan, and evidence ledger: approved.
+- P1 docs/spec contract, v0.39 spec-line/manifests, and F9 identifier cleanup:
+  complete. Spec/docs/atlas contract tests: 121 passed; Ruff: green.
+- Application logic: not started.
+- Current phase: P2 failing production-boundary tests.
 
 ## Critical Context / Blockers
 
@@ -53,5 +55,5 @@ graph topology without treating them as LLM-extracted factual support.
 
 ## Immediate Next Action
 
-Await user approval. Then execute P1 docs/spec contract updates, followed by P2
-failing tests before application logic.
+Write P2 failing tests against the real compiler publication boundary, then
+implement the smallest deterministic extractor/publisher that satisfies them.

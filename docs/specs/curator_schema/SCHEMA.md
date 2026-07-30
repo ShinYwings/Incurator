@@ -1,4 +1,4 @@
-# Incurator - Schema & Operating Conventions (v0.38.0)
+# Incurator - Schema & Operating Conventions (v0.39.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -925,8 +925,10 @@ Rules:
 - `confidence` must be in `[0.0, 1.0]`.
 - `assertion_source` distinguishes what a source literally states
   (`source_states`) from what the Curator infers (`system_infers`) and what a
-  workspace derives (`workspace_derives`). Only `source_states` relations may be
-  treated as source-grounded evidence.
+  workspace derives (`workspace_derives`). `source_states` is necessary but not
+  sufficient for factual evidence: an `authored` link records exact
+  human-written structure, while only eligible `extracted` support rows may
+  ground a factual report finding (§21.5/§21.6).
 - **(v9, §21.5/§21.6)** A relation is a proposition with **independent**
   claim-level supports (`graph_relation_supports`); re-extraction adds support
   rows rather than overwriting. `lifecycle_status` (active/provisional/
@@ -1587,7 +1589,8 @@ before any implementation code is written. It is strictly additive over
 `SCHEMA_VERSION = 7`: no existing column, table, or id prefix changes meaning.
 The owning failure-atlas cases are F6 (broad-span fallback), F7 (rebuild
 idempotency / stale reconciliation / atomic publish), and F10 (preview-only
-span evidence). F8/F9 remain Plan C scope.
+span evidence). F8 remains Plan C resolution scope; canonical F9 is the
+authored-note topology contract implemented through §21.6.
 
 ### 20.1 `knowledge_units` Additive Columns
 
@@ -1856,9 +1859,10 @@ This section freezes the Plan C (Program 2C — Graph Quality) contract names
 before any implementation code is written. It is strictly additive over
 `SCHEMA_VERSION = 8`: no existing column, table, or id prefix changes meaning,
 and §11.3/§11.4/§11.5 remain valid (this section overlays a resolution/support/
-lifecycle layer onto them). The owning failure-atlas cases are **F8** (graph
-resolution / unsupported topology) and **F9** (hierarchy quality / report
-grounding), explicitly deferred from §20 ("F8/F9 remain Plan C scope").
+lifecycle layer onto them). The owning Plan C failure-atlas case is **F8**
+(graph resolution / unsupported topology). Hierarchy/report grounding is a
+section-level Plan C gate, not Failure Atlas F9; canonical F9 is authored-note
+topology in §21.6.
 
 > **Target version note.** `v0.9.0` is this milestone's planned product version
 > (minor bump after Plan B's `v0.8.0`); the binding bump across
@@ -2036,8 +2040,8 @@ CREATE INDEX IF NOT EXISTS idx_graph_relation_supports_lineage ON graph_relation
 
 Rules:
 
-- A relation is a **proposition with independent supports** (Arena decision 6).
-  The relation's identity IS its canonical proposition — the triple
+- An extracted relation is a **proposition with independent supports** (Arena
+  decision 6). The relation's identity IS its canonical proposition — the triple
   `(resolved source entity, resolved target entity, relation_type)` after
   endpoint resolution (§21.4). Re-extraction of that same triple maps to the
   SAME canonical relation and ADDS support rows; it never overwrites them and
@@ -2045,12 +2049,14 @@ Rules:
   destructive `upsert_graph_relation` overwrite (§11.4 reality). Because the same
   proposition aggregates onto one relation, there is no duplicate-proposition
   state to quarantine (§21.6).
-- **Independence is by source lineage, not row count.** The independent-support
-  count of a relation = number of DISTINCT `source_lineage_hash` among its
+- **Extracted independence is by source lineage, not row count.** The
+  independent-support count of an extracted relation = number of DISTINCT
+  `source_lineage_hash` among its
   `verified` supports. Copied/duplicated sources share a `source_lineage_hash`
   and therefore count once (Strict Quality Condition: 0 copied-source rows
   counted as independent support).
-- **Corroboration threshold = 2 independent source lineages.** A relation is
+- **Extracted corroboration threshold = 2 independent source lineages.** An
+  extracted relation is
   `active` only when its independent-support count is **≥ 2** — at least two
   DISTINCT `source_lineage_hash` values, i.e. two genuinely independent sources
   assert the same proposition. An independent-support count of exactly **1** is a
@@ -2077,12 +2083,16 @@ ALTER TABLE graph_relations ADD COLUMN generation_id TEXT;                      
 CREATE INDEX IF NOT EXISTS idx_graph_relations_lifecycle ON graph_relations(lifecycle_status);
 ```
 
-`lifecycle_status` (frozen enum):
+`lifecycle_status` (frozen enum, evaluated by `edge_class`):
 
-- `active` — has **≥2 independent source lineages** of `verified` support (§21.5
-  corroboration threshold), endpoints resolve to canonical entities, and it
-  passed quarantine checks. **Only `active`, non-retired relations enter
-  authoritative community construction** (Arena decision 7).
+- `active` — authoritative for its edge class and both endpoints resolve to
+  canonical entities. An `extracted` relation requires **≥2 independent source
+  lineages** of `verified` support (§21.5 corroboration threshold). An
+  `authored` relation instead requires exact supported vault structure in a
+  registered visible Markdown source and the source's current authoritative
+  compiler `generation_id`; authored relations never require or create
+  synthetic `graph_relation_supports`. **Only `active`, non-retired relations
+  enter authoritative topology/community construction** (Arena decision 7).
 - `provisional` — exists but not yet promotable to `active` (e.g., unrevalidated
   after migration, or support pending). The v9 backfill marks every legacy
   relation `provisional`.
@@ -2106,21 +2116,31 @@ resolution (§21.4). Re-asserting that proposition does NOT create a second
 relation row to quarantine; it ADDS independent supports to the one canonical
 relation (§21.5). Treating a re-assertion as a "duplicate" and quarantining it
 would HIDE its supports from the independent-support count — the exact opposite
-of the aggregation contract — so the state cannot exist by construction. The
-support-side outcomes are therefore a total partition by independent-source-
-lineage count: **0** → `unsupported`; **exactly 1** → `copied_source_only` (a
-single, uncorroborated source); **≥2** → `active`. If two physical rows are ever
-found describing the same canonical
+of the aggregation contract — so the state cannot exist by construction. For
+`extracted` relations, support-side outcomes are therefore a total partition by
+independent-source-lineage count: **0** → `unsupported`; **exactly 1** →
+`copied_source_only` (a single, uncorroborated source); **≥2** → `active`. This
+partition does not apply to authored structural relations. If two physical rows
+are ever found describing the same canonical
 proposition, that is a compile-time defect (the support should have aggregated
 onto one relation), and reconciliation merges their supports onto the canonical
 relation rather than quarantining either row.
 
 `edge_class` (frozen enum): `authored` (links/topology a human or workspace
-wrote — wikilinks, explicit structure) vs `extracted` (LLM-extracted semantic
-relations). The two classes stay distinct through weighting, hierarchy, audit,
-and reports (Arena decision 9). `topology_weight` is the partition-input weight
-and is computed per edge class; authored edges are never silently treated as
-extracted factual evidence and vice versa.
+wrote) vs `extracted` (LLM-extracted semantic relations). v0.39 compiles four
+authored relation types: `links_to`, `embeds`, `tagged_with`, and
+`property_ref`, with endpoint entity types `vault_note`, `vault_asset`, and
+`tag`. F9-created entity ids derive from `(entity_type, canonical portable vault
+key)` and relation ids derive from `(source entity id, target entity id,
+relation_type)`, so unchanged builds and independent-device compilation
+converge under id-based DB sync. Existing extracted ids are unchanged.
+
+The two classes stay distinct through weighting, hierarchy, audit, and reports
+(Arena decision 9). `topology_weight` is the partition-input weight and is
+computed per edge class. Authored edges may shape topology but never create
+`graph_relation_supports`, enter factual `community_reports.relation_ids`, or
+serve as factual citations. Backlinks are derived from incoming traversal over
+the stored forward edge, never persisted as a duplicate reverse relation.
 
 ### 21.7 Community Identity, Levels, And Config
 
@@ -2141,6 +2161,10 @@ Rules:
   identity changes — a correct restructuring is preferred over artificial id
   stability, and the superseded community/report is set `retired_at` before
   synthesis consumes it (Arena decision 11).
+- For this identity contract, `support_hash` covers the complete active topology
+  dependency closure: eligible verified extracted supports plus the stable ids
+  of active authored relations that shaped membership. Authored relation ids
+  invalidate topology/report membership but never become factual report support.
 - `level` (existing column, §11.5) now carries the real hierarchy depth (0 =
   leaf). `parent_community_key` records the hierarchy edge.
 - `config_hash` pins the partition algorithm, seed, and thresholds that produced
@@ -2167,9 +2191,10 @@ Rules:
   from the authoritative B claim generation. Existing `community_reports` keep
   their rows but are recomputed against active topology before being served.
 - **Graph audit (schema-level invariants)** — the read-only audit asserts: 0
-  authoritative references to `redirected` entities; 0 `active` relations with
-  fewer than 2 independent source lineages of `verified` support; 0 endpoints
-  that are not canonical entities;
+  authoritative references to `redirected` entities; 0 `active` **extracted**
+  relations with fewer than 2 independent source lineages of `verified` support;
+  0 `active` authored relations without exact current-generation source
+  structure; 0 endpoints that are not canonical entities;
   every `quarantined` relation has a reason code + re-eval trigger; every served
   report finding cites eligible active claim support; 0 stale/retired
   aliases/supports/communities feeding authoritative artifacts; 0 mixed claim
