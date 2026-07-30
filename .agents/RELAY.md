@@ -8,11 +8,8 @@ graph topology without treating them as LLM-extracted factual support.
 
 ## Plan Reference
 
-- Master: `.agents/plans/02_authored_note_topology.md`
-- Evidence: `.agents/plans/02_authored_note_topology_evidence.md`
-- Arena: `.agents/plans/authored_note_topology_arena/`
-- Domains: `.agents/plans/A_authored_reference_extraction.md`,
-  `.agents/plans/B_authored_graph_lifecycle.md`
+- Completed F9 planning/evidence artifacts were deleted per release workflow;
+  history is preserved in commits `13cc0bf`, `9b13f60`, and `8cd7e7b`.
 
 ## Analysis & Reasoning
 
@@ -54,7 +51,9 @@ graph topology without treating them as LLM-extracted factual support.
 - Isolated ResNet smoke: authenticated build succeeded, 3/3 authored relations
   active/current-generation-owned, authored supports 0, graph audit clean, lint
   100/100. Active testbed checksum remained unchanged.
-- Current phase: release notes, roadmap cleanup, plan deletion, push, and PR.
+- CHANGELOG and roadmap cleanup: complete.
+- Completed F9 plans: deleted from the active workspace.
+- Current phase: final release commit, push, and PR.
 
 ## Critical Context / Blockers
 
@@ -69,5 +68,4 @@ graph topology without treating them as LLM-extracted factual support.
 
 ## Immediate Next Action
 
-Record v0.39.0 in CHANGELOG/ROADMAP, delete only the completed F9 plan
-artifacts, create `chore(release): v0.39.0`, then push and open the PR.
+Create `chore(release): v0.39.0`, then push and open the PR.

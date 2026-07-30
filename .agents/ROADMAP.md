@@ -22,9 +22,8 @@ Source of Truth to identify unresolved items.
 
 `USER_REPORT.md` is currently empty. The following queue is the ordered roadmap.
 
-No urgent hotfix is currently tracked. v0.38.0 Sidechat Vault-Page Wikilinks
-shipped in PR #100 and has left the live queue. Failure Atlas F9 is now the
-active v0.39.0 planning item.
+No urgent hotfix is currently tracked. v0.39.0 Failure Atlas F9 authored-note
+topology is release-ready and has left the live queue.
 
 ### 🚀 Priority Order
 
@@ -35,15 +34,13 @@ active v0.39.0 planning item.
    - Master Plan: `.agents/plans/01_system_stability_overhaul.md`
    - Briefing: `.agents/plans/system_stability_overhaul_arena/00_problem.md`
    - Delivered as a chain of independently reviewable release PRs.
-   - **Shipped stability & hardening releases (v0.25.0 → v0.37.1)**:
+   - **Shipped stability & hardening releases (v0.25.0 → v0.39.0)**:
      diagnosis G17–G19, XC-1/XC-4 robustness slices, DB-2 slices 1–2,
      CLI/MCP warning visibility, portable paths and cross-device LWW sync,
      strict v12 schema/reindex speedup, CM-1 command decomposition,
-     fail-closed sync/KRS integrity, and the PDF/Antigravity transport hotfixes.
+     fail-closed sync/KRS integrity, PDF/Antigravity transport hotfixes,
+     grounded Sidechat vault links, and authored-note graph topology.
    - **Remaining Scope for Upcoming Releases**:
-     - **Compiler integrity**: Failure Atlas F9 authored-note topology is the
-       active v0.39.0 backend compiler workstream. It remains distinct from the
-       Sidechat navigation feature shipped in v0.38.0.
      - **Exception Handling Hardening (XC-1 later slices)**: audit broad
        catch-and-return boundary handlers and other backend modules after the
        silent-swallow slice lands. Provider follow-ups found during v0.37.1
@@ -53,32 +50,22 @@ active v0.39.0 planning item.
        no-JSON plugin command errors.
      - **Performance & UX Refinements**: RAG/DAG benchmark harness & retrieval hotspot optimization; chat/popover UX friction cleanup.
 
-2. **[Minor / Compiler] v0.39.0 Failure Atlas F9 Authored-Note Topology** *(ACTIVE — TDD)*
-   - Compile human-authored note wikilinks/embeds/tags/frontmatter references as
-     topology distinct from LLM-extracted relations.
-   - Re-pin the existing Program 2 oracle to the real compiler boundary, publish
-     authored topology atomically with deterministic cross-device identity, and
-     keep topology influence separate from factual report evidence.
-   - Master Plan: `.agents/plans/02_authored_note_topology.md`
-   - Evidence: `.agents/plans/02_authored_note_topology_evidence.md`
-   - Arena: `.agents/plans/authored_note_topology_arena/`
-
-3. **[Minor Update] Chat Session Context Compaction**
+2. **[Minor Update] Chat Session Context Compaction**
    - Confirm full-session history behavior.
    - Add a Claude-Code-style circular token usage meter under the query box and a click-to-compact action.
    - Detailed analysis: `.agents/drafts/chat_context_compaction.md`
 
-4. **[Minor Update] Vault Storage Governance & Quota Visibility**
+3. **[Minor Update] Vault Storage Governance & Quota Visibility**
    - Separate authoritative, derived, cache, and external storage accounting.
    - Add capacity guidance, safe admission control, and CLI/plugin visibility.
    - Detailed analysis: `.agents/drafts/vault_storage_governance.md`
 
-5. **[Major Update] Native PDF Annotation & Asset System**
+4. **[Major Update] Native PDF Annotation & Asset System**
    - Native annotation highlight/memo synchronization using Obsidian's built-in PDF viewer.
    - In-PDF full-text search and strict-spelling mode remain here.
    - Detailed analysis: `.agents/drafts/pdf_annotation_system.md`
 
-6. **[Minor Update] Web Search Integration**
+5. **[Minor Update] Web Search Integration**
    - Design and integrate web search capabilities for local models (Ollama, Deepseek, etc.).
    - Investigate API options (Brave, SerpAPI) and implement `web_search.py`.
    - The former quick-wins draft was deleted after triage; create a fresh
@@ -87,6 +74,17 @@ active v0.39.0 planning item.
 ---
 
 ## ✅ Completed Milestones
+
+- **v0.39.0 — Failure Atlas F9 Authored-Note Topology**
+  (release-ready 2026-07-30): registered visible Markdown notes compile exact
+  wikilinks, embeds, tags, and frontmatter references as deterministic,
+  lifecycle-aware authored topology without fabricating factual support.
+  Publication/reconciliation is atomic; edit/rename/delete and replica imports
+  retire stale ownership; Unicode-portable IDs converge; active-only traversal
+  and community membership remain separate from extracted report evidence. F9
+  is retired. Backend 1,335-test, plugin 737-test, static analysis, production
+  build, zero-vulnerability npm audit, authenticated isolated ResNet build,
+  graph audit, and lint 100/100 gates passed.
 
 - **v0.38.0 — Sidechat Vault-Page Wikilinks**
   (shipped 2026-07-30, PR #100): every selectable Sidechat provider receives the

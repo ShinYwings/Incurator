@@ -2,6 +2,33 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.39.0] - 2026-07-30
+### Added
+- **Authored-Note Graph Topology**
+  Registered visible Markdown notes now compile exact internal wikilinks,
+  embeds, tags, and frontmatter wikilinks into deterministic `authored` graph
+  relations. Exact vault-root/source-relative paths, unique names, and unique
+  frontmatter aliases resolve; ambiguous, external, hidden, unsafe, and
+  unresolved targets fail closed.
+
+### Changed
+- **Active-Only Graph Serving**
+  Explore memory paths, graph status, search materialization, and community
+  construction consume only active canonical topology. Authored edges may shape
+  membership and dependency identity, but only independently supported
+  extracted relations enter factual report relation ids and citations.
+
+### Fixed
+- **Atomic Lifecycle And Replica Convergence**
+  Authored topology publishes and reconciles inside the existing compiler
+  generation transaction, including edit/rename/delete retirement and failed
+  publish rollback. Unicode-NFC portable IDs converge across devices; import
+  restores one authoritative generation per source and retires losing authored
+  rows. Relation re-assertion now preserves existing lifecycle metadata unless
+  explicitly replaced.
+
+---
+
 ## [0.38.0] - 2026-07-30
 ### Added
 - **Grounded Sidechat Vault Wikilinks**
