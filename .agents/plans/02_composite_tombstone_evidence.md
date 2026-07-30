@@ -1,7 +1,7 @@
 # v0.37.0 Composite Tombstone Evidence Ledger
 
 Date: 2026-07-30
-Status: IMPLEMENTATION APPROVED — docs-first/TDD execution underway.
+Status: RELEASE READY — implementation, review, CI, and testbed gates passed.
 
 ## Rollback anchor
 
@@ -56,4 +56,25 @@ Composite synchronized primary keys:
 
 ## Post-validation
 
-Pending implementation approval.
+- Schema v13 uses the closed six-table composite-key registry and canonical
+  `{"key":{...},"v":1}` tokens. Source-scoped keys resolve through portable
+  `sources.sync_key`; malformed/legacy tokens fail closed.
+- Exact full-key deletes, delete-wins-equal LWW, strictly newer mutable-row
+  supersession, immutable-row blocking, source dependent cleanup, local
+  delete/reinsert emission, and stale-third-peer convergence are covered.
+- Code review found and fixed one additional edge case: a first-import dry-run
+  had no local parent row from which to resolve a source-scoped key. Import now
+  carries the already-validated remote source key through the source-id map;
+  dry-run counts match the real pass and remain read-only. The unused
+  `source_scoped` registry flag and stale “always upsert” comments were removed.
+- Focused sync suite: `99 passed`.
+- Full backend suite: `1303 passed, 6 skipped, 5 xfailed`.
+- Ruff: all checks passed. Mypy: no issues in 125 source files.
+- Plugin: 68 files / 721 tests passed; production build passed.
+- ResNet testbed: the active repo-cache DB upgraded from schema 12 to 13;
+  autosync applied `+0/~0/-0`, the second pass was quiescent with no export,
+  and `wiki lint` scored 100/100 with 3 pages and 0 issues.
+- The pre-v13 peer snapshot was skipped as incompatible rather than partially
+  imported. The active v13 device snapshot declared schema 13.
+- External/public PDF and Reference Mode assets were not copied, rewritten, or
+  reinitialized during testbed validation.

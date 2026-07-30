@@ -1,7 +1,7 @@
 # v0.37.0 Master Implementation Plan
 
 Date: 2026-07-30
-Status: ACTIVE — schema/wire contract approved; docs-first implementation underway.
+Status: RELEASE READY — all implementation, review, CI, and testbed gates passed.
 
 ## 1. Objective
 

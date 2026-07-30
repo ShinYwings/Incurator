@@ -103,8 +103,8 @@ prompt-consistency harness shows measured improvement over baseline.
   search remain deferred. Composite tombstones, query-provider failure UX, and
   wikilink topology validation are Stability workstreams, not exclusions.
 - **Delivery model**: each phase below is a standalone PR. Branch per phase off
-  `master`. The active first integrity slice is `release/v0.37.0`; later slices
-  start from updated `master` after their predecessor merges.
+  `master`. The first integrity slice, `release/v0.37.0`, is release-ready;
+  later slices start from updated `master` after their predecessor merges.
 - **Stop conditions** — agent MUST halt and ask the user when:
   - any DB schema change is required (P1-contract approval gate).
   - a characterization test reveals existing behavior is itself buggy (decide:
@@ -118,7 +118,7 @@ prompt-consistency harness shows measured improvement over baseline.
   `00_problem.md §2`; Phase A completed all G01–G19 diagnosis groups and folded
   them into `01_roadmap_evidence.md`.
 - **Current worktree**: `release/v0.37.0`, created from clean, synchronized
-  `master`; only planning/status artifacts are changed before contract approval.
+  `master`; the approved v13 implementation and all release gates are complete.
 - **Rollback anchor**: each slice records its `master` merge-base before
   implementation and remains independently revertible via `git revert -m 1`.
 - **Per-phase evidence**: P1 produces `01_roadmap_evidence.md` (the findings
@@ -230,10 +230,10 @@ green + testbed parity for backend) and starts with prior-art research.
     in docs all exist in code and vice-versa); `test_spec_sync.py` green.
 
 - **Phase B — Ordered Integrity Workstreams** (**ACTIVE**)
-  1. Composite-primary-key tombstones: explicit portable key codec,
-     schema-version/migration policy, fail-closed import, and two-device tests.
-  2. Query-provider failure UX: typed provider/query boundary, retained failed
-     traces, non-zero CLI exit, and parity across CLI/MCP/plugin.
+  1. Composite-primary-key tombstones: **release-ready in v0.37.0** with the
+     portable key codec, v13 boundary, fail-closed import, and multi-peer tests.
+  2. Query-provider failure UX (**NEXT**): typed provider/query boundary,
+     retained failed traces, non-zero CLI exit, and parity across CLI/MCP/plugin.
   3. Authored-wikilink validation: reconcile projection backlink parsing with
      Failure Atlas F9, first resolve the conflicting F9 meaning in
      `SYSTEM_BEHAVIOR.md` §27, then decide whether topology compilation is
@@ -249,5 +249,5 @@ green + testbed parity for backend) and starts with prior-art research.
 ---
 
 > Versioning: pre-1.0, so architectural/breaking changes ride **Minor** slots;
-> compatible fixes remain **Patch** releases. The active composite tombstone
-> wire-contract change targets v0.37.0.
+> compatible fixes remain **Patch** releases. The composite tombstone
+> wire-contract change is release-ready in v0.37.0.

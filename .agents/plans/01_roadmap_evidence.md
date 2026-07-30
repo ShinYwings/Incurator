@@ -3,7 +3,8 @@
 Date: 2026-06-23 (started) · 2026-06-27 (Phase A diagnosis complete)
 Status: ACTIVE DELIVERY — all 19 module groups are diagnosed and consolidated.
 Phase B is triaged into independently reviewable stability workstreams; the
-current slice is the v0.37.0 composite-primary-key tombstone contract.
+v0.37.0 composite-primary-key tombstone slice is release-ready and the
+query-provider failure boundary is next.
 Master Plan: `.agents/plans/01_system_stability_overhaul.md`
 Per-group detail: `.agents/plans/diagnosis/G01..G19-*.md` (the authoritative,
 deep record). The sections below are the FIRST scan-pass (2026-06-23); the Phase
@@ -223,7 +224,7 @@ These 10 were verified against `CHANGELOG.md` and current tests/code on
 
 ### Active Phase B delivery
 
-The historical G17–G19 cleanup listed here has shipped. Current work proceeds
-through the ordered Stability integrity chain: composite-primary-key tombstones,
-query-provider failure UX, and authored-wikilink topology validation. Each is
-planned, tested, released, and reviewed independently before the next begins.
+The historical G17–G19 cleanup listed here has shipped. Composite-primary-key
+tombstones are release-ready in v0.37.0. The remaining ordered Stability chain
+is query-provider failure UX followed by authored-wikilink topology validation;
+each is planned, tested, released, and reviewed independently.

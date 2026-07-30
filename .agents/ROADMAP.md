@@ -22,8 +22,8 @@ Source of Truth to identify unresolved items.
 
 `USER_REPORT.md` is currently empty. The following queue is the ordered roadmap.
 
-No urgent hotfix is currently tracked. The active delivery item is the
-v0.37.0 Composite-Primary-Key Tombstones contract.
+No urgent hotfix is currently tracked. v0.37.0 is release-ready; the next
+planned Stability slice is Query Provider Failure UX.
 
 ### 🚀 Priority Order
 
@@ -40,22 +40,16 @@ v0.37.0 Composite-Primary-Key Tombstones contract.
      strict v12 schema/reindex speedup, CM-1 command decomposition,
      fail-closed sync/KRS integrity, and the PDF/Antigravity transport hotfixes.
    - **Remaining Scope for Upcoming Releases**:
-     - **Integrity workstreams (ordered)**: composite-primary-key tombstones,
-       query-provider failure UX, then authored-wikilink topology validation.
-       These share the Stability goal but ship separately so each boundary has
-       an isolated contract, rollback, and test matrix.
+     - **Integrity workstreams (ordered)**: query-provider failure UX, then
+       authored-wikilink topology validation. These share the Stability goal
+       but ship separately so each boundary has an isolated contract, rollback,
+       and test matrix.
      - **Exception Handling Hardening (XC-1 later slices)**: audit broad
        catch-and-return boundary handlers and other backend modules after the
        silent-swallow slice lands.
      - **Performance & UX Refinements**: RAG/DAG benchmark harness & retrieval hotspot optimization; chat/popover UX friction cleanup.
 
-2. **[Stability / Schema Contract] Composite-Primary-Key Tombstones** *(ACTIVE — v0.37.0)*
-   - Synced tombstones currently carry one `record_id`, which cannot identify a
-     row in composite-key tables without an explicit encoding contract.
-   - Plan the JSONL/schema representation and data migration before enabling
-     deletion for those tables; do not guess or concatenate key values ad hoc.
-
-3. **[Stability / Bug] Query Provider Failure UX**
+2. **[Stability / Bug] Query Provider Failure UX** *(NEXT)*
    - A real Gaussian Splatting testbed query reached retrieval successfully, but
      Antigravity CLI returned no output during JSON repair and `wiki query`
      exposed a full Rich traceback instead of a concise provider-error message.
@@ -63,7 +57,7 @@ v0.37.0 Composite-Primary-Key Tombstones contract.
      exits non-zero, and reports actionable CLI/MCP/plugin errors without hiding
      the original provider failure.
 
-4. **[Stability / Validation] `[[wikilink]]` Architecture Validation**
+3. **[Stability / Validation] `[[wikilink]]` Architecture Validation**
    - Core entities in the backend pipeline documents are not explicitly marked with `[[wikilink]]`.
    - Validate `backend/src/curator/page_writer.py` and `sync.py` backlink parsing logic against `[[wikilink]]` syntax.
    - Current evidence: `backend/tests/test_failure_atlas_repro.py` F9 and
@@ -74,22 +68,22 @@ v0.37.0 Composite-Primary-Key Tombstones contract.
      F9 for broad-span/report grounding. No wikilink code change starts while
      those two meanings share one failure id.
 
-5. **[Minor Update] Chat Session Context Compaction**
+4. **[Minor Update] Chat Session Context Compaction**
    - Confirm full-session history behavior.
    - Add a Claude-Code-style circular token usage meter under the query box and a click-to-compact action.
    - Detailed analysis: `.agents/drafts/chat_context_compaction.md`
 
-6. **[Minor Update] Vault Storage Governance & Quota Visibility**
+5. **[Minor Update] Vault Storage Governance & Quota Visibility**
    - Separate authoritative, derived, cache, and external storage accounting.
    - Add capacity guidance, safe admission control, and CLI/plugin visibility.
    - Detailed analysis: `.agents/drafts/vault_storage_governance.md`
 
-7. **[Major Update] Native PDF Annotation & Asset System**
+6. **[Major Update] Native PDF Annotation & Asset System**
    - Native annotation highlight/memo synchronization using Obsidian's built-in PDF viewer.
    - In-PDF full-text search and strict-spelling mode remain here.
    - Detailed analysis: `.agents/drafts/pdf_annotation_system.md`
 
-8. **[Minor Update] Web Search Integration**
+7. **[Minor Update] Web Search Integration**
    - Design and integrate web search capabilities for local models (Ollama, Deepseek, etc.).
    - Investigate API options (Brave, SerpAPI) and implement `web_search.py`.
    - The former quick-wins draft was deleted after triage; create a fresh
@@ -98,6 +92,16 @@ v0.37.0 Composite-Primary-Key Tombstones contract.
 ---
 
 ## ✅ Completed Milestones
+
+- **v0.37.0 — Composite-Primary-Key Tombstone Convergence**
+  (release-ready 2026-07-30): schema v13 adds a closed canonical-JSON transport
+  identity for all six synchronized composite-key tables, using portable source
+  keys instead of replica-local ids. Full-key deletes, delete/update LWW,
+  fail-closed malformed-token handling, transactional source cleanup, local
+  delete/reinsert emission, multi-peer convergence, and first-import dry-run
+  parity are locked by tests. Backend 1,303-test, plugin 721-test, static
+  analysis, production build, ResNet autosync quiescence, and lint 100/100
+  gates passed.
 
 - **Plugin npm audit PostCSS dependency chore** (completed 2026-07-30):
   updated only the Vite transitive lockfile resolution from
