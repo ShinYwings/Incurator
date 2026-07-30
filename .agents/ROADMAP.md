@@ -22,10 +22,8 @@ Source of Truth to identify unresolved items.
 
 `USER_REPORT.md` is currently empty. The following queue is the ordered roadmap.
 
-No urgent hotfix is currently tracked.
-
-- v0.36.2 PR #90 is merged. The next actionable item is the
-  Composite-Primary-Key Tombstones schema contract update.
+No urgent hotfix is currently tracked. The active delivery item is the
+v0.37.0 Composite-Primary-Key Tombstones contract.
 
 ### 🚀 Priority Order
 
@@ -35,21 +33,29 @@ No urgent hotfix is currently tracked.
      allowed; prompt-v2 for cross-model output consistency; legacy/dead-code sweep.
    - Master Plan: `.agents/plans/01_system_stability_overhaul.md`
    - Briefing: `.agents/plans/system_stability_overhaul_arena/00_problem.md`
-   - Delivered as a chain of incremental release PRs (starting from v0.34.0+).
-   - **Shipped stability & hardening releases (v0.25.0 → v0.36.2)**: diagnosis G17–G19, XC-1/XC-4 robustness slices, DB-2 slices 1–2, CLI/MCP warning visibility, portable paths v0.29–v0.32, cross-device LWW sync v0.30, strict v12 schema/reindex speedup v0.33.0, CM-1 command module decomposition v0.34.0, silent exception/false-success hardening v0.36.1, and fail-closed sync/KRS integrity v0.36.2.
+   - Delivered as a chain of independently reviewable release PRs.
+   - **Shipped stability & hardening releases (v0.25.0 → v0.36.8)**:
+     diagnosis G17–G19, XC-1/XC-4 robustness slices, DB-2 slices 1–2,
+     CLI/MCP warning visibility, portable paths and cross-device LWW sync,
+     strict v12 schema/reindex speedup, CM-1 command decomposition,
+     fail-closed sync/KRS integrity, and the PDF/Antigravity transport hotfixes.
    - **Remaining Scope for Upcoming Releases**:
+     - **Integrity workstreams (ordered)**: composite-primary-key tombstones,
+       query-provider failure UX, then authored-wikilink topology validation.
+       These share the Stability goal but ship separately so each boundary has
+       an isolated contract, rollback, and test matrix.
      - **Exception Handling Hardening (XC-1 later slices)**: audit broad
        catch-and-return boundary handlers and other backend modules after the
        silent-swallow slice lands.
      - **Performance & UX Refinements**: RAG/DAG benchmark harness & retrieval hotspot optimization; chat/popover UX friction cleanup.
 
-2. **[Schema Contract] Composite-Primary-Key Tombstones**
+2. **[Stability / Schema Contract] Composite-Primary-Key Tombstones** *(ACTIVE — v0.37.0)*
    - Synced tombstones currently carry one `record_id`, which cannot identify a
      row in composite-key tables without an explicit encoding contract.
    - Plan the JSONL/schema representation and data migration before enabling
      deletion for those tables; do not guess or concatenate key values ad hoc.
 
-3. **[Bug] Query Provider Failure UX**
+3. **[Stability / Bug] Query Provider Failure UX**
    - A real Gaussian Splatting testbed query reached retrieval successfully, but
      Antigravity CLI returned no output during JSON repair and `wiki query`
      exposed a full Rich traceback instead of a concise provider-error message.
@@ -57,10 +63,16 @@ No urgent hotfix is currently tracked.
      exits non-zero, and reports actionable CLI/MCP/plugin errors without hiding
      the original provider failure.
 
-4. **[Validation] `[[wikilink]]` Architecture Validation**
+4. **[Stability / Validation] `[[wikilink]]` Architecture Validation**
    - Core entities in the backend pipeline documents are not explicitly marked with `[[wikilink]]`.
    - Validate `backend/src/curator/page_writer.py` and `sync.py` backlink parsing logic against `[[wikilink]]` syntax.
-   - Detailed analysis: `.agents/drafts/minor_quick_wins.md` (Wikilink section)
+   - Current evidence: `backend/tests/test_failure_atlas_repro.py` F9 and
+     `docs/specs/failure_atlas/FAILURE_ATLAS.md`. The deleted quick-wins draft
+     remains available only through Git history.
+   - Reconcile the F9 contract collision first: the Failure Atlas and repro test
+     define F9 as authored-note topology, while `SYSTEM_BEHAVIOR.md` §27 reuses
+     F9 for broad-span/report grounding. No wikilink code change starts while
+     those two meanings share one failure id.
 
 5. **[Minor Update] Chat Session Context Compaction**
    - Confirm full-session history behavior.
@@ -80,7 +92,8 @@ No urgent hotfix is currently tracked.
 8. **[Minor Update] Web Search Integration**
    - Design and integrate web search capabilities for local models (Ollama, Deepseek, etc.).
    - Investigate API options (Brave, SerpAPI) and implement `web_search.py`.
-   - Detailed analysis: `.agents/drafts/minor_quick_wins.md` (Web Search Section)
+   - The former quick-wins draft was deleted after triage; create a fresh
+     provider/privacy/cost plan from current APIs before implementation.
 
 ---
 
@@ -309,6 +322,7 @@ No blocked items currently tracked.
 ## 📌 Current Focus & Active Milestone
 
 - **Roadmap state**: System Stability Overhaul ACTIVE; v0.36.8 shipped.
-- **Active Milestone**: None (PostCSS audit chore awaits PR review/merge).
-- **Next actionable item**: After the dependency-only chore merges, resume the
-  composite-primary-key tombstones schema-contract plan.
+- **Active Milestone**: v0.37.0 Composite-Primary-Key Tombstones contract
+  (`release/v0.37.0`).
+- **Next actionable item**: pass the schema/wire/migration approval gate, then
+  implement it docs-first and TDD-first before starting provider-failure UX.

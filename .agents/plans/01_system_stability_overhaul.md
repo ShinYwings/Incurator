@@ -1,7 +1,8 @@
 # System Stability Overhaul — Master Implementation Plan
 
 Date: 2026-06-22
-Status: DRAFT — awaiting user approval (planning phase; no code yet)
+Status: ACTIVE — Phase A diagnosis is complete and consolidated; incremental
+delivery continues through the ordered integrity workstreams.
 Briefing: `.agents/plans/system_stability_overhaul_arena/00_problem.md`
 Supersedes: the prompt-only milestone (folds in `prompt_architecture_refactoring.md`
 and `popover_tool_scope.md`).
@@ -85,7 +86,8 @@ prompt-consistency harness shows measured improvement over baseline.
 - **Maximize PR granularity.** Deliver as MANY small PRs as is reasonable — one
   concern per PR (e.g. each god-file split is its own PR, not "all backend
   god-files" in one). A reviewable PR beats a complete-but-unreviewable one.
-  Delivered as a chain of minor releases (0.25.0 → 0.26.0 → …) off `master`.
+  Delivered as a chain of SemVer-classified releases off `master`; a slice is a
+  patch unless it adds a capability or changes a schema/public contract.
 - **Prior-art research is mandatory per PR.** Before designing any non-trivial
   fix/refactor, research how comparable external programs solved the same
   problem (e.g. other Obsidian plugins & LLM clients for prompt/multi-model
@@ -97,14 +99,13 @@ prompt-consistency harness shows measured improvement over baseline.
 
 ## 5. Scope Exclusions & Stop Conditions
 
-- **Exclusions**: roadmap items #4–#8 (wikilink validation, chat compaction,
-  storage governance, PDF annotation, web search) remain deferred.
+- **Exclusions**: chat compaction, storage governance, PDF annotation, and web
+  search remain deferred. Composite tombstones, query-provider failure UX, and
+  wikilink topology validation are Stability workstreams, not exclusions.
 - **Delivery model**: each phase below is a standalone PR. Branch per phase off
-  `master` (e.g. `refactor/prompt-v2-consistency`, `refactor/backend-cli-split`).
-  The current `feature/prompt-architecture-refactoring` branch hosts P0–P1
-  (diagnosis + harness) only.
+  `master`. The active first integrity slice is `release/v0.37.0`; later slices
+  start from updated `master` after their predecessor merges.
 - **Stop conditions** — agent MUST halt and ask the user when:
-  - P1 diagnosis triage is ready (which findings to fix vs. defer).
   - any DB schema change is required (P1-contract approval gate).
   - a characterization test reveals existing behavior is itself buggy (decide:
     preserve vs. fix).
@@ -113,13 +114,13 @@ prompt-consistency harness shows measured improvement over baseline.
 
 ## 6. Evidence Ledger
 
-- **Repo/schema reality**: baseline captured 2026-06-22 — ruff/mypy clean; 116 py
-  + 58 ts test files; god-file LOC table and 264 broad-except / 83 any-type counts
-  recorded in `00_problem.md §2`. Prompt registry already shipped in `ac46f1d`.
-- **Dirty worktree**: only `.agents/RELAY.md` modified (this planning session).
-  No in-flight user code changes to clobber.
-- **Rollback anchor**: tag the green `master` HEAD (or the merge-base) before P2
-  surgery begins; each phase PR is independently revertible via `git revert -m 1`.
+- **Repo/schema reality**: the 2026-06-22 baseline is preserved in
+  `00_problem.md §2`; Phase A completed all G01–G19 diagnosis groups and folded
+  them into `01_roadmap_evidence.md`.
+- **Current worktree**: `release/v0.37.0`, created from clean, synchronized
+  `master`; only planning/status artifacts are changed before contract approval.
+- **Rollback anchor**: each slice records its `master` merge-base before
+  implementation and remains independently revertible via `git revert -m 1`.
 - **Per-phase evidence**: P1 produces `01_roadmap_evidence.md` (the findings
   ledger) with pre/post validation results recorded as phases land.
 
@@ -131,8 +132,9 @@ JUST-IN-TIME inside the refactor phase that needs them, not as a big upfront
 phase. Each refactor phase is split into as many small PRs as reasonable, and
 each PR opens with a prior-art research note (§4).
 
-- **Phase A — Baseline lock + Exhaustive Diagnosis Ledger** (branch: current)
-  → **STOP for triage approval. This is a diagnosis-only phase: NO refactoring.**
+- **Phase A — Baseline lock + Exhaustive Diagnosis Ledger** (**COMPLETE**)
+  → Diagnosis-only phase completed and triaged; all G01–G19 reports are merged
+  into the evidence ledger.
   - Lock green ruff/mypy/pytest/vitest as the rollback anchor; note coverage gaps.
   - Systematic per-module audit → `.agents/plans/01_roadmap_evidence.md`,
     categorized: (a) correctness bugs, (b) redundancy/duplication, (c)
@@ -227,6 +229,18 @@ green + testbed parity for backend) and starts with prior-art research.
   - Verify: a docs↔code consistency check (CLI/MCP/plugin/config surfaces named
     in docs all exist in code and vice-versa); `test_spec_sync.py` green.
 
+- **Phase B — Ordered Integrity Workstreams** (**ACTIVE**)
+  1. Composite-primary-key tombstones: explicit portable key codec,
+     schema-version/migration policy, fail-closed import, and two-device tests.
+  2. Query-provider failure UX: typed provider/query boundary, retained failed
+     traces, non-zero CLI exit, and parity across CLI/MCP/plugin.
+  3. Authored-wikilink validation: reconcile projection backlink parsing with
+     Failure Atlas F9, first resolve the conflicting F9 meaning in
+     `SYSTEM_BEHAVIOR.md` §27, then decide whether topology compilation is
+     required.
+  Each workstream gets its own branch, plan/evidence ledger, release decision,
+  full validation, and PR.
+
 - **Finalization (per PR, not a separate phase)**
   - Each PR: version bump (`pyproject.toml`/`package.json`/`manifest.json` agree),
     `CHANGELOG.md`, spec-title vX.Y sync on minor bumps, docs + `_KR.md` sync,
@@ -234,5 +248,6 @@ green + testbed parity for backend) and starts with prior-art research.
 
 ---
 
-> Versioning: pre-1.0, so architectural/breaking changes ride **Minor** slots.
-> Expect a chain 0.25.0 → 0.26.0 → … (one per shipped PR), NOT a single bump.
+> Versioning: pre-1.0, so architectural/breaking changes ride **Minor** slots;
+> compatible fixes remain **Patch** releases. The active composite tombstone
+> wire-contract change targets v0.37.0.
