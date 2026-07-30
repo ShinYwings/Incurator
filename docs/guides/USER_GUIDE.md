@@ -744,6 +744,13 @@ vault file. Durable artifacts come only from an explicit promotion to `02_Wiki/`
 Every orchestrator query persists the `QTR-` trace so the answer can later be
 audited with `wiki inspect answer <QTR-…>`.
 
+If the configured answer provider fails, times out, or returns blank output,
+`wiki query` prints a concise provider error and exits with status 1 instead of
+showing an internal traceback. Retrieval evidence is not discarded: the failed
+`QTR-`, linked `PTR-` prompt trace, warnings, and selected provenance remain
+available for `wiki inspect answer` / `wiki prompt trace`. A configured fallback
+provider is attempted before the query is reported as failed.
+
 Without `--route`, `auto` runs. Search is DB-native in v0.3.2: FTS5 lexical
 retrieval, chunk-level vectors, typed query expansion (`lex`/`vec`/`hyde`), RRF,
 and configured reranking over best chunks. `--mode` (hybrid|lex|vec) selects the

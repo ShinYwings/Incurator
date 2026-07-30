@@ -481,6 +481,10 @@ If the provider call raises after the trace is opened, the trace is closed as
 `failed` with the exception recorded instead of remaining `pending`.
 Inspect with `wiki prompt list|show|trace|eval` or MCP `curator_get_prompt_trace`.
 Every query records a `QTR-` trace linking its route, evidence, and prompt runs.
+If query synthesis fails, the QTR keeps its retrieved evidence, links the failed
+PTR, and records a failed synthesis child action. CLI, MCP, and hidden plugin
+surfaces expose that same existing-field failure; only the CLI/hidden command
+exit status changes to 1.
 
 ---
 

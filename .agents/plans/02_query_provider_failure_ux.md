@@ -1,7 +1,7 @@
 # v0.37.1 Query Provider Failure UX Master Implementation Plan
 
 Date: 2026-07-30
-Status: PROPOSED — Arena debate concluded; awaiting implementation approval.
+Status: APPROVED — implementation started 2026-07-30.
 
 ## 1. Objective
 

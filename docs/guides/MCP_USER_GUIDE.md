@@ -275,6 +275,12 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
   malformed, has an invalid root/source-scope shape, or is semantically invalid,
   the query fails before retrieval instead of silently widening to the
   unrestricted default policy.
+- **Provider failures**: If answer synthesis fails after retrieval, the tool
+  returns `ok=false` with the existing `error`, QTR/PTR ids, warnings,
+  ContextService metadata, and selected provenance that were already recorded.
+  Configured fallback is attempted first. The tool does not return an empty
+  success or discard the trace, and unexpected runtime/storage defects are not
+  relabelled as provider failures.
 
 #### `promote_answer`
 

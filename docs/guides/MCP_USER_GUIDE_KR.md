@@ -271,6 +271,11 @@ wiki mcp install
   `default` 정책을 사용합니다. 파일이 존재하지만 읽을 수 없거나, YAML이
   잘못되었거나, 루트/소스 범위 형태 또는 의미 검증에 실패하면 unrestricted
   default 정책으로 조용히 확장하지 않고 검색 전에 요청을 실패시킵니다.
+- **Provider 실패**: 검색 이후 답변 합성이 실패하면 tool은 이미 기록된 기존
+  `error`, QTR/PTR id, warning, ContextService metadata, 선택 provenance를
+  유지한 `ok=false` 결과를 반환합니다. 설정된 fallback을 먼저 시도합니다. 빈
+  성공 결과를 반환하거나 trace를 버리지 않으며, 예상하지 못한 runtime/storage
+  결함을 provider 실패로 바꾸지 않습니다.
 
 #### `promote_answer`
 

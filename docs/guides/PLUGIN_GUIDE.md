@@ -1439,6 +1439,13 @@ fields both at the additive result level and inside `trace` for L3-complete
 ContextService-backed answers. Older/partial backend responses simply omit them,
 so the panel degrades gracefully.
 
+When explicit backend synthesis fails at the provider boundary, the hidden
+`wiki plugin query` command still emits one parseable result with `ok=false`,
+`error`, and every available QTR/PTR/provenance/warning field, then exits 1.
+The plugin consumes that JSON even on the non-zero exit. Sources & Trace shows
+the failure reason with the retained trace; it must not mix diagnostic process
+text into the answer or treat the failure as an empty success.
+
 Plan F adds normalized context packs to this flow. The plugin calculates the
 provider's remaining context budget after local selected/pinned/open-note/PDF/
 image context, requests a backend pack within that budget, and grounds the

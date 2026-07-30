@@ -2,7 +2,7 @@
 
 ## Goal
 
-Plan v0.37.1 Query Provider Failure UX so provider/repair failures preserve
+Implement v0.37.1 Query Provider Failure UX so provider/repair failures preserve
 diagnostics and prompt traces while CLI, MCP, and plugin surfaces return concise,
 actionable errors instead of raw Rich tracebacks.
 
@@ -37,8 +37,9 @@ actionable errors instead of raw Rich tracebacks.
 - A deterministic repair-failure reproduction produced one failed PTR
   (`retry_count=1`) but an empty QTR prompt list and zero synthesis actions.
 - Existing prompt/query safety nets pass unchanged (`20 passed`).
-- No application code has been changed.
-- Planning-only changes are ready for review and implementation approval.
+- The user approved implementation on 2026-07-30.
+- P1 docs-first contract synchronization is in progress; no application code
+  has changed yet.
 
 ## Critical Context / Blockers
 
@@ -51,5 +52,5 @@ actionable errors instead of raw Rich tracebacks.
 
 ## Immediate Next Action
 
-Stop for user approval. After approval, update docs first, write failing tests,
-then implement P2→P7 from `02_query_provider_failure_ux.md`.
+Complete P1 docs, then write the P2 provider/prompt regression tests before
+changing application logic.

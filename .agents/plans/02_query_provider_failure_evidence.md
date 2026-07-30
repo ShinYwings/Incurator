@@ -1,7 +1,7 @@
 # v0.37.1 Query Provider Failure UX Evidence Ledger
 
 Date: 2026-07-30
-Status: BASELINE LOCKED — no application code changed; approval pending.
+Status: IMPLEMENTING — baseline locked; user approved implementation.
 
 ## Rollback anchor
 

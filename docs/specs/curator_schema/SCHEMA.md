@@ -1043,6 +1043,12 @@ Rules:
   row must be closed as `validator_status='failed'`, with the exception
   class/message recorded in `validator_errors`, so production failures do not
   leave active `pending` traces.
+- When a query synthesis call fails with an expected provider `LLMError`, the
+  owning `QTR-` must recover every linked `PTR-` through
+  `prompt_runs.query_trace_id`, retain the already-selected retrieval
+  provenance, and record a failed `synthesis` child action. This is a
+  relationship/finalization rule over the existing tables; it adds no column or
+  schema migration.
 
 ### 11.8 `curation_plans`
 
@@ -1338,6 +1344,11 @@ distilled from the community reports.
 - `answer(query, workspace)` (`wiki query`, MCP `curator_query`, plugin) returns
   evidence + a synthesized answer. Both are **sessionless**: they return an
   answer + a `QTR-` trace and write **no** vault file.
+- If answer synthesis fails because the configured provider returns no usable
+  output or raises an expected `LLMError`, the result contains `error` instead
+  of `answer` and preserves the existing `QTR-`, linked `PTR-` ids, warnings,
+  and retrieval provenance. Unexpected programming or storage exceptions are
+  not converted into provider failures.
 - The lens is biased by `curate.yml` (the Knowledge Requirement Spec) and
   accumulated insight candidates — additive bias over the full DAG, never a frozen
   subset.
