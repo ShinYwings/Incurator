@@ -29,7 +29,7 @@ v0.32.0+ regression findings ship as small follow-up patch releases.
 
 ### 🚀 Priority Order
 
-1. **[Patch-in-release] v0.39.0 Authored-Topology Review-Blocker Closure** *(ACTIVE — IMPLEMENTATION)*
+1. **[Patch-in-release] v0.39.0 Authored-Topology Review-Blocker Closure** *(MERGE READY)*
    - Draft PR #101 remains on `release/v0.39.0`; the release has not merged, so
      authored-topology corrections keep the same version and public contract.
    - Close the newly confirmed single-generation tombstone hole, exact audit
@@ -38,6 +38,8 @@ v0.32.0+ regression findings ship as small follow-up patch releases.
      target normalization.
    - Preserve the already-green first hardening pass from commit `f6ff089`;
      every new failure receives a red regression test before code.
+   - Seven direct review findings plus a reconciliation-quiescence guard are
+     implemented, fully validated, pushed, and green on latest-head PR CI.
 
 2. **[Patch Chain] v0.39.x Stability Regression Audit — v0.32.0 Through Current** *(ACTIVE — PLAN FIRST)*
    - Audit every merged release diff from PR #80 / v0.32.0 through PR #100 /
@@ -363,6 +365,5 @@ No blocked items currently tracked.
 - **Roadmap state**: System Stability Overhaul ACTIVE; v0.39.0 is unmerged.
 - **Active Milestone**: v0.39.0 authored-topology review-blocker closure plus
   the v0.32.0+ release-chain regression audit.
-- **Next actionable item**: close the seven approved PR #101 blockers
-  docs-first/TDD-first, validate the release branch, then start the independent
-  cross-system patch chain after merge.
+- **Next actionable item**: merge PR #101, fast-forward `master`, then begin P5
+  source-lifecycle/compiler-recovery work from the clean merged anchor.

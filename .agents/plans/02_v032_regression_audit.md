@@ -1,7 +1,7 @@
 # v0.39.x Stability Regression Audit And Repair Master Implementation Plan
 
 Date: 2026-07-30
-Status: ACTIVE — P1–P3 complete; P4 delivery in progress
+Status: ACTIVE — P1–P4 complete; P5 begins after PR #101 merges
 Umbrella: `.agents/plans/01_system_stability_overhaul.md`
 Evidence: `.agents/plans/02_v032_regression_evidence.md`
 
@@ -224,7 +224,7 @@ Verify:
 
 ### P4 — PR #101 Full Validation And Delivery
 
-Status: LOCAL VALIDATION COMPLETE — push and latest-head CI pending.
+Status: COMPLETE.
 
 - Run full backend/plugin/static/build/audit gates.
 - Validate on temporary DB/vault copies only.

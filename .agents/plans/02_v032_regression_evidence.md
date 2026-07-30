@@ -1,7 +1,7 @@
 # v0.32.0+ Stability Regression Audit — Evidence Ledger
 
 Date: 2026-07-30
-Status: PR #101 LOCAL VALIDATION COMPLETE — delivery pending
+Status: PR #101 COMPLETE — merge pending
 Branch: `release/v0.39.0`
 Head / rollback anchor for this planning pass: `b567427`
 Umbrella plan: `.agents/plans/02_v032_regression_audit.md`
@@ -234,3 +234,22 @@ before approval.
   - temporary vault and its exact repo-cache namespace were deleted.
 - Production `last_root` remains `/Users/shin/shinywings/second_brain`; the
   active ResNet testbed and consumed D2 holdout were not mutated.
+
+## 13. PR #101 Delivery Evidence
+
+- Final implementation head before relay closure: `4f3af29`.
+- `release/v0.39.0` was pushed and PR #101's Why/What/review-hardening/
+  compatibility/validation description was refreshed.
+- Latest-head push-event CI:
+  - Backend Tests: passed;
+  - Plugin Tests: passed;
+  - Version Consistency: passed.
+- Latest-head pull-request CI:
+  - Backend Tests: passed;
+  - Plugin Tests: passed;
+  - Version Consistency: intentionally skipped by event policy.
+- GitHub emitted only the existing Node.js 20 action-runtime deprecation
+  annotation; there was no code, test, build, or audit failure.
+- PR #101 is ready for human review and merge. P5 remains deliberately blocked
+  on the merged `master` anchor so the cross-system patch chain does not branch
+  from this release branch.

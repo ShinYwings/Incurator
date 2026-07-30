@@ -64,7 +64,11 @@ regressions.
   and exact cache namespace were removed. Production `last_root` remains
   `/Users/shin/shinywings/second_brain`; active testbed was not mutated.
 - Manifests remain synchronized at 0.39.0.
-- Current phase: P4 push, PR description refresh, and latest-head CI.
+- Branch pushed at implementation head `4f3af29`; PR #101 description refreshed.
+- Latest-head push and pull-request CI both pass Backend and Plugin tests;
+  Version Consistency passes on push and is intentionally skipped on the PR
+  event.
+- Current phase: PR #101 is ready for human review and merge.
 
 ## Critical Context / Blockers
 
@@ -81,6 +85,6 @@ regressions.
 
 ## Immediate Next Action
 
-Complete P4: create the final release-state commit, push `release/v0.39.0`,
-refresh PR #101's description, and monitor latest-head CI. Keep the v0.32+
-master plan active because P5–P10 begin only after this PR merges.
+After PR #101 merges, fast-forward local `master`, preserve the active v0.32+
+master plan, and begin P5 from the clean merged anchor. Do not branch the
+cross-system source-lifecycle patch from `release/v0.39.0`.
