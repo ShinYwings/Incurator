@@ -390,7 +390,10 @@ not send a whole-vault filename list to the model, guess links from page-like
 words, or rewrite ordinary answer text after generation. If the exact target is
 not grounded, the assistant must leave the name as plain text. Valid visible-note
 links are rendered and opened by Obsidian itself, preserving native click,
-modifier-click, and hover behavior.
+modifier-click, and hover behavior. For included Markdown/PDF context, the plugin
+supplies the completed safe `vault_link_target` literal so smaller local models
+can copy the exact link instead of rebuilding a path from its display label;
+external or unsupported file paths never receive such a target.
 
 ### Curator DAG Wikilinks
 

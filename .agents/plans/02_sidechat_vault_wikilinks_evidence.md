@@ -1,7 +1,7 @@
 # v0.38.0 Sidechat Vault-Page Wikilinks Evidence Ledger
 
 Date: 2026-07-30
-Status: IMPLEMENTING — baseline locked; plan approved.
+Status: VALIDATED — release gates passed.
 
 ## Rollback anchor
 
@@ -87,4 +87,28 @@ Status: IMPLEMENTING — baseline locked; plan approved.
   `vault_link_target`.
 - TDD green gate: the same focused command now passes
   `3 files / 39 tests`.
-- Full implementation and release validation remain pending.
+- Cross-provider hardening reproduced one weak-model failure: local
+  `qwen2.5:3b` rebuilt a supplied raw `.md` path incorrectly. The prompt context
+  now exposes one completed `vault_link_target` literal and no competing raw
+  Markdown path. The shared prompt tells every provider to copy that literal.
+- The final malformed-locator red gate rejected a `vault_pdf` locator backed by
+  `.md`; source-kind/suffix consistency now fails closed. The final focused
+  formatter/prompt/context suite passes `3 files / 41 tests`.
+- Full plugin validation passes `68 files / 737 tests`; the production
+  `0.38.0` build succeeds and `npm audit` reports zero vulnerabilities.
+- Full backend validation passes `1325 passed, 6 skipped, 5 xfailed`; Ruff and
+  Mypy pass, and the manifest/spec synchronization gate passes `10 tests`.
+- Antigravity `gemini-3.1-pro` with effort `low` returned the exact supplied
+  block target
+  `[[03_Notes/Vision/MultipleViewGeometry#^absolute-dual-quadric]]`.
+  Local Ollama `qwen2.5:3b` returned the exact completed page target after the
+  deterministic-target hardening.
+- A real Obsidian smoke used existing notes only: a rendered cross-note block
+  link opened the exact block in `Auto Calibration`, and a rendered heading
+  link opened and highlighted the exact heading in `MultipleViewGeometry`.
+  This exercises the same native MarkdownRenderer navigation retained by
+  Sidechat answers.
+- Desktop accessibility automation could enter a Sidechat prompt but could not
+  dispatch the Send button; this is an automation-layer limitation, not a
+  product error. Provider output and native page/heading/block navigation were
+  validated independently. No production note content was edited.

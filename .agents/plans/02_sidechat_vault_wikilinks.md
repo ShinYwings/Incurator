@@ -44,8 +44,10 @@ note, heading, or block. Definition of done:
   open/pinned context, usable ContextService locators, or provider tool results.
 - **Prompt owner**: `buildBaseSystemPrompt`, so model selection does not change
   the wikilink rule.
-- **Identity preservation**: `contextPromptLabel` retains `ContextRef.filePath`;
-  `formatCuratorContextPack` retains usable locator targets.
+- **Identity preservation**: `contextPromptLabel` converts a safe
+  `ContextRef.filePath` into one completed `vault_link_target` literal (and
+  leaves external paths plain); `formatCuratorContextPack` retains usable
+  locator targets.
 - **Navigation owner**: native Obsidian MarkdownRenderer for visible vault notes.
   Existing special handlers remain scoped to hidden Curator nodes, PDFs, and
   explicit block locators.

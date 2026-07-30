@@ -593,7 +593,10 @@ Markdown targets omit `.md`; other suffixes remain intact; a known heading or
 block anchor is preserved, with an explicit block id taking precedence. The
 provider must never guess a vault path or convert uncertain plain-text page
 names into links. The plugin does not inject a whole-vault filename inventory
-and does not post-process arbitrary answer prose into links.
+and does not post-process arbitrary answer prose into links. Included
+vault-relative Markdown/PDF context and usable ContextService locators expose a
+completed `vault_link_target` literal for providers to copy; absolute, external,
+unsupported, degraded, or source-kind/suffix-mismatched paths do not.
 
 For PDF selected-context turns, a selected phrase that is itself a pointer
 (`Section A4.2`, `p580`, `Figure 19.1`, `Eq. (19.6)`, etc.) changes the target

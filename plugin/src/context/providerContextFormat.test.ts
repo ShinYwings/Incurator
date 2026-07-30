@@ -146,6 +146,20 @@ describe("providerContextFormat", () => {
         locator_status: "exact",
       })
     ).toBeNull();
+    expect(
+      formatVaultLocatorWikilink({
+        source_kind: "vault_pdf",
+        relpath: "04_Resources/reference-stub.md",
+        locator_status: "exact",
+      })
+    ).toBeNull();
+    expect(
+      formatVaultLocatorWikilink({
+        source_kind: "vault_markdown",
+        relpath: "04_Resources/paper.pdf",
+        locator_status: "exact",
+      })
+    ).toBeNull();
   });
 
   it("formatCuratorQueryResult preserves trace metadata without injecting backend answer", () => {

@@ -340,7 +340,10 @@ locator, 또는 tool 결과에서 정확한 vault-relative path를 확보한 경
 추측하거나, 생성된 일반 답변 텍스트를 나중에 다시 쓰지 않습니다. 정확한 대상이
 grounding되지 않았다면 assistant는 이름을 plain text로 남겨야 합니다. 유효한 일반
 노트 링크는 Obsidian 자체가 렌더링하고 열기 때문에 native click, modifier-click,
-hover 동작이 유지됩니다.
+hover 동작이 유지됩니다. 포함된 Markdown/PDF context에는 plugin이 검증된 완성형
+`vault_link_target` literal을 제공하므로 작은 local model도 display label에서 경로를
+다시 조립하지 않고 정확한 링크를 복사할 수 있습니다. 외부 또는 지원하지 않는 file
+path에는 이 target을 제공하지 않습니다.
 
 ### Curator DAG 위키링크
 

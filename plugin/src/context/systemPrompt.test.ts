@@ -15,6 +15,7 @@ describe("buildBaseSystemPrompt", () => {
     expect(text).toContain("First understand the user's edit intent");
     expect(text).toContain("selected PDF/text region as the example");
     expect(text).toContain("[[vault/relative/path|label]]");
+    expect(text).toContain("Copy supplied vault_link_target values exactly");
     expect(text).toContain("Never invent a vault path");
     expect(text).toContain("uncertain plain-text page names");
     // Item 17: the math instruction must not model backtick-wrapped math and

@@ -594,12 +594,18 @@ Rules:
   preserved; known `#heading` and `#^block_id` subpaths are retained, with an
   explicit block id taking precedence over a heading. The prompt MUST prohibit
   invented paths and use plain text when the target is uncertain.
-- Prompt-included `ContextRef` values MUST retain `filePath` in their provider
-  label when present. ContextService provider formatting MUST expose a
-  `vault_link_target` only for vault-backed locators with a non-empty relative
-  path and a usable `exact` or `fallback_file` status. External, stale,
-  unavailable, duplicate-anchor, source-fallback, or otherwise ambiguous
-  locators MUST NOT become vault-link targets.
+- Prompt-included `ContextRef` values MUST retain their `filePath` identity when
+  present. A safe vault-relative Markdown/PDF ref exposes that identity as one
+  completed `vault_link_target` literal (including a known PDF page), without a
+  competing raw `.md` path, so weaker providers copy rather than reconstruct
+  it; absolute, external, or unsupported file paths retain a plain file-path
+  label only. ContextService
+  provider formatting MUST expose a `vault_link_target` only for vault-backed
+  locators with a non-empty relative path and a usable `exact` or
+  `fallback_file` status. The declared source kind and file suffix MUST agree
+  (`vault_pdf` with `.pdf`; Markdown kinds with `.md`). External, stale,
+  unavailable, duplicate-anchor, source-fallback, mismatched, or otherwise
+  ambiguous locators MUST NOT become vault-link targets.
 - Ordinary visible-vault wikilinks in assistant Markdown remain owned by
   Obsidian's native renderer and navigation. The plugin MUST NOT scan the full
   vault for prompt candidates or regex-rewrite arbitrary answer prose after

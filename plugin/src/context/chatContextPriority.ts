@@ -1,4 +1,5 @@
 import type { ContextRef } from "../types";
+import { formatVaultLocatorWikilink } from "./providerContextFormat";
 
 export function shouldIncludeContext(ref: ContextRef): boolean {
   return ref.includeInPrompt !== false;
@@ -57,7 +58,26 @@ export function shouldSuppressEditAffordances(args: {
 export function contextPromptLabel(ref: ContextRef): string {
   if (!shouldIncludeContext(ref)) return `Excluded context: ${ref.label}`;
   const filePath = ref.filePath?.trim();
-  const label = filePath ? `${ref.label} (vault path: ${filePath})` : ref.label;
+  let label = ref.label;
+  if (filePath) {
+    const lowerPath = filePath.toLowerCase();
+    const sourceKind = lowerPath.endsWith(".md")
+      ? "vault_markdown"
+      : lowerPath.endsWith(".pdf")
+        ? "vault_pdf"
+        : "";
+    const vaultLinkTarget = sourceKind
+      ? formatVaultLocatorWikilink({
+          source_kind: sourceKind,
+          relpath: filePath,
+          page_number: ref.pageNum,
+          locator_status: "exact",
+        })
+      : null;
+    label += vaultLinkTarget
+      ? ` (vault_link_target: ${vaultLinkTarget})`
+      : ` (file path: ${filePath})`;
+  }
   if (ref.sourceViewType === "auto") return `Visible background context: ${label}`;
   if (ref.isPinned) {
     return isPrimaryUserContext(ref) ? `Primary user-selected context: ${label}` : `Pinned background context: ${label}`;

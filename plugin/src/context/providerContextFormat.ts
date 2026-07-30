@@ -109,7 +109,14 @@ export function formatVaultLocatorWikilink(
   }
   if (locatorString(locator, "external_uri")) return null;
 
-  const relpath = safeVaultRelpath(locatorString(locator, "relpath"));
+  const rawRelpath = locatorString(locator, "relpath");
+  if (
+    (sourceKind === "vault_pdf" && !/\.pdf$/i.test(rawRelpath)) ||
+    (sourceKind !== "vault_pdf" && !/\.md$/i.test(rawRelpath))
+  ) {
+    return null;
+  }
+  const relpath = safeVaultRelpath(rawRelpath);
   if (!relpath) return null;
   if (locatorStatus === "fallback_file") return `[[${relpath}]]`;
 
