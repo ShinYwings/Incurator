@@ -1,7 +1,7 @@
 # v0.39.0 Authored-Note Topology Evidence Ledger
 
 Date: 2026-07-30
-Status: IMPLEMENTED — focused regression green, full release validation pending
+Status: VALIDATED — release gates green
 Master Plan: `.agents/plans/02_authored_note_topology.md`
 Rollback anchor: `f7f0b08`
 Branch: `release/v0.39.0`
@@ -114,12 +114,12 @@ documented Obsidian core contract.
 | Active-only explore traversal | missing | passing; deterministic relation order |
 | Community topology/evidence split | missing | passing; authored dependency retained, factual relation ids excluded |
 | Focused compiler/graph/sync/search regression | not run | 283 passed, 4 expected xfails |
-| Full backend pytest | v0.38 predecessor: 1,325 passed | pending |
-| Ruff / Mypy | v0.38 predecessor: green | focused Ruff green; Mypy 126 files green |
-| Plugin Vitest / build | v0.38 predecessor: 737 passed / green | pending |
-| `npm audit` | v0.38 predecessor: 0 vulnerabilities | pending |
-| Temporary testbed smoke | not run for F9 | pending |
-| Production vault/testbed unchanged | planning read-only | pending |
+| Full backend pytest | v0.38 predecessor: 1,325 passed | 1,335 passed, 6 skipped, 4 expected xfails |
+| Ruff / Mypy | v0.38 predecessor: green | green; Mypy 126 files |
+| Plugin Vitest / build | v0.38 predecessor: 737 passed / green | 68 files, 737 passed / production build green |
+| `npm audit` | v0.38 predecessor: 0 vulnerabilities | 0 vulnerabilities |
+| Temporary testbed smoke | not run for F9 | authenticated build green; lint 100/100; graph audit clean |
+| Production vault/testbed unchanged | planning read-only | active testbed checksum unchanged |
 
 ## 6. Identifier Hygiene
 
@@ -146,3 +146,23 @@ audits identify one F9 contract.
   relations from being reset to provisional by the new API.
 - Active authored audit/lifecycle requires the generation's registered Markdown
   source path to match the relation's source `vault_note` endpoint.
+
+## 8. Isolated Testbed Result
+
+The active ResNet Dynamics testbed was copied to an isolated temporary vault.
+Only the copy received a source note and target note. The real CLI registered
+the source and completed an authenticated Antigravity L2/L3 build.
+
+- emitted 3 active authored relations: `links_to`, `property_ref`,
+  `tagged_with`;
+- all 3 belong to the source's authoritative compiler generation;
+- authored `graph_relation_supports`: 0;
+- `graph_audit`: 0 violations;
+- `wiki lint`: 100/100, 0 errors/warnings/infos;
+- vector embedding was unavailable in the isolated environment, so build
+  retained a healthy BM25 index and reported the expected vector-stale warning;
+- the production/active testbed aggregate checksum was
+  `18005009ce46045ab293a1514829b25439d3b5a3568a80eb8404a81c6bb92553`
+  before and after;
+- the temporary vault and its dedicated cache were moved to Trash after
+  validation.

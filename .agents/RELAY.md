@@ -49,7 +49,12 @@ graph topology without treating them as LLM-extracted factual support.
   resetting existing extracted lifecycle metadata.
 - Focused compiler/graph/sync/search regression: 283 passed, 4 expected xfails.
   Focused Ruff and full Mypy (126 files): green.
-- Current phase: P5 full local CI and isolated testbed validation.
+- P5 full local CI: 1,335 backend passed (6 skipped, 4 expected xfails);
+  Ruff/Mypy green; plugin 737 passed; production build green; npm audit 0.
+- Isolated ResNet smoke: authenticated build succeeded, 3/3 authored relations
+  active/current-generation-owned, authored supports 0, graph audit clean, lint
+  100/100. Active testbed checksum remained unchanged.
+- Current phase: release notes, roadmap cleanup, plan deletion, push, and PR.
 
 ## Critical Context / Blockers
 
@@ -64,5 +69,5 @@ graph topology without treating them as LLM-extracted factual support.
 
 ## Immediate Next Action
 
-Commit the reviewed implementation, run full backend/plugin/npm validation,
-then validate F9 in an isolated copy of the active ResNet testbed.
+Record v0.39.0 in CHANGELOG/ROADMAP, delete only the completed F9 plan
+artifacts, create `chore(release): v0.39.0`, then push and open the PR.
