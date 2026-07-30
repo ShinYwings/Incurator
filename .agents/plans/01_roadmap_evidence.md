@@ -3,8 +3,9 @@
 Date: 2026-06-23 (started) · 2026-06-27 (Phase A diagnosis complete)
 Status: ACTIVE DELIVERY — all 19 module groups are diagnosed and consolidated.
 Phase B is triaged into independently reviewable stability workstreams;
-v0.37.0 composite-primary-key tombstones shipped in PR #98 and the v0.37.1
-query-provider failure slice is release-ready.
+v0.37.0 composite-primary-key tombstones shipped in PR #98, v0.37.1
+query-provider failure UX shipped in PR #99, and v0.38.0 Sidechat vault-page
+wikilinks are in planning.
 Master Plan: `.agents/plans/01_system_stability_overhaul.md`
 Per-group detail: `.agents/plans/diagnosis/G01..G19-*.md` (the authoritative,
 deep record). The sections below are the FIRST scan-pass (2026-06-23); the Phase
@@ -225,9 +226,8 @@ These 10 were verified against `CHANGELOG.md` and current tests/code on
 ### Active Phase B delivery
 
 The historical G17–G19 cleanup listed here has shipped. Composite-primary-key
-tombstones shipped in v0.37.0 / PR #98. The v0.37.1 query-provider failure
-slice is release-ready with the existing-`LLMError` boundary, cross-provider
-blank/non-zero normalization, failed QTR/PTR retention, CLI exit correctness,
-and shared MCP/plugin serialization. Full backend/plugin/static/build/audit and
-non-destructive ResNet testbed gates passed. Authored-wikilink topology
-validation remains the next independent workstream.
+tombstones shipped in v0.37.0 / PR #98 and query-provider failure UX shipped in
+v0.37.1 / PR #99. The active v0.38.0 slice is the user-facing Sidechat contract:
+grounded ordinary vault-note paths should appear as navigable `[[wikilinks]]` in
+assistant answers. The existing Failure Atlas F9 authored-topology compiler
+oracle remains a separate later workstream.

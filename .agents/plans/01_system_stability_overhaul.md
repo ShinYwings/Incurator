@@ -100,11 +100,11 @@ prompt-consistency harness shows measured improvement over baseline.
 ## 5. Scope Exclusions & Stop Conditions
 
 - **Exclusions**: chat compaction, storage governance, PDF annotation, and web
-  search remain deferred. Composite tombstones, query-provider failure UX, and
-  wikilink topology validation are Stability workstreams, not exclusions.
+  search remain deferred. Sidechat vault-page navigation and authored-note
+  compiler topology are distinct Stability workstreams, not one wikilink task.
 - **Delivery model**: each phase below is a standalone PR. Branch per phase off
-  `master`. The first integrity slice shipped in v0.37.0; the provider-failure
-  slice is release-ready on `release/v0.37.1`.
+  `master`. The first two integrity slices shipped in v0.37.0 and v0.37.1; the
+  Sidechat vault-page link slice is planned on `release/v0.38.0`.
 - **Stop conditions** — agent MUST halt and ask the user when:
   - any DB schema change is required (P1-contract approval gate).
   - a characterization test reveals existing behavior is itself buggy (decide:
@@ -117,10 +117,9 @@ prompt-consistency harness shows measured improvement over baseline.
 - **Repo/schema reality**: the 2026-06-22 baseline is preserved in
   `00_problem.md §2`; Phase A completed all G01–G19 diagnosis groups and folded
   them into `01_roadmap_evidence.md`.
-- **Current worktree**: `release/v0.37.1`, created from clean, synchronized
-  `master` after v0.37.0 merged. The query-provider failure implementation,
-  documentation, regression matrix, static analysis, full suites, plugin build,
-  npm audit, and non-destructive testbed validation are complete.
+- **Current worktree**: `release/v0.38.0`, created from clean, synchronized
+  `master` after v0.37.1 merged. Sidechat prompt, evidence-locator formatting,
+  and native answer navigation are diagnosed; no application code has changed.
 - **Rollback anchor**: each slice records its `master` merge-base before
   implementation and remains independently revertible via `git revert -m 1`.
 - **Per-phase evidence**: P1 produces `01_roadmap_evidence.md` (the findings
@@ -234,14 +233,18 @@ green + testbed parity for backend) and starts with prior-art research.
 - **Phase B — Ordered Integrity Workstreams** (**ACTIVE**)
   1. Composite-primary-key tombstones: **shipped in v0.37.0 / PR #98** with the
      portable key codec, v13 boundary, fail-closed import, and multi-peer tests.
-  2. Query-provider failure UX: **release-ready in v0.37.1** with the existing
+  2. Query-provider failure UX: **shipped in v0.37.1 / PR #99** with the existing
      `LLMError` boundary, cross-provider blank/non-zero normalization, retained
      failed QTR/PTR/evidence, non-zero CLI exit, and one existing-field contract
      across CLI/MCP/plugin.
-  3. Authored-wikilink validation (**NEXT**): reconcile projection backlink parsing with
-     Failure Atlas F9, first resolve the conflicting F9 meaning in
-     `SYSTEM_BEHAVIOR.md` §27, then decide whether topology compilation is
-     required.
+  3. Sidechat vault-page wikilinks (**v0.38.0 PROPOSED**): preserve exact
+     open/pinned note paths and ContextService locators in provider context,
+     require grounded `[[vault-relative/path|label]]` answers in the shared
+     Sidechat prompt, and retain native Obsidian navigation.
+  4. Failure Atlas F9 authored-note topology: separately compile human-authored
+     wikilinks/embeds/tags/frontmatter references as topology distinct from
+     extracted relations. This backend compiler oracle is not a prerequisite
+     for Sidechat answer links.
   Each workstream gets its own branch, plan/evidence ledger, release decision,
   full validation, and PR.
 
@@ -253,5 +256,5 @@ green + testbed parity for backend) and starts with prior-art research.
 ---
 
 > Versioning: pre-1.0, so architectural/breaking changes ride **Minor** slots;
-> compatible fixes remain **Patch** releases. Query-provider failure UX is
-> release-ready as the backward-compatible v0.37.1 patch.
+> compatible fixes remain **Patch** releases. Sidechat vault-page wikilinks add
+> user-facing answer behavior and therefore target the v0.38.0 Minor slot.
