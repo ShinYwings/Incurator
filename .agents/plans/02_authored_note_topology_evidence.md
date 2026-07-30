@@ -107,12 +107,12 @@ documented Obsidian core contract.
 | Gate | Pre | Post |
 |---|---|---|
 | P1 docs/spec/atlas contract | not implemented | 121 passed; Ruff green |
-| Real F9 production-boundary oracle | strict xfail / needs re-pin | pending |
-| Authored-vs-extracted lifecycle tests | missing | pending |
-| Edit/delete/rename/failure tests | missing | pending |
-| Two-replica authored convergence | missing | pending |
-| Active-only explore traversal | missing | pending |
-| Community topology/evidence split | missing | pending |
+| Real F9 production-boundary oracle | strict xfail / needs re-pin | production-boundary xfail authored |
+| Authored-vs-extracted lifecycle tests | missing | red contract authored |
+| Edit/delete/rename/failure tests | missing | red contract authored |
+| Two-replica authored convergence | missing | non-vacuous red contract authored |
+| Active-only explore traversal | missing | red contract authored |
+| Community topology/evidence split | missing | red contract authored |
 | Full backend pytest | v0.38 predecessor: 1,325 passed | pending |
 | Ruff / Mypy | v0.38 predecessor: green | pending |
 | Plugin Vitest / build | v0.38 predecessor: 737 passed / green | pending |

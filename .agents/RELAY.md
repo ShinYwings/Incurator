@@ -39,8 +39,12 @@ graph topology without treating them as LLM-extracted factual support.
 - Arena, domain plans, master plan, and evidence ledger: approved.
 - P1 docs/spec contract, v0.39 spec-line/manifests, and F9 identifier cleanup:
   complete. Spec/docs/atlas contract tests: 121 passed; Ruff: green.
+- P2 production-boundary/parser/lifecycle/reconciliation/replica/consumer tests:
+  authored. Red baseline is intentional: 6 failed, 2 passed, 1 xfailed before
+  the non-vacuous replica assertion was added; failures are the missing
+  `authored_topology` module and absent compiled rows. Ruff: green.
 - Application logic: not started.
-- Current phase: P2 failing production-boundary tests.
+- Current phase: P3 deterministic extraction, identity, and persistence.
 
 ## Critical Context / Blockers
 
@@ -55,5 +59,5 @@ graph topology without treating them as LLM-extracted factual support.
 
 ## Immediate Next Action
 
-Write P2 failing tests against the real compiler publication boundary, then
-implement the smallest deterministic extractor/publisher that satisfies them.
+Implement the focused authored-topology module and explicit-id graph upserts,
+then integrate atomic production publication until the P2 contracts pass.

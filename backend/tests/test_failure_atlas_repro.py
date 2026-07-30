@@ -29,6 +29,7 @@ import pytest
 
 from curator import config as cfg
 from curator import db, plugin_api
+from curator.pipeline import compile as compile_mod
 from curator.pipeline import community_reports as cr
 from curator.pipeline import source_spans as l1
 from curator.pipeline import synthesis as syn_mod
@@ -50,6 +51,18 @@ class _NoChatClient:
 
     def chat(self, *a, **k):  # pragma: no cover - must not be called
         raise AssertionError("no LLM call expected in this diagnostic")
+
+
+class _EmptyUnitsClient:
+    """Production compile client that emits no extracted claims or graph.
+
+    F9 must still compile the source's deterministic authored structure.
+    """
+
+    model = "fake"
+
+    def chat(self, *args, **kwargs) -> str:
+        return json.dumps({"units": []})
 
 
 @pytest.fixture()
@@ -558,12 +571,42 @@ def test_f9_baseline_authored_wikilinks_not_compiled(vault) -> None:
 )
 def test_f9_oracle_authored_links_compiled_as_topology(vault) -> None:
     paths = vault
-    _store_section_spans(
-        paths,
-        "This note links [[Residual Learning]] and [[Euler Method]] explicitly.",
+    source_text = (
+        "# Failure Atlas\n\n"
+        "This note links [[Residual Learning]] and [[Euler Method]] explicitly.\n"
     )
-    rel, dag = _counts(paths.state_db)
-    assert rel + dag > 0
+    source_path = paths.root / RELPATH
+    source_path.parent.mkdir(parents=True, exist_ok=True)
+    source_path.write_text(source_text, encoding="utf-8")
+    (source_path.parent / "Residual Learning.md").write_text(
+        "# Residual Learning\n", encoding="utf-8"
+    )
+    (source_path.parent / "Euler Method.md").write_text(
+        "# Euler Method\n", encoding="utf-8"
+    )
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "UPDATE sources SET bytes = ?, content_hash = ? WHERE id = 1",
+            (len(source_text.encode("utf-8")), "f9-production-boundary"),
+        )
+
+    result = compile_mod.compile_source_l2(paths, _EmptyUnitsClient(), 1)
+    assert result.ok, result.error
+    with db.connect(paths.state_db) as conn:
+        rows = conn.execute(
+            "SELECT relation_type, edge_class, lifecycle_status, generation_id "
+            "FROM graph_relations ORDER BY relation_type, id"
+        ).fetchall()
+        support_count = conn.execute(
+            "SELECT COUNT(*) FROM graph_relation_supports"
+        ).fetchone()[0]
+
+    assert len(rows) == 2
+    assert {row["relation_type"] for row in rows} == {"links_to"}
+    assert {row["edge_class"] for row in rows} == {"authored"}
+    assert {row["lifecycle_status"] for row in rows} == {"active"}
+    assert all(row["generation_id"] for row in rows)
+    assert support_count == 0
 
 
 # ---------------------------------------------------------------------------
