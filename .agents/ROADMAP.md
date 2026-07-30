@@ -22,11 +22,7 @@ Source of Truth to identify unresolved items.
 
 `USER_REPORT.md` is currently empty. The following queue is the ordered roadmap.
 
-- **[Chore] Plugin npm audit PostCSS advisory**
-  - Update only the transitive lockfile resolution from vulnerable
-    `postcss@8.5.15` to a patched release accepted by Vite's existing range.
-  - Do not add PostCSS as a direct dependency or bundle unrelated upgrades.
-  - Verify `npm audit`, plugin tests, and production build.
+No urgent hotfix is currently tracked.
 
 - v0.36.2 PR #90 is merged. The next actionable item is the
   Composite-Primary-Key Tombstones schema contract update.
@@ -89,6 +85,12 @@ Source of Truth to identify unresolved items.
 ---
 
 ## ✅ Completed Milestones
+
+- **Plugin npm audit PostCSS dependency chore** (completed 2026-07-30):
+  updated only the Vite transitive lockfile resolution from
+  `postcss@8.5.15` to patched `8.5.25` and its required Nano ID patch. A clean
+  `npm ci` reproduced the lockfile; `npm audit` reported zero vulnerabilities,
+  all 721 plugin tests passed, and the production build succeeded.
 
 - **v0.36.8 — PDF Convert-to-LaTeX Antigravity Prompt Transport**
   (release-ready 2026-07-30): fixed the backend Antigravity client to pass the
@@ -307,6 +309,6 @@ No blocked items currently tracked.
 ## 📌 Current Focus & Active Milestone
 
 - **Roadmap state**: System Stability Overhaul ACTIVE; v0.36.8 shipped.
-- **Active Milestone**: Resolve the plugin's PostCSS npm audit advisory.
-- **Next actionable item**: Complete the dependency-only audit chore, then resume the
+- **Active Milestone**: None (PostCSS audit chore awaits PR review/merge).
+- **Next actionable item**: After the dependency-only chore merges, resume the
   composite-primary-key tombstones schema-contract plan.

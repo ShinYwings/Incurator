@@ -21,8 +21,8 @@ lockfile resolution without adding a direct dependency or unrelated upgrades.
 
 - [x] Reproduce the audit failure.
 - [x] Identify the dependency chain and patched range.
-- [ ] Apply a targeted lockfile update.
-- [ ] Run audit, plugin tests, and production build.
+- [x] Apply a targeted lockfile update.
+- [x] Run audit, plugin tests, and production build.
 - [ ] Push a dependency-only PR.
 
 ## Critical Context / Blockers
@@ -30,7 +30,10 @@ lockfile resolution without adding a direct dependency or unrelated upgrades.
 - No blocker.
 - Rollback anchor: `ae61d65`.
 - Worktree was clean before the report capture.
+- Clean `npm ci`: succeeded.
+- `npm audit --audit-level=high`: zero vulnerabilities.
+- Plugin: 721 tests passed; production build passed.
 
 ## Immediate Next Action
 
-Update only the PostCSS lockfile resolution and inspect the exact diff.
+Push the branch, open a draft PR, and confirm CI.
