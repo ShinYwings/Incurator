@@ -10,10 +10,8 @@ planning narration.
 
 - Branch: `hotfix/v0.36.8-latex-transcribe`
 - Draft PR: `https://github.com/ShinYwings/Incurator/pull/96`
-- Active review follow-up plan:
-  `.agents/plans/02_v0368_latex_model_dispatch_followup.md`
-- Active evidence ledger:
-  `.agents/plans/02_v0368_latex_model_dispatch_evidence.md`
+- Completed hotfix and review-follow-up plans were deleted after validation;
+  use branch Git history to inspect the master plans and evidence ledgers.
 
 ## Analysis & Reasoning
 
@@ -73,5 +71,4 @@ planning narration.
 
 ## Immediate Next Action
 
-Record the validation commit, delete completed plan artifacts, push the branch,
-update PR #96, and confirm CI.
+Push the branch, update PR #96, and confirm CI.
