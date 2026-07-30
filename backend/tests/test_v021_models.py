@@ -245,6 +245,18 @@ class TestModelEfforts(unittest.TestCase):
         self.assertEqual(models.get_model_efforts("claude", "claude-haiku-4-5"), [])
         # Ollama models have no effort dimension.
         self.assertEqual(models.get_model_efforts("ollama", "qwen2.5:7b"), [])
+        self.assertEqual(
+            models.get_backend_model_efforts(
+                "antigravity-cli", "gemini-3.6-flash"
+            ),
+            ["low", "medium", "high"],
+        )
+        self.assertEqual(
+            models.get_backend_model_efforts(
+                "antigravity-cli", "claude-opus-4-6-thinking"
+            ),
+            [],
+        )
 
     def test_no_phantom_models(self) -> None:
         """Models that the live CLIs do not expose must not be in the catalogue."""
@@ -253,6 +265,18 @@ class TestModelEfforts(unittest.TestCase):
         self.assertNotIn("gemini-3.5-pro", agy_ids)
         self.assertIn("gemini-3.5-flash", agy_ids)
         self.assertIn("gpt-oss-120b", agy_ids)
+        self.assertNotIn("claude-opus-4-6", agy_ids)
+        self.assertIn("claude-opus-4-6-thinking", agy_ids)
+
+        agy_models = catalogue["providers"]["antigravity"]["models"]
+        fixed_sonnet = next(m for m in agy_models if m["id"] == "claude-sonnet-4-6")
+        fixed_opus = next(
+            m for m in agy_models if m["id"] == "claude-opus-4-6-thinking"
+        )
+        self.assertNotIn("efforts", fixed_sonnet)
+        self.assertNotIn("default_effort", fixed_sonnet)
+        self.assertNotIn("efforts", fixed_opus)
+        self.assertNotIn("default_effort", fixed_opus)
 
     def test_codex_client_injects_reasoning_effort(self) -> None:
         client = CodexCliClient(model="gpt-5.6-sol", effort="ultra")

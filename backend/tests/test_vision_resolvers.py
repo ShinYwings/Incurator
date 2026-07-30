@@ -10,7 +10,7 @@ import pytest
 
 from curator import ingest_raw, llm, vision
 from curator import config as cfg
-from curator.llm import LLMError, OllamaClient
+from curator.llm import AntigravityCliClient, LLMError, OllamaClient
 
 
 class _FakeClient:
@@ -33,6 +33,17 @@ def test_make_client_for_builds_independent_ollama_client() -> None:
 
 def test_make_client_for_empty_is_none() -> None:
     assert llm.make_client_for("", cfg.DEFAULT_CONFIG) is None
+
+
+def test_make_client_for_applies_explicit_task_effort() -> None:
+    client = llm.make_client_for(
+        "antigravity-cli::gemini-3.6-flash",
+        cfg.DEFAULT_CONFIG,
+        effort="low",
+    )
+    assert isinstance(client, AntigravityCliClient)
+    assert client.model == "gemini-3.6-flash"
+    assert client.effort == "low"
 
 
 # --- R13: fallback only on empty, raise on configured failure ---
@@ -76,15 +87,80 @@ def test_ingest_vision_resolver_ignores_latex_extract_model(monkeypatch) -> None
 
 
 def test_resolve_extract_falls_to_vision_chain_on_empty(monkeypatch) -> None:
-    monkeypatch.setattr(llm, "make_client_for", lambda pm, c: _FakeClient(True, pm))
+    calls: list[tuple[str, str]] = []
+
+    def make_client(provider_model, _config, *, effort=""):
+        calls.append((provider_model, effort))
+        return _FakeClient(True, provider_model)
+
+    monkeypatch.setattr(llm, "make_client_for", make_client)
     main = _FakeClient(True, "main")
     # empty latex_extract_model + empty vision_model → main (vision chain)
     assert ingest_raw._resolve_extract_client({"llm": {}}, main) is main
-    # configured latex_extract_model → that client
+    assert calls == []
+    # configured latex_extract_model → that client with task-scoped low effort
     c = ingest_raw._resolve_extract_client(
-        {"llm": {"latex_extract_model": "x::y"}}, main
+        {
+            "llm": {
+                "latex_extract_model": "antigravity-cli::gemini-3.6-flash"
+            }
+        },
+        main,
     )
-    assert c.model == "x::y"
+    assert c.model == "antigravity-cli::gemini-3.6-flash"
+    assert calls == [("antigravity-cli::gemini-3.6-flash", "low")]
+
+
+def test_resolve_extract_uses_low_for_explicit_vision_fallback(monkeypatch) -> None:
+    calls: list[tuple[str, str]] = []
+
+    def make_client(provider_model, _config, *, effort=""):
+        calls.append((provider_model, effort))
+        return _FakeClient(True, provider_model)
+
+    monkeypatch.setattr(llm, "make_client_for", make_client)
+    main = _FakeClient(True, "main")
+
+    client = ingest_raw._resolve_extract_client(
+        {"llm": {"vision_model": "codex-cli::gpt-5.6-terra"}},
+        main,
+    )
+
+    assert client.model == "codex-cli::gpt-5.6-terra"
+    assert calls == [("codex-cli::gpt-5.6-terra", "low")]
+
+
+def test_resolve_extract_omits_unsupported_effort_and_preserves_main(
+    monkeypatch,
+) -> None:
+    calls: list[tuple[str, str]] = []
+
+    def make_client(provider_model, _config, *, effort=""):
+        calls.append((provider_model, effort))
+        return _FakeClient(True, provider_model)
+
+    monkeypatch.setattr(llm, "make_client_for", make_client)
+    main = _FakeClient(True, "main")
+    main.effort = "high"
+
+    fixed = ingest_raw._resolve_extract_client(
+        {
+            "llm": {
+                "latex_extract_model":
+                    "antigravity-cli::claude-opus-4-6-thinking"
+            }
+        },
+        main,
+    )
+    assert fixed.model == "antigravity-cli::claude-opus-4-6-thinking"
+    assert calls == [
+        ("antigravity-cli::claude-opus-4-6-thinking", "")
+    ]
+
+    calls.clear()
+    assert ingest_raw._resolve_extract_client({"llm": {}}, main) is main
+    assert main.effort == "high"
+    assert calls == []
 
 
 # --- temp-PNG lifecycle + output normalization ---

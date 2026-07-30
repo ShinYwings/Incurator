@@ -589,6 +589,10 @@ describe("CLI model effort arguments", () => {
       model: "gemini-3.6-flash",
       agentEffort: "medium",
     });
+    expect(command.args).toContain("--model");
+    expect(command.args[command.args.indexOf("--model") + 1]).toBe(
+      "gemini-3.6-flash"
+    );
     expect(command.args).toContain("--effort");
     expect(command.args).toContain("medium");
   });
