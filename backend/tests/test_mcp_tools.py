@@ -309,6 +309,7 @@ class V031McpToolsTests(unittest.TestCase):
             confidence=0.8,
             source_span_ids=[sp],
             assertion_source="system_infers",
+            lifecycle_status="active",
         )
         con_dir = self.paths.collections / "03_Concepts"
         con_dir.mkdir(parents=True, exist_ok=True)

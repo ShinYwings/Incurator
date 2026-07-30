@@ -54,7 +54,8 @@ def vault():
                                    entity_type="concept", source_span_ids=[sp])
         db.upsert_graph_relation(paths.state_db, source_entity_id=a, target_entity_id=b,
                                  relation_type="reinterpreted_as", confidence=0.8,
-                                 source_span_ids=[sp], assertion_source="system_infers")
+                                 source_span_ids=[sp], assertion_source="system_infers",
+                                 lifecycle_status="active")
         yield paths, sp
 
 
