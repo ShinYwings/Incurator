@@ -45,8 +45,10 @@ authored-note topology before merge.
   reconciliation`.
 - Completed active plan artifacts were deleted after their history was
   preserved.
-- Current phase: create the release follow-up commit, push, and wait for PR
-  #101 latest-head CI.
+- Release follow-up commit: `ee87d09 chore(release): v0.39.0`.
+- PR #101 latest-head CI passed: 5 successful jobs, 1 intentional skip, 0
+  failures.
+- Current phase: human review and merge.
 
 ## Critical Context / Blockers
 
@@ -59,5 +61,5 @@ authored-note topology before merge.
 
 ## Immediate Next Action
 
-Create the v0.39.0 release follow-up commit, push `release/v0.39.0`, and wait
-for PR #101 latest-head CI.
+Review and merge PR #101. After merge, fast-forward local `master` and apply
+the documented IDLE relay cleanup.

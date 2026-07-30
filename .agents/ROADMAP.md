@@ -28,13 +28,14 @@ authored-note topology.
 
 ### 🚀 Priority Order
 
-1. **[Patch-in-release] v0.39.0 Authored-Topology Deep-Review Hardening** *(IMPLEMENTED — PR CI/merge pending)*
+1. **[Patch-in-release] v0.39.0 Authored-Topology Deep-Review Hardening** *(IMPLEMENTED — merge pending)*
    - Draft PR #101 remains on `release/v0.39.0`; the release has not merged, so
      these corrections keep the same version and public contract.
    - The deep-review fixes cover non-destructive Markdown scanning,
      escape/numeric filtering, balanced/parent-relative targets, `.markdown`,
      exact generation-owned membership, two-/three-way replica convergence,
      and report/search freshness.
+   - Local full validation and PR #101 latest-head CI are green.
    - Completed plan, Arena, and evidence history: commit `f6ff089`.
 
 2. **[Major Update] System Stability Overhaul — Exhaustive Diagnosis & Refactoring** *(ACTIVE)*
