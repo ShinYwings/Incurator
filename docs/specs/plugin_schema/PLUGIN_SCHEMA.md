@@ -973,6 +973,12 @@ Rules:
   the same `pack_id`, `snapshot`, `budget`, prompt trace ids, and provenance
   arrays at the additive result level and inside `trace`. L3-incomplete degraded
   fallback may omit these fields until it is migrated to ContextService.
+- Expected provider failures return `ok=false` and the existing `error` field
+  while preserving the available QTR/PTR ids, warnings, ContextService metadata,
+  and retrieval provenance at the additive result level and inside `trace`.
+  The hidden command must print this one parseable JSON object and exit 1; it
+  must not emit a traceback or report exit 0. Unexpected runtime/storage defects
+  remain exceptions rather than being relabelled as provider failures.
 - `wiki plugin query` remains the explicit backend-synthesis JSON surface. It is
   not the default sidechat grounding path once `wiki plugin context fetch` is
   available.
@@ -1555,6 +1561,12 @@ interface CuratorQueryResult {
   warnings?: string[];
 }
 ```
+
+On `ok=false` provider results, these additive fields remain populated whenever
+the ContextService/QTR already selected them. MCP compaction and plugin
+normalization must not discard top-level `prompt_trace_ids`, `warnings`, or the
+failure reason. Sources & Trace renders the concise `error` alongside the
+retained trace instead of treating the request as an empty successful answer.
 
 New trace and evidence interfaces (`plugin/src/types.ts`):
 

@@ -13,6 +13,7 @@ from typer.testing import CliRunner
 from curator import config as cfg
 from curator import db
 from curator.cli import app
+from curator.query import QueryResult
 
 
 class V031CliTests(unittest.TestCase):
@@ -158,13 +159,70 @@ class V031CliTests(unittest.TestCase):
             patch("curator.commands.core.db.get_pending_count", return_value=3),
             patch("curator.commands.core.add") as add_command,
             patch("curator.commands.core._start_client", return_value=FakeClient()),
-            patch("curator.commands.core._run_query_repl"),
+            patch("curator.commands.core._run_query_repl", return_value=False),
         ):
             res = self.runner.invoke(app, ["query", "read only question"])
 
         self.assertEqual(res.exit_code, 0, res.stdout)
         add_command.assert_not_called()
         self.assertNotIn("running add before query", res.stdout)
+
+    def test_query_prints_non_streaming_answer(self) -> None:
+        self.paths.concepts.mkdir(parents=True, exist_ok=True)
+        (self.paths.concepts / "CON-test.md").write_text("---\nname: test\n---\n")
+
+        class FakeClient:
+            def close(self) -> None:
+                return None
+
+        def complete_query(paths, client, callbacks, run_kwargs, **kwargs):
+            callbacks.on_complete(
+                QueryResult(
+                    question="visible question",
+                    answer="Visible synthesized answer.",
+                )
+            )
+            return False
+
+        with (
+            patch("curator.commands.core._start_client", return_value=FakeClient()),
+            patch(
+                "curator.commands.core._run_query_repl",
+                side_effect=complete_query,
+            ),
+        ):
+            res = self.runner.invoke(app, ["query", "visible question"])
+
+        self.assertEqual(res.exit_code, 0, res.stdout)
+        self.assertIn("Visible synthesized answer.", res.stdout)
+
+    def test_query_failure_exits_one_after_cleanup_without_traceback(self) -> None:
+        self.paths.concepts.mkdir(parents=True, exist_ok=True)
+        (self.paths.concepts / "CON-test.md").write_text("---\nname: test\n---\n")
+        closed = False
+
+        class FakeClient:
+            def close(self) -> None:
+                nonlocal closed
+                closed = True
+
+        def fail_query(paths, client, callbacks, run_kwargs, **kwargs):
+            callbacks.on_error("Antigravity CLI returned no output.")
+            return True
+
+        with (
+            patch("curator.commands.core._start_client", return_value=FakeClient()),
+            patch(
+                "curator.commands.core._run_query_repl",
+                side_effect=fail_query,
+            ),
+        ):
+            res = self.runner.invoke(app, ["query", "failing question"])
+
+        self.assertEqual(res.exit_code, 1, res.stdout)
+        self.assertTrue(closed)
+        self.assertIn("Antigravity CLI returned no output.", res.stdout)
+        self.assertNotIn("Traceback", res.stdout)
 
     def test_plugin_insight_list_and_promote_json(self) -> None:
         import json

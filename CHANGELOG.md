@@ -2,6 +2,27 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.37.1] - 2026-07-30
+### Fixed
+- **Provider Failure Normalization**
+  Ollama, Claude, and Codex now reject blank output consistently. Codex rejects
+  non-zero processes before reading any partial output file, every `LLMError`
+  subtype participates in configured failover, and an exhausted chain retains
+  bounded provider-labelled attempt diagnostics with its terminal cause.
+- **Traceable Query Failures**
+  Provider and structured-output repair failures now retain their query trace,
+  failed prompt traces, evidence provenance, warnings, retry count, first-output
+  hash, and failed synthesis action. Unexpected runtime and storage defects
+  continue to propagate instead of being mislabeled as provider failures.
+- **Consistent Query Failure Surfaces**
+  `wiki query` prints non-streaming success answers and exits non-zero with a
+  concise expected-failure message. MCP and plugin queries share one existing
+  response serializer, the hidden plugin command emits one JSON failure object
+  before exiting non-zero, and the plugin trace panel preserves and displays
+  the failure reason, prompt trace ids, and warnings.
+
+---
+
 ## [0.37.0] - 2026-07-30
 ### Changed
 - **Schema-v13 Composite Tombstone Contract**

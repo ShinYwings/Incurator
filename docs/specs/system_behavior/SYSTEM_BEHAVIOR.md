@@ -547,6 +547,23 @@ Expected behavior:
    shared Synthesis layer), and — for `curator_query`/`wiki query` — synthesize an
    answer. `curator_fetch_context` returns the evidence pack without synthesis.
 4. Return answer/evidence plus trace. No Exhibition is created or cached.
+5. If synthesis raises an expected provider `LLMError`, return a failed query
+   result using the existing `error` field. Preserve the root `QTR-`, every
+   recoverable linked `PTR-`, the selected evidence/provenance, and warnings;
+   append a `synthesis_status=failed` child action to the QTR. Do not convert
+   unexpected runtime or database exceptions into provider failures.
+
+Non-streaming provider success requires a zero process/HTTP result and non-blank
+text. A blank primary response or any `LLMError` uses the configured fallback;
+if every configured provider fails, the terminal error must retain the bounded,
+provider-labelled attempt order and chain the final cause. A non-zero Codex CLI
+process is always a failure even when it leaves a valid-looking output file.
+
+Surface behavior uses that same failed result without adding a new public error
+schema: `wiki query` prints a concise message without a traceback and exits 1;
+MCP and `wiki plugin query` return the existing-field query envelope; the hidden
+plugin command prints exactly one JSON object and then exits 1. Successful CLI
+queries print the synthesized answer and exit 0.
 
 Synthesized answers must cite the **original source documents outside `.curator/`**,
 not only the hidden DAG node. For each retrieved hit, the synthesis prompt resolves

@@ -11,6 +11,86 @@ from .. import db, llm, query, search
 
 _log = logging.getLogger(__name__)
 
+
+def _serialize_query_result(
+    paths: cfg.WikiPaths,
+    result: Any,
+    *,
+    question: str,
+    input_language: str,
+    english_query: str,
+    final_output_language: str,
+    l3_complete: bool,
+    started: float,
+) -> dict[str, Any]:
+    trace = db.get_query_trace(paths.state_db, result.trace_id)
+    context_trace = {}
+    if trace is not None:
+        context_trace = (trace.get("retrieval_trace") or {}).get(
+            "context_service", {}
+        )
+    context_pack_id = context_trace.get("pack_id") or None
+    context_snapshot = (
+        context_trace.get("snapshot") if context_pack_id is not None else None
+    )
+    context_budget = (
+        context_trace.get("budget") if context_pack_id is not None else None
+    )
+    source_paths: list[str] = []
+    if result.source_span_ids:
+        for span in db.get_source_spans_by_ids(
+            paths.state_db, result.source_span_ids
+        ):
+            relpath = span.get("relpath", "")
+            if relpath and relpath not in source_paths:
+                source_paths.append(relpath)
+
+    payload: dict[str, Any] = {
+        "ok": result.ok,
+        "question": question,
+        "input_language": input_language,
+        "english_query": result.english_query or english_query,
+        "final_output_language": (
+            result.final_output_language or final_output_language
+        ),
+        "route": result.route,
+        "trace_id": result.trace_id,
+        "pack_id": context_pack_id,
+        "snapshot": context_snapshot,
+        "budget": context_budget,
+        "prompt_trace_ids": result.prompt_trace_ids,
+        "source_span_ids": result.source_span_ids,
+        "synthesis_node_ids": result.synthesis_node_ids,
+        "community_report_ids": result.community_report_ids,
+        "memory_path_ids": result.memory_path_ids,
+        "insight_candidate_ids": result.insight_candidate_ids,
+        "warnings": result.warnings,
+        "trace": {
+            "matched_concepts": [],
+            "source_ids": [],
+            "source_paths": source_paths,
+            "synthesis_node_ids": result.synthesis_node_ids,
+            "community_report_ids": result.community_report_ids,
+            "memory_path_ids": result.memory_path_ids,
+            "insight_candidate_ids": result.insight_candidate_ids,
+            "prompt_trace_ids": result.prompt_trace_ids,
+            "source_span_ids": result.source_span_ids,
+            "trace_id": result.trace_id,
+            "route": result.route,
+            "pack_id": context_pack_id,
+            "snapshot": context_snapshot,
+            "budget": context_budget,
+            "latency_ms": int((time.monotonic() - started) * 1000),
+            "l3_complete": l3_complete,
+        },
+    }
+    if result.ok:
+        payload["answer"] = result.answer
+    else:
+        payload["error"] = result.error or "Query returned no answer"
+    return payload
+
+
 def curator_query(
     paths: cfg.WikiPaths,
     *,
@@ -59,93 +139,31 @@ def curator_query(
             },
         }
 
-    try:
-        from ..retrieval import QueryOrchestrator, QueryRequest
+    from ..retrieval import QueryOrchestrator, QueryRequest
 
-        with llm.build_client(config) as client:
-            result = QueryOrchestrator(paths, client).run(
-                QueryRequest(
-                    question=question,
-                    english_query=english_query,
-                    input_language=input_language,
-                    final_output_language=effective_final_output_language,
-                    workspace_path=workspace_path,
-                    mode="auto",
-                )
+    with llm.build_client(config) as client:
+        result = QueryOrchestrator(paths, client).run(
+            QueryRequest(
+                question=question,
+                english_query=english_query,
+                input_language=input_language,
+                final_output_language=effective_final_output_language,
+                workspace_path=workspace_path,
+                mode="auto",
             )
-    except Exception as exc:
-        return {
-            "ok": False,
-            "question": question,
-            "input_language": input_language,
-            "english_query": english_query,
-            "final_output_language": effective_final_output_language,
-            "error": f"Query pipeline error: {exc}",
-        }
+        )
 
-    if not result.ok:
-        return {
-            "ok": False,
-            "question": question,
-            "input_language": input_language,
-            "english_query": result.english_query or english_query,
-            "final_output_language": result.final_output_language or effective_final_output_language,
-            "error": result.error or "Query returned no answer",
-        }
-
-    trace = db.get_query_trace(paths.state_db, result.trace_id)
-    context_trace = {}
-    if trace is not None:
-        context_trace = (trace.get("retrieval_trace") or {}).get("context_service", {})
-    context_pack_id = context_trace.get("pack_id", None) or None
-    context_snapshot = context_trace.get("snapshot", None) if context_pack_id is not None else None
-    context_budget = context_trace.get("budget", None) if context_pack_id is not None else None
-    source_paths: list[str] = []
-    if result.source_span_ids:
-        for span in db.get_source_spans_by_ids(paths.state_db, result.source_span_ids):
-            relpath = span.get("relpath", "")
-            if relpath and relpath not in source_paths:
-                source_paths.append(relpath)
-
-    # Sessionless: no generated L4 file is written; return the answer + trace only.
-    return {
-        "ok": True,
-        "answer": result.answer,
-        "question": question,
-        "input_language": input_language,
-        "english_query": result.english_query or english_query,
-        "final_output_language": result.final_output_language or effective_final_output_language,
-        "route": result.route,
-        "trace_id": result.trace_id,
-        "pack_id": context_pack_id,
-        "snapshot": context_snapshot,
-        "budget": context_budget,
-        "prompt_trace_ids": result.prompt_trace_ids,
-        "source_span_ids": result.source_span_ids,
-        "synthesis_node_ids": result.synthesis_node_ids,
-        "community_report_ids": result.community_report_ids,
-        "memory_path_ids": result.memory_path_ids,
-        "insight_candidate_ids": result.insight_candidate_ids,
-        "warnings": result.warnings,
-        "trace": {
-            "matched_concepts": [],
-            "source_ids": [],
-            "source_paths": source_paths,
-            "synthesis_node_ids": result.synthesis_node_ids,
-            "community_report_ids": result.community_report_ids,
-            "memory_path_ids": result.memory_path_ids,
-            "insight_candidate_ids": result.insight_candidate_ids,
-            "prompt_trace_ids": result.prompt_trace_ids,
-            "source_span_ids": result.source_span_ids,
-            "trace_id": result.trace_id,
-            "route": result.route,
-            "pack_id": context_pack_id,
-            "snapshot": context_snapshot,
-            "budget": context_budget,
-            "latency_ms": int((time.monotonic() - start) * 1000),
-            "l3_complete": l3_complete,
-        },
-    }
+    # Sessionless: no generated L4 file is written; return the result + trace only.
+    return _serialize_query_result(
+        paths,
+        result,
+        question=question,
+        input_language=input_language,
+        english_query=english_query,
+        final_output_language=effective_final_output_language,
+        l3_complete=l3_complete,
+        started=start,
+    )
 
 
 def promote_answer(

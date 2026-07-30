@@ -708,6 +708,13 @@ status/history/push입니다.
 모든 orchestrator query는 나중에 `wiki inspect answer <QTR-…>`로 감사할 수 있도록
 `QTR-` trace를 지속 저장합니다.
 
+설정된 답변 provider가 실패·timeout·빈 출력을 반환하면 `wiki query`는 내부
+traceback 대신 간결한 provider 오류를 출력하고 종료 코드 1로 끝납니다. 검색
+근거는 버리지 않습니다. 실패한 `QTR-`, 연결된 `PTR-` prompt trace, warning,
+선택된 provenance는 `wiki inspect answer` / `wiki prompt trace`로 계속 확인할 수
+있습니다. fallback provider가 설정되어 있으면 쿼리를 실패로 보고하기 전에 먼저
+호출합니다.
+
 `--route`가 없으면 `auto`가 실행됩니다. v0.3.2 검색은 DB-native입니다:
 FTS5 lexical retrieval, chunk-level vector, typed query expansion(`lex`/`vec`/
 `hyde`), RRF, best chunk에 대한 configured reranking을 사용합니다.

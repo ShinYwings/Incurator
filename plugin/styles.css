@@ -2232,6 +2232,12 @@
   font-size: 0.85em;
 }
 
+.incurator-trace-error {
+  color: var(--text-error);
+  margin-bottom: 4px;
+  overflow-wrap: anywhere;
+}
+
 .incurator-trace-route,
 .incurator-trace-idrow,
 .incurator-trace-insights,

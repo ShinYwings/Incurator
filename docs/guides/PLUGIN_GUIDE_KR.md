@@ -1219,6 +1219,13 @@ merge/rebase/unsafe push를 시도하지 않고 그 blocker를 보고합니다.
 반환합니다. 구버전/부분 응답은 이 필드를 생략하므로 패널은 우아하게 축소
 렌더링됩니다.
 
+명시적 backend synthesis가 provider 경계에서 실패해도 hidden
+`wiki plugin query` 명령은 `ok=false`, `error`, 사용 가능한 모든
+QTR/PTR/provenance/warning 필드를 담은 파싱 가능한 결과 하나를 출력한 뒤 종료
+코드 1로 끝납니다. 플러그인은 이 non-zero 종료에서도 JSON을 사용합니다.
+Sources & Trace는 유지된 trace와 함께 실패 이유를 표시하며, 진단용 process
+텍스트를 답변에 섞거나 실패를 빈 성공으로 취급하지 않습니다.
+
 Plan F는 이 흐름에 normalized context pack을 추가합니다. 플러그인은 local
 selected/pinned/open-note/PDF/image context 이후 provider에 남은 context budget을
 계산하고, 그 budget 안에서 backend pack을 요청한 뒤 pack의 evidence item으로

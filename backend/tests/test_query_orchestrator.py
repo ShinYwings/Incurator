@@ -12,7 +12,8 @@ import pytest
 from curator import config as cfg
 from curator import db
 from curator import prompting
-from curator.llm import ChatMessage
+from curator.llm import AntigravityCliError, ChatMessage, CodexCliError
+from curator.prompting.trace import hash_prompt_output
 from curator.retrieval import QueryOrchestrator, QueryRequest, QueryResultV031
 from curator.retrieval.orchestrator import _context_evidence_block
 
@@ -73,6 +74,29 @@ class LastCitationClient:
             "used_report_ids": [],
             "confidence": 0.8,
         })
+
+
+class InitialProviderFailureClient:
+    model = "fake"
+
+    def chat(self, messages, *, json_mode=False, temperature=0.3) -> str:
+        raise AntigravityCliError("Antigravity CLI returned no output.")
+
+
+class RepairProviderFailureClient:
+    model = "fake"
+
+    def __init__(self) -> None:
+        self.responses: list[str | Exception] = [
+            "NOT_JSON_BUT_REAL_RESPONSE",
+            CodexCliError("Codex CLI returned no output."),
+        ]
+
+    def chat(self, messages, *, json_mode=False, temperature=0.3) -> str:
+        response = self.responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
 
 
 @pytest.fixture()
@@ -263,6 +287,86 @@ def test_failed_answer_synthesis_preserves_retrieval_provenance(vault) -> None:
     assert synthesis_action["action_type"] == "synthesis"
     assert synthesis_action["payload"]["synthesis_status"] == "failed"
     assert synthesis_action["payload"]["cited_source_span_ids"] == []
+
+
+def test_initial_provider_failure_returns_traceable_query_result(vault) -> None:
+    paths, span = vault
+
+    res = QueryOrchestrator(paths, InitialProviderFailureClient()).run(
+        QueryRequest(question="What does residual learning do?", mode="local")
+    )
+
+    assert not res.ok
+    assert res.answer == ""
+    assert res.error == "Antigravity CLI returned no output."
+    assert res.trace_id.startswith("QTR-")
+    assert res.source_span_ids == [span]
+    assert len(res.prompt_trace_ids) == 1
+
+    prompt_run = db.get_prompt_run(paths.state_db, res.prompt_trace_ids[0])
+    assert prompt_run is not None
+    assert prompt_run["validator_status"] == "failed"
+    assert prompt_run["retry_count"] == 0
+    assert prompt_run["output_hash"] == hash_prompt_output("")
+    assert prompt_run["validator_errors"] == [
+        "AntigravityCliError: Antigravity CLI returned no output."
+    ]
+
+    trace = db.get_query_trace(paths.state_db, res.trace_id)
+    assert trace is not None
+    assert trace["source_span_ids"] == [span]
+    assert trace["prompt_trace_ids"] == res.prompt_trace_ids
+    synthesis_action = trace["retrieval_trace"]["context_service"]["actions"][-1]
+    assert synthesis_action["action_type"] == "synthesis"
+    assert synthesis_action["child_id"] == res.prompt_trace_ids[0]
+    assert synthesis_action["payload"]["synthesis_status"] == "failed"
+    assert synthesis_action["payload"]["cited_source_span_ids"] == []
+
+
+def test_repair_provider_failure_preserves_first_output_and_trace(vault) -> None:
+    paths, span = vault
+    first_raw = "NOT_JSON_BUT_REAL_RESPONSE"
+
+    res = QueryOrchestrator(paths, RepairProviderFailureClient()).run(
+        QueryRequest(question="What does residual learning do?", mode="local")
+    )
+
+    assert not res.ok
+    assert res.error == "Codex CLI returned no output."
+    assert res.source_span_ids == [span]
+    assert len(res.prompt_trace_ids) == 1
+
+    prompt_run = db.get_prompt_run(paths.state_db, res.prompt_trace_ids[0])
+    assert prompt_run is not None
+    assert prompt_run["validator_status"] == "failed"
+    assert prompt_run["retry_count"] == 1
+    assert prompt_run["output_hash"] == hash_prompt_output(first_raw)
+    assert prompt_run["validator_errors"] == [
+        "CodexCliError: Codex CLI returned no output."
+    ]
+
+    trace = db.get_query_trace(paths.state_db, res.trace_id)
+    assert trace is not None
+    assert trace["source_span_ids"] == [span]
+    assert trace["prompt_trace_ids"] == res.prompt_trace_ids
+    synthesis_action = trace["retrieval_trace"]["context_service"]["actions"][-1]
+    assert synthesis_action["child_id"] == res.prompt_trace_ids[0]
+    assert synthesis_action["payload"]["synthesis_status"] == "failed"
+
+
+def test_unexpected_query_synthesis_exception_propagates(vault) -> None:
+    paths, _span = vault
+
+    class UnexpectedFailureClient:
+        model = "fake"
+
+        def chat(self, messages, *, json_mode=False, temperature=0.3) -> str:
+            raise RuntimeError("programming defect")
+
+    with pytest.raises(RuntimeError, match="programming defect"):
+        QueryOrchestrator(paths, UnexpectedFailureClient()).run(
+            QueryRequest(question="What does residual learning do?", mode="local")
+        )
 
 
 def test_synthesis_none_source_span_ids_falls_back_to_empty_list(vault, monkeypatch) -> None:

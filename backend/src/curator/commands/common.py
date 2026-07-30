@@ -2056,6 +2056,8 @@ class CliQueryCallbacks(query_module.QueryCallbacks):
             console.print()
             console.print("[dim]" + "─" * 72 + "[/dim]")
             self._stream_active = False
+        else:
+            console.print(result.answer, markup=False, highlight=False)
         console.print()
 
     def on_error(self, error: str) -> None:
@@ -2069,7 +2071,7 @@ def _run_query_repl(
     initial_question: str | None = None,
     update_knowledge: bool = False,
     curate_spec=None,
-) -> None:
+) -> bool:
     """Interactive REPL: ask questions until the user submits an empty line.
 
     If initial_question is provided, it is answered first before prompting
@@ -2084,6 +2086,7 @@ def _run_query_repl(
     last_question: str | None = None
     last_answer: str | None = None
     last_source_span_ids: list[str] = []
+    had_failure = False
     session_id = f"QRY-{uuid.uuid4().hex[:8]}"
 
     console.print()
@@ -2151,6 +2154,8 @@ def _run_query_repl(
             callbacks,
             **{**run_kwargs, "classify_intent_first": False, "session_id": session_id},
         )
+        if result.error:
+            had_failure = True
         if result.answer:
             last_question = user_input
             last_answer = result.answer
@@ -2184,6 +2189,7 @@ def _run_query_repl(
                 callbacks.on_wiki_saved(saved, category)
             except OSError as e:
                 _err(f"Failed to save wiki page: {e}")
+    return had_failure
 def _render_model_report(report) -> None:
     for step in report.steps:
         if step.ok:

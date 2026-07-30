@@ -135,6 +135,13 @@ function renderV031Trace(
   app: App,
   interactive: boolean
 ): void {
+  if (result.error) {
+    body.createDiv({
+      text: `Query failed: ${result.error}`,
+      cls: "incurator-trace-error",
+    });
+  }
+
   if (result.route) {
     const routeRow = body.createDiv("incurator-trace-route");
     routeRow.createSpan({ text: "Route: ", cls: "incurator-trace-label" });

@@ -504,6 +504,9 @@ grounding하며, explore의 후속 질문/인사이트 생성은 별도 검색 �
 예외를 내면 해당 trace는 `pending`으로 남지 않고 예외 내용과 함께 `failed`로
 닫힙니다. 모든 쿼리는 라우트·증거·프롬프트 실행을 잇는 `QTR-` 트레이스를
 기록합니다.
+쿼리 합성이 실패하면 QTR은 검색 근거를 유지하고 실패한 PTR을 연결하며 failed
+synthesis child action을 기록합니다. CLI, MCP, hidden plugin surface는 동일한
+기존 필드 실패 결과를 노출하고, CLI/hidden command만 종료 코드 1을 사용합니다.
 
 ---
 

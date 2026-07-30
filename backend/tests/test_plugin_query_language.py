@@ -11,6 +11,7 @@ import json
 import re
 from pathlib import Path
 
+import pytest
 from unittest.mock import patch
 
 from curator import config as cfg
@@ -164,3 +165,22 @@ def test_curator_query_is_sessionless_writes_no_exhibition(tmp_path: Path) -> No
     assert not paths.synthesis.exists() or not list(
         paths.synthesis.glob(f"{consts.PREFIX_L4}-*.md")
     )
+
+
+def test_curator_query_does_not_relabel_unexpected_runtime_error(
+    tmp_path: Path,
+) -> None:
+    vault = tmp_path / "vault"
+    cfg.save_config(cfg.WikiPaths(vault), {})
+    paths = cfg.paths_from_config(vault)
+    _seed_context_service_graph(paths)
+
+    with (
+        patch.object(plugin_api.llm, "build_client", _dummy_build_client),
+        patch(
+            "curator.retrieval.QueryOrchestrator.run",
+            side_effect=RuntimeError("programming defect"),
+        ),
+        pytest.raises(RuntimeError, match="programming defect"),
+    ):
+        plugin_api.curator_query(paths, question="What does this concept mean?")
