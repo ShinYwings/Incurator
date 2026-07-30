@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.37.0)
+# Incurator Plugin Schema & API Contract (v0.38.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -586,6 +586,31 @@ Rules:
   `workspace.openLinkText("<note>#^<block_id>", "", false)`. The parser MUST be
   conservative: ordinary local links without a block anchor and external URLs
   keep their normal behavior.
+- All sidechat providers MUST receive the same grounded vault-link instruction
+  from the shared base system prompt. The provider should emit
+  `[[vault/relative/path|label]]` only when an exact existing target path is
+  present in included open/pinned context, a usable ContextService locator, or a
+  provider tool result. Markdown targets omit `.md`; non-Markdown suffixes are
+  preserved; known `#heading` and `#^block_id` subpaths are retained, with an
+  explicit block id taking precedence over a heading. The prompt MUST prohibit
+  invented paths and use plain text when the target is uncertain.
+- Prompt-included `ContextRef` values MUST retain their `filePath` identity when
+  present. A safe vault-relative Markdown/PDF ref exposes that identity as one
+  completed `vault_link_target` literal (including a known PDF page), without a
+  competing raw `.md` path, so weaker providers copy rather than reconstruct
+  it; absolute, external, or unsupported file paths retain a plain file-path
+  label only. ContextService
+  provider formatting MUST expose a `vault_link_target` only for vault-backed
+  locators with a non-empty relative path and a usable `exact` or
+  `fallback_file` status. The declared source kind and file suffix MUST agree
+  (`vault_pdf` with `.pdf`; Markdown kinds with `.md`). External, stale,
+  unavailable, duplicate-anchor, source-fallback, mismatched, or otherwise
+  ambiguous locators MUST NOT become vault-link targets.
+- Ordinary visible-vault wikilinks in assistant Markdown remain owned by
+  Obsidian's native renderer and navigation. The plugin MUST NOT scan the full
+  vault for prompt candidates or regex-rewrite arbitrary answer prose after
+  generation. Hidden Curator links, PDF page/section links, and explicit block
+  locators retain their existing scoped handlers.
 
 ### 2.1.1 Zotero Import Profiles
 

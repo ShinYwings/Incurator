@@ -66,6 +66,77 @@ export function formatIncuratorHits(hits: IncuratorHit[]): string {
     .join("\n");
 }
 
+const VAULT_LOCATOR_KINDS = new Set(["vault_markdown", "vault_pdf", "promoted_wiki"]);
+const USABLE_LOCATOR_STATUSES = new Set(["exact", "fallback_file"]);
+
+function locatorString(locator: Record<string, unknown>, key: string): string {
+  return typeof locator[key] === "string" ? locator[key].trim() : "";
+}
+
+function safeVaultRelpath(value: string): string | null {
+  if (
+    !value ||
+    value.startsWith("/") ||
+    value.includes("\\") ||
+    value.includes("\n") ||
+    value.includes("\r") ||
+    value.includes("[") ||
+    value.includes("]") ||
+    value.includes("|") ||
+    value.includes("#") ||
+    /^[a-z]:/i.test(value) ||
+    /^[a-z][a-z0-9+.-]*:\/\//i.test(value) ||
+    value.split("/").some((part) => part === "..")
+  ) {
+    return null;
+  }
+  const wikilinkPath = value.replace(/\.md$/i, "");
+  return wikilinkPath && !wikilinkPath.endsWith("/") ? wikilinkPath : null;
+}
+
+/**
+ * Convert a confirmed ContextService vault locator into an exact Obsidian
+ * wikilink target. Ambiguous, external, and unsafe locators fail closed.
+ */
+export function formatVaultLocatorWikilink(
+  locator: Record<string, unknown> | null | undefined
+): string | null {
+  if (!locator) return null;
+  const sourceKind = locatorString(locator, "source_kind");
+  const locatorStatus = locatorString(locator, "locator_status");
+  if (!VAULT_LOCATOR_KINDS.has(sourceKind) || !USABLE_LOCATOR_STATUSES.has(locatorStatus)) {
+    return null;
+  }
+  if (locatorString(locator, "external_uri")) return null;
+
+  const rawRelpath = locatorString(locator, "relpath");
+  if (
+    (sourceKind === "vault_pdf" && !/\.pdf$/i.test(rawRelpath)) ||
+    (sourceKind !== "vault_pdf" && !/\.md$/i.test(rawRelpath))
+  ) {
+    return null;
+  }
+  const relpath = safeVaultRelpath(rawRelpath);
+  if (!relpath) return null;
+  if (locatorStatus === "fallback_file") return `[[${relpath}]]`;
+
+  if (sourceKind === "vault_pdf") {
+    const page = locator.page_number;
+    const anchor = typeof page === "number" && Number.isInteger(page) && page > 0
+      ? `#page=${page}`
+      : "";
+    return `[[${relpath}${anchor}]]`;
+  }
+
+  const blockId = locatorString(locator, "block_id").replace(/^\^/, "");
+  if (blockId && /^[A-Za-z0-9-]+$/.test(blockId)) {
+    return `[[${relpath}#^${blockId}]]`;
+  }
+  const heading = locatorString(locator, "heading").replace(/^#/, "");
+  const safeHeading = heading && !/[\r\n[\]|]/.test(heading) ? heading : "";
+  return `[[${relpath}${safeHeading ? `#${safeHeading}` : ""}]]`;
+}
+
 export function formatCuratorQueryResult(result: CuratorQueryResult, query: string): string {
   const trace = result.trace;
   const attrs = [
@@ -117,6 +188,10 @@ export function formatCuratorContextPack(pack: CuratorContextPack, query: string
     }
     if (item.source_span_ids?.length) {
       lines.push(`source_spans: ${item.source_span_ids.slice(0, 8).join(", ")}`);
+    }
+    const vaultLinkTarget = formatVaultLocatorWikilink(item.locator);
+    if (vaultLinkTarget) {
+      lines.push(`vault_link_target: ${vaultLinkTarget}`);
     }
     if (item.expansion_handle || item.verification_handle) {
       lines.push(

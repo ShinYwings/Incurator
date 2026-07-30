@@ -38,11 +38,66 @@ describe("chat context priority", () => {
       label: "curate.yml",
       content: "background",
       sourceViewType: "auto",
+      filePath: "Research/config/curate.yml",
     };
 
-    expect(contextPromptLabel(auto)).toBe("Visible background context: curate.yml");
+    expect(contextPromptLabel(auto)).toBe(
+      "Visible background context: curate.yml (file path: Research/config/curate.yml)"
+    );
     expect(contextPriorityInstruction(true)).toContain("Primary user-selected context is the MAIN FOCUS");
     expect(contextPriorityInstruction(false)).toContain("Pinned and visible Obsidian contexts");
+  });
+
+  it("preserves exact vault paths for every prompt-included context priority", () => {
+    const selected: ContextRef = {
+      type: "selection",
+      label: "Selected paragraph",
+      content: "focus",
+      filePath: "02_Wiki/Optimization/Auto Calibration.md",
+    };
+    const pinned: ContextRef = {
+      type: "file",
+      label: "Pinned note",
+      content: "background",
+      filePath: "03_Notes/Related Work.md",
+      isPinned: true,
+    };
+
+    expect(contextPromptLabel(selected)).toBe(
+      "Primary user-selected context: Selected paragraph (vault_link_target: [[02_Wiki/Optimization/Auto Calibration]])"
+    );
+    expect(contextPromptLabel(pinned)).toBe(
+      "Pinned background context: Pinned note (vault_link_target: [[03_Notes/Related Work]])"
+    );
+  });
+
+  it("preserves PDF suffixes and pages in explicit vault link targets", () => {
+    const pdf: ContextRef = {
+      type: "pdf-page",
+      label: "Residual Learning p.7",
+      content: "page context",
+      filePath: "04_Resources/Residual Learning.pdf",
+      pageNum: 7,
+      isPinned: true,
+    };
+
+    expect(contextPromptLabel(pdf)).toBe(
+      "Pinned background context: Residual Learning p.7 (vault_link_target: [[04_Resources/Residual Learning.pdf#page=7]])"
+    );
+  });
+
+  it("does not present an external file path as a vault link target", () => {
+    const external: ContextRef = {
+      type: "image",
+      label: "External diagram",
+      content: "",
+      filePath: "/Users/example/Desktop/diagram.png",
+    };
+
+    expect(contextPromptLabel(external)).toBe(
+      "Primary user-selected context: External diagram (file path: /Users/example/Desktop/diagram.png)"
+    );
+    expect(contextPromptLabel(external)).not.toContain("vault_link_target");
   });
 
   it("treats pinned explicit snippets as primary while whole pinned docs stay background", () => {

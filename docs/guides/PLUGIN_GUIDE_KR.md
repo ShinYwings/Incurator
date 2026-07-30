@@ -324,6 +324,27 @@ section 링크가 포함되면, 사이드바에서 클릭했을 때 열린 Incur
 `Auto Calibration > ^8f735d`처럼 렌더링된 label은 Obsidian의 일반 vault-link
 navigation으로 열립니다.
 
+### Assistant Vault 페이지 위키링크
+
+Sidechat provider가 사용자가 포함한 context, 사용 가능한 Incurator evidence
+locator, 또는 tool 결과에서 정확한 vault-relative path를 확보한 경우
+`[[02_Wiki/Optimization/Auto Calibration|Auto Calibration]]` 같은 Obsidian
+위키링크로 해당 페이지를 인용할 수 있습니다. 알려진 heading이나 block도
+`[[02_Wiki/Optimization/Auto Calibration#Method]]` 또는
+`[[02_Wiki/Optimization/Auto Calibration#^8f735d]]`처럼 유지합니다. Markdown
+대상에서는 `.md` suffix를 생략하지만 `.pdf` 같은 비 Markdown suffix는 그대로
+보존합니다.
+
+이 계약은 선택 가능한 모든 Sidechat provider와 model에 공통으로 적용됩니다.
+모델에 vault 전체 파일명 목록을 보내거나, 페이지처럼 보이는 단어만 보고 링크를
+추측하거나, 생성된 일반 답변 텍스트를 나중에 다시 쓰지 않습니다. 정확한 대상이
+grounding되지 않았다면 assistant는 이름을 plain text로 남겨야 합니다. 유효한 일반
+노트 링크는 Obsidian 자체가 렌더링하고 열기 때문에 native click, modifier-click,
+hover 동작이 유지됩니다. 포함된 Markdown/PDF context에는 plugin이 검증된 완성형
+`vault_link_target` literal을 제공하므로 작은 local model도 display label에서 경로를
+다시 조립하지 않고 정확한 링크를 복사할 수 있습니다. 외부 또는 지원하지 않는 file
+path에는 이 target을 제공하지 않습니다.
+
 ### Curator DAG 위키링크
 
 Curator 지식 DAG(L1–L4 노드: `CTX-`, `ATM-`, `CON-`, `SYN-`)는 숨김 폴더인

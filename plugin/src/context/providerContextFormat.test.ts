@@ -8,6 +8,7 @@ import {
   formatIncuratorHits,
   formatCuratorContextPack,
   formatCuratorQueryResult,
+  formatVaultLocatorWikilink,
 } from "./providerContextFormat";
 
 describe("providerContextFormat", () => {
@@ -55,6 +56,110 @@ describe("providerContextFormat", () => {
     expect(out).toContain("T");
     expect(out).toContain("02_Atoms/ATM-1.md");
     expect(out).toContain("score=0.5");
+  });
+
+  it("formats an exact Markdown locator as a vault wikilink with its heading", () => {
+    expect(
+      formatVaultLocatorWikilink({
+        source_kind: "vault_markdown",
+        relpath: "02_Wiki/Optimization/Auto Calibration.md",
+        heading: "Method",
+        locator_status: "exact",
+      })
+    ).toBe("[[02_Wiki/Optimization/Auto Calibration#Method]]");
+  });
+
+  it("prefers an exact block id over a heading", () => {
+    expect(
+      formatVaultLocatorWikilink({
+        source_kind: "promoted_wiki",
+        relpath: "02_Wiki/Optimization/Auto Calibration.md",
+        heading: "Method",
+        block_id: "8f735d",
+        locator_status: "exact",
+      })
+    ).toBe("[[02_Wiki/Optimization/Auto Calibration#^8f735d]]");
+  });
+
+  it("keeps a non-Markdown suffix and exact PDF page", () => {
+    expect(
+      formatVaultLocatorWikilink({
+        source_kind: "vault_pdf",
+        relpath: "04_Resources/Residual Learning.pdf",
+        page_number: 7,
+        locator_status: "exact",
+      })
+    ).toBe("[[04_Resources/Residual Learning.pdf#page=7]]");
+  });
+
+  it("falls back to a file root without retaining an unconfirmed anchor", () => {
+    expect(
+      formatVaultLocatorWikilink({
+        source_kind: "vault_markdown",
+        relpath: "03_Notes/Related Work.md",
+        heading: "Missing heading",
+        locator_status: "fallback_file",
+      })
+    ).toBe("[[03_Notes/Related Work]]");
+  });
+
+  it.each(["fallback_source", "duplicate_anchor", "stale", "unavailable"])(
+    "does not expose a %s locator as a vault wikilink",
+    (locatorStatus) => {
+      expect(
+        formatVaultLocatorWikilink({
+          source_kind: "vault_markdown",
+          relpath: "03_Notes/Related Work.md",
+          locator_status: locatorStatus,
+        })
+      ).toBeNull();
+    }
+  );
+
+  it("rejects external and unsafe paths instead of fabricating vault targets", () => {
+    expect(
+      formatVaultLocatorWikilink({
+        source_kind: "vault_pdf",
+        relpath: "04_Resources/reference-stub.md",
+        external_uri: "/Users/example/Zotero/paper.pdf",
+        locator_status: "exact",
+      })
+    ).toBeNull();
+    expect(
+      formatVaultLocatorWikilink({
+        source_kind: "vault_markdown",
+        relpath: "../outside.md",
+        locator_status: "exact",
+      })
+    ).toBeNull();
+    expect(
+      formatVaultLocatorWikilink({
+        source_kind: "vault_markdown",
+        relpath: "/absolute.md",
+        locator_status: "exact",
+      })
+    ).toBeNull();
+    expect(
+      formatVaultLocatorWikilink({
+        source_kind: "vault_markdown",
+        relpath: ".md",
+        locator_status: "exact",
+      })
+    ).toBeNull();
+    expect(
+      formatVaultLocatorWikilink({
+        source_kind: "vault_pdf",
+        relpath: "04_Resources/reference-stub.md",
+        locator_status: "exact",
+      })
+    ).toBeNull();
+    expect(
+      formatVaultLocatorWikilink({
+        source_kind: "vault_markdown",
+        relpath: "04_Resources/paper.pdf",
+        locator_status: "exact",
+      })
+    ).toBeNull();
   });
 
   it("formatCuratorQueryResult preserves trace metadata without injecting backend answer", () => {
@@ -107,6 +212,12 @@ describe("providerContextFormat", () => {
             detail: "Residual connections ease optimization.",
             expansion_handle: "EXP-1",
             verification_handle: "VER-1",
+            locator: {
+              source_kind: "vault_markdown",
+              relpath: "02_Wiki/Residual Learning.md",
+              heading: "Optimization",
+              locator_status: "exact",
+            },
           },
         ],
         evidence: [],
@@ -123,6 +234,7 @@ describe("providerContextFormat", () => {
     expect(out).toContain("Residual connections ease optimization.");
     expect(out).toContain("EXP-1");
     expect(out).toContain("VER-1");
+    expect(out).toContain("vault_link_target: [[02_Wiki/Residual Learning#Optimization]]");
     expect(out).not.toContain("<incurator_answer");
   });
 });
