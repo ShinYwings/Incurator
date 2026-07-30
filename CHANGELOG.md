@@ -2,6 +2,23 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.38.0] - 2026-07-30
+### Added
+- **Grounded Sidechat Vault Wikilinks**
+  Every selectable Sidechat provider now shares one exact-path wikilink
+  contract. Prompt-included note paths and usable ContextService locators retain
+  vault-relative Markdown, PDF, heading, and block targets so answers can open
+  the referenced page directly in Obsidian.
+
+### Fixed
+- **Fail-Closed Link Grounding**
+  Sidechat no longer needs to infer a target from a display label. External,
+  stale, unavailable, duplicate-anchor, source-fallback, absolute, and traversal
+  locators are withheld from provider link targets, while uncertain plain text
+  is left unchanged instead of being post-processed into a guessed link.
+
+---
+
 ## [0.37.1] - 2026-07-30
 ### Fixed
 - **Provider Failure Normalization**

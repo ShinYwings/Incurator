@@ -22,8 +22,9 @@ Source of Truth to identify unresolved items.
 
 `USER_REPORT.md` is currently empty. The following queue is the ordered roadmap.
 
-No urgent hotfix is currently tracked. The active delivery item is v0.38.0
-Sidechat Vault-Page Wikilinks.
+No urgent hotfix is currently tracked. v0.38.0 Sidechat Vault-Page Wikilinks
+is release-validated and has left the live queue; Failure Atlas F9 is the next
+implementation item.
 
 ### 🚀 Priority Order
 
@@ -40,10 +41,6 @@ Sidechat Vault-Page Wikilinks.
      strict v12 schema/reindex speedup, CM-1 command decomposition,
      fail-closed sync/KRS integrity, and the PDF/Antigravity transport hotfixes.
    - **Remaining Scope for Upcoming Releases**:
-     - **Sidechat vault-page wikilinks**: expose only grounded vault-relative
-       note targets already present in open/pinned context, ContextService
-       locators, or tool results; require provider-independent `[[wikilink]]`
-       answers that navigate to the real page.
      - **Compiler integrity**: Failure Atlas F9 authored-note topology remains a
        separate backend compiler workstream. It is not the Sidechat navigation
        feature requested for v0.38.0.
@@ -56,42 +53,29 @@ Sidechat Vault-Page Wikilinks.
        no-JSON plugin command errors.
      - **Performance & UX Refinements**: RAG/DAG benchmark harness & retrieval hotspot optimization; chat/popover UX friction cleanup.
 
-2. **[Minor Update] Sidechat Vault-Page Wikilinks** *(ACTIVE — v0.38.0)*
-   - Core outcome: an Obsidian Agent answer can cite a known existing vault note
-     as `[[vault/relative/path|label]]`; clicking it opens that exact note,
-     heading, or block.
-   - Existing v0.17.0 behavior for hidden Curator DAG links is already shipped
-     and remains unchanged. This slice covers ordinary visible vault pages.
-   - Root cause: exact open-tab paths and ContextService locators exist, and
-     ordinary internal links retain native Obsidian behavior, but the shared
-     Sidechat prompt does not require wikilinks and the provider-context
-     formatter discards evidence locators.
-   - Plan: `.agents/plans/02_sidechat_vault_wikilinks.md`; evidence:
-     `.agents/plans/02_sidechat_vault_wikilinks_evidence.md`.
-
-3. **[Stability / Compiler] Failure Atlas F9 Authored-Note Topology**
+2. **[Stability / Compiler] Failure Atlas F9 Authored-Note Topology**
    - Compile human-authored note wikilinks/embeds/tags/frontmatter references as
      topology distinct from LLM-extracted relations.
    - This is the existing Program 2 backend oracle in
      `backend/tests/test_failure_atlas_repro.py`; it is not required for
      Sidechat answer navigation and gets its own future contract/rollback.
 
-4. **[Minor Update] Chat Session Context Compaction**
+3. **[Minor Update] Chat Session Context Compaction**
    - Confirm full-session history behavior.
    - Add a Claude-Code-style circular token usage meter under the query box and a click-to-compact action.
    - Detailed analysis: `.agents/drafts/chat_context_compaction.md`
 
-5. **[Minor Update] Vault Storage Governance & Quota Visibility**
+4. **[Minor Update] Vault Storage Governance & Quota Visibility**
    - Separate authoritative, derived, cache, and external storage accounting.
    - Add capacity guidance, safe admission control, and CLI/plugin visibility.
    - Detailed analysis: `.agents/drafts/vault_storage_governance.md`
 
-6. **[Major Update] Native PDF Annotation & Asset System**
+5. **[Major Update] Native PDF Annotation & Asset System**
    - Native annotation highlight/memo synchronization using Obsidian's built-in PDF viewer.
    - In-PDF full-text search and strict-spelling mode remain here.
    - Detailed analysis: `.agents/drafts/pdf_annotation_system.md`
 
-7. **[Minor Update] Web Search Integration**
+6. **[Minor Update] Web Search Integration**
    - Design and integrate web search capabilities for local models (Ollama, Deepseek, etc.).
    - Investigate API options (Brave, SerpAPI) and implement `web_search.py`.
    - The former quick-wins draft was deleted after triage; create a fresh
@@ -100,6 +84,17 @@ Sidechat Vault-Page Wikilinks.
 ---
 
 ## ✅ Completed Milestones
+
+- **v0.38.0 — Sidechat Vault-Page Wikilinks**
+  (release-ready 2026-07-30): every selectable Sidechat provider receives the
+  same exact-path/non-invention contract and completed `vault_link_target`
+  literals for safe included Markdown/PDF context and usable ContextService
+  locators. External, degraded, unsafe, or source-kind/suffix-mismatched targets
+  fail closed; ordinary links remain owned by Obsidian's native renderer.
+  Antigravity and local Ollama produced grounded links, real heading/block
+  navigation succeeded, all 737 plugin tests and 1,325 backend tests passed,
+  static analysis/build/spec-sync passed, and `npm audit` found zero
+  vulnerabilities.
 
 - **v0.37.1 — Query Provider Failure UX**
   (shipped 2026-07-30, PR #99 merged): Ollama, Claude, Codex, and failover paths now

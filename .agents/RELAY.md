@@ -1,19 +1,17 @@
-# RELAY — ACTIVE
+# RELAY — RELEASE READY
 
 ## Goal
 
-Implement v0.38.0 Sidechat Vault-Page Wikilinks so an Obsidian Agent answer can
-cite a known existing vault note as a real `[[wikilink]]` and clicking it opens
-the exact page, heading, or block.
+Publish v0.38.0 Sidechat Vault-Page Wikilinks after verified implementation and
+navigation smoke tests.
 
 ## Plan Reference
 
 - Umbrella: `.agents/plans/01_system_stability_overhaul.md`
 - Evidence: `.agents/plans/01_roadmap_evidence.md`
 - Current branch: `release/v0.38.0`
-- Slice plan: `.agents/plans/02_sidechat_vault_wikilinks.md`
-- Slice evidence: `.agents/plans/02_sidechat_vault_wikilinks_evidence.md`
-- Arena: `.agents/plans/sidechat_vault_wikilinks_arena/`
+- Completed slice plan/evidence: preserved in Git history and removed from the
+  active workspace per release workflow.
 
 ## Analysis & Reasoning
 
@@ -26,6 +24,10 @@ the exact page, heading, or block.
 - The minimal design exposes only grounded paths already present in current
   context/evidence/tool output. It does not inject a whole-vault inventory and
   does not auto-link plain answer text after generation.
+- Weak-provider smoke testing showed that supplying raw path fragments invited
+  reconstruction errors. Safe context now carries one completed
+  `vault_link_target` literal, while malformed and external identities fail
+  closed.
 
 ## Progress Status
 
@@ -34,11 +36,13 @@ the exact page, heading, or block.
 - Repository/docs/history audit and official Obsidian API research are complete.
 - Existing F9 baseline and 31 focused plugin link/prompt tests pass.
 - Arena, domain analyses, Master Plan, and evidence ledger are complete.
-- The user approved the v0.38.0 plan and implementation is in progress.
-- Docs/spec contracts are updated for v0.38.0.
-- TDD red reproduced 13 missing-boundary assertions; the minimal implementation
-  now passes 58 focused prompt/context/navigation regression tests and the
-  production plugin build.
+- The approved plan was implemented through docs-first TDD and incremental
+  commits. Completed slice plans are deleted from the live workspace.
+- Antigravity at effort Low and local Ollama returned exact supplied wikilinks.
+- Real Obsidian native navigation opened an exact block and an exact heading.
+- Validation passes: backend `1325 passed, 6 skipped, 5 xfailed`; plugin
+  `68 files / 737 tests`; Ruff; Mypy; production build; 10 spec-sync tests; and
+  zero-vulnerability `npm audit`.
 
 ## Critical Context / Blockers
 
@@ -48,8 +52,11 @@ the exact page, heading, or block.
 - Preserve native link behavior, modifier-click, hover, PDF navigation, hidden
   Curator DAG rewriting, and edit-loop phase markers.
 - No DB schema or backend API change is planned.
+- Desktop accessibility automation could not dispatch Sidechat's Send button;
+  provider output and native rendered-link navigation were validated
+  independently. This is not a product blocker.
 
 ## Immediate Next Action
 
-Run the complete plugin/backend validation gates, then perform the real Obsidian
-and cross-provider smoke checks.
+Monitor the v0.38.0 release PR through checks and review. After the user merges
+it, fast-forward `master` and apply the documented IDLE relay cleanup.
