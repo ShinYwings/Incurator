@@ -491,19 +491,19 @@ def plugin_query(
     from .. import plugin_api
 
     try:
-        _print_json(
-            plugin_api.curator_query(
-                _plugin_paths(workspace_path),
-                question=question,
-                input_language=input_language,
-                english_query=english_query,
-                final_output_language=final_output_language,
-                workspace_path=workspace_path,
-                force_new=force_new,
-            )
+        result = plugin_api.curator_query(
+            _plugin_paths(workspace_path),
+            question=question,
+            input_language=input_language,
+            english_query=english_query,
+            final_output_language=final_output_language,
+            workspace_path=workspace_path,
+            force_new=force_new,
         )
     except Exception as exc:
-        _print_json({"ok": False, "question": question, "error": str(exc)})
+        result = {"ok": False, "question": question, "error": str(exc)}
+    _print_json(result)
+    if not result.get("ok"):
         raise typer.Exit(code=1)
 
 

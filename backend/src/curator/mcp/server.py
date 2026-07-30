@@ -2008,120 +2008,19 @@ def build_server() -> FastMCP:
             trace: Provenance — matched concept IDs, source paths, latency.
             error: Error message when ok=false.
         """
-        import time as _time
-
-        start = _time.monotonic()
         ws_path_str = workspace_path or os.environ.get("WORKSPACE_PATH", "")
         paths = _resolve_paths(ws_path_str)
+        from .. import plugin_api
 
-        # Build LLM client and run query pipeline
-        from .. import llm as _llm
-        from ..retrieval import QueryOrchestrator, QueryRequest
-
-        try:
-            config = cfg.load_config(paths)
-        except Exception as e:
-            return {"ok": False, "question": question, "error": f"Config error: {e}"}
-
-        _con_dir = paths.concepts if hasattr(paths, "concepts") else paths.collections / consts.LAYER_L3
-        l3_complete = any(_con_dir.glob(f"{consts.PREFIX_L3}-*.md")) if _con_dir.exists() else False
-        if not l3_complete:
-            fallback_hits: list[dict[str, Any]] = []
-            try:
-                raw_results = search.query(
-                    paths,
-                    question,
-                    mode="lex",
-                    limit=8,
-                    min_score=0.0,
-                    hydrate=False,
-                    rerank=False,
-                )
-                fallback_hits = [
-                    {
-                        "path": hit.full_path,
-                        "title": hit.title,
-                        "score": hit.score,
-                        "snippet": hit.snippet,
-                    }
-                    for hit in raw_results.hits
-                ]
-            except Exception:
-                _log.debug("L3-incomplete lexical fallback search failed", exc_info=True)
-                fallback_hits = []
-            return {
-                "ok": True,
-                "answer": "",
-                "question": question,
-                "fallback": "l3_incomplete",
-                "fallback_hits": fallback_hits,
-                "trace": {
-                    "matched_concepts": [],
-                    "source_ids": [],
-                    "source_paths": [hit.get("path", "") for hit in fallback_hits],
-                    "latency_ms": int((_time.monotonic() - start) * 1000),
-                    "l3_complete": False,
-                },
-            }
-
-        try:
-            with _llm.build_client(config) as client:
-                result = QueryOrchestrator(paths, client).run(
-                    QueryRequest(
-                        question=question,
-                        workspace_path=ws_path_str,
-                        mode="auto",
-                    )
-                )
-        except Exception as e:
-            return {"ok": False, "question": question, "error": f"Query pipeline error: {e}"}
-
-        latency_ms = int((_time.monotonic() - start) * 1000)
-
-        if not result.ok:
-            return {
-                "ok": False,
-                "question": question,
-                "error": result.error or "Query returned no answer",
-            }
-
-        trace = db.get_query_trace(paths.state_db, result.trace_id)
-        context_trace = {}
-        if trace is not None:
-            context_trace = (trace.get("retrieval_trace") or {}).get("context_service", {})
-        context_pack_id = context_trace.get("pack_id", None) or None
-        context_snapshot = context_trace.get("snapshot", None) if context_pack_id is not None else None
-        context_budget = context_trace.get("budget", None) if context_pack_id is not None else None
-        source_paths: list[str] = []
-        if result.source_span_ids:
-            for span in db.get_source_spans_by_ids(paths.state_db, result.source_span_ids):
-                relpath = span.get("relpath", "")
-                if relpath and relpath not in source_paths:
-                    source_paths.append(relpath)
-
-        return {
-            "ok": True,
-            "answer": result.answer,
-            "question": question,
-            "trace": {
-                "matched_concepts": [],
-                "source_ids": [],
-                "source_paths": source_paths,
-                "synthesis_node_ids": result.synthesis_node_ids,
-                "community_report_ids": result.community_report_ids,
-                "memory_path_ids": result.memory_path_ids,
-                "insight_candidate_ids": result.insight_candidate_ids,
-                "prompt_trace_ids": result.prompt_trace_ids,
-                "source_span_ids": result.source_span_ids,
-                "trace_id": result.trace_id,
-                "route": result.route,
-                "pack_id": context_pack_id,
-                "snapshot": context_snapshot,
-                "budget": context_budget,
-                "latency_ms": latency_ms,
-                "l3_complete": l3_complete,
-            },
-        }
+        return plugin_api.curator_query(
+            paths,
+            question=question,
+            input_language="English",
+            english_query=question,
+            final_output_language="English",
+            workspace_path=ws_path_str,
+            force_new=force_new,
+        )
 
     # ------------------------------------------------------------------
     # promote_answer — promote a sessionless Q&A answer to 02_Wiki/

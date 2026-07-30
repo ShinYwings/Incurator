@@ -431,6 +431,80 @@ def test_plugin_query_returns_context_service_trace_fields(tmp_path: Path) -> No
     assert trace["retrieval_trace"]["context_service"]["pack_id"] == payload["pack_id"]
 
 
+def test_plugin_query_provider_failure_returns_trace_and_exits_one(
+    tmp_path: Path,
+) -> None:
+    runner = CliRunner()
+    vault = tmp_path / "vault"
+    paths = cfg.WikiPaths(vault)
+    cfg.save_config(paths, {})
+    db.init_db(paths.state_db)
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "INSERT INTO sources (relpath,content_hash,file_type,bytes,added_at) "
+            "VALUES ('04_Resources/context.md','c1','md',1,datetime('now'))"
+        )
+    span = db.upsert_source_span(
+        paths.state_db,
+        source_id=1,
+        relpath="04_Resources/context.md",
+        span_type="paragraph",
+        content_hash="c1",
+        section_title="Context",
+        text_preview="residual learning",
+    )
+    db.upsert_graph_entity(
+        paths.state_db,
+        canonical_name="residual learning",
+        entity_type="concept",
+        source_span_ids=[span],
+    )
+    paths.concepts.mkdir(parents=True, exist_ok=True)
+    (paths.concepts / "CON-test.md").write_text(
+        "---\nname: residual learning\n---\n",
+        encoding="utf-8",
+    )
+
+    class FailingClient:
+        model = "fake"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def chat(self, *args, **kwargs):
+            raise llm.AntigravityCliError(
+                "Antigravity CLI returned no output."
+            )
+
+    with patch.object(llm, "build_client", return_value=FailingClient()):
+        result = runner.invoke(
+            app,
+            [
+                "plugin",
+                "query",
+                "--question",
+                "What does residual learning do?",
+                "--workspace-path",
+                str(vault),
+            ],
+        )
+
+    payload = json.loads(result.stdout)
+    assert result.exit_code == 1
+    assert payload["ok"] is False
+    assert payload["error"] == "Antigravity CLI returned no output."
+    assert payload["trace_id"].startswith("QTR-")
+    assert payload["source_span_ids"] == [span]
+    assert len(payload["prompt_trace_ids"]) == 1
+    assert payload["warnings"]
+    assert payload["trace"]["trace_id"] == payload["trace_id"]
+    assert payload["trace"]["source_span_ids"] == [span]
+    assert payload["trace"]["prompt_trace_ids"] == payload["prompt_trace_ids"]
+
+
 def test_plugin_context_fetch_returns_evidence_pack_without_answer(tmp_path: Path) -> None:
     runner = CliRunner()
     vault = tmp_path / "vault"

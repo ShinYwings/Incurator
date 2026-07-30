@@ -1474,9 +1474,10 @@ def query(
     )
 
     callbacks = CliQueryCallbacks()
+    had_failure = False
 
     try:
-        _run_query_repl(
+        had_failure = _run_query_repl(
             paths, client, callbacks, run_kwargs,
             initial_question=question,
             update_knowledge=update,
@@ -1486,6 +1487,8 @@ def query(
         raise typer.Exit(code=1) from None
     finally:
         client.close()
+    if had_failure:
+        raise typer.Exit(code=1)
 
 
 def reindex(

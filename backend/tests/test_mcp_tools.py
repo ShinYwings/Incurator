@@ -232,6 +232,48 @@ class V031McpToolsTests(unittest.TestCase):
             for action in context_trace["actions"]
         ))
 
+    def test_curator_query_delegates_to_backend_query_service(self) -> None:
+        expected = {
+            "ok": False,
+            "question": "failed question",
+            "input_language": "English",
+            "english_query": "failed question",
+            "final_output_language": "English",
+            "error": "provider unavailable",
+            "trace_id": "QTR-deadbeef",
+            "prompt_trace_ids": ["PTR-deadbeef"],
+            "source_span_ids": ["SPAN-deadbeef"],
+            "warnings": ["retrieval retained"],
+            "trace": {
+                "trace_id": "QTR-deadbeef",
+                "prompt_trace_ids": ["PTR-deadbeef"],
+                "source_span_ids": ["SPAN-deadbeef"],
+            },
+        }
+
+        with patch(
+            "curator.plugin_api.curator_query",
+            return_value=expected,
+        ) as query_service:
+            out = self._tool("curator_query")(
+                question="failed question",
+                workspace_path=str(self.ws),
+                force_new=True,
+            )
+
+        self.assertEqual(out, expected)
+        query_service.assert_called_once()
+        _paths, = query_service.call_args.args
+        self.assertEqual(_paths.root.resolve(), self.paths.root.resolve())
+        self.assertEqual(query_service.call_args.kwargs["question"], "failed question")
+        self.assertEqual(query_service.call_args.kwargs["input_language"], "English")
+        self.assertEqual(query_service.call_args.kwargs["english_query"], "failed question")
+        self.assertEqual(
+            query_service.call_args.kwargs["final_output_language"],
+            "English",
+        )
+        self.assertTrue(query_service.call_args.kwargs["force_new"])
+
     def test_curator_query_explore_grounds_on_unified_context_pack(self) -> None:
         with db.connect(self.paths.state_db) as conn:
             conn.execute(
