@@ -14,6 +14,7 @@ from typing import Any
 
 from .. import config as cfg
 from .. import curate_yml, db, prompting
+from ..llm import LLMError
 from .models import QueryRequest, QueryResultV031
 
 __all__ = ["QueryOrchestrator"]
@@ -71,10 +72,19 @@ class QueryOrchestrator:
             memory_path_ids=context_pack["memory_path_ids"],
             warnings=[context_pack["route_reason"], *context_pack["warnings"]],
         )
-        if context_pack["route"] == "explore":
-            self._run_explore_from_context(request, context_pack, spec_hash, result)
-        else:
-            self._run_answer_from_context(request, context_pack, spec_hash, result)
+        try:
+            if context_pack["route"] == "explore":
+                self._run_explore_from_context(request, context_pack, spec_hash, result)
+            else:
+                self._run_answer_from_context(request, context_pack, spec_hash, result)
+        except LLMError as exc:
+            result.prompt_trace_ids = [
+                run["trace_id"]
+                for run in db.list_prompt_runs_for_query(
+                    self.paths.state_db, result.trace_id
+                )
+            ]
+            result.error = str(exc)
         self._update_context_trace_after_synthesis(
             result,
             latency_ms=int((time.monotonic() - started) * 1000),
