@@ -1,7 +1,7 @@
 # v0.39.0 Authored-Note Topology Evidence Ledger
 
 Date: 2026-07-30
-Status: PLANNING BASELINE — implementation not started
+Status: IMPLEMENTED — focused regression green, full release validation pending
 Master Plan: `.agents/plans/02_authored_note_topology.md`
 Rollback anchor: `f7f0b08`
 Branch: `release/v0.39.0`
@@ -107,14 +107,15 @@ documented Obsidian core contract.
 | Gate | Pre | Post |
 |---|---|---|
 | P1 docs/spec/atlas contract | not implemented | 121 passed; Ruff green |
-| Real F9 production-boundary oracle | strict xfail / needs re-pin | production-boundary xfail authored |
-| Authored-vs-extracted lifecycle tests | missing | red contract authored |
-| Edit/delete/rename/failure tests | missing | red contract authored |
-| Two-replica authored convergence | missing | non-vacuous red contract authored |
-| Active-only explore traversal | missing | red contract authored |
-| Community topology/evidence split | missing | red contract authored |
+| Real F9 production-boundary oracle | strict xfail / needs re-pin | passing; strict xfail removed; F9 retired |
+| Authored-vs-extracted lifecycle tests | missing | passing, including exact generation/source ownership |
+| Edit/delete/rename/failure tests | missing | passing, including dependent-report retirement |
+| Two-replica authored convergence | missing | passing with non-empty IDs, one authoritative generation, compiler/graph audits clean |
+| Active-only explore traversal | missing | passing; deterministic relation order |
+| Community topology/evidence split | missing | passing; authored dependency retained, factual relation ids excluded |
+| Focused compiler/graph/sync/search regression | not run | 283 passed, 4 expected xfails |
 | Full backend pytest | v0.38 predecessor: 1,325 passed | pending |
-| Ruff / Mypy | v0.38 predecessor: green | pending |
+| Ruff / Mypy | v0.38 predecessor: green | focused Ruff green; Mypy 126 files green |
 | Plugin Vitest / build | v0.38 predecessor: 737 passed / green | pending |
 | `npm audit` | v0.38 predecessor: 0 vulnerabilities | pending |
 | Temporary testbed smoke | not run for F9 | pending |
@@ -126,3 +127,22 @@ The canonical Failure Atlas F9 is authored-note topology. Later Plan C
 hierarchy/fallback comments reused “F9” informally. Those references must be
 renamed to their Plan C section labels during P1 so search results and future
 audits identify one F9 contract.
+
+## 7. Implementation and Review Evidence
+
+- Added one closed deterministic authored-topology parser/resolver and kept all
+  graph mutation inside the existing compiler publish transaction.
+- Stable endpoint keys use Unicode NFC; entity/relation IDs converge across
+  independent replicas.
+- Authored lifecycle now has one decision path: persist as provisional, publish
+  the generation, then invoke the shared lifecycle compiler.
+- Relation retirement and dependent-report retirement use one DB operation from
+  compiler edit, source deletion, and replica reconciliation paths.
+- DB import restores the one-authoritative-generation invariant per portable
+  source, preferring the LWW source-content fingerprint and newest publication,
+  and retires authored rows owned only by losing generations.
+- Existing relation re-assertion preserves lifecycle/topology metadata unless a
+  caller explicitly replaces those fields; this prevents active extracted
+  relations from being reset to provisional by the new API.
+- Active authored audit/lifecycle requires the generation's registered Markdown
+  source path to match the relation's source `vault_note` endpoint.

@@ -2132,8 +2132,12 @@ authored relation types: `links_to`, `embeds`, `tagged_with`, and
 `property_ref`, with endpoint entity types `vault_note`, `vault_asset`, and
 `tag`. F9-created entity ids derive from `(entity_type, canonical portable vault
 key)` and relation ids derive from `(source entity id, target entity id,
-relation_type)`, so unchanged builds and independent-device compilation
-converge under id-based DB sync. Existing extracted ids are unchanged.
+relation_type)`. Portable vault keys use Unicode NFC before hashing. After DB
+import, multiple authoritative generations for one portable source are
+reconciled to the generation matching the LWW source content fingerprint (then
+newest publication), and authored relations owned only by losing generations
+retire. Unchanged builds and independent-device compilation therefore converge
+under id-based DB sync. Existing extracted ids are unchanged.
 
 The two classes stay distinct through weighting, hierarchy, audit, and reports
 (Arena decision 9). `topology_weight` is the partition-input weight and is

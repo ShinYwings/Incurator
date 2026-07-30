@@ -285,6 +285,38 @@ def test_relation_support_independence_is_by_lineage_not_row_count(
     assert independent == 2, "copied-source rows count once (independence by lineage)"
 
 
+def test_relation_reassertion_preserves_existing_lifecycle_metadata(
+    vault: Path,
+) -> None:
+    src = _seed_entity(vault, "Stable Method A")
+    tgt = _seed_entity(vault, "Stable Method B")
+    relation_id = db.upsert_graph_relation(
+        vault,
+        source_entity_id=src,
+        target_entity_id=tgt,
+        relation_type="extends",
+        confidence=0.8,
+        lifecycle_status="active",
+        topology_weight=0.75,
+    )
+
+    assert db.upsert_graph_relation(
+        vault,
+        source_entity_id=src,
+        target_entity_id=tgt,
+        relation_type="extends",
+        confidence=0.9,
+    ) == relation_id
+
+    with db.connect(vault) as conn:
+        row = conn.execute(
+            "SELECT lifecycle_status, edge_class, topology_weight "
+            "FROM graph_relations WHERE id = ?",
+            (relation_id,),
+        ).fetchone()
+    assert tuple(row) == ("active", "extracted", 0.75)
+
+
 def test_duplicate_proposition_is_not_a_quarantine_reason() -> None:
     """Flaw 2: relations are never 'duplicates'. The implementation must expose
     the frozen reason set and it must NOT contain `duplicate_proposition`.

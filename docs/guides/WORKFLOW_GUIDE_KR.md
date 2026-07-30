@@ -570,7 +570,10 @@ SYSTEM_BEHAVIOR.md §27). §10 위에 구축되며, 그래프 구성은 완전�
   embed, tag, frontmatter wikilink는 결정론적 `authored` 엣지로 컴파일됩니다.
   pipe label과 heading/block fragment는 여전히 같은 노트/asset 페이지로
   해석되고, 모호하거나 외부·숨김·안전하지 않은 대상은 fail closed 처리됩니다.
-  편집, 이름 변경, 삭제는 오래된 엣지를 원자적으로 retire 처리합니다.
+  portable 경로는 Unicode로 정규화됩니다. 편집, 이름 변경, 삭제는 오래된
+  엣지를 원자적으로 retire 처리하며, replica import는 authored 토폴로지를
+  제공하기 전에 소스마다 authoritative compiler generation을 하나로
+  복원합니다.
 - **관계 라이프사이클**: 추출 관계는 검증된 독립 지지와 해소된 엔드포인트가
   있어야만 `active`가 됩니다. 작성 관계는 정확한 구조가 현재 성공한 소스
   generation에 속할 때 `active`가 되며, 가짜 사실 지지를 만들지 않습니다.

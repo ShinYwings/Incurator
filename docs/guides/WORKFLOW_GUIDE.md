@@ -552,7 +552,9 @@ fully published claim generation:
   frontmatter wikilinks from registered visible Markdown notes compile as
   deterministic `authored` edges. Pipe labels and heading/block fragments still
   resolve to the note/asset page; ambiguous, external, hidden, or unsafe targets
-  fail closed. Edits, renames, and deletes retire stale edges atomically.
+  fail closed. Portable paths are Unicode-normalized. Edits, renames, and deletes
+  retire stale edges atomically; replica import restores one authoritative
+  compiler generation per source before authored topology is served.
 - **Relation lifecycle**: an extracted relation is `active` only with verified
   independent support and resolved endpoints. An authored relation is `active`
   when its exact structure belongs to the current successful source generation;

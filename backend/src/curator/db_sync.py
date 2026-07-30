@@ -863,8 +863,82 @@ def import_knowledge(
                         stats.updated += 1
                     else:
                         stats.skipped += 1
+            if not dry_run:
+                _reconcile_authoritative_generations(conn)
 
     return stats
+
+
+def _reconcile_authoritative_generations(conn: "db.sqlite3.Connection") -> None:
+    """Restore the single-authoritative-generation invariant after a merge.
+
+    Independent replicas can legitimately export different authoritative
+    generations for the same portable source. Prefer a generation whose audit
+    fingerprint matches the LWW source row, then the newest published row.
+    Retire authored topology owned only by losing generations so imported stale
+    structure cannot remain active.
+    """
+    rows = conn.execute(
+        "SELECT g.id, g.source_id, g.audit_json, g.published_at, g.updated_at, "
+        "g.created_at, s.content_hash "
+        "FROM compiler_generations g "
+        "LEFT JOIN sources s ON s.id = g.source_id "
+        "WHERE g.status = 'authoritative'"
+    ).fetchall()
+    by_source: dict[int | None, list[Any]] = {}
+    for row in rows:
+        source_id = int(row["source_id"]) if row["source_id"] is not None else None
+        by_source.setdefault(source_id, []).append(row)
+
+    now = datetime.now(timezone.utc).isoformat(timespec="microseconds").replace(
+        "+00:00", "Z"
+    )
+    for generations in by_source.values():
+        if len(generations) < 2:
+            continue
+
+        def winner_key(row: Any) -> tuple[Any, ...]:
+            try:
+                audit = json.loads(str(row["audit_json"] or "{}"))
+            except (TypeError, ValueError):
+                audit = {}
+            if not isinstance(audit, dict):
+                audit = {}
+            matches_source = (
+                row["content_hash"] is not None
+                and audit.get("content_hash") == row["content_hash"]
+            )
+            return (
+                matches_source,
+                _timestamp_key(row["published_at"]),
+                _timestamp_key(row["updated_at"]),
+                _timestamp_key(row["created_at"]),
+                str(row["id"]),
+            )
+
+        winner = max(generations, key=winner_key)
+        losing_ids = sorted(
+            str(row["id"]) for row in generations if row["id"] != winner["id"]
+        )
+        placeholders = ",".join("?" for _ in losing_ids)
+        conn.execute(
+            "UPDATE compiler_generations SET status = 'discarded', "
+            "discarded_at = ?, updated_at = ? "
+            f"WHERE id IN ({placeholders})",
+            (now, now, *losing_ids),
+        )
+        relation_ids = [
+            str(row[0])
+            for row in conn.execute(
+                "SELECT id FROM graph_relations "
+                "WHERE edge_class = 'authored' AND lifecycle_status != 'retired' "
+                f"AND generation_id IN ({placeholders})",
+                tuple(losing_ids),
+            ).fetchall()
+        ]
+        if not relation_ids:
+            continue
+        db.retire_graph_relations_on_connection(conn, relation_ids, now=now)
 
 
 def _apply_tombstone(

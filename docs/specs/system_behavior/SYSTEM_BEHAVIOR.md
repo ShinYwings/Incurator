@@ -2485,10 +2485,13 @@ heuristics never compensate for unchecked or broadly grounded claims.
   frontmatter alias. External URLs, hidden/control paths, traversal outside the
   vault, ambiguity, and unresolved targets emit no relation.
 - **Portable deterministic identity.** F9-created entity ids hash the entity
-  type and canonical portable vault key; authored relation ids hash source id,
-  target id, and relation type. Existing extracted identity behavior is
-  unchanged. Unchanged builds and independent-device compilation therefore
-  converge to one logical row under DB sync.
+  type and Unicode-NFC canonical portable vault key; authored relation ids hash
+  source id, target id, and relation type. Existing extracted identity behavior
+  is unchanged. On DB import, concurrent authoritative generations for the same
+  portable source reconcile to the source-fingerprint match and then newest
+  publication; authored rows owned only by losing generations retire. Unchanged
+  builds and independent-device compilation therefore converge to one logical,
+  serving generation under DB sync.
 - **Publication and ownership.** Extraction completes in memory before graph
   writes. Inside the existing successful compiler publish transaction, the
   current source generation upserts the deterministic set and retires prior

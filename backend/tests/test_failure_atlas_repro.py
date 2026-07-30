@@ -543,32 +543,9 @@ def test_f8_oracle_homonyms_distinct_and_no_giant_component(vault) -> None:
 
 
 # ---------------------------------------------------------------------------
-# F9 — authored wikilinks never compiled into topology
+# F9 — authored-note topology (retired in v0.39.0)
 # ---------------------------------------------------------------------------
 
-def _counts(db_path: Path) -> tuple[int, int]:
-    with db.connect(db_path) as conn:
-        rel = conn.execute("SELECT COUNT(*) FROM graph_relations").fetchone()[0]
-        dag = conn.execute("SELECT COUNT(*) FROM dag_edges").fetchone()[0]
-    return rel, dag
-
-
-def test_f9_baseline_authored_wikilinks_not_compiled(vault) -> None:
-    paths = vault
-    spans = _store_section_spans(
-        paths,
-        "This note links [[Residual Learning]] and [[Euler Method]] explicitly.",
-    )
-    assert spans
-    # Defect: the strongest authored signal produces zero topology records.
-    assert _counts(paths.state_db) == (0, 0)
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="F9 reproduced: pipeline never compiles authored links; "
-    "assigned to program-2 (note-native IR, P2.1)",
-)
 def test_f9_oracle_authored_links_compiled_as_topology(vault) -> None:
     paths = vault
     source_text = (

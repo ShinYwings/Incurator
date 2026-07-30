@@ -564,7 +564,9 @@ What this means in practice:
   tags, and frontmatter wikilinks become deterministic graph topology. Display
   aliases and heading/block fragments still point to the same page; ambiguous,
   external, hidden, or unsafe targets are ignored rather than guessed. Editing,
-  renaming, or deleting a note retires stale authored edges.
+  renaming, or deleting a note retires stale authored edges. Portable paths are
+  Unicode-normalized, and importing another replica reconciles concurrent
+  compiler generations back to one authoritative generation per source.
 - **Extracted support is counted honestly**: a relationship backed by ten
   copies of the same source counts as one independent confirmation, not ten.
   Re-running a build accumulates genuine support instead of overwriting it.

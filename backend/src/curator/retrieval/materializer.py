@@ -238,15 +238,24 @@ def materialize_search_documents(
         ]
         entities = [
             dict(row)
-            for row in conn.execute("SELECT * FROM graph_entities ORDER BY id").fetchall()
+            for row in conn.execute(
+                "SELECT * FROM graph_entities "
+                "WHERE resolution_state = 'canonical' ORDER BY id"
+            ).fetchall()
         ]
         relations = [
             dict(row)
-            for row in conn.execute("SELECT * FROM graph_relations ORDER BY id").fetchall()
+            for row in conn.execute(
+                "SELECT * FROM graph_relations "
+                "WHERE lifecycle_status = 'active' ORDER BY id"
+            ).fetchall()
         ]
         reports = [
             dict(row)
-            for row in conn.execute("SELECT * FROM community_reports ORDER BY id").fetchall()
+            for row in conn.execute(
+                "SELECT * FROM community_reports "
+                "WHERE retired_at IS NULL ORDER BY id"
+            ).fetchall()
         ]
         syntheses = [
             dict(row)
@@ -347,6 +356,9 @@ def materialize_search_documents(
                 "relation_type": relation_type,
                 "assertion_source": row.get("assertion_source"),
                 "confidence": row.get("confidence"),
+                "edge_class": row.get("edge_class"),
+                "lifecycle_status": row.get("lifecycle_status"),
+                "generation_id": row.get("generation_id"),
             },
         ))
 

@@ -27,6 +27,7 @@ from .. import constants as consts
 from .. import db, parsers
 from ..retrieval import materializer
 from . import (
+    authored_topology,
     community_reports,
     graph_index,
     knowledge_units,
@@ -332,6 +333,16 @@ def compile_source_l2(
         paths.state_db, prompt_contract_version=PROMPT_CONTRACT_VERSION, source_id=source_id
     )
     try:
+        authored_data: authored_topology.AuthoredTopology | None = None
+        if Path(str(relpath)).suffix.casefold() == ".md":
+            source_text = (paths.root / str(relpath)).read_text(
+                encoding="utf-8", errors="replace"
+            )
+            authored_data = authored_topology.extract_authored_topology(
+                paths.root,
+                str(relpath),
+                source_text,
+            )
         with db.connect(paths.state_db) as conn:
             for uid in ku_result.unit_ids:
                 conn.execute(
@@ -361,6 +372,7 @@ def compile_source_l2(
         # authoritative state AND the graph back unchanged (§26.3 atomic publish).
         # The outer except then discards only the still-staged candidates.
         fingerprint = _source_content_hash(paths.state_db, source_id)
+        authored_graph = authored_topology.AuthoredPersistence()
         with db.connect(paths.state_db) as conn:
             reconcile_source(
                 paths.state_db, source_id,
@@ -371,7 +383,21 @@ def compile_source_l2(
                 paths.state_db, graph_data, conn=conn,
                 units=staged_units, source_lineage_hash=source["content_hash"],
             )
+            if authored_data is not None:
+                authored_graph = authored_topology.persist_authored_topology(
+                    paths.state_db,
+                    authored_data,
+                    source_id=source_id,
+                    generation_id=gen_id,
+                    conn=conn,
+                )
             _publish_generation(paths.state_db, source_id, gen_id, fingerprint, conn=conn)
+            for relation_id in authored_graph.relation_ids:
+                db.compile_relation_lifecycle(
+                    paths.state_db,
+                    relation_id=relation_id,
+                    conn=conn,
+                )
     except Exception as e:
         # KEEP broad: transactional rollback boundary — ANY staged-compile failure
         # must discard the staged generation and surface (l2 error), so a partial
@@ -433,7 +459,9 @@ def compile_source_l2(
         source_id=source_id,
         atom_ids=atom_ids,
         knowledge_unit_ids=[str(unit["id"]) for unit in units],
-        entity_ids=list(graph.entity_ids.values()),
+        entity_ids=sorted(
+            set(graph.entity_ids.values()) | set(authored_graph.entity_ids)
+        ),
         prompt_trace_ids=trace_ids,
     )
 

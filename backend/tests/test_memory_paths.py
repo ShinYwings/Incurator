@@ -23,10 +23,12 @@ def graph_db():
         c = db.upsert_graph_entity(path, canonical_name="Neural ODE", entity_type="method")
         db.upsert_graph_relation(path, source_entity_id=a, target_entity_id=c,
                                  relation_type="reinterpreted_as", confidence=0.8,
-                                 source_span_ids=["SPAN-1"], assertion_source="system_infers")
+                                 source_span_ids=["SPAN-1"], assertion_source="system_infers",
+                                 lifecycle_status="active")
         db.upsert_graph_relation(path, source_entity_id=c, target_entity_id=b,
                                  relation_type="discretizes", confidence=0.7,
-                                 source_span_ids=["SPAN-2"], assertion_source="system_infers")
+                                 source_span_ids=["SPAN-2"], assertion_source="system_infers",
+                                 lifecycle_status="active")
         yield path, {"a": a, "b": b, "c": c}
 
 

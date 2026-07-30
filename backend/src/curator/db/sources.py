@@ -14,10 +14,26 @@ from .schema import (
     _now_iso,
     connect,
 )
+from ._entities import retire_graph_relations_on_connection
 
 
 def _delete_source_on_connection(conn: Any, source_id: int) -> None:
-    """Delete one source and every non-cascading dependent in one transaction."""
+    """Delete one source and every non-cascading dependent in one transaction.
+
+    Source-owned authored relations are retired first, and any report whose
+    topology dependency includes them retires in the same transaction.
+    """
+    authored_relation_ids = [
+        str(row[0])
+        for row in conn.execute(
+            "SELECT r.id FROM graph_relations r "
+            "JOIN compiler_generations g ON g.id = r.generation_id "
+            "WHERE r.edge_class = 'authored' AND g.source_id = ? "
+            "AND r.lifecycle_status != 'retired'",
+            (source_id,),
+        ).fetchall()
+    ]
+    retire_graph_relations_on_connection(conn, authored_relation_ids)
     conn.execute(
         "DELETE FROM job_events WHERE job_id IN "
         "(SELECT id FROM ingest_jobs WHERE source_id = ?)",

@@ -20,8 +20,8 @@ graph topology without treating them as LLM-extracted factual support.
   `f7f0b08`; v0.38.0 shipped in PR #100.
 - Schema v13 already contains the required authored/extracted, lifecycle,
   topology-weight, generation, and source-span fields; no migration is planned.
-- The canonical F9 strict xfail does not invoke the real compiler. Tests must be
-  re-pinned before implementation.
+- The canonical F9 oracle now invokes the real compiler and passes without
+  xfail; the Atlas case is retired in the working tree.
 - Authored structure may shape graph topology, but factual report relation ids,
   citations, and independent-lineage support remain extracted-only.
 - F9-created note/asset/tag entities and authored relations require stable
@@ -40,11 +40,16 @@ graph topology without treating them as LLM-extracted factual support.
 - P1 docs/spec contract, v0.39 spec-line/manifests, and F9 identifier cleanup:
   complete. Spec/docs/atlas contract tests: 121 passed; Ruff: green.
 - P2 production-boundary/parser/lifecycle/reconciliation/replica/consumer tests:
-  authored. Red baseline is intentional: 6 failed, 2 passed, 1 xfailed before
-  the non-vacuous replica assertion was added; failures are the missing
-  `authored_topology` module and absent compiled rows. Ruff: green.
-- Application logic: not started.
-- Current phase: P3 deterministic extraction, identity, and persistence.
+  complete; the red baseline was captured before implementation.
+- P3 deterministic extraction, Unicode-portable identity, atomic persistence,
+  source ownership, and shared retirement: complete.
+- P4 active-only traversal and topology/factual-evidence separation: complete.
+- Code review fixed three cross-path defects: duplicate lifecycle decisions,
+  replica imports leaving multiple authoritative generations, and re-assertion
+  resetting existing extracted lifecycle metadata.
+- Focused compiler/graph/sync/search regression: 283 passed, 4 expected xfails.
+  Focused Ruff and full Mypy (126 files): green.
+- Current phase: P5 full local CI and isolated testbed validation.
 
 ## Critical Context / Blockers
 
@@ -59,5 +64,5 @@ graph topology without treating them as LLM-extracted factual support.
 
 ## Immediate Next Action
 
-Implement the focused authored-topology module and explicit-id graph upserts,
-then integrate atomic production publication until the P2 contracts pass.
+Commit the reviewed implementation, run full backend/plugin/npm validation,
+then validate F9 in an isolated copy of the active ResNet testbed.

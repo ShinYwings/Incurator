@@ -537,7 +537,9 @@ SYSTEM_BEHAVIOR.md §27).
   frontmatter wikilink는 결정론적 그래프 토폴로지가 됩니다. 표시 alias와
   heading/block fragment는 같은 페이지를 가리키며, 모호하거나
   외부·숨김·안전하지 않은 대상은 추측하지 않고 무시합니다. 노트를 편집하거나
-  이름을 바꾸거나 삭제하면 오래된 작성 엣지가 retire 처리됩니다.
+  이름을 바꾸거나 삭제하면 오래된 작성 엣지가 retire 처리됩니다. portable
+  경로는 Unicode로 정규화되며, 다른 replica를 import하면 소스마다 하나의
+  authoritative generation만 남도록 동시 compiler generation을 조정합니다.
 - **추출 지지는 정직하게 셉니다**: 같은 소스의 복사본 10개가 뒷받침하는
   관계는 10번이 아니라 1번의 독립 확인으로 셉니다. 빌드를 다시 실행하면
   지지를 덮어쓰지 않고 진짜 지지를 누적합니다.

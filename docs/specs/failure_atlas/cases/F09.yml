@@ -3,7 +3,7 @@ id: F9
 title: Authored note topology (wikilinks/embeds/tags/frontmatter refs) is never compiled into the graph
 query_family: compiler
 execution_mode: deterministic
-status: assigned
+status: retired
 status_history:
   - date: "2026-06-11"
     status: suspected
@@ -14,7 +14,14 @@ status_history:
   - date: "2026-06-12"
     status: assigned
     evidence: "FAILURE_ATLAS.md §8 — note-native IR / authored topology is Program 2 P2.1 scope"
-owner: program-2
+  - date: "2026-07-30"
+    status: retired
+    evidence: >
+      v0.39 production-boundary oracle and authored-topology contract suite:
+      deterministic parsing/resolution, atomic generation publication,
+      lifecycle/reconciliation, active-only traversal, report-evidence
+      separation, and independent-replica identity all pass.
+owner: unassigned
 impact: >
   A human-authored wikilink is the highest-confidence semantic edge in the
   vault, yet the compiled graph contains only LLM-inferred relations. Authored
@@ -30,9 +37,9 @@ boundary:
     edge. The baseline fixture records this absence at L1; the v0.39 oracle is
     deliberately re-pinned to the real compile/publish boundary so a row-count
     helper cannot falsely claim closure.
-fixture: backend/tests/test_failure_atlas_repro.py::test_f9_baseline_authored_wikilinks_not_compiled
+fixture: backend/tests/test_failure_atlas_repro.py::test_f9_oracle_authored_links_compiled_as_topology
 commands:
-  - scripts/backend-check pytest "backend/tests/test_failure_atlas_repro.py::test_f9_baseline_authored_wikilinks_not_compiled" -q
+  - scripts/backend-check pytest "backend/tests/test_failure_atlas_repro.py::test_f9_oracle_authored_links_compiled_as_topology" -q
 oracles:
   deterministic: >
     Compiling a registered visible Markdown note through the real production
@@ -63,9 +70,23 @@ assignment:
     embeds, derived backlinks, exact alias resolution, tags, and frontmatter
     refs compile as lifecycle-aware topology distinct from extracted factual
     support, including atomic reconciliation and replica convergence.
+resolution:
+  version: "0.39.0"
+  evidence: >
+    backend/tests/test_failure_atlas_repro.py::
+    test_f9_oracle_authored_links_compiled_as_topology plus
+    backend/tests/test_authored_topology.py. The production compiler emits
+    stable authored rows, preserves prior topology on failed publication,
+    retires source-owned stale edges, and keeps factual support extracted-only.
+  after_state: >
+    Registered visible Markdown sources compile exact links, embeds, tags, and
+    frontmatter references into active edge_class=authored relations owned by
+    the authoritative source generation. No graph_relation_supports are
+    fabricated; active-only traversal and community dependency topology use the
+    rows while factual report relation_ids/citations exclude them. Same inputs
+    converge across replicas.
 notes: >
-  Oracle test: test_f9_oracle_authored_links_compiled_as_topology (strict
-  xfail until v0.39 implementation). The 2026-07-30 approved plan strengthens
-  the original non-zero-row oracle because it did not call the production
-  compiler; capture-before-repair evidence and the original baseline remain
-  unchanged.
+  Oracle test: test_f9_oracle_authored_links_compiled_as_topology. The
+  2026-07-30 approved plan strengthened the original non-zero-row oracle because
+  it did not call the production compiler; capture-before-repair evidence and
+  the original observed baseline remain preserved in this case record.

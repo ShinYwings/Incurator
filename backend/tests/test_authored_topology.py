@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import importlib
 import json
-import re
+import unicodedata
 from pathlib import Path
 
 import pytest
@@ -17,9 +17,11 @@ import pytest
 from curator import config as cfg
 from curator import db
 from curator import ingest_raw
+from curator.db_sync import export_knowledge, import_knowledge
 from curator.llm import ChatMessage
 from curator.pipeline import compile as compile_mod
 from curator.pipeline import memory_paths
+from curator.pipeline.claim_support import run_compiler_audit
 from curator.retrieval.router import graph_status
 
 
@@ -34,41 +36,6 @@ class _EmptyUnitsClient:
         temperature: float = 0.3,
     ) -> str:
         return json.dumps({"units": []})
-
-
-class _GraphFailClient:
-    """Create one valid staged claim, then fail graph extraction."""
-
-    model = "fake"
-
-    def chat(
-        self,
-        messages: list[ChatMessage],
-        *,
-        json_mode: bool = False,
-        temperature: float = 0.3,
-    ) -> str:
-        text = "\n".join(message.content for message in messages)
-        span_ids = re.findall(r"SPAN-[0-9a-f]{8}", text)
-        first = span_ids[0] if span_ids else "SPAN-00000000"
-        if "Extract the knowledge units" in text:
-            return json.dumps(
-                {
-                    "units": [
-                        {
-                            "canonical_name": "A staged claim",
-                            "unit_type": "claim",
-                            "statement": "A staged claim is grounded.",
-                            "source_span_ids": [first],
-                            "confidence": 0.9,
-                            "truth_status": "source_supported",
-                        }
-                    ]
-                }
-            )
-        if "Extract entities and relations" in text:
-            return "not valid graph json"
-        return "{}"
 
 
 def _init_paths(root: Path) -> cfg.WikiPaths:
@@ -138,7 +105,8 @@ related:
 ![[assets/plot.png|300]]
 [Other](other.md#part)
 ![Plot](assets/plot.png)
-#body/tag
+[[Alternate Name#Alias Heading]]
+#Body/Tag
 
 `[[Ignored]]`
 %% [[Ignored]] %%
@@ -150,6 +118,11 @@ related:
     _write_target(paths, source_relpath, source_text)
     _write_target(paths, "03_Notes/Target.md")
     _write_target(paths, "03_Notes/other.md")
+    _write_target(
+        paths,
+        "03_Notes/AliasTarget.md",
+        "---\naliases: [Alternate Name]\n---\n# Alias Target\n",
+    )
     _write_target(paths, "03_Notes/Ignored.md")
     _write_target(paths, "03_Notes/assets/plot.png", "PNG")
 
@@ -164,6 +137,7 @@ related:
     assert observed == {
         ("links_to", "vault_note", "03_Notes/Target.md"),
         ("links_to", "vault_note", "03_Notes/other.md"),
+        ("links_to", "vault_note", "03_Notes/AliasTarget.md"),
         ("embeds", "vault_asset", "03_Notes/assets/plot.png"),
         ("tagged_with", "tag", "ml"),
         ("tagged_with", "tag", "nested/topic"),
@@ -203,7 +177,7 @@ def test_real_compile_publishes_active_authored_edges_without_factual_support(
     tmp_path: Path,
 ) -> None:
     paths = _init_paths(tmp_path)
-    source_id = _seed_source(paths, "# Source\n\n[[Target]] #topic\n")
+    source_id = _seed_source(paths, "# Source\n\n[[Target]] [[Source]] #topic\n")
     _write_target(paths, "03_Notes/Target.md")
 
     result = compile_mod.compile_source_l2(paths, _EmptyUnitsClient(), source_id)
@@ -211,8 +185,15 @@ def test_real_compile_publishes_active_authored_edges_without_factual_support(
     rows = _authored_rows(paths, include_retired=False)
     assert {(row["relation_type"], row["lifecycle_status"]) for row in rows} == {
         ("links_to", "active"),
+        ("links_to", "quarantined"),
         ("tagged_with", "active"),
     }
+    self_link = next(
+        row for row in rows
+        if row["source_entity_id"] == row["target_entity_id"]
+    )
+    assert self_link["quarantine_reason"] == "self_loop"
+    assert self_link["reeval_trigger"] == "endpoints_distinct"
     assert all(row["assertion_source"] == "source_states" for row in rows)
     assert all(row["generation_id"] for row in rows)
     assert all(float(row["topology_weight"]) == 1.0 for row in rows)
@@ -227,6 +208,7 @@ def test_real_compile_publishes_active_authored_edges_without_factual_support(
 
 def test_rebuild_edit_failure_rename_and_delete_reconcile_source_owned_edges(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     paths = _init_paths(tmp_path)
     source_id = _seed_source(paths, "# Source\n\n[[Target]]\n")
@@ -267,7 +249,15 @@ def test_rebuild_edit_failure_rename_and_delete_reconcile_source_owned_edges(
             "UPDATE sources SET content_hash = 'source-v3' WHERE id = ?",
             (source_id,),
         )
-    failed = compile_mod.compile_source_l2(paths, _GraphFailClient(), source_id)
+    with monkeypatch.context() as patcher:
+        patcher.setattr(
+            compile_mod.db,
+            "publish_compiler_generation",
+            lambda *args, **kwargs: (_ for _ in ()).throw(
+                RuntimeError("generation flip failed")
+            ),
+        )
+        failed = compile_mod.compile_source_l2(paths, client, source_id)
     assert not failed.ok
     assert [row["id"] for row in _authored_rows(paths, include_retired=False)] == [
         prior_id
@@ -297,8 +287,10 @@ def test_rebuild_edit_failure_rename_and_delete_reconcile_source_owned_edges(
 
 def test_same_structure_uses_same_ids_on_independent_replicas(tmp_path: Path) -> None:
     snapshots: list[tuple[list[str], list[str]]] = []
+    db_paths: list[Path] = []
     for replica in ("one", "two"):
         paths = _init_paths(tmp_path / replica)
+        db_paths.append(paths.state_db)
         source_id = _seed_source(paths, "# Source\n\n[[Target]] #topic\n")
         _write_target(paths, "03_Notes/Target.md")
         assert compile_mod.compile_source_l2(
@@ -324,6 +316,36 @@ def test_same_structure_uses_same_ids_on_independent_replicas(tmp_path: Path) ->
         assert relation_ids
         snapshots.append((entity_ids, relation_ids))
     assert snapshots[0] == snapshots[1]
+
+    exported = tmp_path / "replica-one.jsonl"
+    export_knowledge(db_paths[0], exported)
+    import_knowledge(db_paths[1], exported)
+    with db.connect(db_paths[1]) as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM graph_entities "
+            "WHERE entity_type IN ('vault_note', 'vault_asset', 'tag')"
+        ).fetchone()[0] == len(snapshots[0][0])
+        assert conn.execute(
+            "SELECT COUNT(*) FROM graph_relations WHERE edge_class = 'authored'"
+        ).fetchone()[0] == len(snapshots[0][1])
+        assert conn.execute(
+            "SELECT COUNT(*) FROM graph_relations "
+            "WHERE edge_class = 'authored' AND lifecycle_status = 'active'"
+        ).fetchone()[0] == len(snapshots[0][1])
+    assert run_compiler_audit(db_paths[1]).ok
+    assert db.graph_audit(db_paths[1]) == []
+
+
+def test_portable_entity_ids_normalize_unicode_paths() -> None:
+    endpoint_type = _extractor_module().AuthoredEndpoint
+    nfc_path = unicodedata.normalize("NFC", "03_Notes/Café.md")
+    nfd_path = unicodedata.normalize("NFD", nfc_path)
+
+    nfc = endpoint_type(entity_type="vault_note", canonical_key=nfc_path)
+    nfd = endpoint_type(entity_type="vault_note", canonical_key=nfd_path)
+
+    assert nfc.canonical_key == nfd.canonical_key == nfc_path
+    assert nfc.entity_id == nfd.entity_id
 
 
 def test_authoritative_traversal_uses_active_relations_only(tmp_path: Path) -> None:
@@ -372,6 +394,67 @@ def test_authoritative_traversal_uses_active_relations_only(tmp_path: Path) -> N
             "WHERE edge_class = 'authored'"
         )
     assert not graph_status(paths.state_db).has_relations
+
+
+def test_authored_lifecycle_rejects_generation_owned_by_another_source(
+    tmp_path: Path,
+) -> None:
+    paths = _init_paths(tmp_path)
+    source_a = _seed_source(
+        paths,
+        "# Source A\n\n[[Target]]\n",
+        relpath="03_Notes/Source A.md",
+        content_hash="source-a",
+    )
+    source_b = _seed_source(
+        paths,
+        "# Source B\n\n[[Target]]\n",
+        relpath="03_Notes/Source B.md",
+        content_hash="source-b",
+    )
+    _write_target(paths, "03_Notes/Target.md")
+    assert compile_mod.compile_source_l2(paths, _EmptyUnitsClient(), source_a).ok
+    assert compile_mod.compile_source_l2(paths, _EmptyUnitsClient(), source_b).ok
+
+    rows = _authored_rows(paths, include_retired=False)
+    source_a_entity = next(
+        row["source_entity_id"]
+        for row in rows
+        if db.get_graph_entity(paths.state_db, row["source_entity_id"])[
+            "canonical_name"
+        ] == "03_Notes/Source A.md"
+    )
+    with db.connect(paths.state_db) as conn:
+        source_b_generation = conn.execute(
+            "SELECT id FROM compiler_generations "
+            "WHERE source_id = ? AND status = 'authoritative'",
+            (source_b,),
+        ).fetchone()[0]
+    wrong_target = db.upsert_graph_entity(
+        paths.state_db,
+        canonical_name="wrong-owner",
+        entity_type="tag",
+    )
+    wrong_relation = db.upsert_graph_relation(
+        paths.state_db,
+        source_entity_id=source_a_entity,
+        target_entity_id=wrong_target,
+        relation_type="tagged_with",
+        edge_class="authored",
+        lifecycle_status="active",
+        topology_weight=1.0,
+        generation_id=source_b_generation,
+    )
+
+    violations = db.graph_audit(paths.state_db)
+    assert {
+        (violation["code"], violation["subject_id"])
+        for violation in violations
+    } >= {("active_authored_relation_stale_generation", wrong_relation)}
+    assert db.compile_relation_lifecycle(
+        paths.state_db,
+        relation_id=wrong_relation,
+    ) == "quarantined"
 
 
 def test_authored_edges_shape_membership_but_not_report_factual_support(
@@ -435,3 +518,15 @@ def test_authored_edges_shape_membership_but_not_report_factual_support(
             ).fetchall()
         }
     assert dependency_ids == {authored["id"], extracted}
+
+    source_path = paths.root / "03_Notes/Source.md"
+    source_path.write_text("# Source\n\nNo authored link remains.\n", encoding="utf-8")
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "UPDATE sources SET content_hash = 'source-without-link' WHERE id = ?",
+            (source_id,),
+        )
+    assert compile_mod.compile_source_l2(paths, _EmptyUnitsClient(), source_id).ok
+    retired_report = db.get_community_report(paths.state_db, reports[0]["id"])
+    assert retired_report is not None
+    assert retired_report["retired_at"] is not None
