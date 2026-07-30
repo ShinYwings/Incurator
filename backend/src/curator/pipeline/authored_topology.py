@@ -35,6 +35,7 @@ RelationType = Literal["links_to", "embeds", "tagged_with", "property_ref"]
 _TAG_RE = re.compile(r"(?<![\w/])#([^\s#.,;:!?()[\]{}'\"`<>]+)", re.UNICODE)
 _URI_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 _MARKDOWN_SUFFIXES = {".md", ".markdown"}
+_MAX_MARKDOWN_LABEL_DEPTH = 32
 _MAX_MARKDOWN_PAREN_DEPTH = 32
 
 
@@ -325,15 +326,26 @@ def _iter_markdown_links(text: str) -> Iterable[_LinkMatch]:
         embed = index > 0 and text[index - 1] == "!" and not _is_escaped(text, index - 1)
         start = index - 1 if embed else index
         label_end = index + 1
+        label_depth = 1
         while label_end < len(text):
             if text[label_end] in {"\n", "\r"}:
                 break
-            if text[label_end] == "]" and not _is_escaped(text, label_end):
-                break
+            if _is_escaped(text, label_end):
+                label_end += 1
+                continue
+            if text[label_end] == "[":
+                label_depth += 1
+                if label_depth > _MAX_MARKDOWN_LABEL_DEPTH:
+                    break
+            elif text[label_end] == "]":
+                label_depth -= 1
+                if label_depth == 0:
+                    break
             label_end += 1
         if (
             label_end >= len(text)
             or text[label_end] != "]"
+            or label_depth != 0
             or label_end + 1 >= len(text)
             or text[label_end + 1] != "("
         ):
@@ -448,15 +460,12 @@ def _resolve_target(
     source_relpath: str,
     raw_target: str,
 ) -> AuthoredEndpoint | None:
-    raw = _clean_markdown_target(raw_target)
+    target = _clean_internal_target(raw_target)
     if (
-        not raw
-        or raw.startswith(("#", "^", "//"))
-        or _URI_SCHEME_RE.match(raw)
+        not target
+        or target.startswith("//")
+        or _URI_SCHEME_RE.match(target)
     ):
-        return None
-    target = _clean_internal_target(raw)
-    if not target:
         return None
 
     source_parent = PurePosixPath(source_relpath).parent

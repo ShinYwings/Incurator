@@ -677,6 +677,40 @@ def test_single_generation_is_retired_when_its_source_was_tombstoned(
     assert _timestamp_key(repaired_relation["updated_at"]) > _timestamp_key(future)
 
 
+def test_single_valid_generation_reconciliation_is_quiescent(tmp_path: Path) -> None:
+    paths = _init_paths(tmp_path)
+    source_id = _seed_source(paths, "# Source\n\n[[Target]]\n")
+    _write_target(paths, "03_Notes/Target.md")
+    assert compile_mod.compile_source_l2(
+        paths, _EmptyUnitsClient(), source_id
+    ).ok
+    relation_id = _authored_rows(paths, include_retired=False)[0]["id"]
+    generation = db.get_authoritative_generation(paths.state_db, source_id)
+    assert generation is not None
+
+    with db.connect(paths.state_db) as conn:
+        before = conn.execute(
+            "SELECT generation_id, lifecycle_status, updated_at "
+            "FROM graph_relations WHERE id = ?",
+            (relation_id,),
+        ).fetchone()
+        _reconcile_authoritative_generations(conn)
+        after_first = conn.execute(
+            "SELECT generation_id, lifecycle_status, updated_at "
+            "FROM graph_relations WHERE id = ?",
+            (relation_id,),
+        ).fetchone()
+        _reconcile_authoritative_generations(conn)
+        after_second = conn.execute(
+            "SELECT generation_id, lifecycle_status, updated_at "
+            "FROM graph_relations WHERE id = ?",
+            (relation_id,),
+        ).fetchone()
+
+    assert tuple(after_first) == tuple(before)
+    assert tuple(after_second) == tuple(before)
+
+
 def test_replica_generation_winner_preserves_shared_edge_despite_row_clock(
     tmp_path: Path,
 ) -> None:

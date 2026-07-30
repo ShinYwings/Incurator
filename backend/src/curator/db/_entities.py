@@ -13,6 +13,7 @@ import sqlite3
 import unicodedata
 import uuid
 from collections import defaultdict, deque
+from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Mapping
 
@@ -57,6 +58,46 @@ def _loads_obj(raw: Any) -> Any:
         return json.loads(raw)
     except (TypeError, ValueError):
         return {}
+
+
+def generation_authored_relation_ids(audit_json: object) -> tuple[str, ...] | None:
+    """Return exact canonical authored membership, or ``None`` if malformed."""
+    if isinstance(audit_json, Mapping):
+        audit = audit_json
+    else:
+        try:
+            audit = json.loads(str(audit_json or "{}"))
+        except (TypeError, ValueError):
+            return None
+    if not isinstance(audit, Mapping):
+        return None
+    raw = audit.get("authored_relation_ids")
+    if (
+        not isinstance(raw, list)
+        or any(not isinstance(value, str) or not value for value in raw)
+        or raw != sorted(set(raw))
+    ):
+        return None
+    return tuple(raw)
+
+
+def strict_successor_timestamp(*revisions: object) -> str:
+    """Return a UTC LWW revision newer than now and every valid input revision."""
+    candidates = [datetime.now(timezone.utc)]
+    for revision in revisions:
+        if not isinstance(revision, str):
+            continue
+        try:
+            parsed = datetime.fromisoformat(revision.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if parsed.tzinfo is not None:
+            candidates.append(parsed.astimezone(timezone.utc))
+    try:
+        successor = max(candidates) + timedelta(microseconds=1)
+    except OverflowError as exc:
+        raise ValueError("cannot advance past maximum LWW revision") from exc
+    return successor.isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
 def _decode_span_row(row: sqlite3.Row) -> dict:
@@ -905,7 +946,30 @@ def retire_graph_relations_on_connection(
     ids = sorted(set(relation_ids))
     if not ids:
         return 0
-    retired_at = now or _now_iso()
+    revisions: list[object] = [now]
+    for chunk in _chunked(ids):
+        placeholders = ",".join("?" for _ in chunk)
+        revisions.extend(
+            row["updated_at"]
+            for row in conn.execute(
+                "SELECT updated_at FROM graph_relations "
+                f"WHERE id IN ({placeholders})",
+                chunk,
+            ).fetchall()
+        )
+        revisions.extend(
+            row["updated_at"]
+            for row in conn.execute(
+                "SELECT updated_at FROM community_reports "
+                "WHERE retired_at IS NULL AND id IN ("
+                "SELECT artifact_id FROM artifact_dependencies "
+                "WHERE artifact_type = 'community_report' "
+                "AND depends_on_type = 'relation' "
+                f"AND depends_on_id IN ({placeholders}))",
+                chunk,
+            ).fetchall()
+        )
+    retired_at = strict_successor_timestamp(*revisions)
     retired = 0
     for chunk in _chunked(ids):
         placeholders = ",".join("?" for _ in chunk)
@@ -935,31 +999,57 @@ def retire_community_reports_for_relation_endpoints_on_connection(
     now: str | None = None,
 ) -> int:
     """Retire reports predating newly-active topology at either endpoint."""
-    endpoint_ids: set[str] = set()
+    relation_endpoints: dict[str, frozenset[str]] = {}
+    revisions: list[object] = [now]
     for relation_id in sorted(set(relation_ids)):
         row = conn.execute(
-            "SELECT source_entity_id, target_entity_id FROM graph_relations "
+            "SELECT source_entity_id, target_entity_id, updated_at "
+            "FROM graph_relations "
             "WHERE id = ? AND lifecycle_status = 'active'",
             (relation_id,),
         ).fetchone()
         if row is not None:
-            endpoint_ids.update((str(row[0]), str(row[1])))
-    if not endpoint_ids:
+            relation_endpoints[relation_id] = frozenset(
+                (str(row["source_entity_id"]), str(row["target_entity_id"]))
+            )
+            revisions.append(row["updated_at"])
+    if not relation_endpoints:
         return 0
 
-    report_ids = [
-        str(row["id"])
+    dependencies: dict[str, set[str]] = defaultdict(set)
+    for chunk in _chunked(sorted(relation_endpoints)):
+        placeholders = ",".join("?" for _ in chunk)
         for row in conn.execute(
-            "SELECT id, entity_ids FROM community_reports WHERE retired_at IS NULL"
-        ).fetchall()
-        if endpoint_ids.intersection(
-            str(value) for value in _loads_list(row["entity_ids"])
-        )
-    ]
+            "SELECT artifact_id, depends_on_id FROM artifact_dependencies "
+            "WHERE artifact_type = 'community_report' "
+            "AND depends_on_type = 'relation' "
+            f"AND depends_on_id IN ({placeholders})",
+            chunk,
+        ).fetchall():
+            dependencies[str(row["artifact_id"])].add(str(row["depends_on_id"]))
+
+    report_ids: list[str] = []
+    for row in conn.execute(
+        "SELECT id, entity_ids, updated_at FROM community_reports "
+        "WHERE retired_at IS NULL"
+    ).fetchall():
+        report_id = str(row["id"])
+        entities = {str(value) for value in _loads_list(row["entity_ids"])}
+        relevant_relations = {
+            relation_id
+            for relation_id, endpoints in relation_endpoints.items()
+            if endpoints.intersection(entities)
+        }
+        if (
+            relevant_relations
+            and not relevant_relations.issubset(dependencies.get(report_id, set()))
+        ):
+            report_ids.append(report_id)
+            revisions.append(row["updated_at"])
     if not report_ids:
         return 0
 
-    retired_at = now or _now_iso()
+    retired_at = strict_successor_timestamp(*revisions)
     conn.executemany(
         "UPDATE community_reports SET retired_at = ?, updated_at = ? "
         "WHERE id = ? AND retired_at IS NULL",
@@ -1537,7 +1627,8 @@ def _classify_relation_lifecycle(
     # rule; they never acquire synthetic graph_relation_supports (§27.3.1).
     if edge_class == "authored":
         current = conn.execute(
-            "SELECT s.relpath, s.file_type, e.canonical_name, e.entity_type "
+            "SELECT s.relpath, s.file_type, e.canonical_name, e.entity_type, "
+            "g.audit_json "
             "FROM compiler_generations g "
             "JOIN sources s ON s.id = g.source_id "
             "JOIN graph_entities e ON e.id = ? "
@@ -1550,6 +1641,8 @@ def _classify_relation_lifecycle(
             and str(current["entity_type"]) == "vault_note"
             and _portable_graph_source_key(current["canonical_name"])
             == _portable_graph_source_key(current["relpath"])
+            and relation_id
+            in (generation_authored_relation_ids(current["audit_json"]) or ())
         ):
             return "active", ""
         return "quarantined", "unsupported"
@@ -2273,9 +2366,12 @@ def graph_audit(
             ).fetchall()
         }
         current_authored_generations = {
-            str(r["id"]): _portable_graph_source_key(r["relpath"])
+            str(r["id"]): (
+                _portable_graph_source_key(r["relpath"]),
+                generation_authored_relation_ids(r["audit_json"]),
+            )
             for r in conn.execute(
-                "SELECT g.id, s.relpath FROM compiler_generations g "
+                "SELECT g.id, g.audit_json, s.relpath FROM compiler_generations g "
                 "JOIN sources s ON s.id = g.source_id "
                 "WHERE g.status = 'authoritative' "
                 "AND lower(s.file_type) IN ('md', 'markdown')"
@@ -2297,12 +2393,16 @@ def graph_audit(
                 if edge_class == "authored":
                     generation_id = str(r["generation_id"] or "")
                     source_entity = entities.get(str(r["source_entity_id"]))
+                    generation = current_authored_generations.get(generation_id)
                     owns_source = (
                         source_entity is not None
+                        and generation is not None
                         and str(source_entity["entity_type"]) == "vault_note"
                         and _portable_graph_source_key(
                             source_entity["canonical_name"]
-                        ) == current_authored_generations.get(generation_id)
+                        ) == generation[0]
+                        and generation[1] is not None
+                        and rid in generation[1]
                     )
                     if not owns_source:
                         violations.append({

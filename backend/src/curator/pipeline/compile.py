@@ -602,20 +602,7 @@ def _publish_generation(
 def _generation_authored_relation_ids(generation: dict | None) -> tuple[str, ...] | None:
     if generation is None:
         return None
-    try:
-        audit = json.loads(generation.get("audit_json") or "{}")
-    except (TypeError, ValueError):
-        return None
-    if not isinstance(audit, dict):
-        return None
-    raw = audit.get("authored_relation_ids")
-    if (
-        not isinstance(raw, list)
-        or any(not isinstance(value, str) or not value for value in raw)
-        or raw != sorted(set(raw))
-    ):
-        return None
-    return tuple(raw)
+    return db.generation_authored_relation_ids(generation.get("audit_json"))
 
 
 def _reconcile_db_only_authored_membership(
