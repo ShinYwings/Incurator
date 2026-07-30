@@ -29,6 +29,8 @@ planning narration.
   of `mcp.server.fastmcp` failed mypy before pytest. The supported SDK contract
   is now pinned to MCP 1.x in both `mcp` and `dev` extras; a fresh isolated
   install resolved `mcp==1.29.0`, imported FastMCP, and passed mypy.
+- After the dependency boundary fix, both Backend CI jobs, both Plugin CI jobs,
+  and Version Consistency passed on PR #96.
 
 ## Progress Status
 
@@ -41,7 +43,7 @@ planning narration.
 - [x] Run focused, full CI, and testbed smoke validation.
 - [x] Bump v0.36.8, update changelog, and remove plan artifacts.
 - [x] Push and open draft PR #96.
-- [ ] Push the MCP 2.0 compatibility follow-up and confirm rerun CI.
+- [x] Push the MCP 2.0 compatibility follow-up and confirm rerun CI.
 
 ## Critical Context / Blockers
 
@@ -52,5 +54,5 @@ planning narration.
 
 ## Immediate Next Action
 
-Push the MCP 2.0 compatibility follow-up, confirm rerun CI, then hand draft PR
-#96 to the human for review and merge.
+Human review and merge of draft PR #96. After merge, apply the documented IDLE
+relay cleanup exception on updated `master`.
