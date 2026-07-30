@@ -22,8 +22,8 @@ Source of Truth to identify unresolved items.
 
 `USER_REPORT.md` is currently empty. The following queue is the ordered roadmap.
 
-No urgent hotfix is currently tracked. v0.37.0 is release-ready; the next
-planned Stability slice is Query Provider Failure UX.
+No urgent hotfix is currently tracked. The active delivery item is v0.37.1
+Query Provider Failure UX.
 
 ### 🚀 Priority Order
 
@@ -46,16 +46,31 @@ planned Stability slice is Query Provider Failure UX.
        and test matrix.
      - **Exception Handling Hardening (XC-1 later slices)**: audit broad
        catch-and-return boundary handlers and other backend modules after the
-       silent-swallow slice lands.
+       silent-swallow slice lands. Provider follow-ups found during v0.37.1
+       planning are cancellation trace finalization, trace-storage outage
+       recovery, malformed provider-wire payloads, post-failover prompt-provider
+       attribution, Antigravity early-failure temp-log cleanup, and generic
+       no-JSON plugin command errors.
      - **Performance & UX Refinements**: RAG/DAG benchmark harness & retrieval hotspot optimization; chat/popover UX friction cleanup.
 
-2. **[Stability / Bug] Query Provider Failure UX** *(NEXT)*
+2. **[Stability / Bug] Query Provider Failure UX** *(ACTIVE — v0.37.1)*
    - A real Gaussian Splatting testbed query reached retrieval successfully, but
      Antigravity CLI returned no output during JSON repair and `wiki query`
      exposed a full Rich traceback instead of a concise provider-error message.
    - Plan a typed query/provider boundary that preserves failed prompt traces,
      exits non-zero, and reports actionable CLI/MCP/plugin errors without hiding
      the original provider failure.
+   - Proposed implementation:
+     `.agents/plans/02_query_provider_failure_ux.md`; measured baseline:
+     `.agents/plans/02_query_provider_failure_evidence.md`.
+   - Arena consensus: reuse the existing `LLMError` hierarchy and public
+     error/QTR/PTR/provenance fields; normalize blank/non-zero provider results,
+     fix Codex failover parity, and remove duplicated MCP/plugin query handling.
+     No new DB schema or public error fields.
+   - Follow-up findings kept outside v0.37.1: cancellation trace finalization,
+     trace-storage outage recovery, malformed provider-wire payloads,
+     post-failover prompt-provider attribution, and generic no-JSON plugin
+     command errors.
 
 3. **[Stability / Validation] `[[wikilink]]` Architecture Validation**
    - Core entities in the backend pipeline documents are not explicitly marked with `[[wikilink]]`.
@@ -94,7 +109,7 @@ planned Stability slice is Query Provider Failure UX.
 ## ✅ Completed Milestones
 
 - **v0.37.0 — Composite-Primary-Key Tombstone Convergence**
-  (release-ready 2026-07-30): schema v13 adds a closed canonical-JSON transport
+  (shipped 2026-07-30, PR #98 merged): schema v13 adds a closed canonical-JSON transport
   identity for all six synchronized composite-key tables, using portable source
   keys instead of replica-local ids. Full-key deletes, delete/update LWW,
   fail-closed malformed-token handling, transactional source cleanup, local
