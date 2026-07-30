@@ -86,6 +86,12 @@ No urgent hotfix is currently tracked.
 
 ## ✅ Completed Milestones
 
+- **Plugin npm audit PostCSS dependency chore** (completed 2026-07-30):
+  updated only the Vite transitive lockfile resolution from
+  `postcss@8.5.15` to patched `8.5.25` and its required Nano ID patch. A clean
+  `npm ci` reproduced the lockfile; `npm audit` reported zero vulnerabilities,
+  all 721 plugin tests passed, and the production build succeeded.
+
 - **v0.36.8 — PDF Convert-to-LaTeX Antigravity Prompt Transport**
   (release-ready 2026-07-30): fixed the backend Antigravity client to pass the
   complete request as the `agy --print` prompt and exact `--model`. Explicit
@@ -302,8 +308,7 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: System Stability Overhaul ACTIVE; v0.36.8 is release-ready
-  on PR #96.
-- **Active Milestone**: None (v0.36.8 awaits human review/merge).
-- **Next actionable item**: After v0.36.8 merges, resume the
+- **Roadmap state**: System Stability Overhaul ACTIVE; v0.36.8 shipped.
+- **Active Milestone**: None (PostCSS audit chore awaits PR review/merge).
+- **Next actionable item**: After the dependency-only chore merges, resume the
   composite-primary-key tombstones schema-contract plan.
