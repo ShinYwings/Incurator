@@ -85,6 +85,7 @@ def _seed_authoritative_records(db_path: Path) -> dict[str, str]:
         description="ResNet improves optimization via residual connections.",
         source_span_ids=[span_id],
         confidence=0.82,
+        lifecycle_status="active",
     )
     report_id = db.upsert_community_report(
         db_path,

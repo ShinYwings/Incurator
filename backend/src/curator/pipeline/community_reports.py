@@ -231,7 +231,7 @@ def generate_report_prose(
     by ``community_key`` so the structural/grounding columns are PRESERVED (every
     omitted column defaults to *preserve existing* in ``upsert_community_report``).
     The report cites ONLY its active relations' eligible claim spans — there is no
-    whole-community-span fallback (§27.5, F9). Returns the ``REP-`` id, or ``None``
+    whole-community-span fallback (SYSTEM_BEHAVIOR §27.5). Returns the ``REP-`` id, or ``None``
     when the community has no resolvable entity."""
     entity_ids = report.get("entity_ids") or []
     relation_ids = report.get("relation_ids") or []

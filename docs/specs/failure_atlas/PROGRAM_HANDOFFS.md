@@ -10,18 +10,21 @@ oracles; changing an oracle requires a new atlas-version decision.
 - F2 retired: one orchestrated request persists one authoritative QTR with its
   retrieval trace.
 - F13 retired: the tracked testbed template is the current-architecture oracle.
+- F9 retired in v0.39: registered visible Markdown notes compile exact authored
+  structure into deterministic active topology without fabricating factual
+  support.
 - Frozen holdout Q06 has one valid no-tuning result after two transparently
   audit-invalidated methodology runs. All binding D2 metrics passed; see
   `D2_HOLDOUT_RESULT.yml`.
 
 ## Program 2: Evidence Compiler Integrity
 
-Owned cases: F6, F7, F8, F9, F10.
+Active owned cases: F6, F7, F8, F10. F9 is retired.
 
 - Zero synthesis broad-span fallbacks.
 - Unchanged rebuild idempotency and correct mutation invalidation.
 - Zero homonym false merges and bounded, meaningful graph communities.
-- Authored topology is preserved.
+- Authored topology is preserved (**satisfied by v0.39 / F9**).
 - Full exact source evidence remains retrievable beyond preview windows.
 - Adopt formula-preserving distillation; benchmark context-enriched chunks,
   denoised hierarchy, and selective formula recovery later.

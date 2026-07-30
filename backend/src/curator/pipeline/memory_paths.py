@@ -72,7 +72,11 @@ def build_memory_paths(
             return
         if depth == 0:
             return
-        for rel in db.relation_neighborhood(db_path, [current]):
+        for rel in db.relation_neighborhood(
+            db_path,
+            [current],
+            lifecycle_status="active",
+        ):
             nxt = (
                 rel["target_entity_id"]
                 if rel["source_entity_id"] == current

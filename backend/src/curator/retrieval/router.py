@@ -31,9 +31,17 @@ _GLOBAL_SIGNALS = re.compile(
 
 def graph_status(db_path: Path) -> GraphStatus:
     with db.connect(db_path) as conn:
-        ent = conn.execute("SELECT COUNT(*) FROM graph_entities").fetchone()[0]
-        rel = conn.execute("SELECT COUNT(*) FROM graph_relations").fetchone()[0]
-        rep = conn.execute("SELECT COUNT(*) FROM community_reports").fetchone()[0]
+        ent = conn.execute(
+            "SELECT COUNT(*) FROM graph_entities "
+            "WHERE resolution_state = 'canonical'"
+        ).fetchone()[0]
+        rel = conn.execute(
+            "SELECT COUNT(*) FROM graph_relations "
+            "WHERE lifecycle_status = 'active'"
+        ).fetchone()[0]
+        rep = conn.execute(
+            "SELECT COUNT(*) FROM community_reports WHERE retired_at IS NULL"
+        ).fetchone()[0]
     return GraphStatus(has_entities=ent > 0, has_relations=rel > 0, has_reports=rep > 0)
 
 

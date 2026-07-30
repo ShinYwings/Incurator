@@ -1,4 +1,4 @@
-# Incurator Search Engine Schema (v0.38.0)
+# Incurator Search Engine Schema (v0.39.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -409,15 +409,23 @@ path stays unchanged because only authoritative records are ever materialized.
   (SCHEMA §21.4) is materialized against its canonical survivor
   (`redirect_to_entity_id`) instead. No served search row references a redirected
   entity directly; the graph audit (SYSTEM_BEHAVIOR §27.6) asserts this.
-- **Only `active` relations and their eligible supports materialize.**
+- **Only `active` relations materialize into authoritative graph search.**
   `provisional`, `quarantined`, and `retired` relations (SCHEMA §21.6) are
-  excluded from relation evidence materialization, exactly as non-`verified` /
-  retired claims are excluded in §10.1. Relation evidence hydrates the cited
-  span text via the §10.2 full-span hydration contract (no preview-as-evidence).
+  excluded, exactly as non-`verified` / retired claims are excluded in §10.1.
+  Active `extracted` relation evidence hydrates eligible cited span text via the
+  §10.2 full-span hydration contract (no preview-as-evidence). Active `authored`
+  relations may be indexed as labeled topology for discovery, but they have no
+  synthetic `graph_relation_supports` and are never emitted as factual evidence
+  or citations.
+- Canonical extracted entity types retain their existing materialization
+  behavior. Authored endpoint types (`vault_note`, `vault_asset`, and `tag`)
+  materialize only while they are an endpoint of an `active` relation, so link
+  removal cannot leave an orphan authored entity search document.
 - An accepted-merge reversal or a source edit/delete that changes the
   authoritative graph generation re-emits the affected graph-derived search state
   from the post-reconciliation authoritative DB; it never leaves materialized
-  rows pointing at a reversed merge or a retired relation.
+  rows pointing at a reversed merge or a retired relation. Explicit source
+  removal performs this re-emission after the deletion transaction commits.
 
 ### 11.2 Community-Report Documents And Retirement
 

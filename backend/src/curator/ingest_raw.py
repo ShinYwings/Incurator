@@ -2485,6 +2485,10 @@ def remove_source(
         _delete_source_on_connection(conn, source_id)
         record_tombstone_on_connection(conn, "sources", sync_key)
 
+    from .retrieval import materializer
+
+    materializer.materialize_search_documents(paths.state_db)
+
     deleted_file = False
     if delete_file and file_path.exists() and _is_inside_raw(file_path, paths.raw_dirs):
         try:

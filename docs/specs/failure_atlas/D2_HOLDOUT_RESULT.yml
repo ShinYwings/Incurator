@@ -276,6 +276,47 @@ evaluated_code:
       only; they do not touch retrieval, ranking, fusion, projection scoring,
       embedding, chunking, or materialize_chunks, so the frozen lexical Q06 metric
       is unaffected. Re-armed the schema drift fingerprint below.
+  v039_authored_topology_rearm:
+    date: '2026-07-30'
+    prior_entities_sha256: 2226d1a4bda32d9e69a5f949e888c32e08143d52b892713e2152b71413e6fa43
+    prior_sources_sha256: 26b1c013c21cb93e1e44b01e8f7a11d3a6495f5b3dcf3b4a21ac63662fe3c515
+    reason: v0.39.0 adds deterministic authored-note entity/relation identity,
+      authored lifecycle and graph/report dependency handling, active-only graph
+      neighborhood filtering, and shared source-owned relation retirement. The
+      frozen Q06 harness seeds only sources, source_spans, and search_documents,
+      then exercises materialize_chunks plus lexical HybridEngine ranking; it
+      creates no graph entities, graph relations, compiler generations,
+      community reports, or source deletion. Therefore none of the changed
+      _entities.py or sources.py paths execute during the consumed holdout, and
+      its lexical ranking/citation metrics are provably unaffected. The holdout
+      cannot be rerun after run_count=3; these hashes re-arm the existing code
+      drift tripwire.
+  v039_authored_topology_review_rearm:
+    date: '2026-07-30'
+    prior_entities_sha256: 965213449ad2d66dceea529bd87cc2c255f196915c268cb9a1b27d8c42d6c1f2
+    reason: v0.39.0 review hardening changes db/_entities.py only to batch
+      authored relation retirement below SQLite's variable limit and to retire
+      live community reports whose entity membership predates a newly active
+      authored edge. The frozen Q06 harness creates no graph entities,
+      graph relations, compiler generations, community reports, artifact
+      dependencies, or source deletions; neither changed function executes in
+      its materialize_chunks plus lexical HybridEngine path. Its ranking and
+      citation metrics are therefore provably unaffected. The consumed holdout
+      cannot be rerun after run_count=3; the hash below re-arms the existing
+      drift tripwire.
+  v039_authored_topology_review2_rearm:
+    date: '2026-07-30'
+    prior_entities_sha256: cb27e8f5cffa6aaf5298209c22cee37b526ef6ecd5f14b2e5be7145d7b05f9f4
+    reason: v0.39.0 follow-up review hardening changes db/_entities.py only in
+      authored-generation audit membership parsing, graph relation/report
+      retirement clocks, winner-dependent report invalidation, and authored
+      graph audit admission. The frozen Q06 harness creates no compiler
+      generations, graph entities, graph relations, community reports, or
+      artifact dependencies and never executes these functions. Retrieval
+      documents, lexical ranking, citations, fusion, projection, embedding,
+      chunking, and materialize_chunks are unchanged. The consumed holdout
+      cannot be rerun after run_count=3; the hash below re-arms the existing
+      drift tripwire.
   file_sha256:
     backend/scripts/failure_atlas_holdout.py: c6afe0307dd3f68fa9902387bb0dc269db6ff9d6b73ad2f3ac1cc6ecc883297a
     backend/src/curator/retrieval/evaluation.py: 0cc9e655142c725dd4bbbabfd2b44d6bf0355265bb2510fbb78cbd47d7d43c17
@@ -286,9 +327,9 @@ evaluated_code:
     backend/src/curator/retrieval/chunking.py: 8c45af7ba7457f5930fc05c0a3f0de10eb6cc424c4b70b722510dd2decd59255
     backend/src/curator/db/__init__.py: 9d9b18355372e1f77534aef353a07c3ee1f3e9ce3413ffec7d8030da86a4a16c
     backend/src/curator/db/schema.py: 8df87784f5d998cf3a7d682b7702135f81b49b11e8872e5215c8e3932be53961
-    backend/src/curator/db/_entities.py: 2226d1a4bda32d9e69a5f949e888c32e08143d52b892713e2152b71413e6fa43
+    backend/src/curator/db/_entities.py: b96d9818e1eb75084fe2d36caa2092c488a0b46a72f8193a0b910fc8ac4323db
     backend/src/curator/db/jobs.py: 33d772f0709c3b549b40f29dac7028edee58c882c06dc6e7f38706bd71e9b320
-    backend/src/curator/db/sources.py: 26b1c013c21cb93e1e44b01e8f7a11d3a6495f5b3dcf3b4a21ac63662fe3c515
+    backend/src/curator/db/sources.py: 89abebd8a2ff63bbd4d3d42e869b537ce1898c8c298390fa5fd79ead3d035383
   preflight_family_metrics:
     direct-factual:
       query_count: 7

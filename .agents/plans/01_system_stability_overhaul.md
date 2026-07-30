@@ -2,7 +2,8 @@
 
 Date: 2026-06-22
 Status: ACTIVE — Phase A diagnosis is complete and consolidated; incremental
-delivery continues through the ordered integrity workstreams.
+delivery continues through the ordered integrity workstreams. The v0.32.0+
+release-chain regression audit is the current execution slice.
 Briefing: `.agents/plans/system_stability_overhaul_arena/00_problem.md`
 Supersedes: the prompt-only milestone (folds in `prompt_architecture_refactoring.md`
 and `popover_tool_scope.md`).
@@ -104,7 +105,8 @@ prompt-consistency harness shows measured improvement over baseline.
   compiler topology are distinct Stability workstreams, not one wikilink task.
 - **Delivery model**: each phase below is a standalone PR. Branch per phase off
   `master`. The first two integrity slices shipped in v0.37.0 and v0.37.1; the
-  Sidechat vault-page link slice is planned on `release/v0.38.0`.
+  Sidechat vault-page link slice shipped in v0.38.0. Failure Atlas F9 authored
+  topology is active on `release/v0.39.0`.
 - **Stop conditions** — agent MUST halt and ask the user when:
   - any DB schema change is required (P1-contract approval gate).
   - a characterization test reveals existing behavior is itself buggy (decide:
@@ -117,9 +119,10 @@ prompt-consistency harness shows measured improvement over baseline.
 - **Repo/schema reality**: the 2026-06-22 baseline is preserved in
   `00_problem.md §2`; Phase A completed all G01–G19 diagnosis groups and folded
   them into `01_roadmap_evidence.md`.
-- **Current worktree**: `release/v0.38.0`, created from clean, synchronized
-  `master` after v0.37.1 merged. Sidechat prompt, evidence-locator formatting,
-  and native answer navigation are diagnosed; no application code has changed.
+- **Current worktree**: `release/v0.39.0` at `b567427`; PR #101 is unmerged.
+  The first F9 hardening pass is green, and a second whole-system review has
+  confirmed 22 additional stability findings. Planning-only artifacts for the
+  v0.32.0+ audit are active; no application code has changed in this pass.
 - **Rollback anchor**: each slice records its `master` merge-base before
   implementation and remains independently revertible via `git revert -m 1`.
 - **Per-phase evidence**: P1 produces `01_roadmap_evidence.md` (the findings
@@ -237,14 +240,20 @@ green + testbed parity for backend) and starts with prior-art research.
      `LLMError` boundary, cross-provider blank/non-zero normalization, retained
      failed QTR/PTR/evidence, non-zero CLI exit, and one existing-field contract
      across CLI/MCP/plugin.
-  3. Sidechat vault-page wikilinks (**v0.38.0 PROPOSED**): preserve exact
+  3. Sidechat vault-page wikilinks (**shipped in v0.38.0 / PR #100**): preserve exact
      open/pinned note paths and ContextService locators in provider context,
      require grounded `[[vault-relative/path|label]]` answers in the shared
      Sidechat prompt, and retain native Obsidian navigation.
-  4. Failure Atlas F9 authored-note topology: separately compile human-authored
-     wikilinks/embeds/tags/frontmatter references as topology distinct from
-     extracted relations. This backend compiler oracle is not a prerequisite
-     for Sidechat answer links.
+  4. Failure Atlas F9 authored-note topology (**active v0.39.0 plan review**):
+     compile human-authored wikilinks/embeds/tags/frontmatter references as
+     deterministic, atomic topology distinct from extracted factual relations.
+     Master plan: `.agents/plans/02_authored_note_topology.md`.
+  5. v0.32.0+ release-chain regression audit and repair (**active planning**):
+     close the newly confirmed PR #101 blockers, then audit PR #80 through
+     current by historical contract, first-parent diff, current implementation,
+     and fault-transition tests. Cross-system fixes ship as small v0.39.x patch
+     releases rather than widening PR #101. Master plan:
+     `.agents/plans/02_v032_regression_audit.md`.
   Each workstream gets its own branch, plan/evidence ledger, release decision,
   full validation, and PR.
 
@@ -256,5 +265,6 @@ green + testbed parity for backend) and starts with prior-art research.
 ---
 
 > Versioning: pre-1.0, so architectural/breaking changes ride **Minor** slots;
-> compatible fixes remain **Patch** releases. Sidechat vault-page wikilinks add
-> user-facing answer behavior and therefore target the v0.38.0 Minor slot.
+> compatible fixes remain **Patch** releases. Authored-note compiler and
+> lifecycle contracts add a user-visible graph capability and therefore target
+> the v0.39.0 Minor slot.

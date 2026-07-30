@@ -177,7 +177,7 @@ def persist_graph_data(
     path), each persisted relation also AGGREGATES one ``graph_relation_supports``
     row per asserting knowledge unit, keyed by the source's lineage (§27.2). A
     relation is mapped to its asserting unit by span intersection — never by a
-    broad all-span fallback (F9). One source contributes exactly one independent
+    broad all-span fallback (SYSTEM_BEHAVIOR §27.2). One source contributes exactly one independent
     lineage, so a relation reaches the ``active`` floor only once a SECOND
     independent source corroborates the same proposition (§27.2 ≥2 lineages)."""
     name_to_id: dict[str, str] = {}

@@ -158,15 +158,16 @@ green baseline test and an XFAILing oracle test, and the full suite passes.
 | F6 | Synthesis items without declared spans grounded to ALL upstream spans | compiler | assigned | program-2 |
 | F7 | Rebuild idempotency/atomicity/dependency-closure invalidation unproven; stale L1 rows linger after edits | compiler | assigned | program-2 |
 | F8 | Exact-name entity merging (homonym false-merge) and connected-component giant communities | compiler | assigned | program-2 |
-| F9 | Authored note topology (wikilinks/embeds/tags) never compiled into the graph | compiler | assigned | program-2 |
+| F9 | Authored note topology (wikilinks/embeds/tags) never compiled into the graph | compiler | retired | unassigned |
 | F10 | Searchable span evidence capped at a 200-char preview | source-scoped | assigned | program-2 |
 | F11 | Explore is a single prompt pass — follow-ups are rendered, never executed | associative | assigned | program-3 |
 | F12 | External MCP and Obsidian plugin do not share one normalized context contract | client-parity | assigned | program-3 |
 | F13 | Active testbed scenario validates retired EXH/search-era architecture | evaluation-infra | retired | unassigned |
 
 All thirteen cases were reproduced deterministically at the v0.6.0 baseline.
-D2 retires F1, F2, and F13 by satisfying their frozen oracles; F3-F12 remain
-assigned to Program 2 or Program 3.
+D2 retired F1, F2, and F13; v0.39 retires F9 through its production compiler
+oracle. Current status and later re-open history remain authoritative in each
+case YAML record.
 
 ## 8. Downstream Handoff (deliverable D5, D1 portion)
 
@@ -174,8 +175,9 @@ assigned to Program 2 or Program 3.
   only repair P5 may make, because unresolved hit-provenance invalidates every
   retrieval measurement), F2 (authoritative query-transaction identity /
   parent-child trace model), F13 (current-architecture scenarios).
-- **Program 2 (Evidence Compiler Integrity)** owns: F6, F7, F8, F9, F10 — gates
-  are written into each case's `assignment.gate` and mirror umbrella §9.
+- **Program 2 (Evidence Compiler Integrity)** owns active cases F6, F7, F8, and
+  F10. F9 is retired in v0.39; gates and resolution evidence are written into
+  each case record.
 - **Program 3 (Agentic Query Serving)** owns: F3, F4, F5, F11, F12 — gates
   mirror umbrella §10.
 - **Plan E (External Research Design Matrix)** must benchmark candidate

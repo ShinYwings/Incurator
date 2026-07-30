@@ -22,28 +22,60 @@ Source of Truth to identify unresolved items.
 
 `USER_REPORT.md` is currently empty. The following queue is the ordered roadmap.
 
-No urgent hotfix is currently tracked. v0.38.0 Sidechat Vault-Page Wikilinks
-is release-validated and has left the live queue; Failure Atlas F9 is the next
-implementation item.
+The user's 2026-07-30 stability-review follow-up is triaged below. Draft PR
+#101 remains unmerged; confirmed v0.39.0 authored-topology blockers stay on that
+release branch, while pre-existing cross-system defects and any additional
+v0.32.0+ regression findings ship as small follow-up patch releases.
 
 ### 🚀 Priority Order
 
-1. **[Major Update] System Stability Overhaul — Exhaustive Diagnosis & Refactoring** *(ACTIVE)*
+1. **[Patch-in-release] v0.39.0 Authored-Topology Review-Blocker Closure** *(MERGE READY)*
+   - Draft PR #101 remains on `release/v0.39.0`; the release has not merged, so
+     authored-topology corrections keep the same version and public contract.
+   - Close the newly confirmed single-generation tombstone hole, exact audit
+     membership enforcement, strictly-monotonic repair/retirement clocks,
+     winner-report invalidation, nested Markdown labels, and single-decode
+     target normalization.
+   - Preserve the already-green first hardening pass from commit `f6ff089`;
+     every new failure receives a red regression test before code.
+   - Seven direct review findings plus a reconciliation-quiescence guard are
+     implemented, fully validated, pushed, and green on latest-head PR CI.
+
+2. **[Patch Chain] v0.39.x Stability Regression Audit — v0.32.0 Through Current** *(ACTIVE — PLAN FIRST)*
+   - Audit every merged release diff from PR #80 / v0.32.0 through PR #100 /
+     v0.38.0 plus the current PR #101 branch. Cross-check the original release
+     plan, implementation diff, tests, specs/guides, and adjacent failure
+     transitions rather than re-reading only the final happy path.
+   - Confirmed starting queue: complete source-deletion closure; post-publish
+     compiler recovery; explicit vector-query degradation; provider/CLI abort
+     and model dispatch parity; MCP name mapping and shutdown settlement;
+     bounded backend subprocesses; fail-closed/atomic session and secret
+     persistence; runtime-secret redaction; embedding/reranker cardinality;
+     prompt failover attribution and numeric version ordering.
+   - Deliver fixes as independently reviewable patch releases by integrity
+     boundary. Do not place all cross-system work into PR #101. No schema change
+     is currently expected; stop and re-plan as a Minor if the audit proves one
+     necessary.
+
+3. **[Major Update] System Stability Overhaul — Exhaustive Diagnosis & Refactoring** *(ACTIVE)*
    - Absorbs the prompt-architecture milestone. Whole-codebase diagnosis (bugs,
      redundancy, architectural debt) + refactoring with architectural redesign
      allowed; prompt-v2 for cross-model output consistency; legacy/dead-code sweep.
    - Master Plan: `.agents/plans/01_system_stability_overhaul.md`
    - Briefing: `.agents/plans/system_stability_overhaul_arena/00_problem.md`
    - Delivered as a chain of independently reviewable release PRs.
-   - **Shipped stability & hardening releases (v0.25.0 → v0.37.1)**:
+   - **Shipped stability & hardening releases (v0.25.0 → v0.39.0)**:
      diagnosis G17–G19, XC-1/XC-4 robustness slices, DB-2 slices 1–2,
      CLI/MCP warning visibility, portable paths and cross-device LWW sync,
      strict v12 schema/reindex speedup, CM-1 command decomposition,
-     fail-closed sync/KRS integrity, and the PDF/Antigravity transport hotfixes.
+     fail-closed sync/KRS integrity, PDF/Antigravity transport hotfixes,
+     grounded Sidechat vault links, and authored-note graph topology.
    - **Remaining Scope for Upcoming Releases**:
-     - **Compiler integrity**: Failure Atlas F9 authored-note topology remains a
-       separate backend compiler workstream. It is not the Sidechat navigation
-       feature requested for v0.38.0.
+     - **Source-Deletion Closure**: separately plan and repair the pre-existing
+       extracted-data deletion path so source removal cannot leave active
+       generations, knowledge units, graph support, or serving artifacts.
+       This is broader than F9 authored-topology hardening and must not be
+       smuggled into PR #101 without its own evidence and plan.
      - **Exception Handling Hardening (XC-1 later slices)**: audit broad
        catch-and-return boundary handlers and other backend modules after the
        silent-swallow slice lands. Provider follow-ups found during v0.37.1
@@ -53,29 +85,22 @@ implementation item.
        no-JSON plugin command errors.
      - **Performance & UX Refinements**: RAG/DAG benchmark harness & retrieval hotspot optimization; chat/popover UX friction cleanup.
 
-2. **[Stability / Compiler] Failure Atlas F9 Authored-Note Topology**
-   - Compile human-authored note wikilinks/embeds/tags/frontmatter references as
-     topology distinct from LLM-extracted relations.
-   - This is the existing Program 2 backend oracle in
-     `backend/tests/test_failure_atlas_repro.py`; it is not required for
-     Sidechat answer navigation and gets its own future contract/rollback.
-
-3. **[Minor Update] Chat Session Context Compaction**
+4. **[Minor Update] Chat Session Context Compaction**
    - Confirm full-session history behavior.
    - Add a Claude-Code-style circular token usage meter under the query box and a click-to-compact action.
    - Detailed analysis: `.agents/drafts/chat_context_compaction.md`
 
-4. **[Minor Update] Vault Storage Governance & Quota Visibility**
+5. **[Minor Update] Vault Storage Governance & Quota Visibility**
    - Separate authoritative, derived, cache, and external storage accounting.
    - Add capacity guidance, safe admission control, and CLI/plugin visibility.
    - Detailed analysis: `.agents/drafts/vault_storage_governance.md`
 
-5. **[Major Update] Native PDF Annotation & Asset System**
+6. **[Major Update] Native PDF Annotation & Asset System**
    - Native annotation highlight/memo synchronization using Obsidian's built-in PDF viewer.
    - In-PDF full-text search and strict-spelling mode remain here.
    - Detailed analysis: `.agents/drafts/pdf_annotation_system.md`
 
-6. **[Minor Update] Web Search Integration**
+7. **[Minor Update] Web Search Integration**
    - Design and integrate web search capabilities for local models (Ollama, Deepseek, etc.).
    - Investigate API options (Brave, SerpAPI) and implement `web_search.py`.
    - The former quick-wins draft was deleted after triage; create a fresh
@@ -86,7 +111,7 @@ implementation item.
 ## ✅ Completed Milestones
 
 - **v0.38.0 — Sidechat Vault-Page Wikilinks**
-  (release-ready 2026-07-30): every selectable Sidechat provider receives the
+  (shipped 2026-07-30, PR #100): every selectable Sidechat provider receives the
   same exact-path/non-invention contract and completed `vault_link_target`
   literals for safe included Markdown/PDF context and usable ContextService
   locators. External, degraded, unsafe, or source-kind/suffix-mismatched targets
@@ -337,8 +362,8 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: System Stability Overhaul ACTIVE; v0.37.1 shipped.
-- **Active Milestone**: v0.38.0 Sidechat Vault-Page Wikilinks
-  (`release/v0.38.0`).
-- **Next actionable item**: approve the Sidechat link contract, then implement
-  it docs-first and TDD-first without coupling it to Failure Atlas F9.
+- **Roadmap state**: System Stability Overhaul ACTIVE; v0.39.0 is unmerged.
+- **Active Milestone**: v0.39.0 authored-topology review-blocker closure plus
+  the v0.32.0+ release-chain regression audit.
+- **Next actionable item**: merge PR #101, fast-forward `master`, then begin P5
+  source-lifecycle/compiler-recovery work from the clean merged anchor.

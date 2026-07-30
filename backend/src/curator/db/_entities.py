@@ -10,9 +10,11 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import unicodedata
 import uuid
 from collections import defaultdict, deque
-from pathlib import Path
+from datetime import datetime, timedelta, timezone
+from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Mapping
 
 from .schema import (
@@ -34,6 +36,11 @@ def _new_id(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4().hex[:8]}"
 
 
+def _portable_graph_source_key(value: Any) -> str:
+    normalized = unicodedata.normalize("NFC", str(value or ""))
+    return PurePosixPath(normalized.replace("\\", "/").lstrip("/")).as_posix()
+
+
 def _loads_list(raw: Any) -> list:
     if not raw:
         return []
@@ -51,6 +58,46 @@ def _loads_obj(raw: Any) -> Any:
         return json.loads(raw)
     except (TypeError, ValueError):
         return {}
+
+
+def generation_authored_relation_ids(audit_json: object) -> tuple[str, ...] | None:
+    """Return exact canonical authored membership, or ``None`` if malformed."""
+    if isinstance(audit_json, Mapping):
+        audit = audit_json
+    else:
+        try:
+            audit = json.loads(str(audit_json or "{}"))
+        except (TypeError, ValueError):
+            return None
+    if not isinstance(audit, Mapping):
+        return None
+    raw = audit.get("authored_relation_ids")
+    if (
+        not isinstance(raw, list)
+        or any(not isinstance(value, str) or not value for value in raw)
+        or raw != sorted(set(raw))
+    ):
+        return None
+    return tuple(raw)
+
+
+def strict_successor_timestamp(*revisions: object) -> str:
+    """Return a UTC LWW revision newer than now and every valid input revision."""
+    candidates = [datetime.now(timezone.utc)]
+    for revision in revisions:
+        if not isinstance(revision, str):
+            continue
+        try:
+            parsed = datetime.fromisoformat(revision.replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if parsed.tzinfo is not None:
+            candidates.append(parsed.astimezone(timezone.utc))
+    try:
+        successor = max(candidates) + timedelta(microseconds=1)
+    except OverflowError as exc:
+        raise ValueError("cannot advance past maximum LWW revision") from exc
+    return successor.isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
 def _decode_span_row(row: sqlite3.Row) -> dict:
@@ -702,6 +749,7 @@ def upsert_graph_entity(
     source_span_ids: list[str] | None = None,
     knowledge_unit_ids: list[str] | None = None,
     prompt_run_id: str | None = None,
+    entity_id: str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> str:
     """Insert or merge an entity, deduplicated by (canonical_name, entity_type).
@@ -715,6 +763,11 @@ def upsert_graph_entity(
             (canonical_name, entity_type),
         ).fetchone()
         if existing:
+            if entity_id is not None and str(existing["id"]) != entity_id:
+                raise ValueError(
+                    "graph entity key already has a different id: "
+                    f"{existing['id']} != {entity_id}"
+                )
             merged_spans = sorted(
                 set(_loads_list(existing["source_span_ids"]))
                 | set(source_span_ids or [])
@@ -737,7 +790,17 @@ def upsert_graph_entity(
                 ),
             )
             return str(existing["id"])
-        entity_id = _new_id("ENT")
+        chosen_id = entity_id or _new_id("ENT")
+        collision = conn.execute(
+            "SELECT canonical_name, entity_type FROM graph_entities WHERE id = ?",
+            (chosen_id,),
+        ).fetchone()
+        if collision is not None:
+            raise ValueError(
+                "graph entity id collision: "
+                f"{chosen_id} owns ({collision['canonical_name']}, "
+                f"{collision['entity_type']})"
+            )
         conn.execute(
             """
             INSERT INTO graph_entities
@@ -746,13 +809,13 @@ def upsert_graph_entity(
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                entity_id, canonical_name, entity_type, description,
+                chosen_id, canonical_name, entity_type, description,
                 json.dumps(source_span_ids or []),
                 json.dumps(knowledge_unit_ids or []),
                 prompt_run_id, now, now,
             ),
         )
-        return entity_id
+        return chosen_id
 
 
 def upsert_graph_relation(
@@ -766,10 +829,21 @@ def upsert_graph_relation(
     source_span_ids: list[str] | None = None,
     confidence: float = 0.0,
     prompt_run_id: str | None = None,
+    relation_id: str | None = None,
+    lifecycle_status: str | None = None,
+    quarantine_reason: str | None = None,
+    edge_class: str | None = None,
+    topology_weight: float | None = None,
+    reeval_trigger: str | None = None,
+    generation_id: str | None = None,
     conn: sqlite3.Connection | None = None,
 ) -> str:
-    """Insert a relation. Both endpoints must be declared entities. Pass ``conn``
-    to run inside a caller's transaction (atomic publish)."""
+    """Insert or re-assert a relation whose endpoints are declared entities.
+
+    Lifecycle metadata defaults only on insert; omitted metadata preserves an
+    existing proposition's compiled state. Pass ``conn`` to join a caller's
+    atomic publish transaction.
+    """
     if not 0.0 <= confidence <= 1.0:
         raise ValueError(f"relation confidence out of range: {confidence}")
     with _maybe_conn(db_path, conn) as conn:
@@ -781,43 +855,207 @@ def upsert_graph_relation(
                 raise ValueError(f"relation endpoint is not a declared entity: {endpoint}")
         existing = conn.execute(
             """
-            SELECT id FROM graph_relations
+            SELECT * FROM graph_relations
             WHERE source_entity_id = ? AND target_entity_id = ? AND relation_type = ?
             """,
             (source_entity_id, target_entity_id, relation_type),
         ).fetchone()
         now = _now_iso()
         if existing:
+            if relation_id is not None and str(existing["id"]) != relation_id:
+                raise ValueError(
+                    "graph relation proposition already has a different id: "
+                    f"{existing['id']} != {relation_id}"
+                )
             conn.execute(
                 """
                 UPDATE graph_relations
                    SET description = ?, assertion_source = ?, source_span_ids = ?,
-                       confidence = ?, updated_at = ?
+                       confidence = ?, lifecycle_status = ?,
+                       quarantine_reason = ?, edge_class = ?, topology_weight = ?,
+                       reeval_trigger = ?, generation_id = ?, updated_at = ?
                  WHERE id = ?
                 """,
                 (
                     description, assertion_source,
-                    json.dumps(source_span_ids or []), confidence, now,
+                    json.dumps(source_span_ids or []), confidence,
+                    lifecycle_status
+                    if lifecycle_status is not None
+                    else existing["lifecycle_status"],
+                    quarantine_reason
+                    if quarantine_reason is not None
+                    else existing["quarantine_reason"],
+                    edge_class if edge_class is not None else existing["edge_class"],
+                    topology_weight
+                    if topology_weight is not None
+                    else existing["topology_weight"],
+                    reeval_trigger
+                    if reeval_trigger is not None
+                    else existing["reeval_trigger"],
+                    generation_id
+                    if generation_id is not None
+                    else existing["generation_id"],
+                    now,
                     existing["id"],
                 ),
             )
             return str(existing["id"])
-        relation_id = _new_id("REL")
+        chosen_id = relation_id or _new_id("REL")
+        collision = conn.execute(
+            "SELECT source_entity_id, target_entity_id, relation_type "
+            "FROM graph_relations WHERE id = ?",
+            (chosen_id,),
+        ).fetchone()
+        if collision is not None:
+            raise ValueError(
+                "graph relation id collision: "
+                f"{chosen_id} owns ({collision['source_entity_id']}, "
+                f"{collision['target_entity_id']}, {collision['relation_type']})"
+            )
         conn.execute(
             """
             INSERT INTO graph_relations
                 (id, source_entity_id, target_entity_id, relation_type, description,
                  assertion_source, source_span_ids, confidence, prompt_run_id,
-                 created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 created_at, updated_at, lifecycle_status, quarantine_reason,
+                 edge_class, topology_weight, reeval_trigger, generation_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                relation_id, source_entity_id, target_entity_id, relation_type,
+                chosen_id, source_entity_id, target_entity_id, relation_type,
                 description, assertion_source, json.dumps(source_span_ids or []),
                 confidence, prompt_run_id, now, now,
+                lifecycle_status or "provisional",
+                quarantine_reason or "",
+                edge_class or "extracted",
+                topology_weight if topology_weight is not None else 0.0,
+                reeval_trigger or "",
+                generation_id,
             ),
         )
-        return relation_id
+        return chosen_id
+
+
+def retire_graph_relations_on_connection(
+    conn: sqlite3.Connection,
+    relation_ids: Iterable[str],
+    *,
+    now: str | None = None,
+) -> int:
+    """Retire relations and their dependent served reports atomically."""
+    ids = sorted(set(relation_ids))
+    if not ids:
+        return 0
+    revisions: list[object] = [now]
+    for chunk in _chunked(ids):
+        placeholders = ",".join("?" for _ in chunk)
+        revisions.extend(
+            row["updated_at"]
+            for row in conn.execute(
+                "SELECT updated_at FROM graph_relations "
+                f"WHERE id IN ({placeholders})",
+                chunk,
+            ).fetchall()
+        )
+        revisions.extend(
+            row["updated_at"]
+            for row in conn.execute(
+                "SELECT updated_at FROM community_reports "
+                "WHERE retired_at IS NULL AND id IN ("
+                "SELECT artifact_id FROM artifact_dependencies "
+                "WHERE artifact_type = 'community_report' "
+                "AND depends_on_type = 'relation' "
+                f"AND depends_on_id IN ({placeholders}))",
+                chunk,
+            ).fetchall()
+        )
+    retired_at = strict_successor_timestamp(*revisions)
+    retired = 0
+    for chunk in _chunked(ids):
+        placeholders = ",".join("?" for _ in chunk)
+        result = conn.execute(
+            "UPDATE graph_relations SET lifecycle_status = 'retired', "
+            "quarantine_reason = '', reeval_trigger = '', updated_at = ? "
+            f"WHERE id IN ({placeholders}) AND lifecycle_status != 'retired'",
+            (retired_at, *chunk),
+        )
+        retired += result.rowcount
+        conn.execute(
+            "UPDATE community_reports SET retired_at = ?, updated_at = ? "
+            "WHERE retired_at IS NULL AND id IN ("
+            "SELECT artifact_id FROM artifact_dependencies "
+            "WHERE artifact_type = 'community_report' "
+            "AND depends_on_type = 'relation' "
+            f"AND depends_on_id IN ({placeholders}))",
+            (retired_at, retired_at, *chunk),
+        )
+    return retired
+
+
+def retire_community_reports_for_relation_endpoints_on_connection(
+    conn: sqlite3.Connection,
+    relation_ids: Iterable[str],
+    *,
+    now: str | None = None,
+) -> int:
+    """Retire reports predating newly-active topology at either endpoint."""
+    relation_endpoints: dict[str, frozenset[str]] = {}
+    revisions: list[object] = [now]
+    for relation_id in sorted(set(relation_ids)):
+        row = conn.execute(
+            "SELECT source_entity_id, target_entity_id, updated_at "
+            "FROM graph_relations "
+            "WHERE id = ? AND lifecycle_status = 'active'",
+            (relation_id,),
+        ).fetchone()
+        if row is not None:
+            relation_endpoints[relation_id] = frozenset(
+                (str(row["source_entity_id"]), str(row["target_entity_id"]))
+            )
+            revisions.append(row["updated_at"])
+    if not relation_endpoints:
+        return 0
+
+    dependencies: dict[str, set[str]] = defaultdict(set)
+    for chunk in _chunked(sorted(relation_endpoints)):
+        placeholders = ",".join("?" for _ in chunk)
+        for row in conn.execute(
+            "SELECT artifact_id, depends_on_id FROM artifact_dependencies "
+            "WHERE artifact_type = 'community_report' "
+            "AND depends_on_type = 'relation' "
+            f"AND depends_on_id IN ({placeholders})",
+            chunk,
+        ).fetchall():
+            dependencies[str(row["artifact_id"])].add(str(row["depends_on_id"]))
+
+    report_ids: list[str] = []
+    for row in conn.execute(
+        "SELECT id, entity_ids, updated_at FROM community_reports "
+        "WHERE retired_at IS NULL"
+    ).fetchall():
+        report_id = str(row["id"])
+        entities = {str(value) for value in _loads_list(row["entity_ids"])}
+        relevant_relations = {
+            relation_id
+            for relation_id, endpoints in relation_endpoints.items()
+            if endpoints.intersection(entities)
+        }
+        if (
+            relevant_relations
+            and not relevant_relations.issubset(dependencies.get(report_id, set()))
+        ):
+            report_ids.append(report_id)
+            revisions.append(row["updated_at"])
+    if not report_ids:
+        return 0
+
+    retired_at = strict_successor_timestamp(*revisions)
+    conn.executemany(
+        "UPDATE community_reports SET retired_at = ?, updated_at = ? "
+        "WHERE id = ? AND retired_at IS NULL",
+        [(retired_at, retired_at, report_id) for report_id in report_ids],
+    )
+    return len(report_ids)
 
 
 def upsert_graph_relation_support(
@@ -1300,10 +1538,11 @@ def compile_relation_lifecycle(
     3. ``contradiction`` — a ``contradicts`` relation joins the same endpoints.
     4. ``bridge_risk`` — the relation is a structural cut edge between two dense
        components (see :func:`detect_bridge_risk_relations`).
-    5. Support corroboration over DISTINCT ``verified`` source lineages (§21.5):
-       ``0`` -> ``unsupported``; exactly ``1`` -> ``copied_source_only``;
-       ``>=2`` -> ``active`` (the §27.2 corroboration threshold). There is no
-       ``duplicate_proposition`` outcome — re-assertion aggregates support.
+    5. Edge-class proof: an authored relation is active only under its current
+       authoritative source generation; extracted support corroboration counts
+       DISTINCT ``verified`` source lineages (§21.5): ``0`` -> ``unsupported``;
+       exactly ``1`` -> ``copied_source_only``; ``>=2`` -> ``active``. There is
+       no ``duplicate_proposition`` outcome — re-assertion aggregates support.
 
     Pass a precomputed ``bridge_risk_ids`` set (from one
     :func:`detect_bridge_risk_relations` pass) when compiling a whole generation so
@@ -1312,8 +1551,8 @@ def compile_relation_lifecycle(
     """
     with _maybe_conn(db_path, conn) as conn:
         rel = conn.execute(
-            "SELECT source_entity_id, target_entity_id, relation_type "
-            "FROM graph_relations WHERE id = ?",
+            "SELECT source_entity_id, target_entity_id, relation_type, edge_class, "
+            "generation_id FROM graph_relations WHERE id = ?",
             (relation_id,),
         ).fetchone()
         if rel is None:
@@ -1323,7 +1562,15 @@ def compile_relation_lifecycle(
         rtype = str(rel["relation_type"])
 
         status, reason = _classify_relation_lifecycle(
-            conn, relation_id, src, tgt, rtype, bridge_risk_ids, db_path
+            conn,
+            relation_id,
+            src,
+            tgt,
+            rtype,
+            str(rel["edge_class"]),
+            str(rel["generation_id"] or ""),
+            bridge_risk_ids,
+            db_path,
         )
 
         if status == "active":
@@ -1354,6 +1601,8 @@ def _classify_relation_lifecycle(
     src: str,
     tgt: str,
     rtype: str,
+    edge_class: str,
+    generation_id: str,
     bridge_risk_ids: set[str] | None,
     db_path: Path,
 ) -> tuple[str, str]:
@@ -1372,6 +1621,31 @@ def _classify_relation_lifecycle(
         ).fetchone()
         if state is not None and str(state[0]) != "canonical":
             return "quarantined", "endpoint_unresolved"
+
+    # Authored relations are structural topology, not extracted propositions.
+    # Exact presence in the current published source generation is their proof
+    # rule; they never acquire synthetic graph_relation_supports (§27.3.1).
+    if edge_class == "authored":
+        current = conn.execute(
+            "SELECT s.relpath, s.file_type, e.canonical_name, e.entity_type, "
+            "g.audit_json "
+            "FROM compiler_generations g "
+            "JOIN sources s ON s.id = g.source_id "
+            "JOIN graph_entities e ON e.id = ? "
+            "WHERE g.id = ? AND g.status = 'authoritative' LIMIT 1",
+            (src, generation_id),
+        ).fetchone()
+        if (
+            current is not None
+            and str(current["file_type"]).casefold() in {"md", "markdown"}
+            and str(current["entity_type"]) == "vault_note"
+            and _portable_graph_source_key(current["canonical_name"])
+            == _portable_graph_source_key(current["relpath"])
+            and relation_id
+            in (generation_authored_relation_ids(current["audit_json"]) or ())
+        ):
+            return "active", ""
+        return "quarantined", "unsupported"
 
     # Contradiction: a `contradicts` relation joins the same endpoints (either
     # direction), excluding the relation being compiled. This quarantines a NON-
@@ -1442,19 +1716,40 @@ def find_graph_entities(db_path: Path, name_like: str, limit: int = 12) -> list[
         return [_decode_entity_row(row) for row in rows]
 
 
-def relation_neighborhood(db_path: Path, entity_ids: list[str]) -> list[dict]:
-    """Return relations touching any of the given entities (one hop)."""
+def relation_neighborhood(
+    db_path: Path,
+    entity_ids: list[str],
+    *,
+    lifecycle_status: str | None = None,
+) -> list[dict]:
+    """Return relations touching the given entities.
+
+    ``lifecycle_status=None`` is the explicit inspection view. Authoritative
+    consumers pass ``"active"`` so provisional/quarantined/retired rows cannot
+    shape serving traversal.
+    """
     if not entity_ids:
         return []
     with connect(db_path) as conn:
         placeholders = ",".join("?" for _ in entity_ids)
+        lifecycle_clause = (
+            "" if lifecycle_status is None else "AND lifecycle_status = ?"
+        )
+        params: tuple[Any, ...] = (
+            tuple(entity_ids) + tuple(entity_ids)
+            + (() if lifecycle_status is None else (lifecycle_status,))
+        )
         rows = conn.execute(
             f"""
             SELECT * FROM graph_relations
-            WHERE source_entity_id IN ({placeholders})
-               OR target_entity_id IN ({placeholders})
+            WHERE (
+                source_entity_id IN ({placeholders})
+                OR target_entity_id IN ({placeholders})
+            )
+            {lifecycle_clause}
+            ORDER BY id
             """,
-            tuple(entity_ids) + tuple(entity_ids),
+            params,
         ).fetchall()
         return [_decode_relation_row(row) for row in rows]
 
@@ -1677,8 +1972,9 @@ _GRAPH_FALLBACK_CONFIG = {
     "algorithm": "connected_components",
     "only_active": True,
     "corroboration_threshold": _RELATION_CORROBORATION_THRESHOLD,
+    "authored_topology": True,
     "seed": 0,
-    "version": 1,
+    "version": 2,
 }
 
 
@@ -1706,20 +2002,22 @@ def rebuild_graph_generation(
        bridge-risk topology pass, so the ``active`` set reflects current support.
     2. Build communities from ``connected_components(only_active=True)`` (§27.4),
        keeping only multi-node components (a lone node yields no community).
-    3. Derive content/config identity per community (§21.7): ``member_hash`` over the
-       sorted canonical members, ``support_hash`` over the eligible verified
-       active-support set, ``community_key = f(level, member_hash, support_hash,
-       config_hash)``, and ``dependency_hash`` over the active-canonical-support
-       closure.
+    3. Derive content/config identity per community (§21.7): ``member_hash`` over
+       sorted canonical members and ``support_hash`` over eligible verified
+       extracted supports plus active authored relation ids. Then derive
+       ``community_key = f(level, member_hash, support_hash, config_hash)`` and
+       ``dependency_hash`` over the active-canonical-support closure.
     4. Merge-upsert one ``community_reports`` row per ``community_key`` — the
-       structural skeleton citing the EXACT active relations and the eligible-support
-       span closure. There is NO whole-community-span fallback: a community with no
-       eligible active support emits no report (§27.5).
+       structural skeleton citing the EXACT active extracted factual relations
+       and eligible-support span closure. Active authored relations may shape
+       membership but are dependencies, never report evidence. There is NO
+       whole-community-span fallback: a community with no eligible extracted
+       support emits no report (§27.5).
     5. Retire (set ``retired_at``) every prior non-retired report whose
        ``community_key`` is absent from the rebuilt set, before synthesis consumes
        it (§27.5).
-    6. Record precise ``artifact_dependencies`` for each report over its active
-       relations and support spans.
+    6. Record precise ``artifact_dependencies`` for each report over every active
+       topology relation that shaped membership and every factual support span.
 
     Idempotent: an unchanged rebuild yields identical keys, so the same ``REP-`` ids
     are reused and nothing is retired — no count amplification (§27.8). Returns
@@ -1756,7 +2054,8 @@ def rebuild_graph_generation(
 
         comp_rels: dict[int, list[sqlite3.Row]] = defaultdict(list)
         for r in conn.execute(
-            "SELECT id, source_entity_id, target_entity_id, relation_type, description "
+            "SELECT id, source_entity_id, target_entity_id, relation_type, "
+            "description, edge_class "
             "FROM graph_relations WHERE lifecycle_status = 'active' "
             "AND source_entity_id != target_entity_id ORDER BY id"
         ).fetchall():
@@ -1784,16 +2083,25 @@ def rebuild_graph_generation(
         for idx, members_set in enumerate(components):
             members = sorted(members_set)
             rel_rows = comp_rels.get(idx, [])  # pre-ordered by id from the bulk query
-            active_rel_ids = [str(r["id"]) for r in rel_rows]
-            if not active_rel_ids:
-                continue  # no eligible active claim support -> no report (§27.5)
+            topology_rel_ids = [str(r["id"]) for r in rel_rows]
+            factual_rel_rows = [
+                relation
+                for relation in rel_rows
+                if str(relation["edge_class"]) == "extracted"
+                and supports_by_rel.get(str(relation["id"]))
+            ]
+            factual_rel_ids = [str(r["id"]) for r in factual_rel_rows]
+            if not factual_rel_ids:
+                # Authored topology can form a component but never fabricates a
+                # factual community report (§27.3.1/§27.5).
+                continue
 
-            # (3) eligible verified support closure for those active relations —
+            # (3) eligible verified support closure for active EXTRACTED relations —
             # flattened from the single bulk fetch in (rel_id asc, lineage asc, hash
             # asc) order, byte-identical to the prior per-community
             # ORDER BY relation_id, source_lineage_hash, support_hash.
             support_rows = [
-                s for rid in active_rel_ids for s in supports_by_rel.get(rid, [])
+                s for rid in factual_rel_ids for s in supports_by_rel.get(rid, [])
             ]
             support_keys = [
                 [str(s["relation_id"]), str(s["source_lineage_hash"]),
@@ -1806,7 +2114,15 @@ def rebuild_graph_generation(
             })
 
             member_hash = _sha16(members)
-            support_hash = _sha16(support_keys)
+            authored_topology_ids = [
+                str(relation["id"])
+                for relation in rel_rows
+                if str(relation["edge_class"]) == "authored"
+            ]
+            support_hash = _sha16({
+                "extracted_supports": support_keys,
+                "authored_topology": authored_topology_ids,
+            })
             level = 0
             community_key = "comm-" + hashlib.sha256(
                 f"{level}|{member_hash}|{support_hash}|{cfg_hash}".encode("utf-8")
@@ -1862,7 +2178,7 @@ def rebuild_graph_generation(
                 community_key=community_key,
                 level=level,
                 entity_ids=members,
-                relation_ids=active_rel_ids,
+                relation_ids=factual_rel_ids,
                 source_span_ids=span_ids,
                 member_hash=member_hash,
                 support_hash=support_hash,
@@ -1873,7 +2189,7 @@ def rebuild_graph_generation(
             current_keys.append(community_key)
 
             # (6) precise dependencies (idempotent: PK is artifact+dep+type).
-            for rid in active_rel_ids:
+            for rid in topology_rel_ids:
                 record_artifact_dependency(
                     db_path, artifact_id=report_id,
                     artifact_type="community_report", depends_on_id=rid,
@@ -1998,6 +2314,7 @@ def reconcile_source_change(
 # positives (§21.9).
 GRAPH_AUDIT_CODES = frozenset(
     {
+        "active_authored_relation_stale_generation",
         "active_relation_insufficient_support",
         "reference_to_redirected_entity",
         "endpoint_not_canonical",
@@ -2014,11 +2331,13 @@ def graph_audit(
 
     Returns the list of violations (empty == clean). Each violation is a mapping
     with a frozen ``code``, the offending artifact's ``subject_id``, and a human
-    ``detail``. The four enforced invariants:
+    ``detail``. The enforced invariants:
 
-    1. ``active_relation_insufficient_support`` — an ``active`` relation backed by
-       fewer than 2 distinct ``verified`` source lineages (below the §21.5
-       corroboration floor).
+    1. ``active_relation_insufficient_support`` — an ``active`` extracted
+       relation backed by fewer than 2 distinct ``verified`` source lineages
+       (below the §21.5 corroboration floor).
+       ``active_authored_relation_stale_generation`` — an authored relation not
+       owned by a current authoritative source generation (§27.3.1).
     2. ``reference_to_redirected_entity`` / ``endpoint_not_canonical`` — an
        ``active`` relation whose source/target endpoint is not a canonical entity
        (specifically ``redirected``, or any other non-canonical state).
@@ -2031,10 +2350,11 @@ def graph_audit(
     """
     violations: list[dict] = []
     with _maybe_conn(db_path, conn) as conn:
-        entity_state = {
-            str(r["id"]): str(r["resolution_state"])
+        entities = {
+            str(r["id"]): r
             for r in conn.execute(
-                "SELECT id, resolution_state FROM graph_entities"
+                "SELECT id, resolution_state, canonical_name, entity_type "
+                "FROM graph_entities"
             ).fetchall()
         }
         verified_lineages = {
@@ -2045,29 +2365,74 @@ def graph_audit(
                 "GROUP BY relation_id"
             ).fetchall()
         }
+        current_authored_generations = {
+            str(r["id"]): (
+                _portable_graph_source_key(r["relpath"]),
+                generation_authored_relation_ids(r["audit_json"]),
+            )
+            for r in conn.execute(
+                "SELECT g.id, g.audit_json, s.relpath FROM compiler_generations g "
+                "JOIN sources s ON s.id = g.source_id "
+                "WHERE g.status = 'authoritative' "
+                "AND lower(s.file_type) IN ('md', 'markdown')"
+            ).fetchall()
+        }
         rel_status: dict[str, str] = {}
+        rel_class: dict[str, str] = {}
         for r in conn.execute(
             "SELECT id, source_entity_id, target_entity_id, lifecycle_status, "
-            "quarantine_reason, reeval_trigger FROM graph_relations ORDER BY id"
+            "quarantine_reason, reeval_trigger, edge_class, generation_id "
+            "FROM graph_relations ORDER BY id"
         ).fetchall():
             rid = str(r["id"])
             status = str(r["lifecycle_status"])
+            edge_class = str(r["edge_class"])
             rel_status[rid] = status
+            rel_class[rid] = edge_class
             if status == "active":
-                lineages = verified_lineages.get(rid, 0)
-                if lineages < _RELATION_CORROBORATION_THRESHOLD:
-                    violations.append({
-                        "code": "active_relation_insufficient_support",
-                        "subject_id": rid,
-                        "detail": (
-                            f"{lineages} verified independent source lineages "
-                            f"(< {_RELATION_CORROBORATION_THRESHOLD})"
-                        ),
-                    })
+                if edge_class == "authored":
+                    generation_id = str(r["generation_id"] or "")
+                    source_entity = entities.get(str(r["source_entity_id"]))
+                    generation = current_authored_generations.get(generation_id)
+                    owns_source = (
+                        source_entity is not None
+                        and generation is not None
+                        and str(source_entity["entity_type"]) == "vault_note"
+                        and _portable_graph_source_key(
+                            source_entity["canonical_name"]
+                        ) == generation[0]
+                        and generation[1] is not None
+                        and rid in generation[1]
+                    )
+                    if not owns_source:
+                        violations.append({
+                            "code": "active_authored_relation_stale_generation",
+                            "subject_id": rid,
+                            "detail": (
+                                "authored relation is not owned by a current "
+                                "authoritative source generation"
+                            ),
+                        })
+                else:
+                    lineages = verified_lineages.get(rid, 0)
+                    if lineages < _RELATION_CORROBORATION_THRESHOLD:
+                        violations.append({
+                            "code": "active_relation_insufficient_support",
+                            "subject_id": rid,
+                            "detail": (
+                                f"{lineages} verified independent source lineages "
+                                f"(< {_RELATION_CORROBORATION_THRESHOLD})"
+                            ),
+                        })
                 for endpoint in (
                     str(r["source_entity_id"]), str(r["target_entity_id"])
                 ):
-                    state = entity_state.get(endpoint)
+                    entity = entities.get(endpoint)
+                    state = (
+                        str(entity["resolution_state"])
+                        if entity is not None
+                        else None
+                    )
                     # ONLY an explicitly-canonical endpoint is admissible. A missing
                     # endpoint (state is None — a dangling reference to an entity that
                     # does not exist in graph_entities) is NOT canonical and must be
@@ -2116,7 +2481,12 @@ def graph_audit(
             # A cited relation that is missing or not `active` is not eligible claim
             # support. `.get(rid)` defaults to None (missing) so a dangling citation
             # is flagged too.
-            stale = sorted(c for c in cited if rel_status.get(c) != "active")
+            stale = sorted(
+                relation_id
+                for relation_id in cited
+                if rel_status.get(relation_id) != "active"
+                or rel_class.get(relation_id) != "extracted"
+            )
             if stale:
                 violations.append({
                     "code": "report_finding_without_active_support",

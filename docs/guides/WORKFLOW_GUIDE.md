@@ -538,8 +538,9 @@ fully published claim generation:
   guards pass; ambiguous homonyms (e.g. "Mercury" planet vs. element) stay
   unmerged until decided. Every accepted merge keeps the original identity and a
   complete rewrite record, so it can be reversed exactly.
-- **Relations are propositions with independent support**: re-extracting the same
-  relation *adds* claim-level support instead of overwriting it. Independence is
+- **Extracted relations are propositions with independent support**:
+  re-extracting the same relation *adds* claim-level support instead of
+  overwriting it. Independence is
   counted by source lineage, so copied/forked sources count once — not as
   multiple confirmations. A relation needs **≥2 independent source lineages** to
   become `active`, so a single source per topic builds no community reports until a
@@ -547,28 +548,51 @@ fully published claim generation:
   compile writes one `graph_relation_supports` row per asserting claim keyed by the
   source's lineage; `wiki build`/`wiki update`'s L3 then grounds reports only on the
   corroborated `active` relations).
-- **Relation lifecycle**: a relation is `active` only with verified independent
-  support and resolved endpoints; weak edges are `quarantined` with a reason
+- **Authored note topology**: exact internal wikilinks, embeds, tags, and
+  frontmatter wikilinks from registered visible `.md` and `.markdown` notes
+  compile as deterministic `authored` edges. Pipe labels and heading/block
+  fragments still resolve to the note/asset page; bounded balanced nested
+  labels, balanced Markdown destinations, and safe parent-relative paths work.
+  Escapes and percent encoding are normalized once. Escaped syntax,
+  numeric-only pseudo-tags, code/comments, ambiguous targets, external paths,
+  hidden paths, and traversal outside the vault fail closed. Portable paths are
+  Unicode-normalized. Edits, renames, deletes, and file-type changes retire
+  stale edges atomically; replica import restores exact winner-generation
+  membership before authored topology is served. Reconciliation still runs
+  with one generation, so a source tombstone cannot leave its topology active.
+- **Relation lifecycle**: an extracted relation is `active` only with verified
+  independent support and resolved endpoints. An authored relation is `active`
+  when its exact structure belongs to the current successful source generation;
+  it never receives synthetic factual support. Weak extracted edges are
+  `quarantined` with a reason
   (`unsupported`, `self_loop`, `contradiction`, `copied_source_only`,
   `bridge_risk`, `endpoint_unresolved`) and a re-eval trigger. A relation is
   never a "duplicate": re-asserting the same proposition aggregates support onto
   the one relation, so an edge is either `unsupported` or valid with aggregated
   support — there is no duplicate to quarantine. Authored links and extracted
-  relations stay separate classes. Only `active` relations build communities.
+  relations stay separate classes. Only `active` relations build topology and
+  explore paths.
 - **Deterministic hierarchy**: the community algorithm is benchmark-selected;
   the same graph + config + seed yields the same hierarchy every time, with
   filtered connected components as an explicit degraded fallback. No unexplained
   giant component.
-- **Claim-grounded reports**: community reports cite exact eligible claim
-  support — the broad "whole community" fallback is removed. Reports whose inputs
-  change retire and regenerate before synthesis uses them.
+- **Claim-grounded reports**: active authored edges may shape community
+  membership, but community reports cite only exact eligible extracted claim
+  support — authored links never become factual evidence. Authored-only
+  components produce no fabricated factual report. The broad "whole community"
+  fallback is removed. Reports whose inputs change retire and regenerate before
+  synthesis uses them; replica reconciliation preserves an imported report that
+  already records the winning authored relation as a dependency.
+- **Fresh graph search**: retired authored relations and authored note/asset/tag
+  entities with no active edge are removed when graph search is rematerialized,
+  including after explicit source removal.
 - **Confidence is not a noise dial**: relation `confidence` is *not* used as a
   serving-time filter (production values were all 0.9–1.0); quarantine decisions
   use support eligibility and structure, not a raw-confidence cutoff.
 - **Audit in lint**: `wiki lint` gains a Graph Quality section asserting no
-  references to merged-away entities, no unsupported active relations, no
-  unresolved endpoints, claim-grounded reports, and 0 homonym false merges; it
-  exits non-zero on release-blocking violations.
+  references to merged-away entities, no invalid active relations, no unresolved
+  endpoints, claim-grounded reports, and 0 homonym false merges; it exits
+  non-zero on release-blocking violations.
 
 ---
 

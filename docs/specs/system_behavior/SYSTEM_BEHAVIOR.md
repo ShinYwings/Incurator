@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.38.0)
+# Incurator - System Behavior (v0.39.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -1952,7 +1952,8 @@ source truth compile into stable, minimal, claim-level grounded L2 knowledge
 without formula loss, unsupported broad-span grounding, duplicate
 accumulation, stale records, or partial authoritative publishes. The frozen
 schema names live in SCHEMA.md §20; this section freezes the behavior.
-Owned failure-atlas cases: F6, F7, F10. F8/F9 (graph) stay with Plan C;
+Owned failure-atlas cases: F6, F7, F10. F8 graph resolution stays with Plan C;
+canonical F9 authored-note topology is specified in §27.3.1/§27.8;
 F3/F4/F5/F11/F12 stay with Program 3.
 
 ### 26.1 Claim-Level Minimal Support Lifecycle
@@ -2310,11 +2311,13 @@ trusted claim generation published by Plan B (§26) into a reversible,
 support-aware entity/relation graph and a measured deterministic community
 hierarchy whose reports stay claim-level grounded and incrementally
 maintainable. The frozen schema names live in SCHEMA.md §21; this section
-freezes the behavior. Owned failure-atlas cases: **F8** (graph resolution /
-unsupported topology) and **F9** (hierarchy quality / report grounding),
-explicitly deferred to Plan C by §26. Query-serving algorithms (PPR, DRIFT,
-global serving, retrieval tuning) remain Program 3 work. Vault quota, storage
-meters, admission limits, and auto-cleanup are out of scope (plan Non-Goals).
+freezes the behavior. Plan C owns **F8** (graph resolution / unsupported
+topology). Canonical Failure Atlas **F9** means authored-note topology and is
+specified by §27.3.1/§27.8; unrelated hierarchy/report-grounding gates in this
+section are identified by their Plan C section numbers, not by F9. Query-serving
+algorithms (PPR, DRIFT, global serving, retrieval tuning) remain Program 3 work.
+Vault quota, storage meters, admission limits, and auto-cleanup are out of scope
+(plan Non-Goals).
 
 Plan C consumes ONLY one fully published B claim generation (`GEN-`,
 SCHEMA §20.3) and its approved support-eligibility states. Reading mixed or
@@ -2401,7 +2404,7 @@ heuristics never compensate for unchecked or broadly grounded claims.
   (the support's evidence hash still matches the span `content_hash`; a drift
   marks the support `stale`). Only supports derived from the authoritative B
   generation may be `verified`; a mixed-generation support is a stop condition.
-- **No broad-span fallback (F9).** No graph or report path may substitute an
+- **No broad-span fallback (Plan C support-grounding gate).** No graph or report path may substitute an
   all-upstream-span set for missing claim-level support. The broad-community-span
   fallback that B's compiler audit measured and handed to Plan C (§26.1) is
   removed here, not merely reported.
@@ -2410,10 +2413,13 @@ heuristics never compensate for unchecked or broadly grounded claims.
 
 - **Lifecycle (Arena decision 7).** Every relation carries `lifecycle_status ∈
   {active, provisional, quarantined, retired}`:
-  - `active` — has **≥2 independent source lineages** of `verified` support (§27.2
-    corroboration threshold), both endpoints resolve to canonical entities, and it
-    passed all quarantine checks. **Only `active`, non-retired relations enter
-    authoritative community construction.**
+  - `active` — authoritative under the relation's edge-class proof rule and both
+    endpoints resolve to canonical entities. `extracted` requires **≥2
+    independent source lineages** of verified support (§27.2). `authored`
+    requires exact source structure in a registered visible Markdown file and
+    the source's current authoritative compiler generation (§27.3.1); it never
+    receives synthetic factual support. **Only `active`, non-retired relations
+    enter authoritative community construction.**
   - `provisional` — exists but not yet promotable (unrevalidated after migration,
     or support still pending). The v9 backfill marks every legacy relation
     `provisional`; none is auto-promoted.
@@ -2439,9 +2445,10 @@ heuristics never compensate for unchecked or broadly grounded claims.
   produce a second relation row to quarantine. Quarantining a re-assertion as a
   "duplicate" would suppress its supports and corrupt the independent-support
   count — the inverse of the aggregation contract — so the state cannot exist by
-  construction. A relation's support-side state is therefore a total partition by
-  independent-source-lineage count: **0** → `unsupported`; **exactly 1** →
-  `copied_source_only` (a single, uncorroborated source); **≥2** → `active`. If
+  construction. An extracted relation's support-side state is therefore a total
+  partition by independent-source-lineage count: **0** → `unsupported`;
+  **exactly 1** → `copied_source_only` (a single, uncorroborated source);
+  **≥2** → `active`. If
   two physical rows are ever found for the same canonical proposition,
   reconciliation (§27.8) merges their supports onto the canonical relation; it
   never quarantines one as a duplicate.
@@ -2457,6 +2464,73 @@ heuristics never compensate for unchecked or broadly grounded claims.
   resolution only (§27.1) before lifecycle evaluation; an unresolved endpoint
   quarantines the relation with `endpoint_unresolved` rather than entering
   topology with a redirected node.
+
+#### 27.3.1 v0.39 Authored-Note Compiler Contract (Failure Atlas F9)
+
+- **Source boundary.** Only registered, visible Markdown source files with a
+  case-insensitive `.md` or `.markdown` suffix may emit authored topology.
+  PDF/external attachment content and derived `.curator` projections never
+  emit it. If a previously compiled Markdown source becomes non-Markdown, its
+  prior authored set retires in the next successful publish.
+- **Closed syntax set.** Body `[[wikilinks]]`, note/asset `![[embeds]]`,
+  internal Markdown links/images, body/YAML tags, and quoted/list-valued
+  frontmatter wikilinks compile respectively to `links_to`, `embeds`,
+  `tagged_with`, or `property_ref`. Fenced code, inline code, and comments are
+  masked without joining text across the masked region. Backslash-escaped
+  syntax and numeric-only pseudo-tags emit nothing. A fenced block closes with
+  the same marker type and at least the opening marker length; an unclosed
+  fence masks through end of file. Markdown destinations support balanced
+  parentheses, and link labels support bounded balanced nested brackets.
+  Destination escapes and percent encoding are normalized exactly once, so a
+  literal double-encoded target is not silently rewritten into another vault
+  path. Plugin-specific citation grammars are outside the contract unless
+  represented by an ordinary internal vault link.
+- **Endpoint identity.** Pipe display text, `#heading`/`^block` fragments, and
+  embed sizes are presentation only and are removed before identity. Endpoint
+  types are `vault_note`, `vault_asset`, and `tag`. `aliases` may resolve a
+  target but do not create an edge or semantic entity merge.
+- **Fail-closed resolution.** Resolution tries exact vault-root path, exact
+  source-relative path (including lexically normalized `.`/`..` segments that
+  remain inside the vault), unique visible filename/stem, then unique visible
+  frontmatter alias. Each stage is tri-state: a unique match resolves, no match
+  advances, and multiple matches terminate without falling through to a later
+  alias. External URLs, hidden/control paths, traversal outside the vault,
+  ambiguity, and unresolved targets emit no relation.
+- **Portable deterministic identity.** F9-created entity ids hash the entity
+  type and Unicode-NFC canonical portable vault key; authored relation ids hash
+  source id, target id, and relation type. Existing extracted identity behavior
+  is unchanged. On DB import, concurrent authoritative generations for the same
+  portable source reconcile to the source-fingerprint match and then newest
+  publication. The generation audit records the exact sorted authored relation
+  ids. Import reassigns shared winner-member rows to the winning generation and
+  retires only loser-exclusive rows; a relation-row LWW clock cannot override
+  the winning generation's membership. With three or more concurrent
+  generations, a winner relation is a topology addition if any losing
+  generation omitted it, so endpoint reports from that replica retire. A
+  legacy/malformed audit fails closed and never resurrects topology. An
+  authored relation is admitted only when its id is in that exact valid
+  membership. Reconciliation also evaluates a lone authoritative generation;
+  if the source row was tombstoned, no generation wins and all source-owned
+  authored relations retire. Every repair or retirement revision is strictly
+  newer than every valid affected LWW revision. Unchanged builds and
+  independent-device compilation therefore converge to one logical, serving
+  generation under DB sync.
+- **Publication and ownership.** Extraction completes in memory before graph
+  writes. Inside the existing successful compiler publish transaction, the
+  current source generation upserts the deterministic set and retires prior
+  source-owned authored relations absent from that set. Failed compilation
+  leaves the previous authored set byte/logically unchanged. Source
+  edit/delete/rename/type-change retires stale source-owned edges; rename
+  publishes the new portable identity. A DB-only republish carries authored
+  membership only when the source content fingerprint is unchanged; otherwise
+  it retires the prior set rather than attaching stale structure to the new
+  generation.
+- **Epistemic separation.** Authored edges use `edge_class='authored'`,
+  `assertion_source='source_states'`, an exact structural topology weight, and
+  the current `generation_id`. They may shape active topology and explore paths
+  but never create `graph_relation_supports` or serve as factual report
+  relations/citations. Backlinks are derived by incoming traversal without a
+  reverse stored edge.
 
 ### 27.4 Deterministic Hierarchical Community Construction
 
@@ -2493,17 +2567,23 @@ heuristics never compensate for unchecked or broadly grounded claims.
   restructuring is preferred over artificial id stability. The superseded
   community/report is set `retired_at` BEFORE synthesis (§ L4) consumes it, so no
   stale report feeds a downstream artifact.
-- **Exact eligible claim support, no fallback (Arena decision 12, F9).** Every
+- **Exact eligible claim support, no fallback (Arena decision 12).** Every
   report finding cites exact eligible claim support drawn from the `active`
-  relations over canonical entities in the community. The whole-community-span
-  fallback is removed: a finding that cannot cite eligible claim-level support is
-  not emitted. 100% of served report findings carry eligible active claim
-  support; 0 broad-span findings.
+  **extracted** relations over canonical entities in the community. Active
+  authored relations may shape membership but are excluded from factual
+  `relation_ids` and citations; an authored-only component emits no fabricated
+  factual report. The whole-community-span fallback is removed: a finding that
+  cannot cite eligible claim-level support is not emitted. 100% of served report
+  findings carry eligible active extracted claim support; 0 broad-span findings.
 - **Fresh dependencies.** A report records precise dependency hashes over its
   input entities/relations/spans (the existing `dependency_hash`, §11.5, now
-  computed over the active-canonical-support closure). When an input changes the
+  computed over eligible extracted supports plus active authored relation ids
+  that shaped membership). When an input changes the
   report is stale and is regenerated before it is used as global evidence; a stale
-  or retired report never serves.
+  or retired report never serves. Replica reconciliation does not retire a
+  report that already records the newly active winning relation as an exact
+  dependency; endpoint-overlapping reports that lack that dependency retire at
+  a strict-successor LWW revision.
 
 ### 27.6 Graph Audit Surface (`wiki lint` Extension)
 
@@ -2512,7 +2592,10 @@ heuristics never compensate for unchecked or broadly grounded claims.
   **Graph Quality** section alongside the Plan B Compiler Integrity section
   (§26.5). The audit asserts the schema-level invariants frozen in SCHEMA §21.8:
   - 0 authoritative references to `redirected` entities;
-  - 0 `active` relations with fewer than 2 independent source lineages of `verified` support;
+  - 0 `active` extracted relations with fewer than 2 independent source
+    lineages of `verified` support;
+  - 0 `active` authored relations without exact current-generation source
+    structure;
   - 0 relation endpoints that are not canonical entities;
   - every `quarantined` relation has a reason code AND a re-eval trigger;
   - every served report finding cites eligible active claim support;
@@ -2525,11 +2608,11 @@ heuristics never compensate for unchecked or broadly grounded claims.
 - `wiki lint` exits non-zero when a release-blocking graph-audit assertion fails,
   so CI and the testbed gate on it. Existing lint checks and the Plan B Compiler
   Integrity section are unchanged.
-- **Surface scope: CLI only in v0.9.0.** No MCP tool schema changes and no plugin
-  contract changes (PLUGIN_SCHEMA.md is intentionally untouched apart from the
-  synchronized version title). MCP/plugin clients observe Plan C only through
-  better evidence on already-returned records (canonical entities, active
-  relations, claim-grounded reports).
+- **Surface scope.** No MCP tool or plugin wire-schema changes are introduced.
+  MCP/plugin clients observe canonical entities, active topology, and
+  claim-grounded reports through already-returned records. Authoritative explore
+  reads and graph status count only `active` relations; explicitly labeled
+  diagnostic/inspection reads may include non-active rows.
 
 ### 27.7 v9 Migration Rehearsal And Rollback Acceptance Criteria
 
@@ -2576,8 +2659,14 @@ migration may touch a real vault DB, encoded as tests in P3:
   disappeared are retired, relations that drop below 2 independent verified
   source lineages drop out of `active`, communities whose active membership/support
   changed retire and regenerate, and dependent reports/synthesis are invalidated
-  and regenerated or retired. The closure is measured and asserted by tests, not
-  assumed.
+  and regenerated or retired. For authored relations, the current
+  source-generation set is reconciled by deterministic relation id: removed
+  links retire, unchanged links retain identity, and link changes invalidate
+  communities whose membership dependency includes them. A newly active
+  authored edge also retires any live report containing either endpoint,
+  because the report predates the changed topology even though it cannot yet
+  depend on the new relation id. The closure is measured and asserted by tests,
+  not assumed.
 - **Atomic graph/report publish.** Graph resolution, support aggregation,
   community construction, and report generation for a scope publish together or
   not at all, inside the publish transaction (extending §26.3). A failed graph

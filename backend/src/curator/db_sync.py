@@ -863,8 +863,183 @@ def import_knowledge(
                         stats.updated += 1
                     else:
                         stats.skipped += 1
+            if not dry_run:
+                _reconcile_authoritative_generations(conn)
 
     return stats
+
+
+def _reconcile_authoritative_generations(conn: "db.sqlite3.Connection") -> None:
+    """Restore the single-authoritative-generation invariant after a merge.
+
+    Independent replicas can legitimately export different authoritative
+    generations for the same portable source. Prefer a generation whose audit
+    fingerprint matches the LWW source row, then the newest published row.
+    Retire authored topology owned only by losing generations so imported stale
+    structure cannot remain active.
+    """
+    rows = conn.execute(
+        "SELECT g.id, g.source_id, g.audit_json, g.published_at, g.updated_at, "
+        "g.created_at, s.id AS live_source_id, s.content_hash "
+        "FROM compiler_generations g "
+        "LEFT JOIN sources s ON s.id = g.source_id "
+        "WHERE g.status = 'authoritative'"
+    ).fetchall()
+    by_source: dict[int | None, list[Any]] = {}
+    for row in rows:
+        source_id = int(row["source_id"]) if row["source_id"] is not None else None
+        by_source.setdefault(source_id, []).append(row)
+
+    now = datetime.now(timezone.utc).isoformat(timespec="microseconds").replace(
+        "+00:00", "Z"
+    )
+    for source_id, generations in by_source.items():
+        def winner_key(row: Any) -> tuple[Any, ...]:
+            try:
+                audit = json.loads(str(row["audit_json"] or "{}"))
+            except (TypeError, ValueError):
+                audit = {}
+            if not isinstance(audit, dict):
+                audit = {}
+            matches_source = (
+                row["content_hash"] is not None
+                and audit.get("content_hash") == row["content_hash"]
+            )
+            return (
+                matches_source,
+                _timestamp_key(row["published_at"]),
+                _timestamp_key(row["updated_at"]),
+                _timestamp_key(row["created_at"]),
+                str(row["id"]),
+            )
+
+        owned_relation_ids: set[str] = set()
+        if source_id is not None:
+            owned_relation_ids = {
+                str(row[0])
+                for row in conn.execute(
+                    "SELECT r.id FROM graph_relations r "
+                    "JOIN compiler_generations g ON g.id = r.generation_id "
+                    "WHERE r.edge_class = 'authored' AND g.source_id = ?",
+                    (source_id,),
+                ).fetchall()
+            }
+
+        source_missing = source_id is not None and all(
+            generation["live_source_id"] is None for generation in generations
+        )
+        winner: Any | None = None
+        winner_membership: set[str] = set()
+        newly_added_ids: set[str] = set()
+        if source_missing:
+            losing_ids = sorted(str(row["id"]) for row in generations)
+        else:
+            winner = max(generations, key=winner_key)
+            losing_ids = sorted(
+                str(row["id"])
+                for row in generations
+                if row["id"] != winner["id"]
+            )
+            winner_relation_ids = _generation_authored_relation_ids(winner)
+            winner_membership = set(winner_relation_ids or ())
+            prior_memberships: list[set[str]] = []
+            prior_membership_known = True
+            for generation in generations:
+                if generation["id"] == winner["id"]:
+                    continue
+                relation_ids = _generation_authored_relation_ids(generation)
+                if relation_ids is None:
+                    prior_membership_known = False
+                else:
+                    prior_memberships.append(set(relation_ids))
+            if losing_ids:
+                common_prior_membership = (
+                    set.intersection(*prior_memberships)
+                    if prior_membership_known and prior_memberships
+                    else set()
+                )
+                newly_added_ids = (
+                    winner_membership - common_prior_membership
+                    if prior_membership_known
+                    else winner_membership
+                )
+
+        relation_revisions: list[str] = []
+        for relation_id in sorted(owned_relation_ids | winner_membership):
+            relation_row = conn.execute(
+                "SELECT updated_at FROM graph_relations WHERE id = ?",
+                (relation_id,),
+            ).fetchone()
+            if relation_row is not None:
+                relation_revisions.append(str(relation_row["updated_at"] or ""))
+        revision = db.strict_successor_timestamp(
+            now,
+            *(str(row["updated_at"] or "") for row in generations),
+            *relation_revisions,
+        )
+        if losing_ids:
+            placeholders = ",".join("?" for _ in losing_ids)
+            conn.execute(
+                "UPDATE compiler_generations SET status = 'discarded', "
+                "discarded_at = ?, updated_at = ? "
+                f"WHERE id IN ({placeholders})",
+                (revision, revision, *losing_ids),
+            )
+        newly_active_ids: list[str] = []
+        if winner is not None:
+            for relation_id in sorted(winner_membership):
+                row = conn.execute(
+                    "SELECT edge_class, generation_id, lifecycle_status, "
+                    "quarantine_reason FROM graph_relations WHERE id = ?",
+                    (relation_id,),
+                ).fetchone()
+                if row is None or str(row["edge_class"]) != "authored":
+                    continue
+                lifecycle_status = str(row["lifecycle_status"])
+                needs_repair = (
+                    str(row["generation_id"] or "") != str(winner["id"])
+                    or lifecycle_status in {"provisional", "retired"}
+                    or (
+                        lifecycle_status == "quarantined"
+                        and str(row["quarantine_reason"]) == "unsupported"
+                    )
+                )
+                status = lifecycle_status
+                if needs_repair:
+                    conn.execute(
+                        "UPDATE graph_relations SET generation_id = ?, "
+                        "lifecycle_status = 'provisional', quarantine_reason = '', "
+                        "reeval_trigger = '', updated_at = ? WHERE id = ?",
+                        (winner["id"], revision, relation_id),
+                    )
+                    # Authored classification returns before any path-backed
+                    # bridge-risk lookup, so a placeholder Path is sufficient
+                    # for this conn-owned reconciliation.
+                    status = db.compile_relation_lifecycle(
+                        Path("."),
+                        relation_id=relation_id,
+                        conn=conn,
+                    )
+                    conn.execute(
+                        "UPDATE graph_relations SET updated_at = ? WHERE id = ?",
+                        (revision, relation_id),
+                    )
+                if status == "active" and relation_id in newly_added_ids:
+                    newly_active_ids.append(relation_id)
+            db.retire_community_reports_for_relation_endpoints_on_connection(
+                conn,
+                newly_active_ids,
+                now=revision,
+            )
+        db.retire_graph_relations_on_connection(
+            conn,
+            owned_relation_ids - winner_membership,
+            now=revision,
+        )
+
+
+def _generation_authored_relation_ids(row: Any) -> tuple[str, ...] | None:
+    return db.generation_authored_relation_ids(row["audit_json"])
 
 
 def _apply_tombstone(

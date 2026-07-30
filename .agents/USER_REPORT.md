@@ -6,4 +6,4 @@ Agents must check this document and triage the received items into the `To-Do (Q
 
 ## 📝 User Inbox
 
-_(empty — no untriaged user or review reports.)_
+_No untriaged items._

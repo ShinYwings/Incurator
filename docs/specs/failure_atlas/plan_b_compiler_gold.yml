@@ -9,7 +9,8 @@
 #
 # The owning failure-atlas cases are F6 (broad-span fallback), F7 (rebuild
 # idempotency / stale reconciliation / atomic publish), and F10 (preview-only
-# span evidence). F8/F9 stay with Plan C.
+# span evidence). F8 stays with Plan C; canonical F9 authored topology is
+# retired by the v0.39 production-boundary suite.
 #
 # Editing this file changes a release oracle: bump `version` and re-measure.
 # The frozen enums below MUST match SCHEMA.md §20 exactly.
