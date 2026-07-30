@@ -677,6 +677,58 @@ def test_composite_tombstone_dry_run_is_read_only(
     assert stats.deleted == 1
 
 
+def test_dry_run_matches_real_import_for_new_source_scoped_rows(
+    db_path: Path,
+    tmp_path: Path,
+) -> None:
+    incoming = tmp_path / "dry-run-new-source.jsonl"
+    _write_rows(
+        incoming,
+        [
+            (
+                "sources",
+                {
+                    "id": 77,
+                    "relpath": "04_Resources/new.pdf",
+                    "sync_key": "vault:04_Resources/new.pdf",
+                    "content_hash": "source",
+                    "file_type": "pdf",
+                    "bytes": 10,
+                    "added_at": "2026-01-01T00:00:00Z",
+                    "updated_at": "2026-01-01T00:00:00Z",
+                },
+            ),
+            (
+                "source_pdf_pages",
+                {
+                    "source_id": 77,
+                    "relpath": "04_Resources/new.pdf",
+                    "page_number": 1,
+                    "content_hash": "page",
+                    "char_count": 10,
+                    "word_count": 2,
+                    "metadata": "{}",
+                    "extracted_at": "2026-01-01T00:00:00Z",
+                },
+            ),
+        ],
+    )
+
+    dry = db_sync.import_knowledge(db_path, incoming, dry_run=True)
+    with db.connect(db_path) as conn:
+        assert conn.execute("SELECT 1 FROM sources").fetchone() is None
+        assert conn.execute("SELECT 1 FROM source_pdf_pages").fetchone() is None
+
+    real = db_sync.import_knowledge(db_path, incoming)
+
+    assert (dry.inserted, dry.updated, dry.skipped, dry.deleted) == (
+        real.inserted,
+        real.updated,
+        real.skipped,
+        real.deleted,
+    ) == (2, 0, 0, 0)
+
+
 def test_source_tombstone_removes_non_cascading_dependents(
     db_path: Path,
     tmp_path: Path,

@@ -1167,6 +1167,7 @@ instead of stranding the mutation until an unrelated later change.
 
 **Dry-run observability.** `wiki db autosync --dry-run` honors recorded peer
 `last_export_id` high-water marks, reports the changes a real pass would apply,
+including source-scoped composite rows whose parent source is not yet local,
 and reports whether an export would run (`would_export`) so a stale-snapshot
 condition is visible without mutating anything.
 

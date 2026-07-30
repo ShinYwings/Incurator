@@ -833,7 +833,8 @@ Autosync is content-idempotent across full snapshots. A new peer `export_id`
 does not itself count as a knowledge change: rows with the same complete primary
 key and equal/older revision are skipped, including composite-key provenance
 rows. Dry-run also honors the recorded peer high-water mark, so its counts match
-what a real pass would apply rather than re-previewing an already imported file.
+what a real pass would apply rather than re-previewing an already imported file,
+including a first import whose source-scoped rows do not yet have a local parent.
 
 How it stays safe across devices:
 

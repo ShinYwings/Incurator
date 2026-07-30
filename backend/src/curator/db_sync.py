@@ -115,7 +115,8 @@ _REMOTE_TS_FN: dict[str, _Callable[[dict], str]] = {
     "sources": lambda row: row.get("updated_at") or "",
 }
 
-# Primary key column per table. None = composite/handled-separately (always upsert).
+# Scalar transport key per table. Composite tables use their full PRAGMA-derived
+# primary key for row merge and the closed portable-key registry for tombstones.
 _PK_COL: dict[str, str | None] = {
     "sources": "sync_key",
     "atoms": "id",
@@ -123,26 +124,26 @@ _PK_COL: dict[str, str | None] = {
     "synthesis_nodes": "id",
     "source_spans": "id",
     "knowledge_units": "id",
-    "claim_supports": None,          # composite PK — always upsert
+    "claim_supports": None,
     "compiler_generations": "id",
     "graph_entities": "id",
     "graph_relations": "id",
-    "graph_relation_supports": None,  # composite PK — always upsert
+    "graph_relation_supports": None,
     "entity_aliases": "id",
     "entity_merge_proposals": "id",
-    "entity_resolution_lineage": None,  # composite PK — always upsert
+    "entity_resolution_lineage": None,
     "community_reports": "id",
     "memory_paths": "id",
     "prompt_runs": "trace_id",
     "dag_edges": "id",
     "curation_plans": "id",
     "insight_candidates": "id",
-    "artifact_dependencies": None,  # composite PK — always upsert
+    "artifact_dependencies": None,
     "synthesis": "id",
     "query_traces": "trace_id",
-    "source_pages": None,           # composite PK — always upsert
-    "source_pdf_pages": None,       # composite PK — always upsert
-    "deleted_records": None,        # composite PK — handled separately
+    "source_pages": None,
+    "source_pdf_pages": None,
+    "deleted_records": None,  # composite PK — handled separately
 }
 
 
@@ -150,7 +151,6 @@ _PK_COL: dict[str, str | None] = {
 class _CompositeKeySpec:
     transport_fields: tuple[tuple[str, type], ...]
     physical_columns: tuple[str, ...]
-    source_scoped: bool = False
 
 
 _COMPOSITE_KEY_SPECS: dict[str, _CompositeKeySpec] = {
@@ -161,7 +161,6 @@ _COMPOSITE_KEY_SPECS: dict[str, _CompositeKeySpec] = {
             ("at", str),
         ),
         ("source_id", "wiki_path", "at"),
-        source_scoped=True,
     ),
     "source_pdf_pages": _CompositeKeySpec(
         (
@@ -169,7 +168,6 @@ _COMPOSITE_KEY_SPECS: dict[str, _CompositeKeySpec] = {
             ("page_number", int),
         ),
         ("source_id", "page_number"),
-        source_scoped=True,
     ),
     "claim_supports": _CompositeKeySpec(
         (
@@ -315,6 +313,8 @@ def _record_key_for_row(
     conn: "db.sqlite3.Connection",
     table_name: str,
     row: Mapping[str, Any],
+    *,
+    source_sync_key: str | None = None,
 ) -> str:
     spec = _COMPOSITE_KEY_SPECS.get(table_name)
     if spec is None:
@@ -332,17 +332,19 @@ def _record_key_for_row(
     key: dict[str, object] = {}
     for field_name, _value_type in spec.transport_fields:
         if field_name == "source_sync_key":
-            source_id = _row_value(row, "source_id", None)
-            source = conn.execute(
-                "SELECT sync_key FROM sources WHERE id = ?",
-                (source_id,),
-            ).fetchone()
-            if source is None or not str(source["sync_key"] or ""):
-                raise ValueError(
-                    f"Table {table_name!r} row references unknown local "
-                    f"source_id {source_id!r}"
-                )
-            key[field_name] = str(source["sync_key"])
+            if source_sync_key is None:
+                source_id = _row_value(row, "source_id", None)
+                source = conn.execute(
+                    "SELECT sync_key FROM sources WHERE id = ?",
+                    (source_id,),
+                ).fetchone()
+                if source is None or not str(source["sync_key"] or ""):
+                    raise ValueError(
+                        f"Table {table_name!r} row references unknown local "
+                        f"source_id {source_id!r}"
+                    )
+                source_sync_key = str(source["sync_key"])
+            key[field_name] = source_sync_key
         else:
             value = _row_value(row, field_name, _MISSING)
             if value is _MISSING:
@@ -764,6 +766,8 @@ def import_knowledge(
                 for table, columns in table_info.items()
             }
             source_id_map: dict[int, int | None] = {}
+            source_sync_keys: dict[int, str] = {}
+            planned_source_inserts: set[int] = set()
 
             for line in f:
                 line = line.strip()
@@ -810,6 +814,9 @@ def import_knowledge(
                     )
                     if isinstance(remote_id, int):
                         source_id_map[remote_id] = local_id
+                        source_sync_keys[remote_id] = _source_sync_key(row)
+                        if dry_run and result == "inserted":
+                            planned_source_inserts.add(remote_id)
                     if result == "inserted":
                         stats.inserted += 1
                     elif result == "updated":
@@ -817,6 +824,8 @@ def import_knowledge(
                     else:
                         stats.skipped += 1
                 else:
+                    source_sync_key: str | None = None
+                    parent_will_be_inserted = False
                     if row.get("source_id") is not None:
                         remote_source_id = row["source_id"]
                         if remote_source_id not in source_id_map:
@@ -828,6 +837,16 @@ def import_knowledge(
                         if local_source_id is None:
                             stats.skipped += 1
                             continue
+                        source_sync_key = source_sync_keys[remote_source_id]
+                        composite_spec = _COMPOSITE_KEY_SPECS.get(tbl)
+                        parent_will_be_inserted = (
+                            remote_source_id in planned_source_inserts
+                            and composite_spec is not None
+                            and any(
+                                field == "source_sync_key"
+                                for field, _value_type in composite_spec.transport_fields
+                            )
+                        )
                         row["source_id"] = local_source_id
                     result = _lw_upsert(
                         conn,
@@ -835,6 +854,8 @@ def import_knowledge(
                         row,
                         dry_run=dry_run,
                         primary_keys=table_primary_keys[tbl],
+                        source_sync_key=source_sync_key,
+                        parent_will_be_inserted=parent_will_be_inserted,
                     )
                     if result == "inserted":
                         stats.inserted += 1
@@ -937,8 +958,14 @@ def _row_is_blocked_by_tombstone(
     row: Mapping[str, Any],
     *,
     dry_run: bool,
+    source_sync_key: str | None = None,
 ) -> bool:
-    token = _record_key_for_row(conn, table_name, row)
+    token = _record_key_for_row(
+        conn,
+        table_name,
+        row,
+        source_sync_key=source_sync_key,
+    )
     tombstone = conn.execute(
         "SELECT deleted_at FROM deleted_records "
         "WHERE table_name = ? AND record_id = ?",
@@ -1038,6 +1065,8 @@ def _lw_upsert(
     dry_run: bool = False,
     *,
     primary_keys: list[str] | None = None,
+    source_sync_key: str | None = None,
+    parent_will_be_inserted: bool = False,
 ) -> str:
     """Insert or update a row using Last-Write-Wins.
 
@@ -1053,8 +1082,11 @@ def _lw_upsert(
             table_name,
             row,
             dry_run=dry_run,
+            source_sync_key=source_sync_key,
         ):
             return "skipped"
+        if parent_will_be_inserted:
+            return "inserted"
         where = " AND ".join(f"{key} IS ?" for key in key_columns)
         existing = conn.execute(
             f"SELECT * FROM {table_name} WHERE {where}",
