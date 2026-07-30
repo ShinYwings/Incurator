@@ -53,7 +53,9 @@ graph topology without treating them as LLM-extracted factual support.
   100/100. Active testbed checksum remained unchanged.
 - CHANGELOG and roadmap cleanup: complete.
 - Completed F9 plans: deleted from the active workspace.
-- Current phase: final release commit, push, and PR.
+- Final release commit: `16441a9 chore(release): v0.39.0`.
+- Branch pushed; draft PR #101 targets `master`.
+- Current phase: CI/review and human merge.
 
 ## Critical Context / Blockers
 
@@ -68,4 +70,5 @@ graph topology without treating them as LLM-extracted factual support.
 
 ## Immediate Next Action
 
-Create `chore(release): v0.39.0`, then push and open the PR.
+Review PR #101 and its CI. After merge, fast-forward local `master` and apply
+the documented IDLE relay cleanup.
