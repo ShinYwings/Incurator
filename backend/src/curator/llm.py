@@ -475,7 +475,12 @@ class OllamaClient:
         self._job_input_tokens += int(data.get("prompt_eval_count") or 0)
         self._job_output_tokens += int(data.get("eval_count") or 0)
         content = data.get("message", {}).get("content", "")
-        return self._strip_thinking(content)
+        if not isinstance(content, str):
+            raise LLMError("Ollama returned an empty response.")
+        content = self._strip_thinking(content).strip()
+        if not content:
+            raise LLMError("Ollama returned an empty response.")
+        return content
 
     # ------------------------------------------------------------------
     # Chat (streaming)
@@ -688,7 +693,10 @@ class ClaudeCodeClient:
             raise ClaudeCodeError(
                 f"claude CLI exited {result.returncode}: {result.stderr.strip()}"
             )
-        return result.stdout.strip()
+        output = result.stdout.strip()
+        if not output:
+            raise ClaudeCodeError("claude CLI returned no output.")
+        return output
 
     def chat(
         self,
@@ -1045,24 +1053,31 @@ class CodexCliClient:
                 _os.unlink(out_file)
             raise CodexCliError("Codex CLI timed out after 900 s")
 
-        if _os.path.exists(out_file):
-            try:
-                text = open(out_file).read().strip()
-                if text:
-                    return text
-            except OSError:
-                text = ""
-            finally:
-                try:
-                    _os.unlink(out_file)
-                except OSError:
-                    pass
+        try:
+            if result.returncode != 0:
+                raise CodexCliError(
+                    f"Codex CLI exited {result.returncode}: {result.stderr.strip()[:400]}"
+                )
 
-        if result.returncode != 0:
-            raise CodexCliError(
-                f"Codex CLI exited {result.returncode}: {result.stderr.strip()[:400]}"
-            )
-        return result.stdout.strip()
+            text = ""
+            if _os.path.exists(out_file):
+                try:
+                    with open(out_file) as output:
+                        text = output.read().strip()
+                except OSError:
+                    text = ""
+            if text:
+                return text
+
+            text = result.stdout.strip()
+            if not text:
+                raise CodexCliError("Codex CLI returned no output.")
+            return text
+        finally:
+            try:
+                _os.unlink(out_file)
+            except OSError:
+                pass
 
     @property
     def optimal_chunk_chars(self) -> int:
@@ -1297,8 +1312,7 @@ class DeepSeekApiClient:
 # ---------------------------------------------------------------------------
 
 
-_FAILOVER_ERRORS = (OllamaNotRunning, ModelNotFound, OSError)
-_CLI_PRIMARY_FAILOVER_ERRORS = _FAILOVER_ERRORS + (ClaudeCodeError, AntigravityCliError, DeepSeekApiError)
+_FAILOVER_ERRORS = (LLMError, OSError)
 
 
 class FailoverClient:
@@ -1415,10 +1429,12 @@ class FailoverClient:
     ) -> str:
         start = self.active_idx
         last_err: Exception | None = None
+        attempts: list[str] = []
         for offset in range(len(self.providers)):
             idx = (start + offset) % len(self.providers)
+            provider = self.providers[idx]
             try:
-                result = self.providers[idx].chat(
+                result = provider.chat(
                     messages,
                     json_mode=json_mode,
                     temperature=temperature,
@@ -1434,8 +1450,11 @@ class FailoverClient:
                 return result
             except self._failover_errors as e:
                 last_err = e
+                attempts.append(f"{type(provider).__name__}: {str(e)[:200]}")
                 if offset == len(self.providers) - 1:
-                    raise LLMError(f"All providers failed: {str(e)[:200]}") from e
+                    raise LLMError(
+                        f"All providers failed: {'; '.join(attempts)}"
+                    ) from e
         raise LLMError("Unreachable")
 
     def chat_stream(
@@ -1699,10 +1718,10 @@ def build_client(
 
     _PRIMARY_ERRORS = {
         consts.BACKEND_OLLAMA:          _FAILOVER_ERRORS,
-        consts.BACKEND_CLAUDE_CODE:     _CLI_PRIMARY_FAILOVER_ERRORS,
-        consts.BACKEND_ANTIGRAVITY_CLI: _CLI_PRIMARY_FAILOVER_ERRORS,
-        consts.BACKEND_CODEX_CLI:       _CLI_PRIMARY_FAILOVER_ERRORS,
-        consts.BACKEND_DEEPSEEK_API:    _CLI_PRIMARY_FAILOVER_ERRORS,
+        consts.BACKEND_CLAUDE_CODE:     _FAILOVER_ERRORS,
+        consts.BACKEND_ANTIGRAVITY_CLI: _FAILOVER_ERRORS,
+        consts.BACKEND_CODEX_CLI:       _FAILOVER_ERRORS,
+        consts.BACKEND_DEEPSEEK_API:    _FAILOVER_ERRORS,
     }
 
     if primary in _PRIMARY_ERRORS:
@@ -1745,7 +1764,7 @@ def build_client(
         return FailoverClient(
             [p_client, ollama],
             probe_interval=probe_interval,
-            failover_errors=_CLI_PRIMARY_FAILOVER_ERRORS,
+            failover_errors=_FAILOVER_ERRORS,
         )
 
     # No recognized primary — fall back to Antigravity CLI default
