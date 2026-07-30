@@ -999,7 +999,11 @@ no manual export/import.
 - **Merge safety**: portable source keys remap replica-local numeric ids;
   row-level monotonic Last-Write-Wins + tombstones preserve concurrent reads and
   disjoint-source edits. Composite primary keys are compared as complete keys,
-  and equivalent rows are skipped even when a peer sends a fresh full-snapshot
+  and composite tombstones encode every key field in validated canonical JSON;
+  source-scoped tombstones carry a portable source key rather than a local id.
+  An equal/newer tombstone blocks a stale row, while a strictly newer mutable row
+  clears its older tombstone and proceeds. Equivalent rows are skipped even when
+  a peer sends a fresh full-snapshot
   `export_id`, so unchanged snapshots cannot trigger re-export ping-pong. Deletes
   propagate. No whole-file overwrite.
 - **Feedback**: a status-bar `⟳ Sync` while running, and a toast only when a sync actually
@@ -1010,6 +1014,11 @@ be archived, the backend returns a failed pass. The plugin shows **Sync Failed**
 and does not show a “Merged conflict” toast for that file. After correcting the
 reported state/file/permission problem, the next coalesced poll or manual sync
 retries safely; a failed pass never resets the device identity.
+
+All devices must use the same JSONL schema version. After the v13 upgrade, each
+device publishes a new snapshot; v12 snapshots are skipped rather than partially
+applied. An unsupported raw composite tombstone fails the pass visibly and is
+preserved for operator review.
 
 Source layer statuses use the source row's dedicated `updated_at` revision, so
 L1-L4 status-only changes participate in LWW sync. Dashboard Knowledge Graph

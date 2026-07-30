@@ -17,7 +17,7 @@ from typing import Iterator
 
 from .. import constants as consts
 
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 # --- Plan C (v0.9.0, SCHEMA §21.1/§21.2) frozen resolution enums -------------
 # Entity-resolution lifecycle (entity_aliases.resolution_status, §21.1).

@@ -798,7 +798,8 @@ Autosync는 전체 스냅샷을 내용 기준으로 멱등 처리합니다. 피�
 `export_id` 자체는 지식 변경으로 세지 않습니다. 복합 키 provenance 행을
 포함해 전체 기본 키가 같고 revision이 같거나 더 오래된 행은 건너뜁니다.
 Dry-run도 기록된 피어 high-water mark를 따르므로 이미 가져온 파일을 다시
-미리 보지 않고 실제 실행이 적용할 변경 수와 일치합니다.
+미리 보지 않고 실제 실행이 적용할 변경 수와 일치합니다. 아직 로컬 parent
+source가 없는 첫 가져오기의 source-scoped 행도 같은 방식으로 계산합니다.
 
 기기 간 안전성을 보장하는 방식:
 
@@ -808,6 +809,10 @@ Dry-run도 기록된 피어 high-water mark를 따르므로 이미 가져온 파
 - **Last-Write-Wins 병합.** 레코드는 monotonic revision 기준으로 병합되고,
   삭제는 tombstone으로 전파됩니다. 동시 읽기와 서로 다른 source 편집은
   안전합니다.
+- **완전한 삭제 identity.** 복합 기본 키 tombstone은 검증된 canonical JSON에
+  모든 키 필드를 저장합니다. Source 범위 키는 기기별 숫자 id가 아니라
+  portable source key를 사용하므로 오래된 snapshot이 삭제된
+  provenance/support 행을 되살릴 수 없습니다.
 - **무한 루프 없음** — 취약한 해시 가드 없이. 기기는 자기 파일을 가져오지 않고, 실제로 변경이 있을 때만 다시 내보냅니다.
 - **Snapshot identity.** JSONL header의 export id로 교체된 파일을 식별하므로
   mtime이 같아도 새 snapshot을 건너뛰지 않습니다.
@@ -820,6 +825,11 @@ Autosync는 손상된 상태를 초기 상태로 취급하지 않습니다. 동�
 하나라도 실패하면 성공이나
 병합 완료로 보고하지 않습니다. 이미 커밋된 이전 파일은 유지되고 실패한
 파일은 재시도할 수 있습니다.
+
+Schema v12와 v13 snapshot은 의도적으로 호환되지 않습니다. 모든 기기를
+업그레이드한 뒤 각 기기가 새 snapshot을 내보내게 하십시오. 예전에 수동으로
+만든 복합 tombstone에 구조화된 키가 없으면 import/export는 추측하거나 데이터를
+삭제하지 않고 중단하며, 운영자가 검토할 수 있도록 table과 token을 표시합니다.
 
 로컬 DB, runtime, staging, report, PDF/CLI cache는 repo `.cache`에 둡니다.
 동기화 bookkeeping은

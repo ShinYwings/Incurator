@@ -1,19 +1,18 @@
 # System Stability Overhaul — Diagnosis Evidence Ledger
 
 Date: 2026-06-23 (started) · 2026-06-27 (Phase A diagnosis complete)
-Status: PHASE A COMPLETE — all 19 module groups diagnosed (G01–G19). Ready for
-user triage (fix-now vs. defer) to sequence Phase B fix PRs. Diagnosis-only; NO
-refactoring performed.
+Status: ACTIVE DELIVERY — all 19 module groups are diagnosed and consolidated.
+Phase B is triaged into independently reviewable stability workstreams; the
+v0.37.0 composite-primary-key tombstone slice is release-ready and the
+query-provider failure boundary is next.
 Master Plan: `.agents/plans/01_system_stability_overhaul.md`
 Per-group detail: `.agents/plans/diagnosis/G01..G19-*.md` (the authoritative,
 deep record). The sections below are the FIRST scan-pass (2026-06-23); the Phase
 A Completion section at the bottom consolidates the full per-group results and
 supersedes scan-pass estimates where they differ (e.g. DC-1).
 
-This ledger records every diagnosis finding across the nine categories. It is
-built incrementally with loop-until-dry per module (a module is "closed" only
-when a re-pass surfaces nothing new). When complete → STOP for user triage
-(fix-now vs. defer), which sequences the fix PRs.
+This ledger records every diagnosis finding across the nine categories. Phase A
+is closed; current delivery state lives in the Master Plan, ROADMAP, and RELAY.
 
 ## Finding categories
 - **(a)** correctness bugs
@@ -171,7 +170,7 @@ Smell counts: 264 broad-`except` (backend) · 83 `any`/`as any`/`@ts-ignore` (pl
 All 19 module groups are diagnosed. Each has a deep per-group report under
 `.agents/plans/diagnosis/Gxx-*.md` (that is the authoritative record — the
 scan-pass findings above remain for history). `INDEX.md` tracks per-group status;
-every row is now `done`.
+every row is now `merged`.
 
 ### Consolidated severity tally (G01–G19)
 - **S1 (must-fix): 10** · **S2 (should-fix): 118** · **S3 (nice-to-fix): 97**
@@ -223,13 +222,9 @@ These 10 were verified against `CHANGELOG.md` and current tests/code on
 - (S3) `failure_atlas/` mixes frozen test fixtures + a historical v0.7.0 handoff doc under `docs/specs/`, none linked from any index (`docs/failure-atlas-index-and-roles`). **Fixed in `chore/docs-surface-parity-guards`: added `docs/specs/failure_atlas/README.md` and a docs parity guard.**
 - **Positive (verified)**: EN↔KR structural parity is healthy (PLUGIN_GUIDE H2 18/18, H3 25/26, code-fences 26/26; MCP H3 10/10) — the anti-compression guardrail is being honored, not violated.
 
-### Next step (Phase B)
-Continue S2 groups. `fix/phase-b-plugin-rest-cleanup` handles the G18
-plugin-settings schema drift, MCP/plugin-settings docs parity guard, the G19
-docs single-source cleanup items, G17-1 settings auth-poll cleanup, G17-5
-DeepSeek key-check command cleanup, G17-6 Zotero refresh profile binding, and
-G17-9 Zotero opener teardown cleanup, and G17-11 plugin settings single-writer.
-Remaining S2 candidates include error-handling narrowing XC-1 and god-file
-decomposition CM-1/PL-1/DB-2; remaining G17 items are S3 cleanup. Per the Master
-Plan, each fix PR is delivered TDD-first with `pytest`+`ruff` green before the
-next.
+### Active Phase B delivery
+
+The historical G17–G19 cleanup listed here has shipped. Composite-primary-key
+tombstones are release-ready in v0.37.0. The remaining ordered Stability chain
+is query-provider failure UX followed by authored-wikilink topology validation;
+each is planned, tested, released, and reviewed independently.

@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.36.0)
+# Incurator - System Behavior (v0.37.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -1072,9 +1072,33 @@ integer id, remaps child `source_id` values, then applies row-level LWW and
 tombstones. There is **no whole-file replace**, so concurrent reads and edits to
 disjoint source records remain safe.
 If the same logical row is edited on both devices, the row with the newer
-timestamp wins; a delete wins only when its `deleted_at` is newer than the
-competing edit. Import preserves the source row's timestamp and never stamps
-`now()`.
+timestamp wins; a delete wins when its `deleted_at` is newer than or equal to
+the competing edit. Import preserves the source row's timestamp and never
+stamps `now()`.
+
+Schema v13 gives every synchronized composite-primary-key row one portable
+tombstone identity. Scalar keys keep their raw token; composite keys use the
+validated compact form `{"key":{...},"v":1}` from SCHEMA §11.17.
+`source_pages` and `source_pdf_pages` carry `source_sync_key` rather than a
+replica-local integer. The codec accepts only the exact registered fields and
+string/integer types; table and column names never come from JSONL input.
+Malformed, unsupported-version, or pre-v13 raw composite tokens stop the file
+transaction with the table and token identified. They are not guessed, dropped,
+or rewritten.
+
+Delete/update convergence is symmetric. Import checks an exact tombstone before
+each row upsert: an equal/newer tombstone skips the row, while a strictly newer
+mutable row removes its older tombstone and continues through LWW. Immutable
+rows cannot supersede an existing tombstone. Applying a tombstone validates the
+full key, rejects an older delete when the local row is newer, and otherwise
+performs the target delete plus tombstone record atomically. A source tombstone
+first performs the same non-cascading dependent cleanup as local source removal.
+Dry-run calculates the same decisions without deleting rows or changing
+tombstones.
+
+The JSONL header remains an exact schema gate. v12 and v13 peer files are not
+partially imported; after upgrading all devices, each device must publish a new
+v13 snapshot.
 
 `sources.updated_at` is the source-row LWW clock. Every local source mutation,
 including layer-status-only changes, advances it. `last_ingested` remains ingest
@@ -1143,6 +1167,7 @@ instead of stranding the mutation until an unrelated later change.
 
 **Dry-run observability.** `wiki db autosync --dry-run` honors recorded peer
 `last_export_id` high-water marks, reports the changes a real pass would apply,
+including source-scoped composite rows whose parent source is not yet local,
 and reports whether an export would run (`would_export`) so a stale-snapshot
 condition is visible without mutating anything.
 

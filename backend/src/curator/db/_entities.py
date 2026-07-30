@@ -196,17 +196,23 @@ def delete_source_spans(
         return 0
     deleted = 0
     deleted_set = set(span_ids)
+    from ..db_sync import delete_rows_with_tombstones_on_connection
+
     with _maybe_conn(db_path, conn) as c:
         for chunk in _chunked(span_ids):
             placeholders = ",".join("?" for _ in chunk)
             params = tuple(chunk)
-            c.execute(
-                f"DELETE FROM claim_supports WHERE source_span_id IN ({placeholders})",
+            delete_rows_with_tombstones_on_connection(
+                c,
+                "claim_supports",
+                f"source_span_id IN ({placeholders})",
                 params,
             )
-            c.execute(
-                "DELETE FROM artifact_dependencies "
-                f"WHERE depends_on_type = 'source_span' AND depends_on_id IN ({placeholders})",
+            delete_rows_with_tombstones_on_connection(
+                c,
+                "artifact_dependencies",
+                "depends_on_type = 'source_span' "
+                f"AND depends_on_id IN ({placeholders})",
                 params,
             )
             cur = c.execute(
@@ -382,6 +388,8 @@ def upsert_claim_support(
         raise ValueError(f"invalid support_role: {support_role!r}")
     if support_status not in SUPPORT_STATUSES:
         raise ValueError(f"invalid support_status: {support_status!r}")
+    from ..db_sync import clear_row_tombstone_on_connection
+
     now = _now_iso()
     with _maybe_conn(db_path, conn) as conn:
         conn.execute(
@@ -400,6 +408,15 @@ def upsert_claim_support(
             """,
             (knowledge_unit_id, source_span_id, support_role, support_status,
              support_reason, evidence_hash, validator_trace_id, now, now),
+        )
+        clear_row_tombstone_on_connection(
+            conn,
+            "claim_supports",
+            {
+                "knowledge_unit_id": knowledge_unit_id,
+                "source_span_id": source_span_id,
+                "support_role": support_role,
+            },
         )
 
 
@@ -462,14 +479,19 @@ def retire_knowledge_unit(
     feed downstream stages. Its `claim_supports` rows are removed so the
     compiler audit finds no support row citing a retired unit (§20.5 #3).
     Pass ``conn`` to run inside a caller's transaction (atomic publish)."""
+    from ..db_sync import delete_rows_with_tombstones_on_connection
+
     with _maybe_conn(db_path, conn) as c:
         c.execute(
             "UPDATE knowledge_units SET retired_at = ?, updated_at = ? "
             "WHERE id = ? AND retired_at IS NULL",
             (_now_iso(), _now_iso(), unit_id),
         )
-        c.execute(
-            "DELETE FROM claim_supports WHERE knowledge_unit_id = ?", (unit_id,)
+        delete_rows_with_tombstones_on_connection(
+            c,
+            "claim_supports",
+            "knowledge_unit_id = ?",
+            (unit_id,),
         )
 
 
@@ -822,6 +844,8 @@ def upsert_graph_relation_support(
     ``conn`` to run inside the caller's atomic publish transaction (§27.8)."""
     if support_status not in SUPPORT_STATUSES:
         raise ValueError(f"invalid support_status: {support_status!r}")
+    from ..db_sync import clear_row_tombstone_on_connection
+
     # Canonicalize the cited spans: dedup THEN sort, so a duplicate span id (from a
     # noisy LLM array or an over-counting caller) cannot make support_hash vary by
     # multiplicity. Two supports citing the same set of spans must hash identically,
@@ -855,6 +879,15 @@ def upsert_graph_relation_support(
                 confidence, support_status, support_hash, source_lineage_hash,
                 now, now,
             ),
+        )
+        clear_row_tombstone_on_connection(
+            conn,
+            "graph_relation_supports",
+            {
+                "relation_id": relation_id,
+                "knowledge_unit_id": knowledge_unit_id,
+                "support_hash": support_hash,
+            },
         )
     return support_hash
 
@@ -1073,6 +1106,16 @@ def accept_entity_merge(
             "(decision_id, origin_entity_id, canonical_entity_id, rewrite_json) "
             "VALUES (?, ?, ?, ?)",
             (decision_id, origin, survivor, rewrite_json),
+        )
+        from ..db_sync import clear_row_tombstone_on_connection
+
+        clear_row_tombstone_on_connection(
+            conn,
+            "entity_resolution_lineage",
+            {
+                "decision_id": decision_id,
+                "origin_entity_id": origin,
+            },
         )
         # ...and record the accepted decision.
         conn.execute(
@@ -2373,6 +2416,8 @@ def record_artifact_dependency(
     dependency_hash: str,
     conn: sqlite3.Connection | None = None,
 ) -> None:
+    from ..db_sync import clear_row_tombstone_on_connection
+
     with _maybe_conn(db_path, conn) as conn:
         conn.execute(
             """
@@ -2385,6 +2430,15 @@ def record_artifact_dependency(
                 artifact_id, artifact_type, depends_on_id, depends_on_type,
                 dependency_hash, _now_iso(),
             ),
+        )
+        clear_row_tombstone_on_connection(
+            conn,
+            "artifact_dependencies",
+            {
+                "artifact_id": artifact_id,
+                "depends_on_id": depends_on_id,
+                "depends_on_type": depends_on_type,
+            },
         )
 
 

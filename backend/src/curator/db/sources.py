@@ -15,6 +15,22 @@ from .schema import (
     connect,
 )
 
+
+def _delete_source_on_connection(conn: Any, source_id: int) -> None:
+    """Delete one source and every non-cascading dependent in one transaction."""
+    conn.execute(
+        "DELETE FROM job_events WHERE job_id IN "
+        "(SELECT id FROM ingest_jobs WHERE source_id = ?)",
+        (source_id,),
+    )
+    conn.execute("DELETE FROM ingest_jobs WHERE source_id = ?", (source_id,))
+    conn.execute("DELETE FROM ingest_runs WHERE source_id = ?", (source_id,))
+    conn.execute("DELETE FROM source_pages WHERE source_id = ?", (source_id,))
+    conn.execute("DELETE FROM dag_edges WHERE source_id = ?", (source_id,))
+    conn.execute("DELETE FROM source_pdf_pages WHERE source_id = ?", (source_id,))
+    conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))
+
+
 def set_source_layer_status(
     db_path: Path,
     source_id: int,
@@ -162,9 +178,19 @@ def replace_source_pdf_pages(
     pages: list[dict],
 ) -> None:
     """Replace page-level PDF provenance rows for one source."""
+    from ..db_sync import (
+        clear_row_tombstone_on_connection,
+        delete_rows_with_tombstones_on_connection,
+    )
+
     now = _now_iso()
     with connect(db_path) as conn:
-        conn.execute("DELETE FROM source_pdf_pages WHERE source_id = ?", (source_id,))
+        delete_rows_with_tombstones_on_connection(
+            conn,
+            "source_pdf_pages",
+            "source_id = ?",
+            (source_id,),
+        )
         for page in pages:
             page_number = int(page.get("page") or page.get("page_number") or 0)
             if page_number <= 0:
@@ -192,6 +218,14 @@ def replace_source_pdf_pages(
                     json_dumps(metadata),
                     now,
                 ),
+            )
+            clear_row_tombstone_on_connection(
+                conn,
+                "source_pdf_pages",
+                {
+                    "source_id": source_id,
+                    "page_number": page_number,
+                },
             )
 
 
@@ -232,13 +266,25 @@ def record_source_page(
     operation: str,
 ) -> None:
     """Record that a wiki page was created or updated from a source."""
+    from ..db_sync import clear_row_tombstone_on_connection
+
+    now = _now_iso()
     with connect(db_path) as conn:
         conn.execute(
             """
             INSERT OR IGNORE INTO source_pages (source_id, wiki_path, operation, at)
             VALUES (?, ?, ?, ?)
             """,
-            (source_id, wiki_path, operation, _now_iso()),
+            (source_id, wiki_path, operation, now),
+        )
+        clear_row_tombstone_on_connection(
+            conn,
+            "source_pages",
+            {
+                "source_id": source_id,
+                "wiki_path": wiki_path,
+                "at": now,
+            },
         )
 
 

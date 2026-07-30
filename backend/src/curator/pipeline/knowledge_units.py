@@ -136,12 +136,15 @@ def _batch_hash(batch: list[dict]) -> str:
 
 def _discard_unpublished_units(db_path: Path, source_id: int) -> None:
     """Remove source-local units and checkpoints from runs that never reached a generation."""
+    from ..db_sync import delete_rows_with_tombstones_on_connection
+
     with db.connect(db_path) as conn:
-        conn.execute(
-            "DELETE FROM claim_supports WHERE knowledge_unit_id IN ("
+        delete_rows_with_tombstones_on_connection(
+            conn,
+            "claim_supports",
+            "knowledge_unit_id IN ("
             "SELECT id FROM knowledge_units WHERE source_id = ? "
-            "AND generation_id IS NULL AND retired_at IS NULL"
-            ")",
+            "AND generation_id IS NULL AND retired_at IS NULL)",
             (source_id,),
         )
         conn.execute(

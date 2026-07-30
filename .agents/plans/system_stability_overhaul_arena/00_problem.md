@@ -1,6 +1,8 @@
 # Briefing: System-Wide Stability, Diagnosis & Refactoring Overhaul
 
-Date: 2026-06-22 | Branch: `feature/prompt-architecture-refactoring`
+Date: 2026-06-22 | Historical planning branch:
+`feature/prompt-architecture-refactoring` (closed; current delivery branches
+start from `master`)
 
 ## 1. Core Problem Definition
 

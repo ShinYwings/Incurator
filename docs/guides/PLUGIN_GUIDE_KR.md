@@ -880,7 +880,11 @@ Incurator MCP tool discovery 없이 JSON 결과만 받습니다. 이 plugin plum
 - **병합 안전성**: portable source key로 기기별 숫자 id를 remap하고, 행 단위
   monotonic Last-Write-Wins + tombstone을 사용하므로 동시 읽기와 서로
   다른 source 편집은 안전하고, 동일 record 편집은 더 최신 행으로
-  해소됩니다. 복합 기본 키는 모든 키 열을 함께 비교하고, 피어가 새
+  해소됩니다. 복합 tombstone은 검증된 canonical JSON에 모든 키 필드를
+  저장하고, source 범위 tombstone은 로컬 id 대신 portable source key를
+  사용합니다. 같거나 더 최신 tombstone은 오래된 행을 막고, 더 최신인
+  mutable 행만 이전 tombstone을 제거한 뒤 병합됩니다. 복합 기본 키는 모든
+  키 열을 함께 비교하고, 피어가 새
   `export_id`의 전체 스냅샷을 보내더라도 동일한 행은 건너뛰므로 변경 없는
   스냅샷이 재내보내기 ping-pong을 만들 수 없습니다. 삭제도 전파되며 파일
   통째 덮어쓰기는 없습니다.
@@ -890,6 +894,11 @@ Incurator MCP tool discovery 없이 JSON 결과만 받습니다. 이 plugin plum
 처리 오류를 보고하면 플러그인은 **Sync Failed**로 표시합니다. 해당 실행은
 병합 완료 토스트를 보여 주거나 실패한 충돌 파일을 처리 완료로 세지 않으며,
 원본 파일과 상태를 보존해 다음 실행에서 안전하게 재시도할 수 있게 합니다.
+
+모든 기기는 같은 JSONL schema version을 사용해야 합니다. v13으로
+업그레이드한 뒤 각 기기가 새 snapshot을 내보내며, v12 snapshot은 일부만
+적용하지 않고 건너뜁니다. 지원하지 않는 raw 복합 tombstone은 동기화를
+명확히 실패시키고 운영자 검토를 위해 그대로 보존됩니다.
 
 Source layer 상태는 source row 전용 `updated_at` revision을 사용하므로 L1-L4
 상태만 바뀐 경우도 LWW 동기화에 포함됩니다. Dashboard Knowledge Graph 수치는
