@@ -22,23 +22,40 @@ Source of Truth to identify unresolved items.
 
 `USER_REPORT.md` is currently empty. The following queue is the ordered roadmap.
 
-No urgent hotfix is currently tracked. Draft PR #101 is back in active review
-after an adversarial pass reproduced correctness defects in v0.39.0
-authored-note topology.
+The user's 2026-07-30 stability-review follow-up is triaged below. Draft PR
+#101 remains unmerged; confirmed v0.39.0 authored-topology blockers stay on that
+release branch, while pre-existing cross-system defects and any additional
+v0.32.0+ regression findings ship as small follow-up patch releases.
 
 ### 🚀 Priority Order
 
-1. **[Patch-in-release] v0.39.0 Authored-Topology Deep-Review Hardening** *(IMPLEMENTED — merge pending)*
+1. **[Patch-in-release] v0.39.0 Authored-Topology Review-Blocker Closure** *(ACTIVE — IMPLEMENTATION)*
    - Draft PR #101 remains on `release/v0.39.0`; the release has not merged, so
-     these corrections keep the same version and public contract.
-   - The deep-review fixes cover non-destructive Markdown scanning,
-     escape/numeric filtering, balanced/parent-relative targets, `.markdown`,
-     exact generation-owned membership, two-/three-way replica convergence,
-     and report/search freshness.
-   - Local full validation and PR #101 latest-head CI are green.
-   - Completed plan, Arena, and evidence history: commit `f6ff089`.
+     authored-topology corrections keep the same version and public contract.
+   - Close the newly confirmed single-generation tombstone hole, exact audit
+     membership enforcement, strictly-monotonic repair/retirement clocks,
+     winner-report invalidation, nested Markdown labels, and single-decode
+     target normalization.
+   - Preserve the already-green first hardening pass from commit `f6ff089`;
+     every new failure receives a red regression test before code.
 
-2. **[Major Update] System Stability Overhaul — Exhaustive Diagnosis & Refactoring** *(ACTIVE)*
+2. **[Patch Chain] v0.39.x Stability Regression Audit — v0.32.0 Through Current** *(ACTIVE — PLAN FIRST)*
+   - Audit every merged release diff from PR #80 / v0.32.0 through PR #100 /
+     v0.38.0 plus the current PR #101 branch. Cross-check the original release
+     plan, implementation diff, tests, specs/guides, and adjacent failure
+     transitions rather than re-reading only the final happy path.
+   - Confirmed starting queue: complete source-deletion closure; post-publish
+     compiler recovery; explicit vector-query degradation; provider/CLI abort
+     and model dispatch parity; MCP name mapping and shutdown settlement;
+     bounded backend subprocesses; fail-closed/atomic session and secret
+     persistence; runtime-secret redaction; embedding/reranker cardinality;
+     prompt failover attribution and numeric version ordering.
+   - Deliver fixes as independently reviewable patch releases by integrity
+     boundary. Do not place all cross-system work into PR #101. No schema change
+     is currently expected; stop and re-plan as a Minor if the audit proves one
+     necessary.
+
+3. **[Major Update] System Stability Overhaul — Exhaustive Diagnosis & Refactoring** *(ACTIVE)*
    - Absorbs the prompt-architecture milestone. Whole-codebase diagnosis (bugs,
      redundancy, architectural debt) + refactoring with architectural redesign
      allowed; prompt-v2 for cross-model output consistency; legacy/dead-code sweep.
@@ -66,22 +83,22 @@ authored-note topology.
        no-JSON plugin command errors.
      - **Performance & UX Refinements**: RAG/DAG benchmark harness & retrieval hotspot optimization; chat/popover UX friction cleanup.
 
-3. **[Minor Update] Chat Session Context Compaction**
+4. **[Minor Update] Chat Session Context Compaction**
    - Confirm full-session history behavior.
    - Add a Claude-Code-style circular token usage meter under the query box and a click-to-compact action.
    - Detailed analysis: `.agents/drafts/chat_context_compaction.md`
 
-4. **[Minor Update] Vault Storage Governance & Quota Visibility**
+5. **[Minor Update] Vault Storage Governance & Quota Visibility**
    - Separate authoritative, derived, cache, and external storage accounting.
    - Add capacity guidance, safe admission control, and CLI/plugin visibility.
    - Detailed analysis: `.agents/drafts/vault_storage_governance.md`
 
-5. **[Major Update] Native PDF Annotation & Asset System**
+6. **[Major Update] Native PDF Annotation & Asset System**
    - Native annotation highlight/memo synchronization using Obsidian's built-in PDF viewer.
    - In-PDF full-text search and strict-spelling mode remain here.
    - Detailed analysis: `.agents/drafts/pdf_annotation_system.md`
 
-6. **[Minor Update] Web Search Integration**
+7. **[Minor Update] Web Search Integration**
    - Design and integrate web search capabilities for local models (Ollama, Deepseek, etc.).
    - Investigate API options (Brave, SerpAPI) and implement `web_search.py`.
    - The former quick-wins draft was deleted after triage; create a fresh
@@ -343,8 +360,9 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: System Stability Overhaul ACTIVE; v0.37.1 shipped.
-- **Active Milestone**: v0.38.0 Sidechat Vault-Page Wikilinks
-  (`release/v0.38.0`).
-- **Next actionable item**: approve the Sidechat link contract, then implement
-  it docs-first and TDD-first without coupling it to Failure Atlas F9.
+- **Roadmap state**: System Stability Overhaul ACTIVE; v0.39.0 is unmerged.
+- **Active Milestone**: v0.39.0 authored-topology review-blocker closure plus
+  the v0.32.0+ release-chain regression audit.
+- **Next actionable item**: close the seven approved PR #101 blockers
+  docs-first/TDD-first, validate the release branch, then start the independent
+  cross-system patch chain after merge.

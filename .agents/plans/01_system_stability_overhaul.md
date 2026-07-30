@@ -2,7 +2,8 @@
 
 Date: 2026-06-22
 Status: ACTIVE — Phase A diagnosis is complete and consolidated; incremental
-delivery continues through the ordered integrity workstreams.
+delivery continues through the ordered integrity workstreams. The v0.32.0+
+release-chain regression audit is the current execution slice.
 Briefing: `.agents/plans/system_stability_overhaul_arena/00_problem.md`
 Supersedes: the prompt-only milestone (folds in `prompt_architecture_refactoring.md`
 and `popover_tool_scope.md`).
@@ -118,9 +119,10 @@ prompt-consistency harness shows measured improvement over baseline.
 - **Repo/schema reality**: the 2026-06-22 baseline is preserved in
   `00_problem.md §2`; Phase A completed all G01–G19 diagnosis groups and folded
   them into `01_roadmap_evidence.md`.
-- **Current worktree**: `release/v0.39.0`, created from clean, synchronized
-  `master` at `f7f0b08` after v0.38.0 / PR #100 merged. F9 compiler, lifecycle,
-  consumer, and sync boundaries are diagnosed; no application code has changed.
+- **Current worktree**: `release/v0.39.0` at `b567427`; PR #101 is unmerged.
+  The first F9 hardening pass is green, and a second whole-system review has
+  confirmed 22 additional stability findings. Planning-only artifacts for the
+  v0.32.0+ audit are active; no application code has changed in this pass.
 - **Rollback anchor**: each slice records its `master` merge-base before
   implementation and remains independently revertible via `git revert -m 1`.
 - **Per-phase evidence**: P1 produces `01_roadmap_evidence.md` (the findings
@@ -246,6 +248,12 @@ green + testbed parity for backend) and starts with prior-art research.
      compile human-authored wikilinks/embeds/tags/frontmatter references as
      deterministic, atomic topology distinct from extracted factual relations.
      Master plan: `.agents/plans/02_authored_note_topology.md`.
+  5. v0.32.0+ release-chain regression audit and repair (**active planning**):
+     close the newly confirmed PR #101 blockers, then audit PR #80 through
+     current by historical contract, first-parent diff, current implementation,
+     and fault-transition tests. Cross-system fixes ship as small v0.39.x patch
+     releases rather than widening PR #101. Master plan:
+     `.agents/plans/02_v032_regression_audit.md`.
   Each workstream gets its own branch, plan/evidence ledger, release decision,
   full validation, and PR.
 

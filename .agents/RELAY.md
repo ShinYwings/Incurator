@@ -2,64 +2,70 @@
 
 ## Goal
 
-Complete a second adversarial review of draft PR #101 and harden v0.39.0
-authored-note topology before merge.
+Close every confirmed finding from the second whole-system review and audit the
+release chain from v0.32.0 through current v0.39.0 for additional stability
+regressions.
 
 ## Plan Reference
 
-- Completed deep-review plan, Arena debate, domain analyses, and evidence were
-  preserved in commit `f6ff089` and removed from the active workspace per the
-  release workflow.
+- Master plan: `.agents/plans/02_v032_regression_audit.md`
+- Evidence ledger: `.agents/plans/02_v032_regression_evidence.md`
+- Domain analyses:
+  - `.agents/plans/A_v032_release_history_analysis.md`
+  - `.agents/plans/B_integrity_lifecycle_analysis.md`
+  - `.agents/plans/C_retrieval_provider_analysis.md`
+  - `.agents/plans/D_plugin_persistence_analysis.md`
+- Arena: `.agents/plans/v032_regression_audit_arena/`
+- Umbrella: `.agents/plans/01_system_stability_overhaul.md`
 
 ## Analysis & Reasoning
 
-- Review anchor is `d4420ea`; draft PR #101 was green before this review.
-- Read-only adversarial tests confirmed parser false positives/negatives,
-  `.markdown` exclusion, discarded-generation ownership, replica-clock
-  convergence loss, stale reports, and stale authored search documents.
-- Schema v13 already has sufficient storage. Exact authored relation membership
-  can be recorded in generation `audit_json`; no migration is planned.
-- DB-only generation republish must carry membership only for an unchanged
-  source fingerprint. Content changes must retire prior authored ownership.
-- Three-way replica reconciliation must compare winner membership against every
-  loser, not their union, or a report from a replica missing the edge can stay
-  served.
-- Broad extracted-data source-deletion closure is pre-existing System Stability
-  scope and is deliberately separated from the F9 patch.
+- Current branch is unmerged `release/v0.39.0` at rollback anchor `b567427`;
+  existing PR #101 CI is green.
+- The v0.32.0+ range contains 19 merged PRs, 167 non-merge commits, and 216
+  aggregate changed paths. Historical intent was read from deleted plans with
+  `git show`.
+- The second review confirmed 22 findings: two P0, fourteen P1, and six P2.
+- PR #101 receives only direct authored-topology blockers: single-generation
+  tombstone repair, audit membership, monotonic repair/retirement clocks,
+  report invalidation, nested labels, and one-pass target decoding.
+- Cross-system fixes ship as small v0.39.x patch releases by integrity boundary:
+  source lifecycle/compiler recovery; durable persistence; provider/MCP process
+  lifecycle; retrieval/prompt contracts.
+- No schema change is currently required. A schema/public-contract change is a
+  stop-and-replan condition.
+- Audit closure requires historical-plan + merge-diff + current-contract
+  triangulation and two consecutive dry passes per release.
 
 ## Progress Status
 
-- Docs/specs and 25 authored-topology regression tests: complete.
-- Parser/resolver, exact generation membership, DB-only/type-change
-  reconciliation, two-/three-way replica repair, and report/search freshness:
-  implemented.
-- Full backend: 1,351 passed, 6 skipped, 4 expected xfails. Ruff and Mypy pass.
-- Plugin: 737 passed; production build passes; npm audit reports 0
-  vulnerabilities.
-- Isolated authenticated Antigravity `.markdown` compile/removal gate and lint:
-  pass. Production vault and active testbed were not modified.
-- Gemini MCP and repository last-root state both point to
-  `/Users/shin/shinywings/second_brain`; disposable validation data was moved
-  to Trash.
-- Correction commit: `f6ff089 fix(graph): harden authored topology
-  reconciliation`.
-- Completed active plan artifacts were deleted after their history was
-  preserved.
-- Release follow-up commit: `ee87d09 chore(release): v0.39.0`.
-- PR #101 latest-head CI passed: 5 successful jobs, 1 intentional skip, 0
-  failures.
-- Current phase: human review and merge.
+- User report captured and triaged into ROADMAP: complete.
+- Historical release/plan inventory: complete.
+- Current specs, implementation boundaries, and active testbed constraints:
+  inspected.
+- Arena proposal, red-team critique, defense, four domain analyses, master plan,
+  and evidence ledger: complete.
+- User approved the master plan on 2026-07-30.
+- PR #101 has no GitHub-hosted review threads; the seven supplied in-session
+  diff findings are the current-branch correction scope.
+- Application/tests/specs/guides/manifests: unchanged at implementation start.
+- Current phase: P1 contract clarification, followed by P2 failing oracles.
 
 ## Critical Context / Blockers
 
-- Do not broaden the patch into a full Markdown parser, fuzzy resolution,
-  schema migration, or broad inventory optimization.
-- Do not mutate the production vault or active testbed.
-- Changes to D2 holdout-tracked files require synchronized
-  `docs/specs/failure_atlas/D2_HOLDOUT_RESULT.yml` evidence and hashes; the
-  consumed holdout itself must not be rerun.
+- Do not mutate production `second_brain` or the active ResNet testbed.
+- Do not rerun the consumed D2 holdout. Update only permitted drift
+  evidence/hashes if tracked implementation files change.
+- The active ResNet scenario contains historical EXH-era assertions; use
+  temporary current-contract fixtures rather than treating those phases as a
+  valid release gate.
+- Do not place source deletion, persistence, provider/MCP, and retrieval fixes
+  into PR #101.
+- Stop if current ownership/dependency data cannot close source deletion without
+  a schema change or cannot distinguish shared graph state.
 
 ## Immediate Next Action
 
-Review and merge PR #101. After merge, fast-forward local `master` and apply
-the documented IDLE relay cleanup.
+Execute P1–P4 of `.agents/plans/02_v032_regression_audit.md`: update v0.39
+contracts, write the seven authored-topology failing oracles, implement the
+minimal root-cause fixes, run full validation, and push the PR #101 follow-up.
