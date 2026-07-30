@@ -48,8 +48,23 @@ regressions.
 - User approved the master plan on 2026-07-30.
 - PR #101 has no GitHub-hosted review threads; the seven supplied in-session
   diff findings are the current-branch correction scope.
-- Application/tests/specs/guides/manifests: unchanged at implementation start.
-- Current phase: P1 contract clarification, followed by P2 failing oracles.
+- P1 contracts/guides/changelog: complete.
+- P2 red run: all seven direct defect oracles failed for the intended reasons.
+- P3 implementation: complete; the seven oracles pass.
+- Added and fixed a quiescence guard so healthy lone-generation reconciliation
+  performs no write and cannot create replica sync ping-pong.
+- Focused authored, sync/schema, graph/report/search, Failure Atlas, docs/spec,
+  Ruff, and Mypy gates pass.
+- D2 holdout was not rerun; its non-Q06 `_entities.py` drift evidence/hash is
+  re-armed.
+- Full backend: 1,358 passed, 6 skipped, 4 expected xfails.
+- Plugin: 737 passed; TypeScript, production build, and npm audit (0
+  vulnerabilities) pass.
+- Isolated current-contract G9/Reference Mode smoke passes; the temporary vault
+  and exact cache namespace were removed. Production `last_root` remains
+  `/Users/shin/shinywings/second_brain`; active testbed was not mutated.
+- Manifests remain synchronized at 0.39.0.
+- Current phase: P4 push, PR description refresh, and latest-head CI.
 
 ## Critical Context / Blockers
 
@@ -66,6 +81,6 @@ regressions.
 
 ## Immediate Next Action
 
-Execute P1–P4 of `.agents/plans/02_v032_regression_audit.md`: update v0.39
-contracts, write the seven authored-topology failing oracles, implement the
-minimal root-cause fixes, run full validation, and push the PR #101 follow-up.
+Complete P4: create the final release-state commit, push `release/v0.39.0`,
+refresh PR #101's description, and monitor latest-head CI. Keep the v0.32+
+master plan active because P5–P10 begin only after this PR merges.

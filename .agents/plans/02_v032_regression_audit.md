@@ -1,7 +1,7 @@
 # v0.39.x Stability Regression Audit And Repair Master Implementation Plan
 
 Date: 2026-07-30
-Status: APPROVED — P1–P4 implementation in progress
+Status: ACTIVE — P1–P3 complete; P4 delivery in progress
 Umbrella: `.agents/plans/01_system_stability_overhaul.md`
 Evidence: `.agents/plans/02_v032_regression_evidence.md`
 
@@ -170,6 +170,8 @@ Gate: no application code changed.
 
 ### P1 — PR #101 Contract Clarification
 
+Status: COMPLETE.
+
 - Update `SCHEMA.md` and `SYSTEM_BEHAVIOR.md` for:
   - reconciliation of single-generation/no-source state;
   - exact audit membership at lifecycle admission;
@@ -187,6 +189,8 @@ Verify:
 
 ### P2 — PR #101 Failing Oracles
 
+Status: COMPLETE.
+
 Add red tests for:
 
 - source tombstone plus one future-clock generation/relation;
@@ -201,6 +205,8 @@ Verify the new tests fail for the intended defects while current authored tests
 remain green.
 
 ### P3 — PR #101 Root-Cause Fixes
+
+Status: COMPLETE.
 
 - Remove the generation-count early exit and reconcile all source groups.
 - Enforce authored audit membership in lifecycle compilation.
@@ -217,6 +223,8 @@ Verify:
 - adversarial two-/three-peer convergence and dry-run quiescence.
 
 ### P4 — PR #101 Full Validation And Delivery
+
+Status: LOCAL VALIDATION COMPLETE — push and latest-head CI pending.
 
 - Run full backend/plugin/static/build/audit gates.
 - Validate on temporary DB/vault copies only.

@@ -1,7 +1,7 @@
 # v0.32.0+ Stability Regression Audit — Evidence Ledger
 
 Date: 2026-07-30
-Status: IMPLEMENTATION IN PROGRESS — P1 contract clarification
+Status: PR #101 LOCAL VALIDATION COMPLETE — delivery pending
 Branch: `release/v0.39.0`
 Head / rollback anchor for this planning pass: `b567427`
 Umbrella plan: `.agents/plans/02_v032_regression_audit.md`
@@ -185,3 +185,52 @@ before approval.
 - The consumed D2 holdout will not be rerun. Any changed tracked fingerprint
   will be re-armed only after proving the edited path is outside the frozen Q06
   lexical ranking/citation execution path.
+
+## 11. PR #101 Red/Green Evidence
+
+- P1 contract checks: `test_spec_sync.py` + `test_docs_surface_parity.py`:
+  16 passed.
+- P2 red run: all seven selected oracles failed for the intended pre-fix state:
+  nested labels emitted no relation; double-encoded targets emitted no
+  relation; the lone generation stayed authoritative after source deletion;
+  repair tied the 2040 clock; omitted audit membership stayed active;
+  retirement backdated relation/report clocks; and the winner-dependent report
+  retired.
+- P3 green run: the same seven selected oracles passed.
+- A post-fix quiescence oracle then exposed write amplification for a healthy
+  lone generation. It failed before the repair guard and now proves two
+  consecutive reconciliation passes leave the row byte/logically unchanged.
+- Authored topology suite: 32 passed.
+- Related DB sync/schema suites: 40 passed.
+- Related graph report/search suites: 27 passed.
+- Failure Atlas contract + spec/docs parity: 121 passed.
+- Ruff and Mypy pass.
+- D2 was not rerun. `_entities.py` changed only outside the frozen Q06 path;
+  the evidence narrative and tracked hash were re-armed.
+
+## 12. PR #101 Full Local Release Gate
+
+- Backend: 1,358 passed, 6 skipped, 4 expected xfails; 7 third-party SWIG
+  deprecation warnings; 0 failures.
+- Plugin: 68 files / 737 tests passed.
+- TypeScript: `npx tsc --noEmit -p tsconfig.json` passed from `plugin/`. The
+  repository-root `npx tsc` launcher does not resolve the plugin-local
+  TypeScript package, so the identical project config was validated from its
+  package directory.
+- Production plugin build: passed.
+- `npm audit --prefix plugin`: 0 vulnerabilities.
+- Ruff, Mypy, docs/spec parity, Failure Atlas contract, and `git diff --check`:
+  passed.
+- Manifests remain synchronized at `0.39.0`; this is an unmerged review
+  correction on the existing release branch, not a new version.
+- Isolated current-contract G9/Reference Mode smoke:
+  - copied only `testbed_template` inputs into a temporary vault;
+  - compiled two active authored relations covering a nested label and
+    one-pass percent decoding;
+  - two consecutive healthy reconciliations were byte/logically quiescent;
+  - source removal retired the authored set and removed its search documents;
+  - `@zotero_data/storage/TESTKEY1/mock_paper.pdf` resolved outside the vault
+    and no PDF was copied into it;
+  - temporary vault and its exact repo-cache namespace were deleted.
+- Production `last_root` remains `/Users/shin/shinywings/second_brain`; the
+  active ResNet testbed and consumed D2 holdout were not mutated.
