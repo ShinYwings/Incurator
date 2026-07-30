@@ -113,6 +113,78 @@ class TestAntigravityConfig(unittest.TestCase):
         self.assertIn("--log-file", captured["cmd"])
         self.assertFalse(client.ping())
 
+    def test_antigravity_run_passes_full_prompt_model_and_catalogue_default_effort(
+        self,
+    ) -> None:
+        client = AntigravityCliClient(model="gemini-3.6-flash")
+        prompt = (
+            "Return exactly one <transcription> block. "
+            "The reconstruction loss is L = sum_i (x_i - y_i)^2."
+        )
+        captured: dict = {}
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            captured["kwargs"] = kwargs
+
+            class _R:
+                returncode = 0
+                stdout = "<transcription>Clean $L = \\\\sum_i (x_i-y_i)^2$.</transcription>"
+                stderr = ""
+
+            return _R()
+
+        with patch("curator.llm.subprocess.run", fake_run):
+            result = client._run(prompt)
+
+        cmd = captured["cmd"]
+        self.assertEqual(cmd[cmd.index("--print") + 1], prompt)
+        self.assertEqual(cmd[cmd.index("--model") + 1], "gemini-3.6-flash")
+        self.assertEqual(cmd[cmd.index("--effort") + 1], "medium")
+        self.assertNotIn("input", captured["kwargs"])
+        self.assertIn("<transcription>", result)
+
+    def test_antigravity_run_preserves_explicit_effort(self) -> None:
+        client = AntigravityCliClient(model="gemini-3.6-flash", effort="high")
+        captured: dict = {}
+
+        def fake_run(cmd, **kwargs):  # noqa: ARG001
+            captured["cmd"] = cmd
+
+            class _R:
+                returncode = 0
+                stdout = "ok"
+                stderr = ""
+
+            return _R()
+
+        with patch("curator.llm.subprocess.run", fake_run):
+            client._run("Return OK")
+
+        cmd = captured["cmd"]
+        self.assertEqual(cmd[cmd.index("--effort") + 1], "high")
+
+    def test_antigravity_run_omits_effort_for_model_without_effort_dimension(
+        self,
+    ) -> None:
+        client = AntigravityCliClient(model="custom-model-without-catalogue-effort")
+        captured: dict = {}
+
+        def fake_run(cmd, **kwargs):  # noqa: ARG001
+            captured["cmd"] = cmd
+
+            class _R:
+                returncode = 0
+                stdout = "ok"
+                stderr = ""
+
+            return _R()
+
+        with patch("curator.llm.subprocess.run", fake_run):
+            client._run("Return OK")
+
+        self.assertNotIn("--effort", captured["cmd"])
+
     def test_start_client_primary_without_fallback_returns_primary(self) -> None:
         from curator import cli
 
