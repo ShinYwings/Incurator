@@ -22,14 +22,7 @@ Source of Truth to identify unresolved items.
 
 `USER_REPORT.md` is currently empty. The following queue is the ordered roadmap.
 
-- **[PR #96 Review Follow-up] v0.36.8 model dispatch simplification**
-  - Ensure plugin Antigravity chat passes the selected `--model`.
-  - Use `low` for explicit Convert-to-LaTeX models only when supported; omit
-    effort for fixed/no-effort models.
-  - Correct the Antigravity Opus slug and review the full PR for duplicated or
-    roundabout model/effort logic.
-  - Master plan:
-    `.agents/plans/02_v0368_latex_model_dispatch_followup.md`
+No urgent hotfix is currently tracked.
 
 - v0.36.2 PR #90 is merged. The next actionable item is the
   Composite-Primary-Key Tombstones schema contract update.
@@ -95,12 +88,14 @@ Source of Truth to identify unresolved items.
 
 - **v0.36.8 — PDF Convert-to-LaTeX Antigravity Prompt Transport**
   (release-ready 2026-07-30): fixed the backend Antigravity client to pass the
-  complete request as the `agy --print` prompt and to apply the selected model
-  plus explicit/catalogue-default native effort. The reported scratch-workspace
-  planning narration was reproduced before the fix; the same live testbed
-  command now returns the selected prose with `$L = \sum_i (x_i-y_i)^2$`.
-  Backend 1273-test, plugin 721-test, static-analysis, production build, testbed
-  lint 100/100, and live Antigravity transcription gates passed.
+  complete request as the `agy --print` prompt and exact `--model`. Explicit
+  Convert-to-LaTeX slots use `low` only when supported; fixed variants omit
+  effort. The plugin chat selector now reaches `agy --model`, and the catalogue
+  uses the live `claude-opus-4-6-thinking` slug. The reported scratch-workspace
+  planning narration was reproduced before the fix; all five Antigravity vision
+  models and Codex Terra returned selected prose with LaTeX. Backend 1,276-test,
+  plugin 721-test, static-analysis, production build, testbed lint 100/100, and
+  live transcription gates passed.
 
 - **v0.36.7 — Obsidian Agent Activation + Open-Tab Context Hotfix**
   (release-ready 2026-07-26): provider launch now fails closed when Obsidian is
@@ -307,8 +302,8 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: System Stability Overhaul ACTIVE; v0.36.8 review follow-up
-  is in progress on PR #96.
-- **Active Milestone**: Simplify and verify model/effort dispatch.
-- **Next actionable item**: Complete the approved follow-up plan, then resume the
+- **Roadmap state**: System Stability Overhaul ACTIVE; v0.36.8 is release-ready
+  on PR #96.
+- **Active Milestone**: None (v0.36.8 awaits human review/merge).
+- **Next actionable item**: After v0.36.8 merges, resume the
   composite-primary-key tombstones schema-contract plan.

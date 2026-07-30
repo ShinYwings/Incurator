@@ -38,6 +38,11 @@ planning narration.
 - The review confirmed that the plugin Antigravity command passes effort but
   omits the selected model, the backend extraction task inherits general
   catalogue defaults, and the Antigravity Opus catalogue slug is stale.
+- The follow-up now selects low once at the explicit extraction boundary,
+  preserves main-model effort on the final fallback, forwards the plugin chat
+  model, and corrects fixed Antigravity Claude variants.
+- Live backend calls passed for all five Antigravity vision models and Codex
+  Terra; Claude Code is logged out and no Ollama vision model is installed.
 
 ## Progress Status
 
@@ -52,9 +57,9 @@ planning narration.
 - [x] Push and open draft PR #96.
 - [x] Push the MCP 2.0 compatibility follow-up and confirm rerun CI.
 - [x] Capture and plan the PR #96 model-dispatch review follow-up.
-- [ ] Add failing backend/plugin dispatch tests.
-- [ ] Implement task-scoped low effort, exact model IDs, and plugin model forwarding.
-- [ ] Re-run full validation and complete the code review.
+- [x] Add failing backend/plugin dispatch tests.
+- [x] Implement task-scoped low effort, exact model IDs, and plugin model forwarding.
+- [x] Re-run full validation and complete the code review.
 
 ## Critical Context / Blockers
 
@@ -62,7 +67,11 @@ planning narration.
 - The worktree was clean at branch creation.
 - Rollback anchor: `a26890535a243b272cb8f01b3332e36297381556`.
 - Current active testbed exists and was used for the reproduction command.
+- Backend: 1,276 passed; ruff and mypy passed.
+- Plugin: 721 passed; production build passed.
+- Testbed lint: 100/100.
 
 ## Immediate Next Action
 
-Write the approved follow-up's failing tests before implementation.
+Record the validation commit, delete completed plan artifacts, push the branch,
+update PR #96, and confirm CI.
