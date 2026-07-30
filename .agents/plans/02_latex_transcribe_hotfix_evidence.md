@@ -1,7 +1,7 @@
 # v0.36.8 PDF Convert-to-LaTeX Evidence Ledger
 
 Date: 2026-07-30
-Status: PRE-IMPLEMENTATION BASELINE
+Status: IMPLEMENTED AND VALIDATED
 Master Plan: `.agents/plans/02_latex_transcribe_hotfix.md`
 
 ## 1. Rollback anchor
@@ -36,11 +36,25 @@ Master Plan: `.agents/plans/02_latex_transcribe_hotfix.md`
 
 ## 4. Post-change validation
 
-To be completed during implementation:
+- Focused backend tests:
+  `27 passed in 0.24s` for `test_v021_models.py` and
+  `test_plugin_pdf_transcribe.py`.
+- Live Antigravity transcription through the real backend command:
 
-- [ ] Focused tests
-- [ ] Live Antigravity transcription
-- [ ] Full backend pytest / Ruff / mypy
-- [ ] Full plugin Vitest / build
-- [ ] Testbed status / lint
-- [ ] Version consistency
+  ```json
+  {
+    "ok": true,
+    "latex": "The reconstruction loss is $L = \\sum_i (x_i - y_i)^2$.",
+    "model": "gemini-3.6-flash"
+  }
+  ```
+
+- Full backend pytest: `1273 passed, 6 skipped, 5 xfailed`.
+- Ruff: all checks passed.
+- mypy: no issues in 125 source files.
+- Plugin Vitest: 68 files / 721 tests passed.
+- Plugin production build: passed.
+- Testbed `wiki status`: command completed; existing fixture schema-v0 migration
+  notice remains unrelated.
+- Testbed `wiki lint`: 100/100, 0 errors, 0 warnings, 0 infos.
+- Version consistency: pending the final `0.36.8` release bump.

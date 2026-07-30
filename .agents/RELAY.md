@@ -30,10 +30,10 @@ planning narration.
 - [x] Reproduce the clipboard payload through `wiki plugin pdf transcribe`.
 - [x] Confirm the installed Antigravity CLI argument contract.
 - [x] Confirm a corrected direct call returns original text plus LaTeX.
-- [ ] Update docs/specs.
-- [ ] Add failing tests.
-- [ ] Implement backend prompt/model/effort forwarding.
-- [ ] Run focused, full CI, and testbed smoke validation.
+- [x] Update docs/specs.
+- [x] Add failing tests.
+- [x] Implement backend prompt/model/effort forwarding.
+- [x] Run focused, full CI, and testbed smoke validation.
 - [ ] Bump v0.36.8, update changelog, remove plan artifacts, push, and open PR.
 
 ## Critical Context / Blockers
@@ -45,5 +45,5 @@ planning narration.
 
 ## Immediate Next Action
 
-Author the contract delta and failing regression tests before changing
-`AntigravityCliClient._run()`.
+Bump v0.36.8, delete the shipped hotfix plan artifacts, run version consistency,
+then push and open the PR.
