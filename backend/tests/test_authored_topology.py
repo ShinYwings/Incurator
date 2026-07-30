@@ -314,6 +314,45 @@ def test_balanced_parent_relative_markdown_links_and_ambiguity_are_exact(
     }
 
 
+def test_markdown_link_labels_allow_bounded_balanced_nesting(tmp_path: Path) -> None:
+    paths = _init_paths(tmp_path)
+    source_relpath = "03_Notes/Source.md"
+    source_text = "[see [nested [detail]]](Target.md)\n"
+    _write_target(paths, source_relpath, source_text)
+    _write_target(paths, "03_Notes/Target.md")
+
+    topology = _extractor_module().extract_authored_topology(
+        paths.root, source_relpath, source_text
+    )
+
+    assert [relation.target.canonical_key for relation in topology.relations] == [
+        "03_Notes/Target.md"
+    ]
+
+
+def test_markdown_targets_are_percent_decoded_exactly_once(tmp_path: Path) -> None:
+    paths = _init_paths(tmp_path)
+    source_relpath = "03_Notes/Source.md"
+    source_text = (
+        "[encoded space](A%2520B.md)\n"
+        "[encoded slash](%252FFolder%252FTarget.md)\n"
+    )
+    _write_target(paths, source_relpath, source_text)
+    _write_target(paths, "03_Notes/A%20B.md")
+    _write_target(paths, "03_Notes/%2FFolder%2FTarget.md")
+
+    topology = _extractor_module().extract_authored_topology(
+        paths.root, source_relpath, source_text
+    )
+
+    assert {
+        relation.target.canonical_key for relation in topology.relations
+    } == {
+        "03_Notes/A%20B.md",
+        "03_Notes/%2FFolder%2FTarget.md",
+    }
+
+
 def test_markdown_suffix_compiles_note_to_note_topology(tmp_path: Path) -> None:
     paths = _init_paths(tmp_path)
     source_id = _seed_source(
@@ -596,6 +635,48 @@ def test_same_structure_uses_same_ids_on_independent_replicas(tmp_path: Path) ->
     assert db.graph_audit(db_paths[1]) == []
 
 
+def test_single_generation_is_retired_when_its_source_was_tombstoned(
+    tmp_path: Path,
+) -> None:
+    paths = _init_paths(tmp_path)
+    source_id = _seed_source(paths, "# Source\n\n[[Target]]\n")
+    _write_target(paths, "03_Notes/Target.md")
+    assert compile_mod.compile_source_l2(
+        paths, _EmptyUnitsClient(), source_id
+    ).ok
+    relation_id = _authored_rows(paths, include_retired=False)[0]["id"]
+    generation = db.get_authoritative_generation(paths.state_db, source_id)
+    assert generation is not None
+    future = "2040-01-01T00:00:00Z"
+
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "UPDATE compiler_generations SET updated_at = ? WHERE id = ?",
+            (future, generation["id"]),
+        )
+        conn.execute(
+            "UPDATE graph_relations SET updated_at = ? WHERE id = ?",
+            (future, relation_id),
+        )
+        conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))
+
+        _reconcile_authoritative_generations(conn)
+
+        repaired_generation = conn.execute(
+            "SELECT status, updated_at FROM compiler_generations WHERE id = ?",
+            (generation["id"],),
+        ).fetchone()
+        repaired_relation = conn.execute(
+            "SELECT lifecycle_status, updated_at FROM graph_relations WHERE id = ?",
+            (relation_id,),
+        ).fetchone()
+
+    assert repaired_generation["status"] == "discarded"
+    assert repaired_relation["lifecycle_status"] == "retired"
+    assert _timestamp_key(repaired_generation["updated_at"]) > _timestamp_key(future)
+    assert _timestamp_key(repaired_relation["updated_at"]) > _timestamp_key(future)
+
+
 def test_replica_generation_winner_preserves_shared_edge_despite_row_clock(
     tmp_path: Path,
 ) -> None:
@@ -657,9 +738,11 @@ def test_replica_generation_winner_preserves_shared_edge_despite_row_clock(
     assert [str(row["id"]) for row in authoritative] == [remote_generation]
     assert relation["generation_id"] == remote_generation
     assert relation["lifecycle_status"] == "active"
-    assert relation["updated_at"] == "2040-01-01T00:00:00Z"
+    assert _timestamp_key(relation["updated_at"]) > _timestamp_key(
+        "2040-01-01T00:00:00Z"
+    )
     assert discarded["status"] == "discarded"
-    assert _timestamp_key(discarded["updated_at"]) >= _timestamp_key(
+    assert _timestamp_key(discarded["updated_at"]) > _timestamp_key(
         "2040-01-01T00:00:00Z"
     )
 
@@ -974,6 +1057,37 @@ def test_authored_lifecycle_rejects_generation_owned_by_another_source(
     ) == "quarantined"
 
 
+def test_authored_lifecycle_requires_exact_generation_audit_membership(
+    tmp_path: Path,
+) -> None:
+    paths = _init_paths(tmp_path)
+    source_id = _seed_source(paths, "# Source\n\n[[Target]]\n")
+    _write_target(paths, "03_Notes/Target.md")
+    assert compile_mod.compile_source_l2(
+        paths, _EmptyUnitsClient(), source_id
+    ).ok
+    relation_id = _authored_rows(paths, include_retired=False)[0]["id"]
+    generation = db.get_authoritative_generation(paths.state_db, source_id)
+    assert generation is not None
+    audit = json.loads(generation["audit_json"])
+    audit["authored_relation_ids"] = []
+
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "UPDATE compiler_generations SET audit_json = ? WHERE id = ?",
+            (json.dumps(audit, sort_keys=True), generation["id"]),
+        )
+
+    assert {
+        (violation["code"], violation["subject_id"])
+        for violation in db.graph_audit(paths.state_db)
+    } >= {("active_authored_relation_stale_generation", relation_id)}
+    assert db.compile_relation_lifecycle(
+        paths.state_db,
+        relation_id=relation_id,
+    ) == "quarantined"
+
+
 def test_authored_edges_shape_membership_but_not_report_factual_support(
     tmp_path: Path,
 ) -> None:
@@ -1102,6 +1216,119 @@ def test_new_authored_edge_retires_report_containing_either_endpoint(
     stale = db.get_community_report(paths.state_db, report["id"])
     assert stale is not None
     assert stale["retired_at"] is not None
+
+
+def test_relation_retirement_strictly_advances_relation_and_report_clocks(
+    tmp_path: Path,
+) -> None:
+    paths = _init_paths(tmp_path)
+    source = db.upsert_graph_entity(
+        paths.state_db,
+        canonical_name="Retirement Source",
+        entity_type="concept",
+    )
+    target = db.upsert_graph_entity(
+        paths.state_db,
+        canonical_name="Retirement Target",
+        entity_type="concept",
+    )
+    relation_id = db.upsert_graph_relation(
+        paths.state_db,
+        source_entity_id=source,
+        target_entity_id=target,
+        relation_type="supports",
+        lifecycle_status="active",
+    )
+    report_id = db.upsert_community_report(
+        paths.state_db,
+        community_key="retirement-clock",
+        entity_ids=[source, target],
+    )
+    db.record_artifact_dependency(
+        paths.state_db,
+        artifact_id=report_id,
+        artifact_type="community_report",
+        depends_on_id=relation_id,
+        depends_on_type="relation",
+        dependency_hash="retirement-clock",
+    )
+    relation_future = "2040-01-01T00:00:00Z"
+    report_future = "2050-01-01T00:00:00Z"
+
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "UPDATE graph_relations SET updated_at = ? WHERE id = ?",
+            (relation_future, relation_id),
+        )
+        conn.execute(
+            "UPDATE community_reports SET updated_at = ? WHERE id = ?",
+            (report_future, report_id),
+        )
+        assert db.retire_graph_relations_on_connection(
+            conn,
+            [relation_id],
+            now="2030-01-01T00:00:00Z",
+        ) == 1
+        relation = conn.execute(
+            "SELECT lifecycle_status, updated_at FROM graph_relations WHERE id = ?",
+            (relation_id,),
+        ).fetchone()
+        report = conn.execute(
+            "SELECT retired_at, updated_at FROM community_reports WHERE id = ?",
+            (report_id,),
+        ).fetchone()
+
+    assert relation["lifecycle_status"] == "retired"
+    assert _timestamp_key(relation["updated_at"]) > _timestamp_key(relation_future)
+    assert _timestamp_key(report["retired_at"]) > _timestamp_key(report_future)
+    assert report["updated_at"] == report["retired_at"]
+
+
+def test_endpoint_invalidation_preserves_report_with_winner_relation_dependency(
+    tmp_path: Path,
+) -> None:
+    paths = _init_paths(tmp_path)
+    source = db.upsert_graph_entity(
+        paths.state_db,
+        canonical_name="Winner Source",
+        entity_type="concept",
+    )
+    target = db.upsert_graph_entity(
+        paths.state_db,
+        canonical_name="Winner Target",
+        entity_type="concept",
+    )
+    relation_id = db.upsert_graph_relation(
+        paths.state_db,
+        source_entity_id=source,
+        target_entity_id=target,
+        relation_type="winner-topology",
+        lifecycle_status="active",
+    )
+    report_id = db.upsert_community_report(
+        paths.state_db,
+        community_key="winner-report",
+        entity_ids=[source, target],
+    )
+    db.record_artifact_dependency(
+        paths.state_db,
+        artifact_id=report_id,
+        artifact_type="community_report",
+        depends_on_id=relation_id,
+        depends_on_type="relation",
+        dependency_hash="winner-report",
+    )
+
+    with db.connect(paths.state_db) as conn:
+        retired = db.retire_community_reports_for_relation_endpoints_on_connection(
+            conn,
+            [relation_id],
+        )
+
+    assert retired == 0
+    report = db.get_community_report(paths.state_db, report_id)
+    assert report is not None
+    assert report["retired_at"] is None
 
 
 def test_link_removal_drops_orphan_authored_entities_from_search(
