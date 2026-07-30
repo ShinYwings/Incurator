@@ -22,18 +22,7 @@ Source of Truth to identify unresolved items.
 
 `USER_REPORT.md` is currently empty. The following queue is the ordered roadmap.
 
-### Urgent hotfix
-
-- **v0.36.8 — PDF Convert-to-LaTeX Antigravity prompt transport**
-  - `wiki plugin pdf transcribe` passes the real transcription prompt to
-    Antigravity CLI over stdin while `agy 1.1.8` reads the `--print` argument,
-    so the CLI sees only a generic “provided input” instruction and returns
-    scratch-workspace planning narration that the plugin copies as a successful
-    transcription.
-  - The same backend path does not pass the selected `--model` or required
-    catalogue effort, so the Dashboard's LaTeX/region model choice is not
-    faithfully applied.
-  - Plan: `.agents/plans/02_latex_transcribe_hotfix.md`
+No urgent hotfix is currently tracked.
 
 - v0.36.2 PR #90 is merged. The next actionable item is the
   Composite-Primary-Key Tombstones schema contract update.
@@ -96,6 +85,15 @@ Source of Truth to identify unresolved items.
 ---
 
 ## ✅ Completed Milestones
+
+- **v0.36.8 — PDF Convert-to-LaTeX Antigravity Prompt Transport**
+  (release-ready 2026-07-30): fixed the backend Antigravity client to pass the
+  complete request as the `agy --print` prompt and to apply the selected model
+  plus explicit/catalogue-default native effort. The reported scratch-workspace
+  planning narration was reproduced before the fix; the same live testbed
+  command now returns the selected prose with `$L = \sum_i (x_i-y_i)^2$`.
+  Backend 1273-test, plugin 721-test, static-analysis, production build, testbed
+  lint 100/100, and live Antigravity transcription gates passed.
 
 - **v0.36.7 — Obsidian Agent Activation + Open-Tab Context Hotfix**
   (release-ready 2026-07-26): provider launch now fails closed when Obsidian is
@@ -302,7 +300,7 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: System Stability Overhaul ACTIVE; v0.36.8 hotfix in progress.
-- **Active Milestone**: v0.36.8 PDF Convert-to-LaTeX Antigravity prompt transport.
-- **Next actionable item**: Complete and ship the v0.36.8 hotfix, then resume the
+- **Roadmap state**: System Stability Overhaul ACTIVE; v0.36.8 is release-ready.
+- **Active Milestone**: None (v0.36.8 awaits human PR review/merge).
+- **Next actionable item**: After v0.36.8 merges, resume the
   composite-primary-key tombstones schema-contract plan.

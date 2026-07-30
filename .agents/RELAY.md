@@ -9,8 +9,8 @@ planning narration.
 ## Plan Reference
 
 - Branch: `hotfix/v0.36.8-latex-transcribe`
-- Master plan: `.agents/plans/02_latex_transcribe_hotfix.md`
-- Evidence: `.agents/plans/02_latex_transcribe_hotfix_evidence.md`
+- Completed hotfix plans were deleted after validation; use branch Git history
+  to inspect the master plan and evidence ledger.
 
 ## Analysis & Reasoning
 
@@ -34,7 +34,8 @@ planning narration.
 - [x] Add failing tests.
 - [x] Implement backend prompt/model/effort forwarding.
 - [x] Run focused, full CI, and testbed smoke validation.
-- [ ] Bump v0.36.8, update changelog, remove plan artifacts, push, and open PR.
+- [x] Bump v0.36.8, update changelog, and remove plan artifacts.
+- [ ] Push and open PR.
 
 ## Critical Context / Blockers
 
@@ -45,5 +46,4 @@ planning narration.
 
 ## Immediate Next Action
 
-Bump v0.36.8, delete the shipped hotfix plan artifacts, run version consistency,
-then push and open the PR.
+Run final version consistency, then push and open the PR.

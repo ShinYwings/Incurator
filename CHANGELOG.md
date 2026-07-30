@@ -2,6 +2,18 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.36.8] - 2026-07-30
+### Fixed
+- **PDF Convert-to-LaTeX Antigravity Prompt Transport**
+  The backend now sends the complete PDF transcription request as the
+  `agy --print` prompt instead of placing it on ignored stdin behind a generic
+  placeholder. It also passes the selected `--model` and explicit or
+  catalogue-default native `--effort`. Convert to LaTeX therefore preserves the
+  selected prose, rewrites equations with LaTeX delimiters, and no longer copies
+  Antigravity scratch-workspace planning narration as a successful result.
+
+---
+
 ## [0.36.7] - 2026-07-26
 ### Fixed
 - **Antigravity Hotfix Activation**
