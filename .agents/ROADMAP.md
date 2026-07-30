@@ -23,8 +23,8 @@ Source of Truth to identify unresolved items.
 `USER_REPORT.md` is currently empty. The following queue is the ordered roadmap.
 
 No urgent hotfix is currently tracked. v0.38.0 Sidechat Vault-Page Wikilinks
-is release-validated and has left the live queue; Failure Atlas F9 is the next
-implementation item.
+shipped in PR #100 and has left the live queue. Failure Atlas F9 is now the
+active v0.39.0 planning item.
 
 ### 🚀 Priority Order
 
@@ -41,9 +41,9 @@ implementation item.
      strict v12 schema/reindex speedup, CM-1 command decomposition,
      fail-closed sync/KRS integrity, and the PDF/Antigravity transport hotfixes.
    - **Remaining Scope for Upcoming Releases**:
-     - **Compiler integrity**: Failure Atlas F9 authored-note topology remains a
-       separate backend compiler workstream. It is not the Sidechat navigation
-       feature requested for v0.38.0.
+     - **Compiler integrity**: Failure Atlas F9 authored-note topology is the
+       active v0.39.0 backend compiler workstream. It remains distinct from the
+       Sidechat navigation feature shipped in v0.38.0.
      - **Exception Handling Hardening (XC-1 later slices)**: audit broad
        catch-and-return boundary handlers and other backend modules after the
        silent-swallow slice lands. Provider follow-ups found during v0.37.1
@@ -53,12 +53,15 @@ implementation item.
        no-JSON plugin command errors.
      - **Performance & UX Refinements**: RAG/DAG benchmark harness & retrieval hotspot optimization; chat/popover UX friction cleanup.
 
-2. **[Stability / Compiler] Failure Atlas F9 Authored-Note Topology**
+2. **[Minor / Compiler] v0.39.0 Failure Atlas F9 Authored-Note Topology** *(ACTIVE — PLAN REVIEW)*
    - Compile human-authored note wikilinks/embeds/tags/frontmatter references as
      topology distinct from LLM-extracted relations.
-   - This is the existing Program 2 backend oracle in
-     `backend/tests/test_failure_atlas_repro.py`; it is not required for
-     Sidechat answer navigation and gets its own future contract/rollback.
+   - Re-pin the existing Program 2 oracle to the real compiler boundary, publish
+     authored topology atomically with deterministic cross-device identity, and
+     keep topology influence separate from factual report evidence.
+   - Master Plan: `.agents/plans/02_authored_note_topology.md`
+   - Evidence: `.agents/plans/02_authored_note_topology_evidence.md`
+   - Arena: `.agents/plans/authored_note_topology_arena/`
 
 3. **[Minor Update] Chat Session Context Compaction**
    - Confirm full-session history behavior.
@@ -86,7 +89,7 @@ implementation item.
 ## ✅ Completed Milestones
 
 - **v0.38.0 — Sidechat Vault-Page Wikilinks**
-  (release-ready 2026-07-30): every selectable Sidechat provider receives the
+  (shipped 2026-07-30, PR #100): every selectable Sidechat provider receives the
   same exact-path/non-invention contract and completed `vault_link_target`
   literals for safe included Markdown/PDF context and usable ContextService
   locators. External, degraded, unsafe, or source-kind/suffix-mismatched targets
