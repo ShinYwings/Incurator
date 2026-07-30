@@ -34,7 +34,10 @@ All notable changes to Incurator are documented here.
   clock-skewed replica merges preserve shared edges, DB-only/type-change
   republishes cannot leave discarded-generation ownership, topology additions
   invalidate stale reports, and rematerialization removes authored search
-  ghosts.
+  ghosts. Follow-up review hardening also reconciles lone generations after
+  source tombstones, enforces exact audit membership at lifecycle admission,
+  advances repair/retirement LWW clocks strictly, preserves winner-dependent
+  reports, accepts balanced nested Markdown labels, and decodes targets once.
 
 ---
 

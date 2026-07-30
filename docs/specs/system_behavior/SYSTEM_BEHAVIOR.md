@@ -2480,8 +2480,11 @@ heuristics never compensate for unchecked or broadly grounded claims.
   syntax and numeric-only pseudo-tags emit nothing. A fenced block closes with
   the same marker type and at least the opening marker length; an unclosed
   fence masks through end of file. Markdown destinations support balanced
-  parentheses. Plugin-specific citation grammars are outside the contract
-  unless represented by an ordinary internal vault link.
+  parentheses, and link labels support bounded balanced nested brackets.
+  Destination escapes and percent encoding are normalized exactly once, so a
+  literal double-encoded target is not silently rewritten into another vault
+  path. Plugin-specific citation grammars are outside the contract unless
+  represented by an ordinary internal vault link.
 - **Endpoint identity.** Pipe display text, `#heading`/`^block` fragments, and
   embed sizes are presentation only and are removed before identity. Endpoint
   types are `vault_note`, `vault_asset`, and `tag`. `aliases` may resolve a
@@ -2504,9 +2507,14 @@ heuristics never compensate for unchecked or broadly grounded claims.
   the winning generation's membership. With three or more concurrent
   generations, a winner relation is a topology addition if any losing
   generation omitted it, so endpoint reports from that replica retire. A
-  legacy/malformed audit fails closed and never resurrects topology. Unchanged
-  builds and independent-device compilation therefore converge to one logical,
-  serving generation under DB sync.
+  legacy/malformed audit fails closed and never resurrects topology. An
+  authored relation is admitted only when its id is in that exact valid
+  membership. Reconciliation also evaluates a lone authoritative generation;
+  if the source row was tombstoned, no generation wins and all source-owned
+  authored relations retire. Every repair or retirement revision is strictly
+  newer than every valid affected LWW revision. Unchanged builds and
+  independent-device compilation therefore converge to one logical, serving
+  generation under DB sync.
 - **Publication and ownership.** Extraction completes in memory before graph
   writes. Inside the existing successful compiler publish transaction, the
   current source generation upserts the deterministic set and retires prior
@@ -2572,7 +2580,10 @@ heuristics never compensate for unchecked or broadly grounded claims.
   computed over eligible extracted supports plus active authored relation ids
   that shaped membership). When an input changes the
   report is stale and is regenerated before it is used as global evidence; a stale
-  or retired report never serves.
+  or retired report never serves. Replica reconciliation does not retire a
+  report that already records the newly active winning relation as an exact
+  dependency; endpoint-overlapping reports that lack that dependency retire at
+  a strict-successor LWW revision.
 
 ### 27.6 Graph Audit Surface (`wiki lint` Extension)
 

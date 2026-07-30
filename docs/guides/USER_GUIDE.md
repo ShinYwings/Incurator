@@ -563,14 +563,16 @@ What this means in practice:
 - **Authored structure is compiled directly**: internal note wikilinks, embeds,
   tags, and frontmatter wikilinks in `.md` and `.markdown` notes become
   deterministic graph topology. Display aliases and heading/block fragments
-  still point to the same page; balanced Markdown destinations and safe
-  parent-relative paths work. Escaped syntax, numeric-only pseudo-tags,
-  code/comments, ambiguous targets, external paths, hidden paths, and traversal
-  outside the vault are ignored rather than guessed. Editing, renaming,
-  deleting, or changing a note to a non-Markdown type retires stale authored
-  edges. Portable paths are Unicode-normalized, and importing another replica
-  restores the exact authored membership of one authoritative generation per
-  source.
+  still point to the same page; balanced nested labels, balanced Markdown
+  destinations, and safe parent-relative paths work. Target encoding is decoded
+  once, so a double-encoded filename is not mistaken for a different note.
+  Escaped syntax, numeric-only pseudo-tags, code/comments, ambiguous targets,
+  external paths, hidden paths, and traversal outside the vault are ignored
+  rather than guessed. Editing, renaming, deleting, or changing a note to a
+  non-Markdown type retires stale authored edges. Portable paths are
+  Unicode-normalized, and importing another replica restores the exact authored
+  membership of one authoritative generation per source. A source deletion
+  also retires stale topology when only one remote generation remains.
 - **Extracted support is counted honestly**: a relationship backed by ten
   copies of the same source counts as one independent confirmation, not ten.
   Re-running a build accumulates genuine support instead of overwriting it.

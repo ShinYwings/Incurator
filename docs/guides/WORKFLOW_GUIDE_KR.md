@@ -569,13 +569,15 @@ SYSTEM_BEHAVIOR.md §27). §10 위에 구축되며, 그래프 구성은 완전�
 - **작성 노트 토폴로지**: 등록된 visible `.md` 및 `.markdown` 노트의 정확한
   내부 wikilink, embed, tag, frontmatter wikilink는 결정론적 `authored`
   엣지로 컴파일됩니다. pipe label과 heading/block fragment는 여전히 같은
-  노트/asset 페이지로 해석되고, 괄호가 균형 잡힌 Markdown 대상과 vault
-  내부의 안전한 상위 상대 경로도 동작합니다. escape된 문법, 숫자로만 된
-  의사 태그, 코드/주석, 모호한 대상, 외부·숨김 경로, vault 밖 traversal은
-  fail closed 처리됩니다. portable 경로는 Unicode로 정규화됩니다. 편집,
-  이름 변경, 삭제, 비-Markdown 형식 전환은 오래된 엣지를 원자적으로 retire
-  처리하며, replica import는 authored 토폴로지를 제공하기 전에 승자
-  generation의 정확한 membership을 복원합니다.
+  노트/asset 페이지로 해석되고, 깊이가 제한된 균형 잡힌 중첩 label과 Markdown
+  대상, vault 내부의 안전한 상위 상대 경로도 동작합니다. escape와 percent
+  encoding은 한 번만 정규화됩니다. escape된 문법, 숫자로만 된 의사 태그,
+  코드/주석, 모호한 대상, 외부·숨김 경로, vault 밖 traversal은 fail closed
+  처리됩니다. portable 경로는 Unicode로 정규화됩니다. 편집, 이름 변경, 삭제,
+  비-Markdown 형식 전환은 오래된 엣지를 원자적으로 retire 처리하며, replica
+  import는 authored 토폴로지를 제공하기 전에 승자 generation의 정확한
+  membership을 복원합니다. generation이 하나뿐이어도 reconciliation을
+  실행하므로 소스 tombstone 뒤에 토폴로지가 active로 남지 않습니다.
 - **관계 라이프사이클**: 추출 관계는 검증된 독립 지지와 해소된 엔드포인트가
   있어야만 `active`가 됩니다. 작성 관계는 정확한 구조가 현재 성공한 소스
   generation에 속할 때 `active`가 되며, 가짜 사실 지지를 만들지 않습니다.
@@ -594,7 +596,9 @@ SYSTEM_BEHAVIOR.md §27). §10 위에 구축되며, 그래프 구성은 완전�
   있지만, 커뮤니티 보고서는 정확한 적격 추출 클레임 지지만 인용합니다. 작성
   링크는 사실 근거가 되지 않으며, 작성 엣지만 있는 컴포넌트는 가짜 사실
   보고서를 만들지 않습니다. "커뮤니티 전체" 광역 폴백은 제거되었습니다.
-  입력이 바뀐 보고서는 synthesis가 사용하기 전에 retire 후 재생성됩니다.
+  입력이 바뀐 보고서는 synthesis가 사용하기 전에 retire 후 재생성되며,
+  replica reconciliation은 이미 승자 작성 관계를 의존성으로 기록한 import
+  보고서를 보존합니다.
 - **최신 그래프 검색**: retire된 작성 관계와 active 엣지가 없는 작성
   note/asset/tag 엔티티는 명시적 소스 삭제를 포함한 그래프 검색
   rematerialize 때 제거됩니다.

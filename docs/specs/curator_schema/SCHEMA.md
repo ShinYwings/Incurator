@@ -1746,10 +1746,19 @@ Rules (Arena decision 8 — staged atomic publish):
   membership authority during replica reconciliation: shared deterministic
   relation ids are reassigned to the winning generation, and only
   loser-exclusive ids retire. Missing, malformed, or non-list membership fails
-  closed and cannot resurrect an authored row. For report invalidation, a
-  winner-member relation counts as newly active when it is absent from any
-  losing generation's valid membership.
-- Every status transition advances `updated_at` monotonically. A stale
+  closed and cannot resurrect an authored row. The same exact membership is an
+  admission requirement: an authored relation absent from its generation's
+  valid membership cannot be `active`. For report invalidation, a winner-member
+  relation counts as newly active when it is absent from any losing
+  generation's valid membership.
+- Reconciliation runs for every source scope, including a single remaining
+  authoritative generation. If its source row is absent (for example, a source
+  tombstone won), there is no eligible winner: every authoritative generation
+  in that source scope is discarded and its authored relations retire.
+- Every repair, discard, and retirement transition writes a valid LWW revision
+  strictly newer than the current wall clock and every valid revision observed
+  on the affected generation, relation, or report. Equal-clock repair is not a
+  state change to a strict-greater LWW peer and is therefore forbidden. A stale
   `staged`/`discarded` snapshot cannot overwrite a newer authoritative row.
 
 ### 20.3.1 JSONL Import Boundary (`SCHEMA_VERSION = 13`)
@@ -2146,10 +2155,12 @@ authored relation types: `links_to`, `embeds`, `tagged_with`, and
   newest publication). Exact sorted authored membership comes from the winning
   generation's `audit_json`: shared deterministic relation ids are assigned to
   the winner and have lifecycle recompiled, while only loser-exclusive ids
-  retire. Missing/malformed membership fails closed. Unchanged builds and
-  independent-device compilation therefore converge under id-based DB sync even
-  when relation-row and generation LWW clocks disagree. Existing extracted ids
-  are unchanged.
+  retire. Lifecycle admission also requires that the relation id occur in that
+  exact valid membership. Missing/malformed membership fails closed. A
+  tombstoned source has no eligible winning generation, even when only one
+  authoritative generation remains. Unchanged builds and independent-device
+  compilation therefore converge under id-based DB sync even when relation-row
+  and generation LWW clocks disagree. Existing extracted ids are unchanged.
 
 The two classes stay distinct through weighting, hierarchy, audit, and reports
 (Arena decision 9). `topology_weight` is the partition-input weight and is
@@ -2182,8 +2193,12 @@ Rules:
   of active authored relations that shaped membership. Authored relation ids
   invalidate topology/report membership but never become factual report support.
 - A newly active authored relation retires each live report whose `entity_ids`
-  contains either endpoint. This endpoint rule closes the addition case where
-  an older report cannot yet have an artifact dependency on the new relation.
+  contains either endpoint unless that report already records the exact
+  relation dependency. This endpoint rule closes the addition case where an
+  older report cannot yet have an artifact dependency on the new relation while
+  preserving a newer imported report already built from the winning topology.
+  The retirement revision is a strict successor of the report and relation
+  revisions, so invalidation never moves a LWW clock backward.
 - `level` (existing column, §11.5) now carries the real hierarchy depth (0 =
   leaf). `parent_community_key` records the hierarchy edge.
 - `config_hash` pins the partition algorithm, seed, and thresholds that produced

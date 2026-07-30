@@ -551,13 +551,15 @@ fully published claim generation:
 - **Authored note topology**: exact internal wikilinks, embeds, tags, and
   frontmatter wikilinks from registered visible `.md` and `.markdown` notes
   compile as deterministic `authored` edges. Pipe labels and heading/block
-  fragments still resolve to the note/asset page; balanced Markdown
-  destinations and safe parent-relative paths work. Escaped syntax,
+  fragments still resolve to the note/asset page; bounded balanced nested
+  labels, balanced Markdown destinations, and safe parent-relative paths work.
+  Escapes and percent encoding are normalized once. Escaped syntax,
   numeric-only pseudo-tags, code/comments, ambiguous targets, external paths,
   hidden paths, and traversal outside the vault fail closed. Portable paths are
   Unicode-normalized. Edits, renames, deletes, and file-type changes retire
   stale edges atomically; replica import restores exact winner-generation
-  membership before authored topology is served.
+  membership before authored topology is served. Reconciliation still runs
+  with one generation, so a source tombstone cannot leave its topology active.
 - **Relation lifecycle**: an extracted relation is `active` only with verified
   independent support and resolved endpoints. An authored relation is `active`
   when its exact structure belongs to the current successful source generation;
@@ -579,7 +581,8 @@ fully published claim generation:
   support — authored links never become factual evidence. Authored-only
   components produce no fabricated factual report. The broad "whole community"
   fallback is removed. Reports whose inputs change retire and regenerate before
-  synthesis uses them.
+  synthesis uses them; replica reconciliation preserves an imported report that
+  already records the winning authored relation as a dependency.
 - **Fresh graph search**: retired authored relations and authored note/asset/tag
   entities with no active edge are removed when graph search is rematerialized,
   including after explicit source removal.
