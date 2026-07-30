@@ -14,6 +14,9 @@ Ensure you have the MCP dependencies installed:
 uv pip install -e './backend[mcp]'
 ```
 
+The current server targets the MCP Python SDK 1.x `mcp.server.fastmcp` contract;
+the package metadata excludes MCP 2.x until that major API is migrated.
+
 > [!NOTE]
 > The server uses the `VAULT_ROOT` environment variable to locate your vault. Agent/plugin integrations should set it explicitly whenever possible. The v0.2.0 contract prefers explicit failure over silently falling back to the current working directory when a vault cannot be resolved.
 

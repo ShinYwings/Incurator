@@ -86,6 +86,17 @@ No urgent hotfix is currently tracked.
 
 ## ✅ Completed Milestones
 
+- **v0.36.8 — PDF Convert-to-LaTeX Antigravity Prompt Transport**
+  (release-ready 2026-07-30): fixed the backend Antigravity client to pass the
+  complete request as the `agy --print` prompt and exact `--model`. Explicit
+  Convert-to-LaTeX slots use `low` only when supported; fixed variants omit
+  effort. The plugin chat selector now reaches `agy --model`, and the catalogue
+  uses the live `claude-opus-4-6-thinking` slug. The reported scratch-workspace
+  planning narration was reproduced before the fix; all five Antigravity vision
+  models and Codex Terra returned selected prose with LaTeX. Backend 1,276-test,
+  plugin 721-test, static-analysis, production build, testbed lint 100/100, and
+  live transcription gates passed.
+
 - **v0.36.7 — Obsidian Agent Activation + Open-Tab Context Hotfix**
   (release-ready 2026-07-26): provider launch now fails closed when Obsidian is
   still running a stale plugin bundle; complete plugin updates lead to a real
@@ -291,6 +302,8 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: System Stability Overhaul ACTIVE; v0.36.6 is release-ready.
-- **Active Milestone**: None (System IDLE)
-- **Next actionable item**: Start the highest-priority remaining schema-contract plan for composite-primary-key tombstones from a fresh branch off updated `master`.
+- **Roadmap state**: System Stability Overhaul ACTIVE; v0.36.8 is release-ready
+  on PR #96.
+- **Active Milestone**: None (v0.36.8 awaits human review/merge).
+- **Next actionable item**: After v0.36.8 merges, resume the
+  composite-primary-key tombstones schema-contract plan.

@@ -351,7 +351,14 @@ Rules:
   `latex_extract_model → vision_model → (main chat model if vision-capable)` in the
   backend; its returned text MUST be normalized (one
   `<transcription>...</transcription>` block; explanatory prose, labels, and fences
-  stripped) before the plugin copies or injects it.
+  stripped) before the plugin copies or injects it. An Antigravity-backed
+  extraction passes the complete transcription request as the `agy --print`
+  prompt and the resolved model through `--model`. An explicit
+  `latex_extract_model` or `vision_model` used by this action receives `low`
+  effort when that model declares `low`; fixed/no-effort models omit
+  `--effort`. If both explicit slots are empty, the final main-model fallback
+  retains its user-selected effort. Stdin-only prompt transport or scratch-agent
+  progress narration is not a successful transcription.
   **Cmd+Shift+X "Snip PDF Region to Chat" (v0.28.0)** routes by the *main chat
   model's* vision capability instead (SYSTEM_BEHAVIOR §26.2a): a vision-capable
   main model receives the crop image DIRECTLY via the interactive chat image
@@ -1942,8 +1949,9 @@ the `find_mvg_text.py`-style exploit). This section governs the CLI path.
     remains the compatibility boundary for Antigravity releases that require the
     explicit headless read approval.
     Antigravity CLI 1.1.5+ also requires `--effort <level>` when a base model
-    slug with declared effort levels is passed through `--model`; the plugin
-    forwards the normalized `agentEffort` value and omits the flag only for
+    slug with declared effort levels is passed through `--model`; every plugin
+    chat invocation passes the selected non-empty model through `--model`,
+    forwards the normalized `agentEffort`, and omits `--effort` only for
     catalogue models without an effort dimension.
   - **claude** — controlled by its tool surface (no deny-without-prompt dir sandbox):
     popover `--tools ""` (no tools); sidechat `--disallowedTools Bash Read Write Edit

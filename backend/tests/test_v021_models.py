@@ -113,6 +113,78 @@ class TestAntigravityConfig(unittest.TestCase):
         self.assertIn("--log-file", captured["cmd"])
         self.assertFalse(client.ping())
 
+    def test_antigravity_run_passes_full_prompt_model_and_catalogue_default_effort(
+        self,
+    ) -> None:
+        client = AntigravityCliClient(model="gemini-3.6-flash")
+        prompt = (
+            "Return exactly one <transcription> block. "
+            "The reconstruction loss is L = sum_i (x_i - y_i)^2."
+        )
+        captured: dict = {}
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            captured["kwargs"] = kwargs
+
+            class _R:
+                returncode = 0
+                stdout = "<transcription>Clean $L = \\\\sum_i (x_i-y_i)^2$.</transcription>"
+                stderr = ""
+
+            return _R()
+
+        with patch("curator.llm.subprocess.run", fake_run):
+            result = client._run(prompt)
+
+        cmd = captured["cmd"]
+        self.assertEqual(cmd[cmd.index("--print") + 1], prompt)
+        self.assertEqual(cmd[cmd.index("--model") + 1], "gemini-3.6-flash")
+        self.assertEqual(cmd[cmd.index("--effort") + 1], "medium")
+        self.assertNotIn("input", captured["kwargs"])
+        self.assertIn("<transcription>", result)
+
+    def test_antigravity_run_preserves_explicit_effort(self) -> None:
+        client = AntigravityCliClient(model="gemini-3.6-flash", effort="high")
+        captured: dict = {}
+
+        def fake_run(cmd, **kwargs):  # noqa: ARG001
+            captured["cmd"] = cmd
+
+            class _R:
+                returncode = 0
+                stdout = "ok"
+                stderr = ""
+
+            return _R()
+
+        with patch("curator.llm.subprocess.run", fake_run):
+            client._run("Return OK")
+
+        cmd = captured["cmd"]
+        self.assertEqual(cmd[cmd.index("--effort") + 1], "high")
+
+    def test_antigravity_run_omits_effort_for_model_without_effort_dimension(
+        self,
+    ) -> None:
+        client = AntigravityCliClient(model="custom-model-without-catalogue-effort")
+        captured: dict = {}
+
+        def fake_run(cmd, **kwargs):  # noqa: ARG001
+            captured["cmd"] = cmd
+
+            class _R:
+                returncode = 0
+                stdout = "ok"
+                stderr = ""
+
+            return _R()
+
+        with patch("curator.llm.subprocess.run", fake_run):
+            client._run("Return OK")
+
+        self.assertNotIn("--effort", captured["cmd"])
+
     def test_start_client_primary_without_fallback_returns_primary(self) -> None:
         from curator import cli
 
@@ -173,6 +245,18 @@ class TestModelEfforts(unittest.TestCase):
         self.assertEqual(models.get_model_efforts("claude", "claude-haiku-4-5"), [])
         # Ollama models have no effort dimension.
         self.assertEqual(models.get_model_efforts("ollama", "qwen2.5:7b"), [])
+        self.assertEqual(
+            models.get_backend_model_efforts(
+                "antigravity-cli", "gemini-3.6-flash"
+            ),
+            ["low", "medium", "high"],
+        )
+        self.assertEqual(
+            models.get_backend_model_efforts(
+                "antigravity-cli", "claude-opus-4-6-thinking"
+            ),
+            [],
+        )
 
     def test_no_phantom_models(self) -> None:
         """Models that the live CLIs do not expose must not be in the catalogue."""
@@ -181,6 +265,18 @@ class TestModelEfforts(unittest.TestCase):
         self.assertNotIn("gemini-3.5-pro", agy_ids)
         self.assertIn("gemini-3.5-flash", agy_ids)
         self.assertIn("gpt-oss-120b", agy_ids)
+        self.assertNotIn("claude-opus-4-6", agy_ids)
+        self.assertIn("claude-opus-4-6-thinking", agy_ids)
+
+        agy_models = catalogue["providers"]["antigravity"]["models"]
+        fixed_sonnet = next(m for m in agy_models if m["id"] == "claude-sonnet-4-6")
+        fixed_opus = next(
+            m for m in agy_models if m["id"] == "claude-opus-4-6-thinking"
+        )
+        self.assertNotIn("efforts", fixed_sonnet)
+        self.assertNotIn("default_effort", fixed_sonnet)
+        self.assertNotIn("efforts", fixed_opus)
+        self.assertNotIn("default_effort", fixed_opus)
 
     def test_codex_client_injects_reasoning_effort(self) -> None:
         client = CodexCliClient(model="gpt-5.6-sol", effort="ultra")

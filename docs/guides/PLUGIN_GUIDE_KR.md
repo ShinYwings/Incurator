@@ -478,18 +478,25 @@ Settings 화면에서는 선택된 model의 context window를 별도 항목으�
   영역-OCR 모델(그리고 채팅 스닙의 text-only 폴백). 비우면 PDF ingest 모델로 폴백.
   Convert to LaTeX는 backend extractor를 호출하며, extractor는 엄격한
   `<transcription>...</transcription>` 블록을 요청하고 복사 전에 흔한 설명 문구를
-  제거합니다. **참고 (v0.28.0):** 메인 채팅 모델이 vision을 지원하면 **Cmd+Shift+X**
-  채팅 스닙은 더 이상 이 경로를 타지 않습니다 — 그 모델이 크롭 이미지를 직접
-  읽습니다(더 빠르고 이중 왕복이 없음). 이 경량 모델은 채팅 모델이 text-only일 때만
-  적용됩니다.
+  제거합니다. 선택한 본문은 그대로 보존하고 수식은 `$...$` / `$$...$$` LaTeX
+  구분자로 변환합니다. Antigravity에서는 backend가 전체 변환 요청을
+  `agy --print` 프롬프트로 전달하고 정확히 선택한 `--model`을 적용합니다. 명시적인
+  LaTeX 모델 또는 PDF ingest 폴백 모델은 해당 모델이 지원할 때 `low`를 사용하며,
+  고정/no-effort 모델에는 effort 플래그를 전달하지 않습니다. 두 전용 행 모두
+  비어 있으면 메인 모델 폴백은 사용자가 선택한 effort를 유지합니다. 제공자의 작업
+  로그는 변환 결과로 취급하지 않습니다.
+  **참고 (v0.28.0):** 메인 채팅 모델이 vision을 지원하면 **Cmd+Shift+X** 채팅 스닙은
+  더 이상 이 경로를 타지 않습니다 — 그 모델이 크롭 이미지를 직접 읽습니다(더
+  빠르고 이중 왕복이 없음). 이 경량 모델은 채팅 모델이 text-only일 때만 적용됩니다.
 
 ingest 비전은 기존 제공자의 **CLI 구독**(Ollama, 또는 `claude`/`agy`/`codex` CLI)으로
 동작 — **추가 API 키 불필요**. 드롭다운에는 비전 가능 모델만 표시됩니다. v0.21.0의
 `latexModel` 플러그인 설정을 대체합니다.
 
 플러그인은 Antigravity, Claude, OpenAI Codex, Ollama, DeepSeek를 지원합니다. 설정 탭에서는 제공자와 모델을 따로 조정할 수 있고, 채팅 사이드바 하단에서는 하나의 모델 선택 메뉴에서 `Provider · Model` 형식으로 함께 전환합니다. reasoning/effort 메뉴는 백엔드 카탈로그에서 effort 단계가 선언된 모델에만 표시됩니다.
-Antigravity CLI 1.1.5 이상에서는 선택한 강도를 `--effort`로 전달하며,
-`gemini-3.6-flash` 같은 base slug를 사용할 때 이 값이 필수입니다.
+Antigravity CLI 1.1.5 이상에서 채팅은 선택한 모델을 `--model`로, 선택한
+강도를 `--effort`로 전달합니다. 후자는 `gemini-3.6-flash` 같은 base slug를
+사용할 때 필수입니다.
 
 > [!NOTE]
 > **Incurator Dashboard → Overview → LLM Provider** 카드는 현재 기기의 캐시 설정(`.cache/config/config.yml`)에 Primary/Fallback 모델을 저장합니다. 각 모델 드롭다운 옆에는 **effort 드롭다운**이 함께 표시되며, 선택한 모델이 노출하는 강도만 보여줍니다(강도가 없는 모델은 `—`). Apply 시 Primary/Fallback과 effort 값은 `wiki config`를 통해 저장되므로, 기기별 모델 선택이 동기화되는 vault의 `.curator/settings.yml`로 새지 않습니다. 모델 목록은 플러그인 빌드 시 백엔드의 `data/models.json` 카탈로그(단일 소스)에서 번들링되므로, 모델 이름 표시가 MCP 시작 여부에 의존하지 않습니다.
@@ -509,8 +516,11 @@ agy login
 | 모델 | 설명 |
 | --- | --- |
 | `gemini-3.5-flash` | 기본값. 빠르고 효율적 |
+| `gemini-3.6-flash` | 현재의 빠른 Gemini 비전 모델 |
 | `gemini-3.1-pro` | 고품질 추론 |
-| `gemini-3-flash` | 이전 세대 Flash |
+| `claude-sonnet-4-6` | `agy`가 제공하는 고정-thinking Claude variant |
+| `claude-opus-4-6-thinking` | `agy`가 제공하는 고정-thinking Opus variant |
+| `gpt-oss-120b` | 텍스트 전용 medium-effort 모델 |
 
 `antigravityPrintTimeoutSec`: CLI 응답 최대 대기 시간 (기본 300초)
 

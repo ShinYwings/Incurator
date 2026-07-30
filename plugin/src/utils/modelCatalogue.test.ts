@@ -65,6 +65,16 @@ describe("model catalogue helpers", () => {
       defaultEffort: "low",
     });
     expect(bundled.claude?.[3]).toMatchObject({ efforts: [], defaultEffort: "" });
+    expect(bundled.antigravity?.map((model) => model.id)).toContain(
+      "claude-opus-4-6-thinking"
+    );
+    expect(
+      getModelOption(
+        bundled,
+        "antigravity",
+        "claude-opus-4-6-thinking"
+      )
+    ).toMatchObject({ efforts: [], defaultEffort: "" });
     expect(DEFAULT_SETTINGS.codexReasoningEffort).toBe("low");
     expect(DEFAULT_SETTINGS.claudeEffort).toBe("high");
   });

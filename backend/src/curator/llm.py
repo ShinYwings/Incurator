@@ -811,9 +811,8 @@ class AntigravityCliClient:
         pass
 
     def _run(self, prompt: str) -> str:
-        # Antigravity CLI currently exposes model choice through its own
-        # settings, not a stable --model flag. Keep the selected model in
-        # the prompt for traceability and pass the large payload via stdin.
+        from .models import get_default_effort
+
         log_path = ""
         try:
             log_file = tempfile.NamedTemporaryFile(
@@ -830,23 +829,22 @@ class AntigravityCliClient:
         cmd = [self.CLI]
         if log_path:
             cmd.extend(["--log-file", log_path])
+        if self.model:
+            cmd.extend(["--model", self.model])
+        effective_effort = self.effort or get_default_effort(
+            "antigravity", self.model
+        )
+        # Fixed thinking variants encode that choice in their model slug; agy
+        # accepts only these three native values through --effort.
+        if effective_effort in {"low", "medium", "high"}:
+            cmd.extend(["--effort", effective_effort])
         cmd.extend(
             [
                 "--print",
-                "Follow the instructions in the provided input.",
+                prompt,
                 "--print-timeout",
                 "15m",
             ]
-        )
-        # agy has no --model/--effort flag, so the preference is embedded as a
-        # prompt hint for traceability (best-effort; the active model is chosen
-        # in the agy UI/session).
-        hint = self.model
-        if hint and self.effort:
-            hint = f"{self.model} | effort: {self.effort}"
-        prompt_with_model = (
-            f"[Preferred model: {hint}]\n\n{prompt}"
-            if hint else prompt
         )
         env = _repo_temp_env({
             "ANTIGRAVITY_TRUST_WORKSPACE": "true",
@@ -855,7 +853,6 @@ class AntigravityCliClient:
         try:
             result = subprocess.run(
                 cmd,
-                input=prompt_with_model,
                 capture_output=True,
                 text=True,
                 timeout=900,
@@ -1611,12 +1608,13 @@ def _make_by_key(key: str, backend_cfg: dict):
     return None
 
 
-def make_client_for(provider_model: str, config: dict):
+def make_client_for(provider_model: str, config: dict, *, effort: str = ""):
     """Build an INDEPENDENT client for an explicit ``provider::model`` value.
 
     Unlike ``make_client_by_key`` (which derives the model from primary/fallback),
     this uses the model embedded in ``provider_model`` — used for the decoupled
-    ``vision_model`` / ``latex_extract_model`` slots (v0.22.0). Returns None for an
+    ``vision_model`` / ``latex_extract_model`` slots (v0.22.0). ``effort`` is a
+    caller-owned task policy; this factory only forwards it. Returns None for an
     empty/unparseable value.
     """
     from .config import split_provider_model
@@ -1628,9 +1626,13 @@ def make_client_for(provider_model: str, config: dict):
     if provider == consts.BACKEND_OLLAMA:
         backend_cfg = {**llm_cfg.get(consts.BACKEND_OLLAMA, {}), "model": model}
     elif provider == consts.BACKEND_DEEPSEEK_API:
-        backend_cfg = {**llm_cfg.get(consts.BACKEND_DEEPSEEK_API, {}), "model": model}
+        backend_cfg = {
+            **llm_cfg.get(consts.BACKEND_DEEPSEEK_API, {}),
+            "model": model,
+            "effort": effort,
+        }
     else:
-        backend_cfg = {"model": model}
+        backend_cfg = {"model": model, "effort": effort}
     return _make_by_key(provider, backend_cfg)
 
 
