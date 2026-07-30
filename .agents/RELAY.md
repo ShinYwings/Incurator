@@ -8,6 +8,7 @@ lockfile resolution without adding a direct dependency or unrelated upgrades.
 ## Plan Reference
 
 - Branch: `chore/npm-audit-postcss`
+- Draft PR: `https://github.com/ShinYwings/Incurator/pull/97`
 - Small isolated dependency-only chore; heavy Arena planning is not required.
 
 ## Analysis & Reasoning
@@ -23,7 +24,7 @@ lockfile resolution without adding a direct dependency or unrelated upgrades.
 - [x] Identify the dependency chain and patched range.
 - [x] Apply a targeted lockfile update.
 - [x] Run audit, plugin tests, and production build.
-- [ ] Push a dependency-only PR.
+- [x] Push a dependency-only PR.
 
 ## Critical Context / Blockers
 
@@ -36,4 +37,4 @@ lockfile resolution without adding a direct dependency or unrelated upgrades.
 
 ## Immediate Next Action
 
-Push the branch, open a draft PR, and confirm CI.
+Confirm PR #97 CI, then hand off for human review and merge.
