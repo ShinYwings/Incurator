@@ -34,7 +34,10 @@ lockfile resolution without adding a direct dependency or unrelated upgrades.
 - Clean `npm ci`: succeeded.
 - `npm audit --audit-level=high`: zero vulnerabilities.
 - Plugin: 721 tests passed; production build passed.
+- GitHub PR #97: Backend and Plugin jobs passed; Version Consistency correctly
+  skipped for the dependency-only chore.
 
 ## Immediate Next Action
 
-Confirm PR #97 CI, then hand off for human review and merge.
+Human review and merge of draft PR #97. After merge, apply the documented IDLE
+relay cleanup exception on updated `master`.
