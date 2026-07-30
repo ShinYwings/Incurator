@@ -9,6 +9,7 @@ planning narration.
 ## Plan Reference
 
 - Branch: `hotfix/v0.36.8-latex-transcribe`
+- Draft PR: `https://github.com/ShinYwings/Incurator/pull/96`
 - Completed hotfix plans were deleted after validation; use branch Git history
   to inspect the master plan and evidence ledger.
 
@@ -35,7 +36,7 @@ planning narration.
 - [x] Implement backend prompt/model/effort forwarding.
 - [x] Run focused, full CI, and testbed smoke validation.
 - [x] Bump v0.36.8, update changelog, and remove plan artifacts.
-- [ ] Push and open PR.
+- [x] Push and open draft PR #96.
 
 ## Critical Context / Blockers
 
@@ -46,4 +47,5 @@ planning narration.
 
 ## Immediate Next Action
 
-Run final version consistency, then push and open the PR.
+Human review and merge of draft PR #96. After merge, apply the documented IDLE
+relay cleanup exception on updated `master`.
