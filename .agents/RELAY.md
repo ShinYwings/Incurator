@@ -68,7 +68,10 @@ planning narration.
 - Backend: 1,276 passed; ruff and mypy passed.
 - Plugin: 721 passed; production build passed.
 - Testbed lint: 100/100.
+- GitHub PR #96 after the model-dispatch follow-up: both Backend jobs, both
+  Plugin jobs, and Version Consistency passed.
 
 ## Immediate Next Action
 
-Push the branch, update PR #96, and confirm CI.
+Human review and merge of draft PR #96. After merge, apply the documented IDLE
+relay cleanup exception on updated `master`.
