@@ -7,12 +7,9 @@ authored-note topology before merge.
 
 ## Plan Reference
 
-- `.agents/plans/03_authored_topology_review_hardening.md`
-- `.agents/plans/03_authored_topology_review_evidence.md`
-- `.agents/plans/authored_topology_review_arena/`
-- `.agents/plans/A_authored_parser_review.md`
-- `.agents/plans/B_authored_generation_review.md`
-- `.agents/plans/C_authored_serving_review.md`
+- Completed deep-review plan, Arena debate, domain analyses, and evidence were
+  preserved in commit `f6ff089` and removed from the active workspace per the
+  release workflow.
 
 ## Analysis & Reasoning
 
@@ -44,8 +41,12 @@ authored-note topology before merge.
 - Gemini MCP and repository last-root state both point to
   `/Users/shin/shinywings/second_brain`; disposable validation data was moved
   to Trash.
-- Current phase: preserve planning history, delete completed active plans,
-  commit release follow-up, push, and wait for PR #101 latest-head CI.
+- Correction commit: `f6ff089 fix(graph): harden authored topology
+  reconciliation`.
+- Completed active plan artifacts were deleted after their history was
+  preserved.
+- Current phase: create the release follow-up commit, push, and wait for PR
+  #101 latest-head CI.
 
 ## Critical Context / Blockers
 
@@ -58,6 +59,5 @@ authored-note topology before merge.
 
 ## Immediate Next Action
 
-Commit the verified correction with planning evidence, remove the completed
-active plan artifacts per workflow, create the v0.39.0 release follow-up commit,
-push `release/v0.39.0`, and wait for PR #101 latest-head CI.
+Create the v0.39.0 release follow-up commit, push `release/v0.39.0`, and wait
+for PR #101 latest-head CI.

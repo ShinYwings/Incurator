@@ -28,16 +28,14 @@ authored-note topology.
 
 ### 🚀 Priority Order
 
-1. **[Patch-in-release] v0.39.0 Authored-Topology Deep-Review Hardening** *(ACTIVE)*
+1. **[Patch-in-release] v0.39.0 Authored-Topology Deep-Review Hardening** *(IMPLEMENTED — PR CI/merge pending)*
    - Draft PR #101 remains on `release/v0.39.0`; the release has not merged, so
      these corrections keep the same version and public contract.
-   - Confirmed failures cover destructive Markdown masking, escaped/numeric
-     pseudo-syntax, valid link targets and `.markdown` notes, generation-owned
-     authored membership, replica clock skew, stale community reports, and
-     stale authored search documents.
-   - Master Plan: `.agents/plans/03_authored_topology_review_hardening.md`
-   - Evidence Ledger:
-     `.agents/plans/03_authored_topology_review_evidence.md`
+   - The deep-review fixes cover non-destructive Markdown scanning,
+     escape/numeric filtering, balanced/parent-relative targets, `.markdown`,
+     exact generation-owned membership, two-/three-way replica convergence,
+     and report/search freshness.
+   - Completed plan, Arena, and evidence history: commit `f6ff089`.
 
 2. **[Major Update] System Stability Overhaul — Exhaustive Diagnosis & Refactoring** *(ACTIVE)*
    - Absorbs the prompt-architecture milestone. Whole-codebase diagnosis (bugs,
