@@ -38,11 +38,37 @@ describe("chat context priority", () => {
       label: "curate.yml",
       content: "background",
       sourceViewType: "auto",
+      filePath: "Research/config/curate.yml",
     };
 
-    expect(contextPromptLabel(auto)).toBe("Visible background context: curate.yml");
+    expect(contextPromptLabel(auto)).toBe(
+      "Visible background context: curate.yml (vault path: Research/config/curate.yml)"
+    );
     expect(contextPriorityInstruction(true)).toContain("Primary user-selected context is the MAIN FOCUS");
     expect(contextPriorityInstruction(false)).toContain("Pinned and visible Obsidian contexts");
+  });
+
+  it("preserves exact vault paths for every prompt-included context priority", () => {
+    const selected: ContextRef = {
+      type: "selection",
+      label: "Selected paragraph",
+      content: "focus",
+      filePath: "02_Wiki/Optimization/Auto Calibration.md",
+    };
+    const pinned: ContextRef = {
+      type: "file",
+      label: "Pinned note",
+      content: "background",
+      filePath: "03_Notes/Related Work.md",
+      isPinned: true,
+    };
+
+    expect(contextPromptLabel(selected)).toBe(
+      "Primary user-selected context: Selected paragraph (vault path: 02_Wiki/Optimization/Auto Calibration.md)"
+    );
+    expect(contextPromptLabel(pinned)).toBe(
+      "Pinned background context: Pinned note (vault path: 03_Notes/Related Work.md)"
+    );
   });
 
   it("treats pinned explicit snippets as primary while whole pinned docs stay background", () => {

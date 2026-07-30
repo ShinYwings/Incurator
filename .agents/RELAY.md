@@ -35,7 +35,10 @@ the exact page, heading, or block.
 - Existing F9 baseline and 31 focused plugin link/prompt tests pass.
 - Arena, domain analyses, Master Plan, and evidence ledger are complete.
 - The user approved the v0.38.0 plan and implementation is in progress.
-- No application code has changed.
+- Docs/spec contracts are updated for v0.38.0.
+- TDD red reproduced 13 missing-boundary assertions; the minimal implementation
+  now passes 58 focused prompt/context/navigation regression tests and the
+  production plugin build.
 
 ## Critical Context / Blockers
 
@@ -48,5 +51,5 @@ the exact page, heading, or block.
 
 ## Immediate Next Action
 
-Update the EN/KR guide and static specs, then write the focused failing plugin
-tests before application code.
+Run the complete plugin/backend validation gates, then perform the real Obsidian
+and cross-provider smoke checks.

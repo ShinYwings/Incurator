@@ -77,4 +77,14 @@ Status: IMPLEMENTING — baseline locked; plan approved.
 
 ## Post-validation
 
-Pending implementation and release validation.
+- TDD red gate:
+  `npx vitest run -c ./plugin/vitest.config.ts
+  plugin/src/context/systemPrompt.test.ts
+  plugin/src/context/chatContextPriority.test.ts
+  plugin/src/context/providerContextFormat.test.ts`
+  failed as intended: 13 new assertions exposed the missing shared prompt rule,
+  omitted `ContextRef.filePath`, absent locator formatter, and omitted
+  `vault_link_target`.
+- TDD green gate: the same focused command now passes
+  `3 files / 39 tests`.
+- Full implementation and release validation remain pending.

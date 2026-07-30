@@ -56,11 +56,13 @@ export function shouldSuppressEditAffordances(args: {
 
 export function contextPromptLabel(ref: ContextRef): string {
   if (!shouldIncludeContext(ref)) return `Excluded context: ${ref.label}`;
-  if (ref.sourceViewType === "auto") return `Visible background context: ${ref.label}`;
+  const filePath = ref.filePath?.trim();
+  const label = filePath ? `${ref.label} (vault path: ${filePath})` : ref.label;
+  if (ref.sourceViewType === "auto") return `Visible background context: ${label}`;
   if (ref.isPinned) {
-    return isPrimaryUserContext(ref) ? `Primary user-selected context: ${ref.label}` : `Pinned background context: ${ref.label}`;
+    return isPrimaryUserContext(ref) ? `Primary user-selected context: ${label}` : `Pinned background context: ${label}`;
   }
-  return `Primary user-selected context: ${ref.label}`;
+  return `Primary user-selected context: ${label}`;
 }
 
 export function contextPriorityInstruction(hasPrimaryContext: boolean): string {
