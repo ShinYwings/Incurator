@@ -11,6 +11,10 @@ All notable changes to Incurator are documented here.
   catalogue-default native `--effort`. Convert to LaTeX therefore preserves the
   selected prose, rewrites equations with LaTeX delimiters, and no longer copies
   Antigravity scratch-workspace planning narration as a successful result.
+- **MCP 2.0 Dependency Boundary**
+  Fresh validation environments now retain the supported MCP Python SDK 1.x
+  line. MCP 2.0 removed the `mcp.server.fastmcp` API used by the current server
+  and previously caused fresh GitHub Actions mypy runs to fail before pytest.
 
 ---
 

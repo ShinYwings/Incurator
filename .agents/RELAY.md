@@ -25,6 +25,10 @@ planning narration.
   the now-supported `--model` / `--effort` flags.
 - A direct `agy --model gemini-3.6-flash --effort medium --print <full prompt>`
   returned the expected `<transcription>` block.
+- PR #96's first fresh Backend CI resolve installed `mcp==2.0.0`, whose removal
+  of `mcp.server.fastmcp` failed mypy before pytest. The supported SDK contract
+  is now pinned to MCP 1.x in both `mcp` and `dev` extras; a fresh isolated
+  install resolved `mcp==1.29.0`, imported FastMCP, and passed mypy.
 
 ## Progress Status
 
@@ -37,6 +41,7 @@ planning narration.
 - [x] Run focused, full CI, and testbed smoke validation.
 - [x] Bump v0.36.8, update changelog, and remove plan artifacts.
 - [x] Push and open draft PR #96.
+- [ ] Push the MCP 2.0 compatibility follow-up and confirm rerun CI.
 
 ## Critical Context / Blockers
 
@@ -47,5 +52,5 @@ planning narration.
 
 ## Immediate Next Action
 
-Human review and merge of draft PR #96. After merge, apply the documented IDLE
-relay cleanup exception on updated `master`.
+Push the MCP 2.0 compatibility follow-up, confirm rerun CI, then hand draft PR
+#96 to the human for review and merge.
