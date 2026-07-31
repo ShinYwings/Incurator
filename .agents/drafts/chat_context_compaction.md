@@ -1,5 +1,8 @@
 # Chat Session Context Compaction Plan
 
+Status: DEFERRED — retained as an unplanned roadmap draft; revalidate the live
+session/context contract before promotion to an Arena plan.
+
 ## Context
 Triaged from USER_REPORT on 2026-06-11. New feature for the Obsidian sidechat
 agent: full-session context awareness plus a user-driven compaction control

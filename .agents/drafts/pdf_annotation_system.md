@@ -1,5 +1,8 @@
 # Native PDF Annotation System Plan
 
+Status: DEFERRED — retained as a product draft. Schema, Obsidian PDF-viewer
+integration, and Zotero coexistence must be revalidated before planning.
+
 ## Context
 Replace the annotation system that previously relied on Zotero with an internal system. Utilize Obsidian's built-in PDF Viewer to save highlights and memos directly into `state.sqlite` and synchronize them offline.
 
