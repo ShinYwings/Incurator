@@ -28,7 +28,16 @@ v0.32.0+ regression findings now ship as small follow-up patch releases.
 
 ### 🚀 Priority Order
 
-1. **[Patch Chain] v0.39.x Stability Regression Audit — v0.32.0 Through Current** *(ACTIVE — P5 RELEASE READY; P6 NEXT)*
+1. **[Hotfix] v0.39.2 Equation-Reference PDF Context** *(APPROVED — IMPLEMENTATION READY)*
+   - Fix text queries such as `수식 (10)` that receive only the current PDF page,
+     causing Antigravity to attempt a native `read_file` against an external Zotero
+     PDF outside the launched `--add-dir` roots.
+   - Resolve references in the latest user request, fetch the nearby target page
+     through the existing read-only PDF context boundary, and include its text as
+     `<resolved_cross_references>` before provider launch.
+   - Plan: `.agents/plans/03_v0392_equation_reference_context.md`
+
+2. **[Patch Chain] v0.39.x Stability Regression Audit — v0.32.0 Through Current** *(P6 NEXT)*
    - Audit every merged release diff from PR #80 / v0.32.0 through PR #100 /
      v0.38.0 plus the current PR #101 branch. Cross-check the original release
      plan, implementation diff, tests, specs/guides, and adjacent failure
@@ -44,7 +53,7 @@ v0.32.0+ regression findings now ship as small follow-up patch releases.
      is currently expected; stop and re-plan as a Minor if the audit proves one
      necessary.
 
-2. **[Major Update] System Stability Overhaul — Exhaustive Diagnosis & Refactoring** *(ACTIVE)*
+3. **[Major Update] System Stability Overhaul — Exhaustive Diagnosis & Refactoring** *(ACTIVE)*
    - Absorbs the prompt-architecture milestone. Whole-codebase diagnosis (bugs,
      redundancy, architectural debt) + refactoring with architectural redesign
      allowed; prompt-v2 for cross-model output consistency; legacy/dead-code sweep.
@@ -71,22 +80,22 @@ v0.32.0+ regression findings now ship as small follow-up patch releases.
        no-JSON plugin command errors.
      - **Performance & UX Refinements**: RAG/DAG benchmark harness & retrieval hotspot optimization; chat/popover UX friction cleanup.
 
-3. **[Minor Update] Chat Session Context Compaction**
+4. **[Minor Update] Chat Session Context Compaction**
    - Confirm full-session history behavior.
    - Add a Claude-Code-style circular token usage meter under the query box and a click-to-compact action.
    - Detailed analysis: `.agents/drafts/chat_context_compaction.md`
 
-4. **[Minor Update] Vault Storage Governance & Quota Visibility**
+5. **[Minor Update] Vault Storage Governance & Quota Visibility**
    - Separate authoritative, derived, cache, and external storage accounting.
    - Add capacity guidance, safe admission control, and CLI/plugin visibility.
    - Detailed analysis: `.agents/drafts/vault_storage_governance.md`
 
-5. **[Major Update] Native PDF Annotation & Asset System**
+6. **[Major Update] Native PDF Annotation & Asset System**
    - Native annotation highlight/memo synchronization using Obsidian's built-in PDF viewer.
    - In-PDF full-text search and strict-spelling mode remain here.
    - Detailed analysis: `.agents/drafts/pdf_annotation_system.md`
 
-6. **[Minor Update] Web Search Integration**
+7. **[Minor Update] Web Search Integration**
    - Design and integrate web search capabilities for local models (Ollama, Deepseek, etc.).
    - Investigate API options (Brave, SerpAPI) and implement `web_search.py`.
    - The former quick-wins draft was deleted after triage; create a fresh
