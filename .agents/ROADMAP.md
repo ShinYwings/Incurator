@@ -365,6 +365,7 @@ No blocked items currently tracked.
 ## 📌 Current Focus & Active Milestone
 
 - **Roadmap state**: System Stability Overhaul ACTIVE; v0.39.0 is merged.
-- **Active Milestone**: v0.39.1 P5 is release-ready and awaiting human merge.
+- **Active Milestone**: v0.39.1 P5 is release-ready in draft PR #102 and
+  awaiting human merge.
 - **Next actionable item**: after v0.39.1 merges, start P6 durable-state
   persistence audit from clean `master`.

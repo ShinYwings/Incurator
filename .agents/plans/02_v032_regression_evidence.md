@@ -332,3 +332,22 @@ Red-before-green evidence:
 - Repository `last_root`, Gemini MCP `VAULT_ROOT`, and production Claude MCP
   `VAULT_ROOT` all resolve to `/Users/shin/shinywings/second_brain` after
   cleanup.
+
+## 17. P5 Delivery Evidence
+
+- Commits:
+  - `da57809` — source lifecycle/projection implementation, tests, and
+    contracts;
+  - `17c96fc` — audit plan and evidence;
+  - `c3f20c8` — `chore(release): v0.39.1`.
+- `release/v0.39.1` was pushed and draft PR #102 opened against `master`.
+- Latest-head push-event CI:
+  - Backend Tests: passed;
+  - Plugin Tests: passed;
+  - Version Consistency: passed.
+- Latest-head pull-request CI:
+  - Backend Tests: passed;
+  - Plugin Tests: passed;
+  - Version Consistency: intentionally skipped by event policy.
+- PR #102 is ready for human review and merge. P6 remains gated on the merged
+  `master` anchor.
