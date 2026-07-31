@@ -14,26 +14,470 @@ from .schema import (
     _now_iso,
     connect,
 )
-from ._entities import retire_graph_relations_on_connection
+from ._entities import (
+    delete_source_spans,
+    reconcile_source_change,
+    retire_graph_relations_on_connection,
+    strict_successor_timestamp,
+)
 
 
-def _delete_source_on_connection(conn: Any, source_id: int) -> None:
+def _json_id_set(raw: object) -> set[str]:
+    try:
+        value = json.loads(str(raw or "[]"))
+    except (TypeError, ValueError):
+        return set()
+    if not isinstance(value, list):
+        return set()
+    return {str(item) for item in value if isinstance(item, str) and item}
+
+
+def _chunks(values: list[str], size: int = 500) -> list[list[str]]:
+    return [values[index:index + size] for index in range(0, len(values), size)]
+
+
+def _database_path(conn: Any) -> Path:
+    row = conn.execute("PRAGMA database_list").fetchone()
+    value = str(row["file"] if hasattr(row, "keys") else row[2]) if row else ""
+    return Path(value) if value else Path(".")
+
+
+def _delete_scalar_rows_with_tombstones(
+    conn: Any,
+    table_name: str,
+    id_column: str,
+    record_ids: list[str],
+    *,
+    deleted_at: str,
+) -> None:
+    from ..db_sync import record_tombstone_on_connection
+
+    for chunk in _chunks(sorted(set(record_ids))):
+        placeholders = ",".join("?" for _ in chunk)
+        existing = [
+            str(row[0])
+            for row in conn.execute(
+                f"SELECT {id_column} FROM {table_name} "
+                f"WHERE {id_column} IN ({placeholders})",
+                tuple(chunk),
+            ).fetchall()
+        ]
+        conn.execute(
+            f"DELETE FROM {table_name} WHERE {id_column} IN ({placeholders})",
+            tuple(chunk),
+        )
+        for record_id in existing:
+            record_tombstone_on_connection(
+                conn,
+                table_name,
+                record_id,
+                deleted_at=deleted_at,
+            )
+
+
+def _delete_source_on_connection(
+    conn: Any,
+    source_id: int,
+    *,
+    observed_revision: str | None = None,
+) -> str:
     """Delete one source and every non-cascading dependent in one transaction.
 
-    Source-owned authored relations are retired first, and any report whose
-    topology dependency includes them retires in the same transaction.
+    Canonical audit rows are retired/discarded, shared graph state is
+    recompiled from its remaining live support, source-owned canonical rows
+    receive tombstones, and device-local derivatives are hard-deleted.
+    Returns the closure revision so the caller can timestamp the source
+    tombstone with the same strict-successor clock.
     """
-    authored_relation_ids = [
-        str(row[0])
+    source = conn.execute(
+        "SELECT sync_key, updated_at FROM sources WHERE id = ?",
+        (source_id,),
+    ).fetchone()
+    if source is None:
+        return strict_successor_timestamp(observed_revision)
+
+    span_rows = conn.execute(
+        "SELECT id, created_at FROM source_spans WHERE source_id = ?",
+        (source_id,),
+    ).fetchall()
+    span_ids = [str(row["id"]) for row in span_rows]
+    unit_rows = conn.execute(
+        "SELECT id, atom_node_id, updated_at FROM knowledge_units "
+        "WHERE source_id = ?",
+        (source_id,),
+    ).fetchall()
+    unit_ids = [str(row["id"]) for row in unit_rows]
+    atom_ids = [
+        str(row["atom_node_id"])
+        for row in unit_rows
+        if row["atom_node_id"]
+    ]
+    generation_rows = conn.execute(
+        "SELECT id, updated_at FROM compiler_generations WHERE source_id = ?",
+        (source_id,),
+    ).fetchall()
+    authored_relation_rows = conn.execute(
+        "SELECT r.id, r.updated_at FROM graph_relations r "
+        "JOIN compiler_generations g ON g.id = r.generation_id "
+        "WHERE r.edge_class = 'authored' AND g.source_id = ? "
+        "AND r.lifecycle_status != 'retired'",
+        (source_id,),
+    ).fetchall()
+
+    touched_entity_rows = []
+    for row in conn.execute(
+        "SELECT id, source_span_ids, knowledge_unit_ids, updated_at "
+        "FROM graph_entities"
+    ).fetchall():
+        if (
+            _json_id_set(row["source_span_ids"]).intersection(span_ids)
+            or _json_id_set(row["knowledge_unit_ids"]).intersection(unit_ids)
+        ):
+            touched_entity_rows.append(row)
+    touched_alias_rows = []
+    for row in conn.execute(
+        "SELECT id, source_span_ids, knowledge_unit_ids, updated_at "
+        "FROM entity_aliases"
+    ).fetchall():
+        if (
+            _json_id_set(row["source_span_ids"]).intersection(span_ids)
+            or _json_id_set(row["knowledge_unit_ids"]).intersection(unit_ids)
+        ):
+            touched_alias_rows.append(row)
+    touched_relation_rows = [
+        row
         for row in conn.execute(
-            "SELECT r.id FROM graph_relations r "
-            "JOIN compiler_generations g ON g.id = r.generation_id "
-            "WHERE r.edge_class = 'authored' AND g.source_id = ? "
-            "AND r.lifecycle_status != 'retired'",
+            "SELECT id, source_span_ids, updated_at FROM graph_relations"
+        ).fetchall()
+        if _json_id_set(row["source_span_ids"]).intersection(span_ids)
+    ]
+
+    support_rows = []
+    for chunk in _chunks(unit_ids):
+        placeholders = ",".join("?" for _ in chunk)
+        support_rows.extend(
+            conn.execute(
+                "SELECT relation_id, updated_at FROM graph_relation_supports "
+                f"WHERE knowledge_unit_id IN ({placeholders})",
+                tuple(chunk),
+            ).fetchall()
+        )
+    claim_support_rows = []
+    for chunk in _chunks(unit_ids):
+        placeholders = ",".join("?" for _ in chunk)
+        claim_support_rows.extend(
+            conn.execute(
+                "SELECT updated_at FROM claim_supports "
+                f"WHERE knowledge_unit_id IN ({placeholders})",
+                tuple(chunk),
+            ).fetchall()
+        )
+    synthesis_rows = conn.execute(
+        "SELECT id, community_report_ids, source_span_ids, updated_at "
+        "FROM synthesis_nodes"
+    ).fetchall()
+    affected_relation_ids = {
+        *(str(row["id"]) for row in authored_relation_rows),
+        *(str(row["id"]) for row in touched_relation_rows),
+        *(str(row["relation_id"]) for row in support_rows),
+    }
+    affected_report_rows = [
+        row
+        for row in conn.execute(
+            "SELECT id, relation_ids, source_span_ids FROM community_reports"
+        ).fetchall()
+        if (
+            _json_id_set(row["relation_ids"]).intersection(affected_relation_ids)
+            or _json_id_set(row["source_span_ids"]).intersection(span_ids)
+        )
+    ]
+    memory_path_rows = [
+        row
+        for row in conn.execute(
+            "SELECT id, source_span_ids, created_at FROM memory_paths"
+        ).fetchall()
+        if _json_id_set(row["source_span_ids"]).intersection(span_ids)
+    ]
+    dag_edge_rows_by_id = {
+        str(row["id"]): row
+        for row in conn.execute(
+            "SELECT id, created_at FROM dag_edges WHERE source_id = ?",
             (source_id,),
         ).fetchall()
+    }
+    atom_rows = []
+    for chunk in _chunks(atom_ids, size=400):
+        placeholders = ",".join("?" for _ in chunk)
+        for row in conn.execute(
+            "SELECT id, created_at FROM dag_edges "
+            f"WHERE from_id IN ({placeholders}) "
+            f"OR to_id IN ({placeholders})",
+            (*chunk, *chunk),
+        ).fetchall():
+            dag_edge_rows_by_id[str(row["id"])] = row
+        atom_rows.extend(
+            conn.execute(
+                "SELECT id, last_updated FROM atoms "
+                f"WHERE id IN ({placeholders})",
+                tuple(chunk),
+            ).fetchall()
+        )
+    dag_edge_rows = list(dag_edge_rows_by_id.values())
+    source_page_rows = conn.execute(
+        "SELECT at FROM source_pages WHERE source_id = ?",
+        (source_id,),
+    ).fetchall()
+    pdf_page_rows = conn.execute(
+        "SELECT extracted_at FROM source_pdf_pages WHERE source_id = ?",
+        (source_id,),
+    ).fetchall()
+    span_dependency_rows = []
+    for chunk in _chunks(span_ids):
+        placeholders = ",".join("?" for _ in chunk)
+        span_dependency_rows.extend(
+            conn.execute(
+                "SELECT created_at FROM artifact_dependencies "
+                "WHERE depends_on_type = 'source_span' "
+                f"AND depends_on_id IN ({placeholders})",
+                tuple(chunk),
+            ).fetchall()
+        )
+
+    revision = strict_successor_timestamp(
+        observed_revision,
+        source["updated_at"],
+        *(row["created_at"] for row in span_rows),
+        *(row["updated_at"] for row in unit_rows),
+        *(row["updated_at"] for row in generation_rows),
+        *(row["updated_at"] for row in touched_entity_rows),
+        *(row["updated_at"] for row in touched_alias_rows),
+        *(row["updated_at"] for row in touched_relation_rows),
+        *(row["updated_at"] for row in authored_relation_rows),
+        *(row["updated_at"] for row in support_rows),
+        *(row["updated_at"] for row in claim_support_rows),
+        *(row["created_at"] for row in memory_path_rows),
+        *(row["created_at"] for row in dag_edge_rows),
+        *(row["last_updated"] for row in atom_rows),
+        *(row["at"] for row in source_page_rows),
+        *(row["extracted_at"] for row in pdf_page_rows),
+        *(row["created_at"] for row in span_dependency_rows),
+    )
+
+    for row in touched_entity_rows:
+        kept_spans = sorted(_json_id_set(row["source_span_ids"]) - set(span_ids))
+        kept_units = sorted(_json_id_set(row["knowledge_unit_ids"]) - set(unit_ids))
+        conn.execute(
+            "UPDATE graph_entities SET source_span_ids = ?, "
+            "knowledge_unit_ids = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(kept_spans), json.dumps(kept_units), revision, row["id"]),
+        )
+    for row in touched_alias_rows:
+        kept_spans = sorted(_json_id_set(row["source_span_ids"]) - set(span_ids))
+        kept_units = sorted(_json_id_set(row["knowledge_unit_ids"]) - set(unit_ids))
+        conn.execute(
+            "UPDATE entity_aliases SET source_span_ids = ?, "
+            "knowledge_unit_ids = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(kept_spans), json.dumps(kept_units), revision, row["id"]),
+        )
+
+    if generation_rows:
+        conn.execute(
+            "UPDATE compiler_generations SET status = 'discarded', "
+            "discarded_at = ?, updated_at = ? WHERE source_id = ?",
+            (revision, revision, source_id),
+        )
+    from ..db_sync import delete_rows_with_tombstones_on_connection
+
+    for unit_id in unit_ids:
+        conn.execute(
+            "UPDATE knowledge_units SET retired_at = ?, updated_at = ? "
+            "WHERE id = ? AND retired_at IS NULL",
+            (revision, revision, unit_id),
+        )
+        delete_rows_with_tombstones_on_connection(
+            conn,
+            "claim_supports",
+            "knowledge_unit_id = ?",
+            (unit_id,),
+            deleted_at=revision,
+        )
+
+    authored_relation_ids = [str(row["id"]) for row in authored_relation_rows]
+    retire_graph_relations_on_connection(
+        conn,
+        authored_relation_ids,
+        now=revision,
+    )
+    reconcile_source_change(
+        _database_path(conn),
+        source_id=source_id,
+        removed_span_ids=span_ids,
+        removed_unit_ids=unit_ids,
+        conn=conn,
+        now=revision,
+    )
+
+    removable_entity_ids: list[str] = []
+    for row in touched_entity_rows:
+        entity_id = str(row["id"])
+        current = conn.execute(
+            "SELECT source_span_ids, knowledge_unit_ids FROM graph_entities "
+            "WHERE id = ?",
+            (entity_id,),
+        ).fetchone()
+        if current is None:
+            continue
+        has_provenance = bool(
+            _json_id_set(current["source_span_ids"])
+            or _json_id_set(current["knowledge_unit_ids"])
+        )
+        has_graph_reference = conn.execute(
+            "SELECT 1 FROM graph_relations "
+            "WHERE source_entity_id = ? OR target_entity_id = ? LIMIT 1",
+            (entity_id, entity_id),
+        ).fetchone()
+        has_resolution_reference = conn.execute(
+            "SELECT 1 FROM entity_aliases WHERE entity_id = ? LIMIT 1",
+            (entity_id,),
+        ).fetchone() or conn.execute(
+            "SELECT 1 FROM entity_merge_proposals "
+            "WHERE source_entity_id = ? OR target_entity_id = ? LIMIT 1",
+            (entity_id, entity_id),
+        ).fetchone() or conn.execute(
+            "SELECT 1 FROM entity_resolution_lineage "
+            "WHERE origin_entity_id = ? OR canonical_entity_id = ? LIMIT 1",
+            (entity_id, entity_id),
+        ).fetchone()
+        if not has_provenance and not has_graph_reference and not has_resolution_reference:
+            removable_entity_ids.append(entity_id)
+    _delete_scalar_rows_with_tombstones(
+        conn,
+        "graph_entities",
+        "id",
+        removable_entity_ids,
+        deleted_at=revision,
+    )
+
+    live_report_ids = {
+        str(row[0])
+        for row in conn.execute(
+            "SELECT id FROM community_reports WHERE retired_at IS NULL"
+        ).fetchall()
+    }
+    invalid_synthesis_rows = [
+        row
+        for row in synthesis_rows
+        if (
+            _json_id_set(row["source_span_ids"]).intersection(span_ids)
+            or not _json_id_set(row["community_report_ids"]).issubset(
+                live_report_ids
+            )
+        )
     ]
-    retire_graph_relations_on_connection(conn, authored_relation_ids)
+    invalid_synthesis_ids = [
+        str(row["id"]) for row in invalid_synthesis_rows
+    ]
+    synthesis_dependency_rows = []
+    for chunk in _chunks(invalid_synthesis_ids):
+        placeholders = ",".join("?" for _ in chunk)
+        synthesis_dependency_rows.extend(
+            conn.execute(
+                "SELECT created_at FROM artifact_dependencies "
+                "WHERE artifact_type = 'synthesis_node' "
+                f"AND artifact_id IN ({placeholders})",
+                tuple(chunk),
+            ).fetchall()
+        )
+    if invalid_synthesis_rows:
+        revision = strict_successor_timestamp(
+            revision,
+            *(row["updated_at"] for row in invalid_synthesis_rows),
+            *(row["created_at"] for row in synthesis_dependency_rows),
+        )
+
+    affected_search_record_ids = {
+        *span_ids,
+        *unit_ids,
+        *(str(row["id"]) for row in touched_entity_rows),
+        *affected_relation_ids,
+        *(str(row["id"]) for row in affected_report_rows),
+        *invalid_synthesis_ids,
+    }
+    affected_search_doc_ids = {
+        str(row["doc_id"])
+        for row in conn.execute(
+            "SELECT doc_id FROM search_documents WHERE source_id = ?",
+            (source_id,),
+        ).fetchall()
+    }
+    for chunk in _chunks(sorted(affected_search_record_ids)):
+        placeholders = ",".join("?" for _ in chunk)
+        affected_search_doc_ids.update(
+            str(row["doc_id"])
+            for row in conn.execute(
+                "SELECT doc_id FROM search_documents "
+                f"WHERE record_id IN ({placeholders})",
+                tuple(chunk),
+            ).fetchall()
+        )
+    for chunk in _chunks(sorted(affected_search_doc_ids)):
+        placeholders = ",".join("?" for _ in chunk)
+        for table in ("search_documents_fts", "search_documents_fts_tri"):
+            conn.execute(
+                f"DELETE FROM {table} WHERE doc_id IN ({placeholders})",
+                tuple(chunk),
+            )
+        conn.execute(
+            f"DELETE FROM search_documents WHERE doc_id IN ({placeholders})",
+            tuple(chunk),
+        )
+    for synthesis_id in invalid_synthesis_ids:
+        delete_rows_with_tombstones_on_connection(
+            conn,
+            "artifact_dependencies",
+            "artifact_id = ? AND artifact_type = 'synthesis_node'",
+            (synthesis_id,),
+            deleted_at=revision,
+        )
+    _delete_scalar_rows_with_tombstones(
+        conn,
+        "synthesis_nodes",
+        "id",
+        invalid_synthesis_ids,
+        deleted_at=revision,
+    )
+
+    affected_memory_paths = [str(row["id"]) for row in memory_path_rows]
+    _delete_scalar_rows_with_tombstones(
+        conn,
+        "memory_paths",
+        "id",
+        affected_memory_paths,
+        deleted_at=revision,
+    )
+
+    affected_dag_edges = [str(row["id"]) for row in dag_edge_rows]
+    _delete_scalar_rows_with_tombstones(
+        conn,
+        "dag_edges",
+        "id",
+        affected_dag_edges,
+        deleted_at=revision,
+    )
+    _delete_scalar_rows_with_tombstones(
+        conn,
+        "atoms",
+        "id",
+        atom_ids,
+        deleted_at=revision,
+    )
+
+    delete_source_spans(
+        _database_path(conn),
+        span_ids,
+        conn=conn,
+        now=revision,
+    )
     conn.execute(
         "DELETE FROM job_events WHERE job_id IN "
         "(SELECT id FROM ingest_jobs WHERE source_id = ?)",
@@ -41,10 +485,23 @@ def _delete_source_on_connection(conn: Any, source_id: int) -> None:
     )
     conn.execute("DELETE FROM ingest_jobs WHERE source_id = ?", (source_id,))
     conn.execute("DELETE FROM ingest_runs WHERE source_id = ?", (source_id,))
-    conn.execute("DELETE FROM source_pages WHERE source_id = ?", (source_id,))
-    conn.execute("DELETE FROM dag_edges WHERE source_id = ?", (source_id,))
-    conn.execute("DELETE FROM source_pdf_pages WHERE source_id = ?", (source_id,))
+    conn.execute("DELETE FROM l2_checkpoints WHERE source_id = ?", (source_id,))
+    delete_rows_with_tombstones_on_connection(
+        conn,
+        "source_pages",
+        "source_id = ?",
+        (source_id,),
+        deleted_at=revision,
+    )
+    delete_rows_with_tombstones_on_connection(
+        conn,
+        "source_pdf_pages",
+        "source_id = ?",
+        (source_id,),
+        deleted_at=revision,
+    )
     conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))
+    return revision
 
 
 def set_source_layer_status(

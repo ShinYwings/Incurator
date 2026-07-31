@@ -328,3 +328,32 @@ def test_materializer_allows_global_graph_rows_without_source_spans(tmp_path: Pa
     assert doc["record_id"] == entity_id
     assert doc["source_id"] is None
     assert doc["provenance"]["source_span_ids"] == []
+
+
+def test_materializer_requires_active_edge_for_authored_entity(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "state.sqlite"
+    db.init_db(db_path)
+    source_id = _insert_source(db_path, "03_Notes/Source.md")
+    span_id = db.upsert_source_span(
+        db_path,
+        source_id=source_id,
+        relpath="03_Notes/Source.md",
+        span_type="paragraph",
+        content_hash="authored-orphan-span",
+        text_preview="A removed authored target.",
+    )
+    db.upsert_graph_entity(
+        db_path,
+        canonical_name="03_Notes/RemovedTarget.md",
+        entity_type="vault_note",
+        source_span_ids=[span_id],
+    )
+
+    result = materializer.materialize_search_documents(db_path)
+
+    assert result.documents == 1
+    assert {
+        doc["record_type"] for doc in db.list_search_documents(db_path)
+    } == {"source_span"}

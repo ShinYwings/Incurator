@@ -172,10 +172,20 @@ def scan_for_changes(paths: cfg.WikiPaths) -> ChangeReport:
     return report
 
 
-def update_all_page_hashes(paths: cfg.WikiPaths):
-    """Save current filesystem hashes to DB."""
+def update_all_page_hashes(
+    paths: cfg.WikiPaths,
+    *,
+    layer_dirs: tuple[Path, ...] | None = None,
+) -> None:
+    """Save current filesystem hashes for all or selected generated layers."""
+    selected_dirs = layer_dirs or (
+        paths.contexts,
+        paths.atoms,
+        paths.concepts,
+        paths.synthesis,
+    )
     current_paths: set[str] = set()
-    for layer_dir in (paths.contexts, paths.atoms, paths.concepts, paths.synthesis):
+    for layer_dir in selected_dirs:
         if not layer_dir.exists():
             continue
         layer_name = layer_dir.name
@@ -183,8 +193,10 @@ def update_all_page_hashes(paths: cfg.WikiPaths):
             rel_path = f"{layer_name}/{md_path.name}"
             current_paths.add(rel_path)
             db.update_page_hash(paths.state_db, rel_path, calculate_hash(md_path))
+    selected_prefixes = tuple(f"{layer_dir.name}/" for layer_dir in selected_dirs)
     for rel_path in set(db.get_page_hashes(paths.state_db)) - current_paths:
-        db.delete_page_hash(paths.state_db, rel_path)
+        if rel_path.startswith(selected_prefixes):
+            db.delete_page_hash(paths.state_db, rel_path)
 
 # ---------------------------------------------------------------------------
 # Internal helpers

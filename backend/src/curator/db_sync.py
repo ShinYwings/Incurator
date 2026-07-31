@@ -433,14 +433,29 @@ def record_tombstone_on_connection(
     conn: "db.sqlite3.Connection",
     table_name: str,
     record_id: str,
+    *,
+    deleted_at: str | None = None,
 ) -> None:
     """Record a canonical delete in the caller's transaction."""
     if table_name not in SYNC_TABLES or table_name == "deleted_records":
         raise ValueError(f"Table {table_name!r} is not syncable")
     record_id = _validate_tombstone_token(table_name, record_id)
-    now = datetime.now(timezone.utc).isoformat(timespec="microseconds").replace(
-        "+00:00", "Z"
+    now = deleted_at or datetime.now(timezone.utc).isoformat(
+        timespec="microseconds"
+    ).replace("+00:00", "Z")
+    now = _require_timestamp(
+        now,
+        context=f"Tombstone for {table_name!r} deleted_at",
     )
+    existing = conn.execute(
+        "SELECT deleted_at FROM deleted_records "
+        "WHERE table_name = ? AND record_id = ?",
+        (table_name, record_id),
+    ).fetchone()
+    if existing is not None and _timestamp_key(existing["deleted_at"]) >= _timestamp_key(
+        now
+    ):
+        return
     conn.execute(
         "INSERT OR REPLACE INTO deleted_records (table_name, record_id, deleted_at)"
         " VALUES (?, ?, ?)",
@@ -452,10 +467,17 @@ def record_row_tombstone_on_connection(
     conn: "db.sqlite3.Connection",
     table_name: str,
     row: Mapping[str, Any],
+    *,
+    deleted_at: str | None = None,
 ) -> str:
     """Record the portable key of a row being hard-deleted by a local writer."""
     token = _record_key_for_row(conn, table_name, row)
-    record_tombstone_on_connection(conn, table_name, token)
+    record_tombstone_on_connection(
+        conn,
+        table_name,
+        token,
+        deleted_at=deleted_at,
+    )
     return token
 
 
@@ -464,8 +486,55 @@ def clear_row_tombstone_on_connection(
     table_name: str,
     row: Mapping[str, Any],
 ) -> None:
-    """Clear the exact tombstone after a local writer makes that row live."""
+    """Make an explicit local reinsert newer than its exact tombstone."""
     token = _record_key_for_row(conn, table_name, row)
+    tombstone = conn.execute(
+        "SELECT deleted_at FROM deleted_records "
+        "WHERE table_name = ? AND record_id = ?",
+        (table_name, token),
+    ).fetchone()
+    if tombstone is None:
+        return
+
+    updated_col = _UPDATED_AT_COL.get(table_name)
+    if updated_col is None:
+        raise ValueError(
+            f"Cannot reinsert tombstoned immutable row in {table_name!r}"
+        )
+    key_columns, key_values = _physical_key_for_token(
+        conn,
+        table_name,
+        token,
+    )
+    if key_values is None:
+        return
+    where = " AND ".join(f"{column} IS ?" for column in key_columns)
+    current = conn.execute(
+        f"SELECT {updated_col} FROM {table_name} WHERE {where}",
+        key_values,
+    ).fetchone()
+    if current is None:
+        return
+    deleted_at = _require_timestamp(
+        tombstone["deleted_at"],
+        context=f"Tombstone for {table_name!r} deleted_at",
+    )
+    row_revision = _require_timestamp(
+        current[updated_col],
+        context=f"Table {table_name!r} row revision",
+    )
+    if _timestamp_key(deleted_at) >= _timestamp_key(row_revision):
+        successor = db.strict_successor_timestamp(deleted_at, row_revision)
+        conn.execute(
+            f"UPDATE {table_name} SET {updated_col} = ? WHERE {where}",
+            (successor, *key_values),
+        )
+        # A timestamp that is itself part of the primary key changes the
+        # row's identity. Preserve the old-key tombstone; the new row no
+        # longer conflicts with it.
+        if updated_col in key_columns:
+            return
+
     conn.execute(
         "DELETE FROM deleted_records WHERE table_name = ? AND record_id = ?",
         (table_name, token),
@@ -477,6 +546,8 @@ def delete_rows_with_tombstones_on_connection(
     table_name: str,
     where_sql: str,
     params: tuple[object, ...],
+    *,
+    deleted_at: str | None = None,
 ) -> int:
     """Delete selected composite rows and record their portable keys atomically.
 
@@ -495,7 +566,12 @@ def delete_rows_with_tombstones_on_connection(
         params,
     )
     for token in tokens:
-        record_tombstone_on_connection(conn, table_name, token)
+        record_tombstone_on_connection(
+            conn,
+            table_name,
+            token,
+            deleted_at=deleted_at,
+        )
     return cursor.rowcount
 
 
@@ -1089,7 +1165,11 @@ def _apply_tombstone(
 
     if not dry_run:
         if table_name == "sources" and key_values is not None:
-            _delete_source_by_sync_key(conn, record_id)
+            _delete_source_by_sync_key(
+                conn,
+                record_id,
+                deleted_at=deleted_at,
+            )
         elif key_values is not None:
             conn.execute(
                 f"DELETE FROM {table_name} WHERE {where}",
@@ -1107,6 +1187,8 @@ def _apply_tombstone(
 def _delete_source_by_sync_key(
     conn: "db.sqlite3.Connection",
     sync_key: str,
+    *,
+    deleted_at: str,
 ) -> None:
     source = conn.execute(
         "SELECT id FROM sources WHERE sync_key = ?",
@@ -1117,7 +1199,11 @@ def _delete_source_by_sync_key(
     source_id = int(source["id"])
     from .db.sources import _delete_source_on_connection
 
-    _delete_source_on_connection(conn, source_id)
+    _delete_source_on_connection(
+        conn,
+        source_id,
+        observed_revision=deleted_at,
+    )
 
 
 def _source_sync_key(row: dict) -> str:
@@ -1431,8 +1517,9 @@ def _peer_files(
 def _read_export_id(path: Path) -> str | None:
     """Read the export_id from a peer file's header.
 
-    Returns ``None`` for incompatible peer files so ``import_all_peers`` can skip
-    them without attempting a partial import.
+    Returns ``None`` only for a well-formed incompatible-schema peer. Corrupt
+    current-schema input is surfaced so autosync cannot silently stop applying
+    a peer forever.
     """
     try:
         opener: IO[str]
@@ -1442,23 +1529,24 @@ def _read_export_id(path: Path) -> str | None:
             opener = path.open("r", encoding="utf-8")
         with opener as handle:
             line = handle.readline().strip()
-    except (OSError, ValueError):
-        logger.warning("Could not read peer export file: %s", path)
-        return None
+    except (OSError, ValueError) as exc:
+        raise AutosyncError(
+            f"Peer snapshot {path.name} header could not be read: {exc}"
+        ) from exc
     if not line:
-        logger.warning("Empty peer export file: %s", path)
-        return None
+        raise AutosyncError(f"Peer snapshot {path.name} is empty")
     try:
         header = json.loads(line)
         if not isinstance(header, dict):
-            logger.warning("Peer export header is not a JSON object: %s", path)
-            return None
-    except json.JSONDecodeError:
-        logger.warning("Malformed JSON header in peer export: %s", path)
-        return None
+            raise AutosyncError(
+                f"Peer snapshot {path.name} header is not a JSON object"
+            )
+    except json.JSONDecodeError as exc:
+        raise AutosyncError(
+            f"Peer snapshot {path.name} has a malformed JSON header"
+        ) from exc
     if header.get("type") != "header":
-        logger.warning("Missing header row in peer export: %s", path)
-        return None
+        raise AutosyncError(f"Peer snapshot {path.name} is missing its header row")
     # Schema mismatch — peer has not upgraded yet; skip until they re-export.
     file_version = header.get("schema_version")
     if file_version != SCHEMA_VERSION:
@@ -1469,11 +1557,9 @@ def _read_export_id(path: Path) -> str | None:
         return None
     export_id = header.get("export_id")
     if not isinstance(export_id, str) or not export_id:
-        logger.warning(
-            "Peer export %s has no export_id; skipping.",
-            path.name,
+        raise AutosyncError(
+            f"Peer snapshot {path.name} has no valid export_id"
         )
-        return None
     return export_id
 
 

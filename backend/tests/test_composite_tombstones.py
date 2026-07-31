@@ -812,15 +812,15 @@ def test_local_support_and_dependency_deletes_emit_and_reinsert_clears(
             "(knowledge_unit_id, source_span_id, support_role, support_status, "
             "support_reason, evidence_hash, validator_trace_id, created_at, "
             "updated_at) VALUES ('KNU-1', 'SPAN-1', 'primary', 'verified', '', "
-            "'evidence', NULL, '2026-01-01T00:00:00Z', "
-            "'2026-01-01T00:00:00Z')"
+            "'evidence', NULL, '2040-01-01T00:00:00.000000Z', "
+            "'2040-01-01T00:00:00.000000Z')"
         )
         conn.execute(
             "INSERT INTO artifact_dependencies "
             "(artifact_id, artifact_type, depends_on_id, depends_on_type, "
             "dependency_hash, created_at) VALUES "
             "('KNU-1', 'knowledge_unit', 'SPAN-1', 'source_span', 'dep', "
-            "'2026-01-01T00:00:00Z')"
+            "'2040-01-01T00:00:00.000000Z')"
         )
 
     db.delete_source_spans(db_path, ["SPAN-1"])
@@ -841,13 +841,19 @@ def test_local_support_and_dependency_deletes_emit_and_reinsert_clears(
     )
     with db.connect(db_path) as conn:
         tombstones = {
-            (row["table_name"], row["record_id"])
+            (row["table_name"], row["record_id"]): str(row["deleted_at"])
             for row in conn.execute(
-                "SELECT table_name, record_id FROM deleted_records"
+                "SELECT table_name, record_id, deleted_at FROM deleted_records"
             ).fetchall()
         }
     assert ("claim_supports", support_token) in tombstones
     assert ("artifact_dependencies", dependency_token) in tombstones
+    assert tombstones[("claim_supports", support_token)] > (
+        "2040-01-01T00:00:00.000000Z"
+    )
+    assert tombstones[("artifact_dependencies", dependency_token)] > (
+        "2040-01-01T00:00:00.000000Z"
+    )
 
     db.upsert_claim_support(
         db_path,
@@ -873,6 +879,126 @@ def test_local_support_and_dependency_deletes_emit_and_reinsert_clears(
             "OR (table_name = 'artifact_dependencies' AND record_id = ?)",
             (support_token, dependency_token),
         ).fetchone() is None
+
+
+def test_local_tombstone_write_never_backdates_an_existing_delete(
+    db_path: Path,
+) -> None:
+    with db.connect(db_path) as conn:
+        db_sync.record_tombstone_on_connection(
+            conn,
+            "atoms",
+            "ATM-future",
+            deleted_at="2040-01-01T00:00:00.000000Z",
+        )
+        db_sync.record_tombstone_on_connection(
+            conn,
+            "atoms",
+            "ATM-future",
+            deleted_at="2030-01-01T00:00:00.000000Z",
+        )
+        deleted_at = conn.execute(
+            "SELECT deleted_at FROM deleted_records "
+            "WHERE table_name = 'atoms' AND record_id = 'ATM-future'"
+        ).fetchone()[0]
+
+    assert deleted_at == "2040-01-01T00:00:00.000000Z"
+
+
+def test_local_reinsert_advances_past_future_tombstone(
+    db_path: Path,
+) -> None:
+    with db.connect(db_path) as conn:
+        _insert_source(conn)
+        conn.execute(
+            "INSERT INTO source_spans "
+            "(id, source_id, relpath, span_type, content_hash, text_preview, "
+            "created_at) VALUES ('SPAN-future', 9, "
+            "'04_Resources/portable.pdf', 'page', 'span-future', 'text', "
+            "'2026-01-01T00:00:00.000000Z')"
+        )
+        token = _canonical_token(
+            {
+                "knowledge_unit_id": "KNU-future",
+                "source_span_id": "SPAN-future",
+                "support_role": "primary",
+            }
+        )
+        db_sync.record_tombstone_on_connection(
+            conn,
+            "claim_supports",
+            token,
+            deleted_at="2040-01-01T00:00:00.000000Z",
+        )
+
+    db.upsert_claim_support(
+        db_path,
+        knowledge_unit_id="KNU-future",
+        source_span_id="SPAN-future",
+        support_role="primary",
+        support_status="verified",
+        evidence_hash="new-evidence",
+    )
+
+    with db.connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT updated_at FROM claim_supports "
+            "WHERE knowledge_unit_id = 'KNU-future'"
+        ).fetchone()
+        tombstone = conn.execute(
+            "SELECT 1 FROM deleted_records "
+            "WHERE table_name = 'claim_supports' AND record_id = ?",
+            (token,),
+        ).fetchone()
+
+    assert str(row["updated_at"]) > "2040-01-01T00:00:00.000000Z"
+    assert tombstone is None
+
+
+def test_local_reinsert_of_tombstoned_immutable_row_fails_closed(
+    db_path: Path,
+) -> None:
+    token = _canonical_token(
+        {
+            "decision_id": "DEC-deleted",
+            "origin_entity_id": "ENT-origin",
+        }
+    )
+    with db.connect(db_path) as conn:
+        db_sync.record_tombstone_on_connection(
+            conn,
+            "entity_resolution_lineage",
+            token,
+            deleted_at="2040-01-01T00:00:00.000000Z",
+        )
+
+    with pytest.raises(ValueError, match="immutable"):
+        with db.connect(db_path) as conn:
+            conn.execute(
+                "INSERT INTO entity_resolution_lineage "
+                "(decision_id, origin_entity_id, canonical_entity_id, "
+                "rewrite_json) VALUES "
+                "('DEC-deleted', 'ENT-origin', 'ENT-target', '{}')"
+            )
+            db_sync.clear_row_tombstone_on_connection(
+                conn,
+                "entity_resolution_lineage",
+                {
+                    "decision_id": "DEC-deleted",
+                    "origin_entity_id": "ENT-origin",
+                },
+            )
+
+    with db.connect(db_path) as conn:
+        assert conn.execute(
+            "SELECT 1 FROM entity_resolution_lineage "
+            "WHERE decision_id = 'DEC-deleted'"
+        ).fetchone() is None
+        assert conn.execute(
+            "SELECT 1 FROM deleted_records "
+            "WHERE table_name = 'entity_resolution_lineage' AND record_id = ?",
+            (token,),
+        ).fetchone() is not None
 
 
 def test_pdf_page_replacement_emits_only_removed_key_tombstones(

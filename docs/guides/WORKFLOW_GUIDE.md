@@ -501,9 +501,22 @@ atomic publishes (specs: SCHEMA.md §20, SYSTEM_BEHAVIOR.md §26):
   validated as English. Non-English generated output triggers one repair retry
   and is not published if it still fails.
 - **Staged generations**: each compile runs inside a `GEN-` compiler
-  generation. DB rows, dependencies, markdown projections, and search rows
-  publish together only after the audit gate passes; a failed compile
-  discards the staged generation and the previous one keeps serving.
+  generation. Generation-owned claims, supports, and graph state publish
+  together only after the audit gate passes; a failed compile discards the
+  staged generation and the previous one keeps serving. Stable projection
+  identity/dependency rows and disposable markdown/search output are completed
+  from the DB in the recoverable post-publish phase.
+- **Recoverable projection phase**: after the authoritative DB transaction,
+  stable Atom ids and dependency rows are persisted before derived files are
+  emitted. If projection or search refresh fails, the generation remains
+  authoritative and the source is marked with a post-publish projection error.
+  A pending marker is committed with the generation, so interruption before an
+  error can be recorded follows the same recovery path. Retrying rebuilds every
+  derived projection and search row from the DB, then refreshes the generated
+  ATM/CON/SYN page-hash baseline so the next sync does not misclassify that
+  output as a manual edit. Preserved live CTX hashes are not rewritten; only an
+  orphan CTX removed by recovery loses its hash. Recovery does this without
+  another LLM call or a replacement generation.
 - **Idempotent rebuilds**: re-running `wiki build` on unchanged sources reuses
   the authoritative generation's ids, hashes, and counts — no duplicate
   accumulation.
@@ -511,6 +524,13 @@ atomic publishes (specs: SCHEMA.md §20, SYSTEM_BEHAVIOR.md §26):
   measured dependency closure; claims that lost their source basis are
   retired (kept for audit, removed from serving), and stale spans are
   reconciled instead of lingering.
+- **Complete source removal**: local removal and an imported source tombstone
+  close the same transaction over generations, claims, graph supports/reports,
+  synthesis, spans, and device-local derivatives. Shared graph state remains
+  only with live independent support, and serving queries require live source
+  provenance even before rematerialization finishes. If the post-commit
+  projection refresh fails, removal remains committed and reports
+  `wiki sync --reemit` as the deterministic repair.
 - **Formula lifecycle**: central formulas survive distillation intact or as
   exactly linked formula evidence. Selective visual recovery runs only on
   measured loss regions (`fragmented`/`image_only`/`parser_omitted`), is

@@ -227,7 +227,11 @@ def sources_for_spans(db_path: Path, span_ids: list[str]) -> list[dict]:
 
 
 def delete_source_spans(
-    db_path: Path, span_ids: list[str], *, conn: sqlite3.Connection | None = None
+    db_path: Path,
+    span_ids: list[str],
+    *,
+    conn: sqlite3.Connection | None = None,
+    now: str | None = None,
 ) -> int:
     """Remove stale source spans and their derived support/dependency rows
     (SYSTEM_BEHAVIOR §26.4 / F7 reconciliation). The span rows of an edited
@@ -243,9 +247,53 @@ def delete_source_spans(
         return 0
     deleted = 0
     deleted_set = set(span_ids)
-    from ..db_sync import delete_rows_with_tombstones_on_connection
+    from ..db_sync import (
+        delete_rows_with_tombstones_on_connection,
+        record_tombstone_on_connection,
+    )
 
     with _maybe_conn(db_path, conn) as c:
+        observed_revisions: list[object] = [now]
+        touched_graph_rows: dict[str, list[sqlite3.Row]] = {
+            "graph_entities": [],
+            "graph_relations": [],
+        }
+        for chunk in _chunked(span_ids):
+            placeholders = ",".join("?" for _ in chunk)
+            params = tuple(chunk)
+            observed_revisions.extend(
+                row["created_at"]
+                for row in c.execute(
+                    f"SELECT created_at FROM source_spans "
+                    f"WHERE id IN ({placeholders})",
+                    params,
+                ).fetchall()
+            )
+            observed_revisions.extend(
+                row["updated_at"]
+                for row in c.execute(
+                    "SELECT updated_at FROM claim_supports "
+                    f"WHERE source_span_id IN ({placeholders})",
+                    params,
+                ).fetchall()
+            )
+            observed_revisions.extend(
+                row["created_at"]
+                for row in c.execute(
+                    "SELECT created_at FROM artifact_dependencies "
+                    "WHERE depends_on_type = 'source_span' "
+                    f"AND depends_on_id IN ({placeholders})",
+                    params,
+                ).fetchall()
+            )
+        for table in ("graph_entities", "graph_relations"):
+            for row in c.execute(
+                f"SELECT id, source_span_ids, updated_at FROM {table}"
+            ).fetchall():
+                if deleted_set.intersection(_loads_list(row["source_span_ids"])):
+                    touched_graph_rows[table].append(row)
+                    observed_revisions.append(row["updated_at"])
+        revision = strict_successor_timestamp(*observed_revisions)
         for chunk in _chunked(span_ids):
             placeholders = ",".join("?" for _ in chunk)
             params = tuple(chunk)
@@ -254,6 +302,7 @@ def delete_source_spans(
                 "claim_supports",
                 f"source_span_id IN ({placeholders})",
                 params,
+                deleted_at=revision,
             )
             delete_rows_with_tombstones_on_connection(
                 c,
@@ -261,24 +310,37 @@ def delete_source_spans(
                 "depends_on_type = 'source_span' "
                 f"AND depends_on_id IN ({placeholders})",
                 params,
+                deleted_at=revision,
             )
+            existing_ids = [
+                str(row["id"])
+                for row in c.execute(
+                    f"SELECT id FROM source_spans WHERE id IN ({placeholders})",
+                    params,
+                ).fetchall()
+            ]
             cur = c.execute(
                 f"DELETE FROM source_spans WHERE id IN ({placeholders})", params
             )
             deleted += cur.rowcount
+            for span_id in existing_ids:
+                record_tombstone_on_connection(
+                    c,
+                    "source_spans",
+                    span_id,
+                    deleted_at=revision,
+                )
         # Scrub the deleted span ids out of graph entity/relation source_span_ids
         # JSON arrays so no graph record carries a dangling span reference.
         for table in ("graph_entities", "graph_relations"):
-            for row in c.execute(
-                f"SELECT id, source_span_ids FROM {table}"
-            ).fetchall():
+            for row in touched_graph_rows[table]:
                 spans = _loads_list(row["source_span_ids"])
                 kept = [s for s in spans if s not in deleted_set]
-                if len(kept) != len(spans):
-                    c.execute(
-                        f"UPDATE {table} SET source_span_ids = ? WHERE id = ?",
-                        (json.dumps(kept), row["id"]),
-                    )
+                c.execute(
+                    f"UPDATE {table} SET source_span_ids = ?, updated_at = ? "
+                    "WHERE id = ?",
+                    (json.dumps(kept), revision, row["id"]),
+                )
     return deleted
 
 
@@ -519,7 +581,11 @@ def set_unit_formula_status(
 
 
 def retire_knowledge_unit(
-    db_path: Path, unit_id: str, *, conn: sqlite3.Connection | None = None
+    db_path: Path,
+    unit_id: str,
+    *,
+    conn: sqlite3.Connection | None = None,
+    now: str | None = None,
 ) -> None:
     """Tombstone a unit retired by source edit/delete/split reconciliation
     (SCHEMA §20.1). Retired rows are never deleted by the compiler and never
@@ -529,16 +595,35 @@ def retire_knowledge_unit(
     from ..db_sync import delete_rows_with_tombstones_on_connection
 
     with _maybe_conn(db_path, conn) as c:
+        unit = c.execute(
+            "SELECT updated_at, retired_at FROM knowledge_units WHERE id = ?",
+            (unit_id,),
+        ).fetchone()
+        if unit is None:
+            return
+        support_revisions = [
+            row["updated_at"]
+            for row in c.execute(
+                "SELECT updated_at FROM claim_supports WHERE knowledge_unit_id = ?",
+                (unit_id,),
+            ).fetchall()
+        ]
+        revision = strict_successor_timestamp(
+            now,
+            unit["updated_at"],
+            *support_revisions,
+        )
         c.execute(
             "UPDATE knowledge_units SET retired_at = ?, updated_at = ? "
             "WHERE id = ? AND retired_at IS NULL",
-            (_now_iso(), _now_iso(), unit_id),
+            (revision, revision, unit_id),
         )
         delete_rows_with_tombstones_on_connection(
             c,
             "claim_supports",
             "knowledge_unit_id = ?",
             (unit_id,),
+            deleted_at=revision,
         )
 
 
@@ -571,10 +656,12 @@ def list_serving_units(db_path: Path, source_id: int | None = None) -> list[dict
     — SYSTEM_BEHAVIOR §26.3. Served = `retired_at IS NULL` ∧
     `support_status='verified'` ∧ owned by an `authoritative` generation. A staged
     or discarded generation's units (and any NULL-generation legacy row not yet
-    migrated) are excluded by construction."""
+    migrated) are excluded by construction. The generation and unit must also
+    belong to the same still-live source row."""
     sql = (
         "SELECT ku.* FROM knowledge_units ku "
         "JOIN compiler_generations g ON g.id = ku.generation_id "
+        "JOIN sources s ON s.id = ku.source_id AND s.id = g.source_id "
         "WHERE ku.retired_at IS NULL AND ku.support_status = 'verified' "
         "AND g.status = 'authoritative'"
     )
@@ -1524,6 +1611,7 @@ def compile_relation_lifecycle(
     relation_id: str,
     bridge_risk_ids: set[str] | None = None,
     conn: sqlite3.Connection | None = None,
+    now: str | None = None,
 ) -> str:
     """Compile and persist a single relation's ``lifecycle_status`` and
     ``quarantine_reason`` (SCHEMA §21.5/§21.6, SYSTEM_BEHAVIOR §27.3) and return the
@@ -1552,7 +1640,8 @@ def compile_relation_lifecycle(
     with _maybe_conn(db_path, conn) as conn:
         rel = conn.execute(
             "SELECT source_entity_id, target_entity_id, relation_type, edge_class, "
-            "generation_id FROM graph_relations WHERE id = ?",
+            "generation_id, lifecycle_status, quarantine_reason, reeval_trigger, "
+            "updated_at FROM graph_relations WHERE id = ?",
             (relation_id,),
         ).fetchone()
         if rel is None:
@@ -1573,12 +1662,23 @@ def compile_relation_lifecycle(
             db_path,
         )
 
+        desired_reason = "" if status == "active" else reason
+        desired_trigger = (
+            "" if status == "active" else _QUARANTINE_REEVAL_TRIGGERS[reason]
+        )
+        if (
+            str(rel["lifecycle_status"]) == status
+            and str(rel["quarantine_reason"]) == desired_reason
+            and str(rel["reeval_trigger"]) == desired_trigger
+        ):
+            return status
+        revision = strict_successor_timestamp(now, rel["updated_at"])
         if status == "active":
             conn.execute(
                 "UPDATE graph_relations SET lifecycle_status = 'active', "
                 "quarantine_reason = '', reeval_trigger = '', updated_at = ? "
                 "WHERE id = ?",
-                (_now_iso(), relation_id),
+                (revision, relation_id),
             )
         else:  # quarantined
             conn.execute(
@@ -1588,7 +1688,7 @@ def compile_relation_lifecycle(
                 (
                     reason,
                     _QUARANTINE_REEVAL_TRIGGERS[reason],
-                    _now_iso(),
+                    revision,
                     relation_id,
                 ),
             )
@@ -1994,6 +2094,7 @@ def rebuild_graph_generation(
     *,
     config_hash: str | None = None,
     conn: sqlite3.Connection | None = None,
+    now: str | None = None,
 ) -> dict:
     """Deterministically (re)compile the authoritative graph into claim-grounded
     community reports (SYSTEM_BEHAVIOR §27.5/§27.8), inside one atomic transaction:
@@ -2033,7 +2134,7 @@ def rebuild_graph_generation(
         ).fetchall():
             compile_relation_lifecycle(
                 db_path, relation_id=str(r["id"]),
-                bridge_risk_ids=bridge_ids, conn=conn,
+                bridge_risk_ids=bridge_ids, conn=conn, now=now,
             )
 
         # (2) active communities (multi-node only — a singleton is no community).
@@ -2206,18 +2307,24 @@ def rebuild_graph_generation(
 
         # (5) retire stale communities absent from the rebuilt set, before synthesis.
         keyset = set(current_keys)
-        now = _now_iso()
-        retired = 0
+        retirement_revisions: list[object] = [now]
+        rows_to_retire: list[sqlite3.Row] = []
         for row in conn.execute(
-            "SELECT id, community_key FROM community_reports WHERE retired_at IS NULL"
+            "SELECT id, community_key, updated_at FROM community_reports "
+            "WHERE retired_at IS NULL"
         ).fetchall():
             if str(row["community_key"]) not in keyset:
-                conn.execute(
-                    "UPDATE community_reports SET retired_at = ?, updated_at = ? "
-                    "WHERE id = ?",
-                    (now, now, row["id"]),
-                )
-                retired += 1
+                rows_to_retire.append(row)
+                retirement_revisions.append(row["updated_at"])
+        retired_at = strict_successor_timestamp(*retirement_revisions)
+        retired = 0
+        for row in rows_to_retire:
+            conn.execute(
+                "UPDATE community_reports SET retired_at = ?, updated_at = ? "
+                "WHERE id = ?",
+                (retired_at, retired_at, row["id"]),
+            )
+            retired += 1
 
     return {
         "communities": len(current_keys),
@@ -2232,8 +2339,10 @@ def reconcile_source_change(
     *,
     source_id: int,
     removed_span_ids: list[str] | None = None,
+    removed_unit_ids: list[str] | None = None,
     config_hash: str | None = None,
     conn: sqlite3.Connection | None = None,
+    now: str | None = None,
 ) -> dict:
     """Reconcile the graph/report closure after a source edit/delete (§27.8).
 
@@ -2253,10 +2362,10 @@ def reconcile_source_change(
     summary plus ``stale_supports`` and the reconciled ``source_id``."""
     removed_list = list(dict.fromkeys(removed_span_ids or []))  # dedup, keep order
     removed = set(removed_list)
+    removed_units = set(removed_unit_ids or [])
     with _maybe_conn(db_path, conn) as conn:
         stale_supports = 0
-        if removed:
-            now = _now_iso()
+        if removed or removed_units:
             # Push the scope filter down into SQLite instead of loading the whole
             # verified support layer into Python: an OR of `source_span_ids LIKE`
             # restricts the payload to rows whose JSON span array MIGHT carry a removed
@@ -2276,7 +2385,7 @@ def reconcile_source_change(
                 like_params = tuple(f"%{json.dumps(sid)}%" for sid in chunk)
                 for row in conn.execute(
                     "SELECT relation_id, knowledge_unit_id, support_hash, "
-                    "source_span_ids FROM graph_relation_supports "
+                    "source_span_ids, updated_at FROM graph_relation_supports "
                     f"WHERE support_status = 'verified' AND ({like_clause})",
                     like_params,
                 ).fetchall():
@@ -2284,17 +2393,43 @@ def reconcile_source_change(
                         (row["relation_id"], row["knowledge_unit_id"],
                          row["support_hash"])
                     ] = row
+            for chunk in _chunked(sorted(removed_units)):
+                placeholders = ",".join("?" for _ in chunk)
+                for row in conn.execute(
+                    "SELECT relation_id, knowledge_unit_id, support_hash, "
+                    "source_span_ids, updated_at FROM graph_relation_supports "
+                    "WHERE support_status = 'verified' "
+                    f"AND knowledge_unit_id IN ({placeholders})",
+                    tuple(chunk),
+                ).fetchall():
+                    candidates[
+                        (
+                            row["relation_id"],
+                            row["knowledge_unit_id"],
+                            row["support_hash"],
+                        )
+                    ] = row
+            revisions = [now, *(row["updated_at"] for row in candidates.values())]
+            revision = strict_successor_timestamp(*revisions)
             for row in candidates.values():
-                if set(_loads_list(row["source_span_ids"])) & removed:
+                if (
+                    str(row["knowledge_unit_id"]) in removed_units
+                    or set(_loads_list(row["source_span_ids"])) & removed
+                ):
                     conn.execute(
                         "UPDATE graph_relation_supports SET support_status = 'stale', "
                         "updated_at = ? WHERE relation_id = ? "
                         "AND knowledge_unit_id = ? AND support_hash = ?",
-                        (now, row["relation_id"], row["knowledge_unit_id"],
+                        (revision, row["relation_id"], row["knowledge_unit_id"],
                          row["support_hash"]),
                     )
                     stale_supports += 1
-        summary = rebuild_graph_generation(db_path, config_hash=config_hash, conn=conn)
+        summary = rebuild_graph_generation(
+            db_path,
+            config_hash=config_hash,
+            conn=conn,
+            now=now,
+        )
     return {**summary, "stale_supports": stale_supports, "source_id": source_id}
 
 

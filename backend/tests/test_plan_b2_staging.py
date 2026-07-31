@@ -193,6 +193,13 @@ class _GraphFailClient(_UnitsClient):
         return super().chat(messages, json_mode=json_mode, temperature=temperature)
 
 
+class _NoCallClient:
+    model = "must-not-run"
+
+    def chat(self, *args, **kwargs):
+        raise AssertionError("projection recovery must not call the LLM")
+
+
 def test_graph_extraction_failure_leaves_no_partial_publish(vault) -> None:
     # The LLM graph extraction must run BEHIND the publish gate: if it fails, the
     # staged units are discarded and NO generation is published (§26.3). A prior
@@ -237,7 +244,9 @@ def test_emptied_source_recompile_retires_prior(vault) -> None:
     # publishes (no zero-unit guard). NB: the spans must actually change — an LLM
     # omission on UNCHANGED spans is handled by the carry-forward test below.
     assert compile_mod.compile_source_l2(vault, _UnitsClient(units=True), 1).ok
-    assert db.list_serving_units(vault.state_db)
+    prior_units = db.list_serving_units(vault.state_db)
+    assert prior_units
+    prior_atom_id = str(prior_units[0]["atom_node_id"])
     (vault.root / "04_Resources" / "resnet.md").write_text(
         "# Unrelated\n\nEntirely different prose with no prior claims.\n", encoding="utf-8")
     with db.connect(vault.state_db) as conn:
@@ -246,6 +255,11 @@ def test_emptied_source_recompile_retires_prior(vault) -> None:
     assert result.ok, result.error  # zero-unit publish is valid
     assert db.list_serving_units(vault.state_db) == []  # prior retired, not served forever
     assert db.get_authoritative_generation(vault.state_db, 1) is not None
+    assert not (vault.atoms / f"{prior_atom_id}.md").exists()
+    with db.connect(vault.state_db) as conn:
+        assert conn.execute(
+            "SELECT 1 FROM dag_edges WHERE source_id = 1"
+        ).fetchone() is None
 
 
 def test_llm_omission_on_unchanged_span_carries_claim_forward(vault) -> None:
@@ -339,3 +353,84 @@ def test_publish_failure_rolls_back_reconcile_to_prior_authoritative(vault, monk
     assert not result.ok
     assert db.get_authoritative_generation(vault.state_db, 1)["id"] == gen_before
     assert {u["id"] for u in db.list_serving_units(vault.state_db)} == before and before
+
+
+def test_post_publish_projection_failure_recovers_without_new_generation_or_llm(
+    vault,
+    monkeypatch,
+) -> None:
+    original_write_text = Path.write_text
+    failed = False
+
+    def _fail_first_atom_write(path, *args, **kwargs):
+        nonlocal failed
+        if path.parent == vault.atoms and not failed:
+            failed = True
+            raise OSError("projection write failed")
+        return original_write_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", _fail_first_atom_write)
+    first = compile_mod.compile_source_l2(vault, _UnitsClient(), 1)
+    assert not first.ok
+    generation = db.get_authoritative_generation(vault.state_db, 1)
+    assert generation is not None
+    with db.connect(vault.state_db) as conn:
+        source = conn.execute(
+            "SELECT l2_status, layer_error FROM sources WHERE id = 1"
+        ).fetchone()
+        atom_id = conn.execute(
+            "SELECT atom_node_id FROM knowledge_units WHERE generation_id = ?",
+            (generation["id"],),
+        ).fetchone()[0]
+    assert source["l2_status"] == "error"
+    assert str(source["layer_error"]).startswith("post-publish projection failed:")
+    assert atom_id
+
+    second = compile_mod.compile_source_l2(vault, _NoCallClient(), 1)
+
+    assert second.ok, second.error
+    assert db.get_authoritative_generation(vault.state_db, 1)["id"] == generation["id"]
+    assert (vault.atoms / f"{atom_id}.md").exists()
+    assert db.get_search_document(
+        vault.state_db,
+        f"DOC-knowledge_unit-{second.knowledge_unit_ids[0]}",
+    )
+
+
+def test_interrupted_post_publish_projection_recovers_without_llm(
+    vault,
+    monkeypatch,
+) -> None:
+    original_finalize = compile_mod._finalize_published_source
+
+    def _interrupt_after_publish(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(
+        compile_mod,
+        "_finalize_published_source",
+        _interrupt_after_publish,
+    )
+    with pytest.raises(KeyboardInterrupt):
+        compile_mod.compile_source_l2(vault, _UnitsClient(), 1)
+
+    generation = db.get_authoritative_generation(vault.state_db, 1)
+    assert generation is not None
+    with db.connect(vault.state_db) as conn:
+        source = conn.execute(
+            "SELECT l2_status, layer_error FROM sources WHERE id = 1"
+        ).fetchone()
+    assert source["l2_status"] == "running"
+    assert source["layer_error"] == "post-publish projection pending"
+
+    monkeypatch.setattr(
+        compile_mod,
+        "_finalize_published_source",
+        original_finalize,
+    )
+    recovered = compile_mod.compile_source_l2(vault, _NoCallClient(), 1)
+
+    assert recovered.ok, recovered.error
+    assert db.get_authoritative_generation(vault.state_db, 1)["id"] == generation["id"]
+    assert recovered.atom_ids
+    assert (vault.atoms / f"{recovered.atom_ids[0]}.md").exists()

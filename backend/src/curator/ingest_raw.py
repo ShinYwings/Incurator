@@ -2482,12 +2482,24 @@ def remove_source(
 
     with db.connect(paths.state_db) as conn:
         sync_key = str(row["sync_key"] or "")
-        _delete_source_on_connection(conn, source_id)
-        record_tombstone_on_connection(conn, "sources", sync_key)
+        revision = _delete_source_on_connection(conn, source_id)
+        record_tombstone_on_connection(
+            conn,
+            "sources",
+            sync_key,
+            deleted_at=revision,
+        )
 
-    from .retrieval import materializer
+    from .pipeline import compile as compile_pipeline
 
-    materializer.materialize_search_documents(paths.state_db)
+    projection_error = ""
+    try:
+        compile_pipeline.reemit_projections(paths)
+    except Exception as exc:
+        # The canonical delete already committed and serving is fail-closed on
+        # the live source row. Report that durable outcome honestly while
+        # preserving an explicit deterministic repair command for projections.
+        projection_error = str(exc)
 
     deleted_file = False
     if delete_file and file_path.exists() and _is_inside_raw(file_path, paths.raw_dirs):
@@ -2502,4 +2514,9 @@ def remove_source(
         msg += " — file deleted from raw dirs"
     elif delete_file:
         msg += " — file was outside raw dirs, left in place"
+    if projection_error:
+        msg += (
+            " — projection refresh failed after DB removal "
+            f"({projection_error}); run `wiki sync --reemit` to repair derived output"
+        )
     return True, msg

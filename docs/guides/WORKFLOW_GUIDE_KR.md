@@ -523,15 +523,32 @@ v0.8.0은 §9의 순방향 컴파일 흐름을 클레임 수준 grounding과 원
   비영어 생성 출력은 한 번 repair retry를 거치며, 그래도 실패하면 발행되지
   않습니다.
 - **스테이징된 generation**: 모든 컴파일은 `GEN-` 컴파일러 generation 안에서
-  실행됩니다. DB 행, 의존성, 마크다운 프로젝션, 검색 행은 감사 게이트를
+  실행됩니다. generation 소유 claim, support, graph 상태는 감사 게이트를
   통과한 뒤에만 함께 발행되며, 실패한 컴파일은 스테이징된 generation을
-  폐기하고 이전 generation이 계속 서비스합니다.
+  폐기하고 이전 generation이 계속 서비스합니다. 안정적인 projection
+  identity/의존성 행과 폐기 가능한 마크다운/검색 출력은 복구 가능한
+  post-publish 단계에서 DB로부터 완성됩니다.
+- **복구 가능한 projection 단계**: 권위 DB 트랜잭션 뒤에 안정적인 Atom id와
+  의존성 행을 먼저 저장한 다음 파생 파일을 emit합니다. projection 또는 검색
+  갱신이 실패하면 generation은 권위 상태로 유지되고 소스에는 post-publish
+  projection 오류가 기록됩니다. 오류를 기록하기 전 중단되어도 같은 복구
+  경로를 사용하도록 pending marker가 generation과 함께 커밋됩니다. 재시도는
+  LLM을 다시 호출하거나 대체 generation을 만들지 않고 DB에서 모든 파생
+  projection과 검색 행을 재생성한 다음, 다음 sync가 그 출력을 수동 편집으로
+  오인하지 않도록 ATM/CON/SYN 페이지 hash 기준선도 갱신합니다. 보존된 live
+  CTX hash는 다시 쓰지 않고, 복구가 제거한 orphan CTX hash만 삭제합니다.
 - **멱등한 재빌드**: 변경 없는 소스에 `wiki build`를 다시 실행하면
   authoritative generation의 id, 해시, 카운트를 재사용합니다 — 중복 누적이
   없습니다.
 - **편집/삭제/분할 reconciliation**: 소스 변경은 측정된 의존성 클로저만
   재생성합니다. 근거를 잃은 클레임은 retire 처리되고(감사용으로 보존, 서빙
   제외), 오래된 span은 방치되지 않고 정리됩니다.
+- **완전한 소스 제거**: 로컬 제거와 가져온 source tombstone은 generation,
+  claim, 그래프 지지/보고서, synthesis, span, 기기 로컬 파생물을 하나의 동일한
+  트랜잭션 클로저로 닫습니다. 공유 그래프 상태는 다른 live 독립 지지가 있을
+  때만 남고, rematerialization이 끝나기 전에도 serving query는 live source
+  provenance를 요구합니다. 커밋 후 projection 갱신이 실패해도 제거는 유지되며
+  결정적 복구 명령으로 `wiki sync --reemit`을 보고합니다.
 - **수식 라이프사이클**: 핵심 수식은 증류를 거쳐도 본문에 온전히 유지되거나
   정확히 링크된 수식 증거로 남습니다. 선택적 시각 복구는 측정된 손실
   영역(`fragmented`/`image_only`/`parser_omitted`)에서만 실행되고, 원시
