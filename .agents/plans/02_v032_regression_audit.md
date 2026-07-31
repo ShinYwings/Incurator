@@ -1,7 +1,7 @@
 # v0.39.x Stability Regression Audit And Repair Master Implementation Plan
 
 Date: 2026-07-30
-Status: ACTIVE — P1–P4 complete; P5 begins after PR #101 merges
+Status: ACTIVE — P1–P5 complete; v0.39.1 release-ready, P6 next
 Umbrella: `.agents/plans/01_system_stability_overhaul.md`
 Evidence: `.agents/plans/02_v032_regression_evidence.md`
 
@@ -145,7 +145,7 @@ Definition of done:
   - each later patch branch starts from merged `master` and has its own rollback
     anchor;
   - no destructive production migration is planned.
-- **Confirmed findings**: F01–F22 in
+- **Confirmed findings**: F01–F24 in
   `.agents/plans/02_v032_regression_evidence.md`.
 - **Domain analyses**:
   - `A_v032_release_history_analysis.md`
@@ -162,7 +162,8 @@ Status: COMPLETE FOR PLANNING.
 
 - Read repository rules, active plans, roadmap, relay, current specs, current
   implementation, and historical plans through Git.
-- Inventory release PRs/commits/paths and freeze F01–F22.
+- Inventory release PRs/commits/paths and freeze F01–F22; append newly proven
+  findings rather than renumbering the frozen register.
 - Reproduce source deletion and secret corruption in temporary state.
 - Verify clean branch and existing green release evidence.
 
@@ -235,6 +236,8 @@ Status: COMPLETE.
 
 ### P5 — v0.32.0–v0.34.1 Identity/Sync Audit And Source Lifecycle Patch
 
+Status: COMPLETE on `release/v0.39.1`.
+
 - Create a patch branch from merged `master`.
 - Audit PRs #80–#86 plus #98 against current ownership/LWW paths.
 - Docs-first/TDD-first implement F01 and F07:
@@ -245,9 +248,11 @@ Status: COMPLETE.
   post-commit failure tests.
 - Run two dry audit passes for these releases.
 
-Expected version: next available v0.39.x patch.
+Delivered version: v0.39.1.
 
 ### P6 — v0.32.1/v0.36.0 Persistence Audit And Durable-State Patch
+
+Status: PENDING v0.39.1 merge.
 
 - Audit storage relocation, serialized saves, facade moves, and later async
   hardening.

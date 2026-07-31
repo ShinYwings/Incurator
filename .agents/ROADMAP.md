@@ -22,26 +22,13 @@ Source of Truth to identify unresolved items.
 
 `USER_REPORT.md` is currently empty. The following queue is the ordered roadmap.
 
-The user's 2026-07-30 stability-review follow-up is triaged below. Draft PR
-#101 remains unmerged; confirmed v0.39.0 authored-topology blockers stay on that
-release branch, while pre-existing cross-system defects and any additional
-v0.32.0+ regression findings ship as small follow-up patch releases.
+The user's 2026-07-30 stability-review follow-up is triaged below. PR #101
+merged as v0.39.0; pre-existing cross-system defects and any additional
+v0.32.0+ regression findings now ship as small follow-up patch releases.
 
 ### 🚀 Priority Order
 
-1. **[Patch-in-release] v0.39.0 Authored-Topology Review-Blocker Closure** *(MERGE READY)*
-   - Draft PR #101 remains on `release/v0.39.0`; the release has not merged, so
-     authored-topology corrections keep the same version and public contract.
-   - Close the newly confirmed single-generation tombstone hole, exact audit
-     membership enforcement, strictly-monotonic repair/retirement clocks,
-     winner-report invalidation, nested Markdown labels, and single-decode
-     target normalization.
-   - Preserve the already-green first hardening pass from commit `f6ff089`;
-     every new failure receives a red regression test before code.
-   - Seven direct review findings plus a reconciliation-quiescence guard are
-     implemented, fully validated, pushed, and green on latest-head PR CI.
-
-2. **[Patch Chain] v0.39.x Stability Regression Audit — v0.32.0 Through Current** *(ACTIVE — PLAN FIRST)*
+1. **[Patch Chain] v0.39.x Stability Regression Audit — v0.32.0 Through Current** *(ACTIVE — P5 RELEASE READY; P6 NEXT)*
    - Audit every merged release diff from PR #80 / v0.32.0 through PR #100 /
      v0.38.0 plus the current PR #101 branch. Cross-check the original release
      plan, implementation diff, tests, specs/guides, and adjacent failure
@@ -57,25 +44,24 @@ v0.32.0+ regression findings ship as small follow-up patch releases.
      is currently expected; stop and re-plan as a Minor if the audit proves one
      necessary.
 
-3. **[Major Update] System Stability Overhaul — Exhaustive Diagnosis & Refactoring** *(ACTIVE)*
+2. **[Major Update] System Stability Overhaul — Exhaustive Diagnosis & Refactoring** *(ACTIVE)*
    - Absorbs the prompt-architecture milestone. Whole-codebase diagnosis (bugs,
      redundancy, architectural debt) + refactoring with architectural redesign
      allowed; prompt-v2 for cross-model output consistency; legacy/dead-code sweep.
    - Master Plan: `.agents/plans/01_system_stability_overhaul.md`
    - Briefing: `.agents/plans/system_stability_overhaul_arena/00_problem.md`
    - Delivered as a chain of independently reviewable release PRs.
-   - **Shipped stability & hardening releases (v0.25.0 → v0.39.0)**:
+   - **Shipped/release-ready stability & hardening releases (v0.25.0 → v0.39.1)**:
      diagnosis G17–G19, XC-1/XC-4 robustness slices, DB-2 slices 1–2,
      CLI/MCP warning visibility, portable paths and cross-device LWW sync,
      strict v12 schema/reindex speedup, CM-1 command decomposition,
      fail-closed sync/KRS integrity, PDF/Antigravity transport hotfixes,
-     grounded Sidechat vault links, and authored-note graph topology.
+     grounded Sidechat vault links, authored-note graph topology, and complete
+     source-lifecycle/projection recovery.
    - **Remaining Scope for Upcoming Releases**:
-     - **Source-Deletion Closure**: separately plan and repair the pre-existing
-       extracted-data deletion path so source removal cannot leave active
-       generations, knowledge units, graph support, or serving artifacts.
-       This is broader than F9 authored-topology hardening and must not be
-       smuggled into PR #101 without its own evidence and plan.
+     - **Durable-State Integrity**: fail closed on corrupt session and secret
+       stores, preserve damaged bytes, serialize atomic writes, and recursively
+       redact runtime credentials.
      - **Exception Handling Hardening (XC-1 later slices)**: audit broad
        catch-and-return boundary handlers and other backend modules after the
        silent-swallow slice lands. Provider follow-ups found during v0.37.1
@@ -85,22 +71,22 @@ v0.32.0+ regression findings ship as small follow-up patch releases.
        no-JSON plugin command errors.
      - **Performance & UX Refinements**: RAG/DAG benchmark harness & retrieval hotspot optimization; chat/popover UX friction cleanup.
 
-4. **[Minor Update] Chat Session Context Compaction**
+3. **[Minor Update] Chat Session Context Compaction**
    - Confirm full-session history behavior.
    - Add a Claude-Code-style circular token usage meter under the query box and a click-to-compact action.
    - Detailed analysis: `.agents/drafts/chat_context_compaction.md`
 
-5. **[Minor Update] Vault Storage Governance & Quota Visibility**
+4. **[Minor Update] Vault Storage Governance & Quota Visibility**
    - Separate authoritative, derived, cache, and external storage accounting.
    - Add capacity guidance, safe admission control, and CLI/plugin visibility.
    - Detailed analysis: `.agents/drafts/vault_storage_governance.md`
 
-6. **[Major Update] Native PDF Annotation & Asset System**
+5. **[Major Update] Native PDF Annotation & Asset System**
    - Native annotation highlight/memo synchronization using Obsidian's built-in PDF viewer.
    - In-PDF full-text search and strict-spelling mode remain here.
    - Detailed analysis: `.agents/drafts/pdf_annotation_system.md`
 
-7. **[Minor Update] Web Search Integration**
+6. **[Minor Update] Web Search Integration**
    - Design and integrate web search capabilities for local models (Ollama, Deepseek, etc.).
    - Investigate API options (Brave, SerpAPI) and implement `web_search.py`.
    - The former quick-wins draft was deleted after triage; create a fresh
@@ -109,6 +95,22 @@ v0.32.0+ regression findings ship as small follow-up patch releases.
 ---
 
 ## ✅ Completed Milestones
+
+- **v0.39.1 — Source Lifecycle And Projection Recovery**
+  (release-ready 2026-07-30): closes the full local/imported source-deletion
+  dependency graph, evicts stale serving/search state immediately, preserves
+  shared support, recovers post-publish projections without another LLM call or
+  generation, enforces monotonic tombstone/reinsert clocks, and fails visibly
+  on malformed current-schema peers. Two historical audit passes, 1,373 backend
+  tests, 737 plugin tests, static analysis/build, zero-vulnerability npm audit,
+  and isolated deletion/Reference Mode smoke all pass.
+
+- **v0.39.0 — Authored Note Topology**
+  (shipped 2026-07-30, PR #101): added authored Markdown graph extraction and
+  replica-safe lifecycle reconciliation. The final review closed
+  single-generation tombstones, exact audit membership, monotonic repair and
+  retirement clocks, dependency-aware report invalidation, nested Markdown
+  labels, one-pass target decoding, and reconciliation quiescence.
 
 - **v0.38.0 — Sidechat Vault-Page Wikilinks**
   (shipped 2026-07-30, PR #100): every selectable Sidechat provider receives the
@@ -362,8 +364,7 @@ No blocked items currently tracked.
 
 ## 📌 Current Focus & Active Milestone
 
-- **Roadmap state**: System Stability Overhaul ACTIVE; v0.39.0 is unmerged.
-- **Active Milestone**: v0.39.0 authored-topology review-blocker closure plus
-  the v0.32.0+ release-chain regression audit.
-- **Next actionable item**: merge PR #101, fast-forward `master`, then begin P5
-  source-lifecycle/compiler-recovery work from the clean merged anchor.
+- **Roadmap state**: System Stability Overhaul ACTIVE; v0.39.0 is merged.
+- **Active Milestone**: v0.39.1 P5 is release-ready and awaiting human merge.
+- **Next actionable item**: after v0.39.1 merges, start P6 durable-state
+  persistence audit from clean `master`.
