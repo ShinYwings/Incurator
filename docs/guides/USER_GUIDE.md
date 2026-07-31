@@ -703,7 +703,7 @@ Summary of major commands following the user workflow.
 | `wiki build` | Compiles L2 Atoms + L3 Concepts from registered L1 Contexts into the database. Uses the configured LLM for high-quality extraction and can fall back to deterministic L3 Concepts if the provider fails. By default it queues jobs and starts a detached background daemon; `--wait` runs synchronously. Build **always (re)generates vector embeddings** when it finishes — even when no atoms changed or the queue was already empty — so search converges to vector-ready without a separate `wiki reindex --embed`. (The queue is drained internally; the `jobs` command group still exists for the background worker but is hidden from `wiki --help`.) | Deep knowledge-graph construction |
 | `wiki source ls` | Lists all registered sources. | Checking collected data inventory |
 | `wiki source show <id>` | Shows details and processing status for a specific source. | Diagnosing source errors |
-| `wiki source rm <id>` | Removes a source registration and generated derived records while keeping the original file. Add `--delete-file` only when you also want to delete a vault source file. | Removing an incorrect source |
+| `wiki source rm <id>` | Atomically retires/removes the source's complete generated dependency closure and refreshes projections/search while keeping the original file. Shared graph knowledge survives only when another registered source still supports it. If the post-commit projection refresh fails, removal still reports success with an explicit `wiki sync --reemit` repair instruction. Add `--delete-file` only when you also want to delete a vault source file. | Removing an incorrect source |
 | `wiki source retry <id>` | Reprocesses a failed source, including layer-scoped L1/L2/L3/L4 errors. | Retrying after a processing failure |
 
 ### 2-1. Settings & LLM Backend Management
@@ -871,7 +871,9 @@ How it stays safe across devices:
   portable source key, so two devices may independently create source id 1.
 - **Last-Write-Wins merge.** Records merge row-by-row by monotonic revision;
   deletes propagate via tombstones. Concurrent reads and edits to different
-  source records are safe.
+  source records are safe. An intentional local reinsert advances past the
+  exact tombstone before that tombstone is cleared, including clock-skewed
+  deletes from another device.
 - **Complete delete identity.** Composite-primary-key tombstones contain every
   key field in validated canonical JSON. Source-scoped keys use the portable
   source key rather than a device's numeric id, so stale snapshots cannot

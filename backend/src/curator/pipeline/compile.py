@@ -64,6 +64,8 @@ __all__ = [
 # compiles of the same source under the same contract version are an unchanged
 # rebuild and must reuse the authoritative generation (§26.3).
 PROMPT_CONTRACT_VERSION = "curator.knowledge_unit_extract@v3"
+_POST_PUBLISH_PROJECTION_ERROR = "post-publish projection failed:"
+_POST_PUBLISH_PROJECTION_PENDING = "post-publish projection pending"
 
 
 @dataclass
@@ -88,6 +90,15 @@ def _section_dicts(paths: cfg.WikiPaths, relpath: str):
     file_path = paths.root / relpath
     parsed = parsers.parse(_resolve_reference_source(paths, file_path))
     return parsed.title, _extract_structural_sections(parsed)
+
+
+def _audit_content_hash(generation: dict[str, Any]) -> str:
+    """Read the recovery fingerprint from a generation audit, failing closed."""
+    try:
+        audit = json.loads(str(generation.get("audit_json") or "{}"))
+    except (TypeError, ValueError):
+        return ""
+    return str(audit.get("content_hash") or "") if isinstance(audit, dict) else ""
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +291,25 @@ def compile_source_l2(
         source = dict(row)
     relpath = source["relpath"]
     context_id = source.get("context_id") or ""
+    prior_generation = db.get_authoritative_generation(paths.state_db, source_id)
+    projection_state = str(source.get("layer_error") or "")
+    if (
+        prior_generation is not None
+        and (
+            projection_state == _POST_PUBLISH_PROJECTION_PENDING
+            or (
+                str(source.get("l2_status") or "") == "error"
+                and projection_state.startswith(_POST_PUBLISH_PROJECTION_ERROR)
+            )
+        )
+        and prior_generation["prompt_contract_version"] == PROMPT_CONTRACT_VERSION
+        and _audit_content_hash(prior_generation) == source.get("content_hash")
+    ):
+        return _recover_published_source(
+            paths,
+            source_id=source_id,
+            context_id=str(context_id),
+        )
     # Resume from checkpoint when interrupted batches were already persisted —
     # check DB directly so callers that reset l2_status before dispatching still
     # trigger resume correctly (e.g. `wiki sources retry` sets l2_status='pending').
@@ -414,6 +444,14 @@ def compile_source_l2(
                 conn,
                 newly_active,
             )
+            # This marker commits atomically with the authoritative generation.
+            # If the process exits before the post-commit projection phase can
+            # report success or failure, the next attempt recovers from the DB
+            # instead of invoking the LLM again.
+            conn.execute(
+                "UPDATE sources SET layer_error = ? WHERE id = ?",
+                (_POST_PUBLISH_PROJECTION_PENDING, source_id),
+            )
     except Exception as e:
         # KEEP broad: transactional rollback boundary — ANY staged-compile failure
         # must discard the staged generation and surface (l2 error), so a partial
@@ -429,43 +467,31 @@ def compile_source_l2(
             error=f"staged compile failed: {e}",
         )
 
-    # --- Post-publish: emit ATM + materialize search ONLY from the now-authoritative
-    # served set (the DB is truth, so these re-emit from it; never from staged
-    # leftovers). The graph was persisted above inside the publish step.
-    units = db.list_serving_units(paths.state_db, source_id)
-    atom_ids: list[str] = []
-    paths.atoms.mkdir(parents=True, exist_ok=True)
-    for unit in units:
-        atom_id = unit.get("atom_node_id") or projection.new_atom_id()
-        page = projection.emit_atom_markdown(unit, atom_id, source_path=relpath)
-        (paths.atoms / f"{atom_id}.md").write_text(page, encoding="utf-8")
-        db.upsert_knowledge_unit(
-            paths.state_db,
-            unit_id=unit["id"],
-            unit_type=unit["unit_type"],
-            canonical_name=unit["canonical_name"],
-            statement=unit["statement"],
-            source_span_ids=unit["source_span_ids"],
+    # Canonical publish has committed. Stable projection identities and
+    # dependencies are persisted before disposable markdown/search output.
+    try:
+        units = _finalize_published_source(
+            paths,
             source_id=source_id,
-            confidence=unit["confidence"],
-            truth_status=unit["truth_status"],
-            atom_node_id=atom_id,
-            prompt_run_id=unit.get("prompt_run_id"),
+            context_id=str(context_id),
+            source_path=str(relpath),
         )
-        atom_ids.append(atom_id)
-        if context_id:
-            db.insert_dag_edge(paths.state_db, context_id, atom_id, "extracted_from", source_id)
-        for span_id in unit.get("source_span_ids") or []:
-            db.record_artifact_dependency(
-                paths.state_db,
-                artifact_id=unit["id"],
-                artifact_type="knowledge_unit",
-                depends_on_id=span_id,
-                depends_on_type="source_span",
-                dependency_hash=unit.get("prompt_run_id") or "",
-            )
+    except Exception as e:
+        error_msg = f"{_POST_PUBLISH_PROJECTION_ERROR} {e}"
+        db.set_source_layer_status(
+            paths.state_db,
+            source_id,
+            "l2",
+            "error",
+            error=error_msg,
+        )
+        return CompileResult(
+            source_id=source_id,
+            prompt_trace_ids=[ku_result.trace_id] if ku_result.trace_id else [],
+            error=error_msg,
+        )
 
-    materializer.materialize_search_documents(paths.state_db)
+    atom_ids = [str(unit["atom_node_id"]) for unit in units]
     trace_ids = [t for t in (ku_result.trace_id, graph.trace_id) if t]
     l2_status = (
         "done" if db.list_serving_units(paths.state_db, source_id) else "skipped"
@@ -479,6 +505,251 @@ def compile_source_l2(
             set(graph.entity_ids.values()) | set(authored_graph.entity_ids)
         ),
         prompt_trace_ids=trace_ids,
+    )
+
+
+def _finalize_published_source(
+    paths: cfg.WikiPaths,
+    *,
+    source_id: int,
+    context_id: str,
+    source_path: str = "",
+    recover: bool = False,
+) -> list[dict]:
+    """Persist stable projection identity, then emit disposable output.
+
+    A normal compile rewrites only this source's ATM pages and the DB-native
+    search corpus. Recovery uses the workspace-wide DB re-emitter so any
+    partially written ATM/CON/SYN projection is repaired without another LLM
+    call or compiler generation.
+    """
+    units, all_source_atom_ids = _persist_source_projection_state(
+        paths,
+        source_id=source_id,
+        context_id=context_id,
+    )
+    if recover:
+        reemit_projections(paths)
+        return units
+
+    live_atom_ids = {str(unit["atom_node_id"]) for unit in units}
+    paths.atoms.mkdir(parents=True, exist_ok=True)
+    for stale_atom_id in sorted(all_source_atom_ids - live_atom_ids):
+        (paths.atoms / f"{stale_atom_id}.md").unlink(missing_ok=True)
+    for unit in units:
+        atom_id = str(unit["atom_node_id"])
+        page = projection.emit_atom_markdown(
+            unit,
+            atom_id,
+            source_path=source_path,
+        )
+        (paths.atoms / f"{atom_id}.md").write_text(page, encoding="utf-8")
+    materializer.materialize_search_documents(paths.state_db)
+    return units
+
+
+def _persist_source_projection_state(
+    paths: cfg.WikiPaths,
+    *,
+    source_id: int,
+    context_id: str,
+) -> tuple[list[dict], set[str]]:
+    """Persist stable ATM ids and canonical dependencies before file output."""
+    from ..db_sync import (
+        clear_row_tombstone_on_connection,
+        delete_rows_with_tombstones_on_connection,
+        record_row_tombstone_on_connection,
+    )
+
+    with db.connect(paths.state_db) as conn:
+        rows = conn.execute(
+            "SELECT ku.* FROM knowledge_units ku "
+            "JOIN compiler_generations g ON g.id = ku.generation_id "
+            "JOIN sources s ON s.id = ku.source_id AND s.id = g.source_id "
+            "WHERE ku.source_id = ? AND ku.retired_at IS NULL "
+            "AND ku.support_status = 'verified' AND g.status = 'authoritative' "
+            "ORDER BY ku.created_at",
+            (source_id,),
+        ).fetchall()
+        live_unit_ids: set[str] = set()
+        live_atom_ids: set[str] = set()
+        desired_edge_ids: set[str] = set()
+        all_source_atom_ids = {
+            str(row["atom_node_id"])
+            for row in conn.execute(
+                "SELECT atom_node_id FROM knowledge_units "
+                "WHERE source_id = ? AND atom_node_id IS NOT NULL "
+                "AND atom_node_id != ''",
+                (source_id,),
+            ).fetchall()
+        }
+        for row in rows:
+            unit_id = str(row["id"])
+            atom_id = str(row["atom_node_id"] or projection.new_atom_id())
+            live_unit_ids.add(unit_id)
+            live_atom_ids.add(atom_id)
+            if not row["atom_node_id"]:
+                revision = db.strict_successor_timestamp(row["updated_at"])
+                conn.execute(
+                    "UPDATE knowledge_units SET atom_node_id = ?, updated_at = ? "
+                    "WHERE id = ?",
+                    (atom_id, revision, unit_id),
+                )
+            if context_id:
+                edge_id = f"{context_id}:{atom_id}"
+                desired_edge_ids.add(edge_id)
+                conn.execute(
+                    "INSERT OR IGNORE INTO dag_edges "
+                    "(id, from_id, to_id, edge_type, source_id, created_at) "
+                    "VALUES (?, ?, ?, 'extracted_from', ?, ?)",
+                    (
+                        edge_id,
+                        context_id,
+                        atom_id,
+                        source_id,
+                        db._now_iso(),
+                    ),
+                )
+                clear_row_tombstone_on_connection(
+                    conn,
+                    "dag_edges",
+                    {"id": edge_id},
+                )
+            try:
+                span_ids = json.loads(str(row["source_span_ids"] or "[]"))
+            except (TypeError, ValueError):
+                span_ids = []
+            if not isinstance(span_ids, list):
+                span_ids = []
+            for span_id in span_ids:
+                dependency_hash = str(row["prompt_run_id"] or "")
+                existing = conn.execute(
+                    "SELECT dependency_hash FROM artifact_dependencies "
+                    "WHERE artifact_id = ? AND depends_on_id = ? "
+                    "AND depends_on_type = 'source_span'",
+                    (unit_id, str(span_id)),
+                ).fetchone()
+                if (
+                    existing is not None
+                    and str(existing["dependency_hash"]) == dependency_hash
+                ):
+                    continue
+                db.record_artifact_dependency(
+                    paths.state_db,
+                    artifact_id=unit_id,
+                    artifact_type="knowledge_unit",
+                    depends_on_id=str(span_id),
+                    depends_on_type="source_span",
+                    dependency_hash=dependency_hash,
+                    conn=conn,
+                )
+
+        stale_unit_ids = [
+            str(row["id"])
+            for row in conn.execute(
+                "SELECT id FROM knowledge_units WHERE source_id = ?",
+                (source_id,),
+            ).fetchall()
+            if str(row["id"]) not in live_unit_ids
+        ]
+        for start in range(0, len(stale_unit_ids), _SQL_VAR_CHUNK):
+            chunk = stale_unit_ids[start:start + _SQL_VAR_CHUNK]
+            placeholders = ",".join("?" for _ in chunk)
+            dependency_rows = conn.execute(
+                "SELECT created_at FROM artifact_dependencies "
+                "WHERE artifact_type = 'knowledge_unit' "
+                f"AND artifact_id IN ({placeholders})",
+                tuple(chunk),
+            ).fetchall()
+            dependency_revision = db.strict_successor_timestamp(
+                *(row["created_at"] for row in dependency_rows)
+            )
+            delete_rows_with_tombstones_on_connection(
+                conn,
+                "artifact_dependencies",
+                "artifact_type = 'knowledge_unit' "
+                f"AND artifact_id IN ({placeholders})",
+                tuple(chunk),
+                deleted_at=dependency_revision,
+            )
+
+        stale_edges = [
+            row
+            for row in conn.execute(
+                "SELECT * FROM dag_edges WHERE source_id = ?",
+                (source_id,),
+            ).fetchall()
+            if str(row["id"]) not in desired_edge_ids
+        ]
+        for row in stale_edges:
+            record_row_tombstone_on_connection(
+                conn,
+                "dag_edges",
+                row,
+                deleted_at=db.strict_successor_timestamp(row["created_at"]),
+            )
+        if stale_edges:
+            conn.executemany(
+                "DELETE FROM dag_edges WHERE id = ?",
+                [(row["id"],) for row in stale_edges],
+            )
+
+        stale_atom_ids = sorted(all_source_atom_ids - live_atom_ids)
+        for start in range(0, len(stale_atom_ids), _SQL_VAR_CHUNK):
+            chunk = stale_atom_ids[start:start + _SQL_VAR_CHUNK]
+            placeholders = ",".join("?" for _ in chunk)
+            for row in conn.execute(
+                f"SELECT * FROM atoms WHERE id IN ({placeholders})",
+                tuple(chunk),
+            ).fetchall():
+                record_row_tombstone_on_connection(
+                    conn,
+                    "atoms",
+                    row,
+                    deleted_at=db.strict_successor_timestamp(row["last_updated"]),
+                )
+            conn.execute(
+                f"DELETE FROM atoms WHERE id IN ({placeholders})",
+                tuple(chunk),
+            )
+
+    units = db.list_serving_units(paths.state_db, source_id)
+    return units, all_source_atom_ids
+
+
+def _recover_published_source(
+    paths: cfg.WikiPaths,
+    *,
+    source_id: int,
+    context_id: str,
+) -> CompileResult:
+    try:
+        units = _finalize_published_source(
+            paths,
+            source_id=source_id,
+            context_id=context_id,
+            recover=True,
+        )
+    except Exception as e:
+        error_msg = f"{_POST_PUBLISH_PROJECTION_ERROR} {e}"
+        db.set_source_layer_status(
+            paths.state_db,
+            source_id,
+            "l2",
+            "error",
+            error=error_msg,
+        )
+        return CompileResult(source_id=source_id, error=error_msg)
+    db.set_source_layer_status(
+        paths.state_db,
+        source_id,
+        "l2",
+        "done" if units else "skipped",
+    )
+    return CompileResult(
+        source_id=source_id,
+        atom_ids=[str(unit["atom_node_id"]) for unit in units],
+        knowledge_unit_ids=[str(unit["id"]) for unit in units],
     )
 
 
@@ -684,8 +955,9 @@ def recompile_source(
         prior is not None
         and _inject_failure is None
         and prior["prompt_contract_version"] == PROMPT_CONTRACT_VERSION
-        and json.loads(prior.get("audit_json") or "{}").get("content_hash") == fingerprint
+        and _audit_content_hash(prior) == fingerprint
     ):
+        materializer.materialize_search_documents(db_path)
         return _generation_summary(source_id, prior)
 
     gen_id = db.create_compiler_generation(
@@ -878,6 +1150,22 @@ def reemit_projections(paths: cfg.WikiPaths) -> dict[str, int]:
 
     Returns counts of emitted atom/concept pages.
     """
+    with db.connect(paths.state_db) as conn:
+        source_rows = conn.execute(
+            "SELECT id, relpath, context_id FROM sources"
+        ).fetchall()
+    source_ids = [int(row["id"]) for row in source_rows]
+    source_relpaths = {
+        int(row["id"]): str(row["relpath"])
+        for row in source_rows
+    }
+    for row in source_rows:
+        _persist_source_projection_state(
+            paths,
+            source_id=int(row["id"]),
+            context_id=str(row["context_id"] or ""),
+        )
+
     live_reports = db.list_community_reports(paths.state_db)
     report_span_ids = {
         span_id
@@ -902,6 +1190,7 @@ def reemit_projections(paths: cfg.WikiPaths) -> dict[str, int]:
                 SELECT DISTINCT ku.source_id
                 FROM knowledge_units ku
                 JOIN compiler_generations g ON g.id = ku.generation_id
+                JOIN sources s ON s.id = ku.source_id AND s.id = g.source_id
                 WHERE ku.retired_at IS NULL
                   AND ku.support_status = 'verified'
                   AND g.status = 'authoritative'
@@ -969,6 +1258,10 @@ def reemit_projections(paths: cfg.WikiPaths) -> dict[str, int]:
     for stale in paths.contexts.glob(f"{consts.PREFIX_L1}-*.md"):
         if stale.stem not in current_context_ids:
             stale.unlink()
+            db.delete_page_hash(
+                paths.state_db,
+                f"{paths.contexts.name}/{stale.name}",
+            )
 
     paths.atoms.mkdir(parents=True, exist_ok=True)
     paths.concepts.mkdir(parents=True, exist_ok=True)
@@ -978,13 +1271,6 @@ def reemit_projections(paths: cfg.WikiPaths) -> dict[str, int]:
         stale.unlink()
 
     n_atoms = 0
-    with db.connect(paths.state_db) as conn:
-        source_rows = conn.execute("SELECT id, relpath FROM sources").fetchall()
-        source_ids = [int(r["id"]) for r in source_rows]
-        source_relpaths = {
-            int(r["id"]): str(r["relpath"])
-            for r in source_rows
-        }
     for sid in source_ids:
         # Serving projection rebuild: only authoritative-generation units (§26.3).
         for unit in db.list_serving_units(paths.state_db, sid):
@@ -1023,6 +1309,12 @@ def reemit_projections(paths: cfg.WikiPaths) -> dict[str, int]:
 
     n_synthesis = synthesis.reemit_synthesis(paths)
     materializer.materialize_search_documents(paths.state_db)
+    from .. import sync as sync_state
+
+    sync_state.update_all_page_hashes(
+        paths,
+        layer_dirs=(paths.atoms, paths.concepts, paths.synthesis),
+    )
 
     return {
         "contexts": len(list(paths.contexts.glob(f"{consts.PREFIX_L1}-*.md"))),

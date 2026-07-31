@@ -1516,18 +1516,34 @@ CREATE TABLE IF NOT EXISTS deleted_records (
 - During `wiki db import`, tombstones are applied **before** upserts. For a
   mutable row, `deleted_at >= row_revision` means the tombstone wins. A strictly
   newer row removes the older exact tombstone and proceeds through normal LWW.
-  For an immutable row without a revision clock, an existing tombstone wins.
+  An explicit local reinsert of a mutable row likewise advances its revision
+  strictly past the exact tombstone before clearing it; merely clearing a
+  future-clock tombstone with an older local timestamp is forbidden. For an
+  immutable row without a revision clock, an existing tombstone wins.
 - Applying an imported tombstone is one SQLite transaction: the target `DELETE`
   must complete before the tombstone is recorded and the deleted counter is
   incremented. A `DELETE` exception aborts the input-file transaction, leaves
   the local row/tombstone state unchanged, and is surfaced to the caller. A
   zero-row delete is still valid when the target was already absent.
 - Applying a `sources` tombstone performs the same non-cascading dependent
-  cleanup as local source removal before deleting the source row.
+  cleanup as local source removal before deleting the source row. That cleanup
+  is a single transaction over the complete measured ownership/dependency
+  closure: source generations become `discarded`, source-owned knowledge units
+  become retired, authored relations retire, extracted support rows from the
+  source become stale and relation/report lifecycle is recompiled, synthesis
+  nodes whose report/span closure changed are invalidated, and source-owned
+  canonical rows that are hard-deleted receive their own portable tombstones.
+  Shared graph rows remain only when another live source still supports them.
+  Device-local jobs/search derivatives are hard-deleted or rematerialized and
+  are never transported as canonical tombstones.
 - A pre-v13 raw token stored for a composite table is ambiguous. Export or import
   reports its table and token and stops without rewriting or discarding it.
   v12/v13 JSONL snapshots do not interoperate; every device must upgrade and
   re-export before autosync resumes.
+- Autosync skips only a well-formed peer header whose schema version is
+  incompatible. An unreadable, empty, malformed, non-object, headerless, or
+  current-schema snapshot without a valid `export_id` fails visibly and is not
+  checkpointed.
 - Device-local tables (`search_embeddings`, `ingest_jobs`, `job_events`, `page_hashes`, FTS5 virtual tables) are **never** listed as `table_name` in tombstones and are excluded from `wiki db export`.
 
 **Portable source locators (`SCHEMA_VERSION = 11`):** `sources` has no
@@ -1650,10 +1666,12 @@ Column semantics (frozen enums):
 
 Eligibility rule (schema-level): a `truth_status='source_supported'` row may
 feed downstream compile stages (graph input, reports, synthesis, projections,
-search materialization) ONLY when `retired_at IS NULL` and
-`support_status='verified'`. `unchecked` legacy rows are read-only visible to
-humans/agents but are not valid downstream compiler inputs after the v0.8.0
-compiler ships.
+search materialization) ONLY when `retired_at IS NULL`,
+`support_status='verified'`, its generation is authoritative for the same
+`source_id`, and that source row still exists. A generation row without its live
+source is audit state, never serving authority. `unchecked` legacy rows are
+read-only visible to humans/agents but are not valid downstream compiler inputs
+after the v0.8.0 compiler ships.
 
 ### 20.2 `claim_supports`
 
@@ -1713,13 +1731,15 @@ CREATE INDEX IF NOT EXISTS idx_compiler_generations_source ON compiler_generatio
 
 Rules (Arena decision 8 — staged atomic publish):
 
-- All Plan-B-owned compiler writes (knowledge units, claim supports, their
-  dependency rows, derived projections, and search materialization) are
-  attributed to exactly one generation.
-- A generation becomes `authoritative` ONLY after every required row,
-  dependency, projection, and search-derived state for its scope validates.
-  Until then its rows are `staged` and invisible to query/evidence/search
-  surfaces. Invisibility is enforced at write/materialization time
+- Generation-owned Plan-B writes (knowledge units and claim supports) plus the
+  serialized graph publish in one transaction. Stable projection identity,
+  DAG, and artifact-dependency rows are completed deterministically in the
+  recoverable post-publish phase. Markdown and search remain disposable
+  projections derived from the authoritative generation.
+- A generation becomes `authoritative` ONLY after every required canonical row,
+  dependency, and serialized graph result for its scope validates. Until then
+  its rows are `staged` and invisible to query/evidence/search surfaces.
+  Invisibility is enforced at write/materialization time
   (SYSTEM_BEHAVIOR §26.3): staged units carry TEMPORARY ids and are never
   emitted as ATM projections, upserted into the graph, or materialized into
   search; only an authoritative generation's units reach those surfaces. An
@@ -1734,6 +1754,17 @@ Rules (Arena decision 8 — staged atomic publish):
   ATM projection, or search doc is ever written for a staged generation, so a
   discard leaves no orphan downstream artifact. No partial authoritative
   publish is representable in this contract.
+- The authoritative DB transaction and its disposable projection phase have
+  distinct failure semantics. After DB publish, every serving knowledge unit
+  has a persisted stable `atom_node_id` and dependency rows before filesystem
+  output begins. The publish transaction also stores a pending projection
+  marker. If the process stops before output begins, or ATM/CON/SYN emission or
+  search materialization fails, the published generation remains authoritative
+  and retry performs a deterministic full projection/search re-emit from that
+  generation without another LLM call or a replacement generation. A partial
+  filesystem projection is never treated as authority. Successful full re-emit
+  also replaces the device-local ATM/CON/SYN page-hash baseline and removes only
+  deleted orphan CTX hashes; it does not bless preserved CTX edits.
 - Unchanged-rebuild idempotency: recompiling an unchanged source under the
   same prompt contract version MUST reuse the existing authoritative
   generation's claim ids, hashes, dependency closure, and counts (verified by

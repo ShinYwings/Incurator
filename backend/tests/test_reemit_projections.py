@@ -91,6 +91,18 @@ def vault():
 
 def test_reemit_replaces_stale_and_reflects_db(vault) -> None:
     paths = vault
+    db.update_page_hash(
+        paths.state_db,
+        f"{paths.contexts.name}/CTX-keep0001.md",
+        "prior-context-hash",
+    )
+    for relpath in (
+        f"{paths.contexts.name}/CTX-stale999.md",
+        f"{paths.atoms.name}/ATM-stale999.md",
+        f"{paths.concepts.name}/CON-stale999.md",
+    ):
+        db.update_page_hash(paths.state_db, relpath, "stale-hash")
+
     counts = compile_mod.reemit_projections(paths)
     assert counts == {"contexts": 1, "atoms": 1, "concepts": 1, "synthesis": 0}
 
@@ -123,6 +135,17 @@ def test_reemit_replaces_stale_and_reflects_db(vault) -> None:
     assert "community_report_id" in con_text
     assert "## Relations" in con_text
     assert "[[02_Atoms/ATM-keep0001]]" in con_text
+    page_hashes = db.get_page_hashes(paths.state_db)
+    assert f"{paths.contexts.name}/CTX-keep0001.md" in page_hashes
+    assert (
+        page_hashes[f"{paths.contexts.name}/CTX-keep0001.md"]
+        == "prior-context-hash"
+    )
+    assert f"{paths.atoms.name}/ATM-keep0001.md" in page_hashes
+    assert f"{paths.concepts.name}/{first_con_name}" in page_hashes
+    assert f"{paths.contexts.name}/CTX-stale999.md" not in page_hashes
+    assert f"{paths.atoms.name}/ATM-stale999.md" not in page_hashes
+    assert f"{paths.concepts.name}/CON-stale999.md" not in page_hashes
 
     compile_mod.reemit_projections(paths)
     assert [p.name for p in paths.concepts.glob("CON-*.md")] == [first_con_name]
@@ -134,6 +157,42 @@ def test_reemit_does_not_touch_source(vault) -> None:
     # Source folders / spans untouched.
     assert not (paths.root / "03_Notes").exists()
     assert db.list_source_spans(paths.state_db, 1)  # spans still present
+
+
+def test_reemit_persists_missing_atom_identity_before_writing(vault) -> None:
+    paths = vault
+    with db.connect(paths.state_db) as conn:
+        unit_id = str(
+            conn.execute(
+                "SELECT id FROM knowledge_units WHERE source_id = 1"
+            ).fetchone()[0]
+        )
+        conn.execute(
+            "UPDATE knowledge_units SET atom_node_id = NULL WHERE id = ?",
+            (unit_id,),
+        )
+
+    compile_mod.reemit_projections(paths)
+    with db.connect(paths.state_db) as conn:
+        first_atom_id = str(
+            conn.execute(
+                "SELECT atom_node_id FROM knowledge_units WHERE id = ?",
+                (unit_id,),
+            ).fetchone()[0]
+        )
+
+    compile_mod.reemit_projections(paths)
+    with db.connect(paths.state_db) as conn:
+        second_atom_id = str(
+            conn.execute(
+                "SELECT atom_node_id FROM knowledge_units WHERE id = ?",
+                (unit_id,),
+            ).fetchone()[0]
+        )
+
+    assert first_atom_id.startswith("ATM-")
+    assert second_atom_id == first_atom_id
+    assert (paths.atoms / f"{first_atom_id}.md").exists()
 
 
 def test_reemit_does_not_churn_synthesis_updated_at_when_concepts_unchanged(vault) -> None:

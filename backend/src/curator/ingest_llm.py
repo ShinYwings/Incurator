@@ -292,11 +292,12 @@ def _auto_discover_pending(paths: cfg.WikiPaths) -> tuple[int, int]:
 
         with db.connect(paths.state_db) as conn:
             for source_id in orphans:
-                _delete_source_on_connection(conn, source_id)
+                revision = _delete_source_on_connection(conn, source_id)
                 record_tombstone_on_connection(
                     conn,
                     "sources",
                     str(sync_keys[source_id]),
+                    deleted_at=revision,
                 )
         removed = len(orphans)
         for relpath in [k for k, v in tracked.items() if v in orphans]:

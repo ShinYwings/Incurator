@@ -2,6 +2,30 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.39.1] - 2026-07-30
+### Fixed
+- **Complete Source Lifecycle Closure**
+  Local source removal and imported source tombstones now retire/discard the
+  complete authoritative generation, claim, graph-support/report, synthesis,
+  span, projection, and search dependency closure. Shared graph knowledge
+  remains only while another live source supports it, and serving/search paths
+  fail closed on missing source provenance.
+- **Deterministic Projection Recovery**
+  Compiler publication now persists stable Atom ids, DAG edges, and dependency
+  rows before writing derived files. A post-publish filesystem/search failure
+  or process interruption keeps the authoritative generation and retries
+  through DB-backed re-emission without another LLM call or generation.
+  Re-emission refreshes only generated ATM/CON/SYN page hashes and removed
+  orphan CTX hashes, so preserved CTX edits remain detectable; normal compiles
+  update only their source projection instead of rebuilding the whole corpus
+  per source.
+- **Replica And Autosync Monotonicity**
+  Tombstones cannot be backdated, mutable local reinserts advance strictly past
+  future-clock deletes, immutable tombstoned rows fail closed, and malformed
+  current-schema peer headers stop autosync visibly without checkpointing.
+
+---
+
 ## [0.39.0] - 2026-07-30
 ### Added
 - **Authored-Note Graph Topology**

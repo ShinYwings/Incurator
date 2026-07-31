@@ -1,8 +1,8 @@
 # v0.32.0+ Stability Regression Audit — Evidence Ledger
 
 Date: 2026-07-30
-Status: PR #101 COMPLETE — merge pending
-Branch: `release/v0.39.0`
+Status: P5 COMPLETE — v0.39.1 release validation green
+Branch: `release/v0.39.1`
 Head / rollback anchor for this planning pass: `b567427`
 Umbrella plan: `.agents/plans/02_v032_regression_audit.md`
 
@@ -10,7 +10,7 @@ Umbrella plan: `.agents/plans/02_v032_regression_audit.md`
 
 - Worktree was clean at `b567427` before planning files and roadmap/relay
   updates.
-- PR #101 / v0.39.0 is unmerged. Existing latest-head CI is green.
+- PR #101 / v0.39.0 merged as `d8d1e39`; its latest-head CI was green.
 - Build manifests agree on `0.39.0`; DB schema is v13.
 - Baseline validation recorded by the prior review:
   - backend: 1,351 passed, 6 skipped, 4 expected xfails;
@@ -88,6 +88,8 @@ release evidence.
 | F14 | Corrupt `sessions.json` is treated as missing and later overwritten | `plugin/main.ts` |
 | F15 | Corrupt secret store becomes empty and next save destroys prior keys | `secret_store.py` |
 | F16 | Runtime snapshot can contain legacy plaintext API keys | `runtime_state.py` |
+| F23 | A local mutable-row reinsert clears a future-clock tombstone without advancing its revision, so the next peer replay deletes the reinsert | `db_sync.py` |
+| F24 | Malformed/current-schema peer headers are logged and skipped forever instead of failing autosync visibly | `db_sync.py` |
 
 ### P2
 
@@ -116,13 +118,13 @@ release evidence.
   represent answer-cited spans under `SYSTEM_BEHAVIOR.md`; the earlier candidate
   concern about empty successful citations was rejected and is not queued.
 
-## 6. Current Test Gaps
+## 6. Baseline Test Gaps And Disposition
 
-- No source-removal test asserts zero serving generations/KUs/extracted graph/
-  reports/synthesis/search across local removal and imported tombstone paths.
-- No one-generation/no-source replica reconciliation test.
-- No strict-successor LWW test for repair and retirement.
-- No post-authoritative-commit projection failure injection.
+- P1–P5 closed the source-removal, one-generation reconciliation,
+  strict-successor repair/retirement, post-authoritative projection failure,
+  future-clock reinsert, and malformed peer-header gaps with red-before-green
+  tests.
+- Remaining phase-owned gaps:
 - No query-embedding exception trace test when corpus vectors already exist.
 - Plugin abort tests prove an older request cannot clear a newer controller, but
   do not prove both overlapping requests can be canceled or CLI abort is
@@ -253,3 +255,99 @@ before approval.
 - PR #101 is ready for human review and merge. P5 remains deliberately blocked
   on the merged `master` anchor so the cross-system patch chain does not branch
   from this release branch.
+
+## 14. P5 Identity/Sync Two-Pass Audit
+
+Rollback anchor: merged v0.39.0 commit `d8d1e39`.
+
+Pass 1 re-read each first-parent merge diff against its historical release
+intent and current implementation. Pass 2 independently walked the transition
+matrix (create/update/delete/reinsert, local/imported tombstone, future clock,
+first peer, replaced peer snapshot, malformed peer, dry-run, shared support,
+post-publish projection failure, and deterministic re-emit).
+
+| Release / PR | Pass 1 — merge-diff result | Pass 2 — current transition proof |
+| --- | --- | --- |
+| v0.32.0 / #80 | Current-only portable path removal remains deliberate; no compatibility shim or destructive migration was reintroduced. | Portable-path, machine-config, runtime-state, and schema tests pass. No new P0/P1. |
+| cleanup / #81 | Roadmap/relay-only merge; no behavior-bearing path. | No runtime transition to retest. |
+| v0.32.1 / #82 | Device identity/source remap introduced the incomplete source-delete closure (F01); durable-state findings F14–F16 remain assigned to P6. | Local/imported deletion, stale replay, live-source serving, shared-support, and immediate search eviction now pass. |
+| v0.32.2 / #83 | Legacy-peer tolerance also classified malformed current peer headers as skippable (new F24). | Malformed/current-schema headers now fail visibly without checkpointing; valid incompatible-schema peers remain the only skip case. |
+| v0.33.0 / #84 | DB-native materialization/re-emit exposed F07; query degradation F08 remains assigned to P8. | Post-commit file failure recovers without LLM/new generation; standalone re-emit persists one stable Atom id. |
+| v0.34.0 / #85 | CLI/MCP/plugin facade moves retain the characterized command boundary; no additional P0/P1 identity defect found. | Command-surface and PR-85 characterization suites pass. |
+| v0.34.1 / #86 | Export-id/high-water loop prevention remains correct. | First identity, unchanged/replaced snapshot, dry-run high-water, and no-self-import tests pass. |
+| v0.37.0 / #98 | Composite tombstones are portable, but explicit local reinsert could backdate a future delete (new F23). | Local reinsertion advances strictly past the tombstone; older tombstone rewrites cannot backdate a newer delete. |
+
+Red-before-green evidence:
+
+- Five F01/F07 source/projection oracles failed on the merged baseline, then
+  passed after the lifecycle and recovery implementation.
+- F23 failed with a 2040 tombstone and a 2026 reinsert revision; the shared
+  clear boundary now advances the row strictly past 2040 before clearing.
+- Both F24 corrupt-header variants were silently skipped before the repair and
+  now raise `AutosyncError` with the peer filename and no checkpoint.
+- A forced process interruption immediately after authoritative publish
+  previously left `l2_status=running` and invoked the LLM again on retry. The
+  transaction now commits a projection-pending marker and retry re-emits from
+  the same generation without an LLM call.
+- Full re-emit previously left generated page hashes stale; a naive all-layer
+  refresh then proved unsafe because it would bless preserved CTX edits. The
+  final path refreshes only regenerated ATM/CON/SYN hashes, deletes orphan CTX
+  hashes, and leaves live CTX baselines unchanged.
+- The second-pass identity/sync matrix is green: 198 tests across config,
+  portable paths, schema, DB sync/autosync, CLI autosync, facade
+  characterization, composite tombstones, source lifecycle, staged compile,
+  projection re-emit, and search materialization.
+
+## 15. P5 Full Local Release Gate
+
+- Backend: 1,373 passed, 6 skipped, 4 expected xfails; 7 third-party SWIG
+  deprecation warnings; 0 failures.
+- Plugin: 68 files / 737 tests passed.
+- Ruff: passed.
+- Mypy: 126 source files checked with no issues.
+- TypeScript: `npx tsc --noEmit -p plugin/tsconfig.json` passed.
+- Production plugin build: passed.
+- `npm audit --prefix plugin`: 0 vulnerabilities.
+- Docs/spec parity and Failure Atlas contract: 121 passed.
+- `git diff --check`: passed.
+- Build manifests and lockfile root metadata agree on `0.39.1`.
+- D2 was not rerun. The edited `_entities.py` and `sources.py` paths do not run
+  in frozen Q06; their exact hashes and bounded drift rationale were re-armed
+  in `D2_HOLDOUT_RESULT.yml`.
+
+## 16. P5 Isolated Testbed And External Boundary
+
+- Initialized only `testbed_template/stage` in a disposable `/tmp` vault; the
+  active repository testbed and production DB were not touched.
+- `wiki add --no-sync` registered both fixture sources. Removing the valid
+  source without `--delete-file` preserved its SHA-256 exactly while source,
+  span, active-unit, and search-document counts all became zero.
+- The removed source's L1 projection disappeared immediately. `wiki lint`
+  returned 100/100 and `wiki sync --no-deep --no-interactive` reported no
+  logical or structural gaps.
+- A disposable Zotero SQLite index resolved `TESTKEY1` to the scenario's mock
+  PDF outside the vault. No PDF appeared inside the vault.
+- The temporary vault, external fixture copy, and exact repository cache
+  namespace were moved to Trash after validation.
+- Repository `last_root`, Gemini MCP `VAULT_ROOT`, and production Claude MCP
+  `VAULT_ROOT` all resolve to `/Users/shin/shinywings/second_brain` after
+  cleanup.
+
+## 17. P5 Delivery Evidence
+
+- Commits:
+  - `da57809` — source lifecycle/projection implementation, tests, and
+    contracts;
+  - `17c96fc` — audit plan and evidence;
+  - `c3f20c8` — `chore(release): v0.39.1`.
+- `release/v0.39.1` was pushed and draft PR #102 opened against `master`.
+- Latest-head push-event CI:
+  - Backend Tests: passed;
+  - Plugin Tests: passed;
+  - Version Consistency: passed.
+- Latest-head pull-request CI:
+  - Backend Tests: passed;
+  - Plugin Tests: passed;
+  - Version Consistency: intentionally skipped by event policy.
+- PR #102 is ready for human review and merge. P6 remains gated on the merged
+  `master` anchor.

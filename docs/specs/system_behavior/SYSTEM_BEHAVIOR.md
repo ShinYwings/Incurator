@@ -2182,13 +2182,16 @@ rendered page instead.
 ### 26.3 Staged Compile Generations And Atomic Publish
 
 - Every Plan-B-owned compile runs inside a `GEN-` generation
-  (SCHEMA §20.3). Rows, dependency records, markdown projections, and
-  search-derived state for the scope publish together or not at all.
-- Publish gate: the generation flips to `authoritative` only after the
-  compiler audit validates required rows, dependencies, projections, and
-  search materialization for its scope. Failed validation discards the staged
-  generation; the prior authoritative generation, its projections, and its
-  search state remain untouched and continue serving.
+  (SCHEMA §20.3). Generation-owned claims/supports and serialized graph state
+  publish in one DB transaction. Stable projection identity/DAG/dependency rows
+  are completed in the recoverable post-publish phase; Markdown and search are
+  disposable projections and are never promoted to authority merely because a
+  file was written.
+- Publish gate: the generation flips to `authoritative` only after the compiler
+  audit validates required canonical rows, dependencies, and serialized graph
+  output for its scope. Failed validation discards the staged generation; the
+  prior authoritative generation, its projections, and its search state remain
+  untouched and continue serving.
 - Unchanged rebuild is idempotent: same source content + same prompt contract
   version reuses the authoritative generation's claim ids, hashes, dependency
   closure, and counts — no duplicate accumulation, no count amplification.
@@ -2216,10 +2219,20 @@ rendered page instead.
 - **Atomic publish order (single DB transaction):** temp→stable reconcile +
   downstream-reference rewrite → upsert the serialized graph against the final
   stable ids → flip `gen_S` to `authoritative` and the prior generation to
-  `discarded` (retiring its unmatched units). ONLY after the DB commits are ATM
-  projections re-emitted and search re-materialized from the authoritative DB;
-  projections are disposable, so a materialization/filesystem failure re-emits
-  from the authoritative DB rather than leaving a partial publish.
+  `discarded` (retiring its unmatched units) → persist a pending projection
+  marker. ONLY after the DB commits are ATM projections re-emitted and search
+  re-materialized from the authoritative DB;
+  the post-publish transaction first persists every missing stable
+  `atom_node_id`, DAG edge, and artifact dependency before filesystem output.
+  A materialization/filesystem failure does not discard or replace the already
+  authoritative generation. It marks the source's L2 projection phase `error`;
+  a process interruption leaves the pending marker intact. The next retry
+  deterministically cleans orphan CTX pages and performs a full DB-backed
+  ATM/CON/SYN and search re-emit without calling the LLM or minting another
+  generation, then refreshes only the regenerated ATM/CON/SYN hash baseline and
+  removes hashes for deleted orphan CTX pages. Preserved CTX hashes are not
+  rewritten. Any partial files remain disposable and non-serving until that
+  repair completes.
 - **No zero-unit publish guard.** A SUCCESSFUL extraction that yields zero
   units is the correct, deterministic representation of an emptied or
   non-claim-bearing source and MUST publish — retiring the prior authoritative
@@ -2250,6 +2263,21 @@ rendered page instead.
     or retired;
   - stale spans of the edited source are reconciled (removed or tombstoned)
     instead of lingering beside their replacements (F7).
+- Explicit local removal and an imported source tombstone execute the identical
+  transaction. All generations in the source scope are discarded; its
+  knowledge units retire; authored relations retire; extracted relation
+  supports backed by the source become stale; affected relation/report
+  lifecycle is rebuilt; and synthesis nodes whose live report/span closure
+  changed are invalidated. Shared graph entities/relations survive only when
+  another live source still supplies their provenance/support. Hard-deleted
+  canonical rows receive portable tombstones, while device-local jobs and
+  search rows are deleted/rematerialized without transport tombstones.
+- Serving is independently fail-closed: source spans and knowledge units must
+  join a live `sources` row. Ordinary graph entities must retain live provenance
+  or active-edge membership; authored `vault_note`, `vault_asset`, and `tag`
+  endpoints require active-edge membership even if an old provenance array
+  remains. Thus an interrupted projection refresh or stale replay cannot make
+  data from a deleted source searchable.
 - `semantic_hash` proposes reconciliation candidates only; materially
   different claims/equations are never auto-merged. Stable-id reuse additionally
   requires exact statement equality after whitespace normalization; the lossy

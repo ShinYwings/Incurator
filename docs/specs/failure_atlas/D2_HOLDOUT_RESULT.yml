@@ -317,6 +317,20 @@ evaluated_code:
       chunking, and materialize_chunks are unchanged. The consumed holdout
       cannot be rerun after run_count=3; the hash below re-arms the existing
       drift tripwire.
+  v0391_source_lifecycle_rearm:
+    date: '2026-07-30'
+    prior_entities_sha256: b96d9818e1eb75084fe2d36caa2092c488a0b46a72f8193a0b910fc8ac4323db
+    prior_sources_sha256: 89abebd8a2ff63bbd4d3d42e869b537ce1898c8c298390fa5fd79ead3d035383
+    reason: v0.39.1 changes db/_entities.py and db/sources.py only in source
+      deletion/reconciliation clocks, live-source serving eligibility, graph
+      support/report closure, and canonical/device-local cleanup. The frozen Q06
+      harness seeds sources, source_spans, and search_documents directly, then
+      calls materialize_chunks and lexical HybridEngine ranking. It never calls
+      source deletion, knowledge-unit serving, graph lifecycle, report rebuild,
+      or source projection cleanup. Q06 ranking, chunking, and citation inputs
+      are therefore unchanged. The consumed holdout cannot be rerun after
+      run_count=3; these hashes re-arm the existing drift tripwire without
+      claiming a new holdout result.
   file_sha256:
     backend/scripts/failure_atlas_holdout.py: c6afe0307dd3f68fa9902387bb0dc269db6ff9d6b73ad2f3ac1cc6ecc883297a
     backend/src/curator/retrieval/evaluation.py: 0cc9e655142c725dd4bbbabfd2b44d6bf0355265bb2510fbb78cbd47d7d43c17
@@ -327,9 +341,9 @@ evaluated_code:
     backend/src/curator/retrieval/chunking.py: 8c45af7ba7457f5930fc05c0a3f0de10eb6cc424c4b70b722510dd2decd59255
     backend/src/curator/db/__init__.py: 9d9b18355372e1f77534aef353a07c3ee1f3e9ce3413ffec7d8030da86a4a16c
     backend/src/curator/db/schema.py: 8df87784f5d998cf3a7d682b7702135f81b49b11e8872e5215c8e3932be53961
-    backend/src/curator/db/_entities.py: b96d9818e1eb75084fe2d36caa2092c488a0b46a72f8193a0b910fc8ac4323db
+    backend/src/curator/db/_entities.py: bdc995433ea0e803a16aa81f04ecead78e4db6f5ce349e6fe22a74cbdf7daae5
     backend/src/curator/db/jobs.py: 33d772f0709c3b549b40f29dac7028edee58c882c06dc6e7f38706bd71e9b320
-    backend/src/curator/db/sources.py: 89abebd8a2ff63bbd4d3d42e869b537ce1898c8c298390fa5fd79ead3d035383
+    backend/src/curator/db/sources.py: 5c1d0fa49c77693dfed742ab376f42b51eee7a2d51f6c460d74550f3c8f9891e
   preflight_family_metrics:
     direct-factual:
       query_count: 7

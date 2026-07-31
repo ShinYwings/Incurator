@@ -32,16 +32,29 @@ class SearchIndexFallbackTests(unittest.TestCase):
         self.paths.internal.mkdir(parents=True, exist_ok=True)
         db.init_db(self.paths.state_db)
         # Authoritative row the materializer projects into the search corpus.
+        with db.connect(self.paths.state_db) as conn:
+            source_id = int(
+                conn.execute(
+                    "INSERT INTO sources "
+                    "(relpath, content_hash, file_type, bytes, added_at) VALUES "
+                    "('04_Resources/residual.md', 'residual-source', 'md', 1, "
+                    "'2026-01-01T00:00:00.000000Z')"
+                ).lastrowid
+            )
         unit_id = db.upsert_knowledge_unit(
             self.paths.state_db, unit_type="fact",
             canonical_name="Residual learning",
             statement="residual connections ease optimization",
             source_span_ids=[],
+            source_id=source_id,
         )
         db.set_unit_support_status(self.paths.state_db, unit_id, "verified")
         # Served units belong to an authoritative compiler generation (§26.3).
         gen = db.create_compiler_generation(
-            self.paths.state_db, prompt_contract_version="v2", source_id=None)
+            self.paths.state_db,
+            prompt_contract_version="v2",
+            source_id=source_id,
+        )
         db.publish_compiler_generation(self.paths.state_db, gen)
         with db.connect(self.paths.state_db) as conn:
             conn.execute(

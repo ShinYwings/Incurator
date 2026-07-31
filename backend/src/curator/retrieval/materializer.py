@@ -221,7 +221,9 @@ def materialize_search_documents(
         spans = [
             dict(row)
             for row in conn.execute(
-                "SELECT * FROM source_spans ORDER BY source_id, id"
+                "SELECT ss.* FROM source_spans ss "
+                "JOIN sources s ON s.id = ss.source_id "
+                "ORDER BY ss.source_id, ss.id"
             ).fetchall()
         ]
         # Serve only authoritative-generation units (SYSTEM_BEHAVIOR §26.3):
@@ -231,22 +233,18 @@ def materialize_search_documents(
             for row in conn.execute(
                 "SELECT ku.* FROM knowledge_units ku "
                 "JOIN compiler_generations g ON g.id = ku.generation_id "
+                "JOIN sources s ON s.id = ku.source_id AND s.id = g.source_id "
                 "WHERE ku.retired_at IS NULL AND ku.support_status = 'verified' "
                 "AND g.status = 'authoritative' "
                 "ORDER BY ku.source_id, ku.id"
             ).fetchall()
         ]
-        entities = [
+        canonical_entities = [
             dict(row)
             for row in conn.execute(
                 "SELECT e.* FROM graph_entities e "
                 "WHERE e.resolution_state = 'canonical' "
-                "AND (e.entity_type NOT IN ('vault_note', 'vault_asset', 'tag') "
-                "OR EXISTS ("
-                "SELECT 1 FROM graph_relations r "
-                "WHERE r.lifecycle_status = 'active' "
-                "AND (r.source_entity_id = e.id OR r.target_entity_id = e.id)"
-                ")) ORDER BY e.id"
+                "ORDER BY e.id"
             ).fetchall()
         ]
         relations = [
@@ -256,6 +254,13 @@ def materialize_search_documents(
                 "WHERE lifecycle_status = 'active' ORDER BY id"
             ).fetchall()
         ]
+        all_relation_entity_ids = {
+            str(value)
+            for row in conn.execute(
+                "SELECT source_entity_id, target_entity_id FROM graph_relations"
+            ).fetchall()
+            for value in (row["source_entity_id"], row["target_entity_id"])
+        }
         reports = [
             dict(row)
             for row in conn.execute(
@@ -269,6 +274,59 @@ def materialize_search_documents(
         ]
 
     span_source_ids = {str(row["id"]): int(row["source_id"]) for row in spans}
+    live_span_ids = set(span_source_ids)
+    live_unit_ids = {str(row["id"]) for row in units}
+    active_entity_ids = {
+        str(value)
+        for row in relations
+        for value in (row["source_entity_id"], row["target_entity_id"])
+    }
+    entities = [
+        row
+        for row in canonical_entities
+        if str(row["id"]) in active_entity_ids
+        or (
+            str(row["entity_type"]) not in {"vault_note", "vault_asset", "tag"}
+            and (
+                bool(
+                    live_span_ids.intersection(
+                        str(value)
+                        for value in _loads_list(row.get("source_span_ids"))
+                    )
+                )
+                or bool(
+                    live_unit_ids.intersection(
+                        str(value)
+                        for value in _loads_list(row.get("knowledge_unit_ids"))
+                    )
+                )
+                or str(row["id"]) not in all_relation_entity_ids
+            )
+        )
+    ]
+    active_relation_ids = {str(row["id"]) for row in relations}
+    reports = [
+        row
+        for row in reports
+        if set(
+            str(value) for value in _loads_list(row.get("relation_ids"))
+        ).issubset(active_relation_ids)
+        and set(
+            str(value) for value in _loads_list(row.get("source_span_ids"))
+        ).issubset(live_span_ids)
+    ]
+    live_report_ids = {str(row["id"]) for row in reports}
+    syntheses = [
+        row
+        for row in syntheses
+        if set(
+            str(value)
+            for value in _loads_list(row.get("community_report_ids"))
+        ).issubset(live_report_ids)
+        and set(
+            str(value) for value in _loads_list(row.get("source_span_ids"))
+        ).issubset(live_span_ids)
+    ]
     entity_names = {str(row["id"]): str(row["canonical_name"]) for row in entities}
     docs: list[dict[str, Any]] = []
 

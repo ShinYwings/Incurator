@@ -265,6 +265,33 @@ class TestImportAllPeers:
                 "SELECT 1 FROM atoms WHERE id = 'ATM-BROKEN'"
             ).fetchone() is None
 
+    @pytest.mark.parametrize(
+        "header",
+        [
+            "{malformed\n",
+            (
+                '{"type":"header","schema_version":'
+                f"{db_sync.SCHEMA_VERSION}"
+                ',"exported_at":"2026-01-01T00:00:00Z"}\n'
+            ),
+        ],
+    )
+    def test_corrupt_current_peer_header_is_not_silently_skipped(
+        self,
+        vault: Path,
+        header: str,
+    ) -> None:
+        sync_dir = _internal(vault) / "sync"
+        sync_dir.mkdir(parents=True, exist_ok=True)
+        peer = sync_dir / "dev-peerHEADER.jsonl"
+        peer.write_text(header, encoding="utf-8")
+
+        with pytest.raises(db_sync.AutosyncError, match=peer.name):
+            db_sync.import_all_peers(_internal(vault), _db(vault))
+
+        state = db_sync.read_sync_state(_internal(vault))
+        assert peer.name not in state.get("peers", {})
+
     def test_first_peer_import_preserves_generated_device_identity(
         self, vault: Path
     ) -> None:

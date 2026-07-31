@@ -672,7 +672,7 @@ status/history/push입니다.
 | `wiki build` | 등록된 L1 Context에서 L2 Atom + L3 Concept를 데이터베이스 레코드로 추출/컴파일합니다. 기본은 백그라운드 워커에 큐잉 후 자동으로 데몬 프로세스를 분리 실행하며, `--wait`는 즉시 동기 실행합니다. Build는 완료 시 **항상 벡터 임베딩을 (재)생성**합니다 — atom 변경이 없거나 큐가 비어 있어도 실행되므로, 별도의 `wiki reindex --embed` 없이 검색이 벡터까지 수렴합니다. (큐는 내부적으로 drain되며, `jobs` 명령 그룹은 백그라운드 워커용으로 남아 있지만 `wiki --help`에서는 숨겨집니다.) | 지식 그래프 심층 구축 시 |
 | `wiki source ls` | 등록된 소스 목록을 확인합니다. | 수집된 데이터 현황 파악 시 |
 | `wiki source show <id>` | 특정 소스의 상세 정보와 처리 상태를 확인합니다. | 소스 오류 진단 시 |
-| `wiki source rm <id>` | 원본 파일은 보존한 채 소스 등록과 생성된 파생 레코드를 제거합니다. vault 소스 파일까지 지우려면 `--delete-file`을 명시합니다. | 잘못된 소스를 제거할 때 |
+| `wiki source rm <id>` | 원본 파일은 보존한 채 해당 소스의 전체 생성 의존성 클로저를 원자적으로 retire/제거하고 projection과 검색을 갱신합니다. 다른 등록 소스가 계속 지지하는 공유 그래프 지식만 남습니다. 커밋 후 projection 갱신이 실패해도 제거 성공과 명시적인 `wiki sync --reemit` 복구 지침을 함께 보고합니다. vault 소스 파일까지 지우려면 `--delete-file`을 명시합니다. | 잘못된 소스를 제거할 때 |
 | `wiki source retry <id>` | aggregate 오류뿐 아니라 L1/L2/L3/L4 layer 오류가 있는 소스를 재처리합니다. | 소스 처리 실패 후 재시도 시 |
 
 ### 2-1. 설정 및 LLM 백엔드 관리
@@ -834,7 +834,9 @@ source가 없는 첫 가져오기의 source-scoped 행도 같은 방식으로 �
   remap되므로 두 기기가 각각 source id 1을 만들어도 충돌하지 않습니다.
 - **Last-Write-Wins 병합.** 레코드는 monotonic revision 기준으로 병합되고,
   삭제는 tombstone으로 전파됩니다. 동시 읽기와 서로 다른 source 편집은
-  안전합니다.
+  안전합니다. 의도적인 로컬 재삽입은 다른 기기의 clock-skew 삭제를
+  포함하여 정확한 tombstone보다 revision을 먼저 전진시킨 뒤 tombstone을
+  제거합니다.
 - **완전한 삭제 identity.** 복합 기본 키 tombstone은 검증된 canonical JSON에
   모든 키 필드를 저장합니다. Source 범위 키는 기기별 숫자 id가 아니라
   portable source key를 사용하므로 오래된 snapshot이 삭제된
