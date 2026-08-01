@@ -197,8 +197,10 @@ outputs, failover trace attribution, and v9/v10 ordering tests.
 - Implementation commit: `a9792e3` (`fix(core): enforce retrieval and prompt
   integrity`); release commit: `1760397` (`chore(release): v0.40.2`).
 - Delivery: draft PR #107,
-  `https://github.com/ShinYwings/Incurator/pull/107`. Latest-head GitHub CI is
-  pending on the final delivery metadata commit.
+  `https://github.com/ShinYwings/Incurator/pull/107`. GitHub CI passed on
+  delivery head `de7a541`: both backend jobs and both plugin jobs were green,
+  push-event version consistency was green, and the duplicate PR-event version
+  job correctly skipped.
 
 ## Validation Record Template
 

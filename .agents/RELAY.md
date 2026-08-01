@@ -30,6 +30,9 @@ attribution, and numeric prompt-version ordering.
   and frozen-holdout fingerprints passed.
 - Implementation commit: `a9792e3`.
 - Release commit: `1760397`; draft PR #107 is open against `master`.
+- GitHub CI passed on delivery head `de7a541`: both backend jobs, both plugin
+  jobs, and push-event version consistency are green; the duplicate version job
+  skipped as designed.
 
 ## Critical Context / Blockers
 
@@ -40,5 +43,5 @@ attribution, and numeric prompt-version ordering.
 
 ## Immediate Next Action
 
-Push the final delivery metadata commit and verify latest-head GitHub CI for
-draft PR #107 before handing off for human review.
+Human review/merge of draft PR #107. After merge, fast-forward local `master`
+and apply the documented IDLE relay-reset procedure before starting P9.
