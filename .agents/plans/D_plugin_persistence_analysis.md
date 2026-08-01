@@ -1,6 +1,7 @@
 # Domain Analysis D — Plugin Sessions, Backend Secrets, And Runtime Snapshots
 
 Date: 2026-07-30
+Status: ACTIVE — input to regression-audit P6.
 Confirmed findings: F14–F16.
 
 ## 1. Design Constraints And Invariants
@@ -86,4 +87,3 @@ redact(value, key_path):
         return omitted
     recurse through mappings and arrays
 ```
-

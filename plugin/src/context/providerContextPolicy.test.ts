@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ContextRef } from "../types";
 import {
   hasPrimaryImageContext,
+  shouldResolveLatestUserPdfReferences,
   shouldRunCuratorDomainQuery,
   shouldUseBackendPdfContext,
 } from "./providerContextPolicy";
@@ -85,5 +86,82 @@ describe("providerContextPolicy", () => {
         pdfSourceStatuses: [{ state: "l3_ready", l1Complete: true, l3Complete: true }],
       })
     ).toBe(true);
+  });
+
+  it("resolves latest-user references for the active PDF", () => {
+    expect(
+      shouldResolveLatestUserPdfReferences({
+        target: {
+          isActive: true,
+          openTabKey: '["ai-agent-external-pdf","zotero:ACTIVE",5]',
+          zoteroAttachmentKey: "ACTIVE",
+        },
+      })
+    ).toBe(true);
+  });
+
+  it("resolves an inactive PDF only when primary user context identifies the same document", () => {
+    const target = {
+      isActive: false,
+      openTabKey: '["ai-agent-external-pdf","zotero:MATCH",5]',
+      filePath: "/references/paper.pdf",
+      fileHash: "paper-hash",
+      zoteroAttachmentKey: "MATCH",
+    };
+
+    expect(
+      shouldResolveLatestUserPdfReferences({
+        target,
+        userContextRefs: [
+          ref({
+            type: "pdf-page",
+            filePath: "/references/paper.pdf",
+            pageNum: 3,
+          }),
+        ],
+      })
+    ).toBe(true);
+
+    expect(
+      shouldResolveLatestUserPdfReferences({
+        target,
+        userContextRefs: [
+          ref({
+            type: "pdf-page",
+            zoteroAttachmentKey: "OTHER",
+            filePath: "/references/other.pdf",
+          }),
+        ],
+      })
+    ).toBe(false);
+  });
+
+  it("does not let auto or pinned-background PDF refs establish turn focus", () => {
+    const target = {
+      isActive: false,
+      openTabKey: '["ai-agent-external-pdf","zotero:BACKGROUND",5]',
+      filePath: "/references/background.pdf",
+      zoteroAttachmentKey: "BACKGROUND",
+    };
+
+    expect(
+      shouldResolveLatestUserPdfReferences({
+        target,
+        userContextRefs: [
+          ref({
+            type: "pdf-page",
+            sourceViewType: "auto",
+            openTabKey: target.openTabKey,
+            filePath: target.filePath,
+          }),
+          ref({
+            type: "pdf-page",
+            isPinned: true,
+            openTabKey: target.openTabKey,
+            filePath: target.filePath,
+          }),
+        ],
+      })
+    ).toBe(false);
   });
 });

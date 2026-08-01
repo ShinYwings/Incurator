@@ -1174,15 +1174,25 @@ Rules:
   outline and PDF outline/window context for PDF tabs. These outline/page blocks
   must not replace the selected text, line range, or crop as the primary answer
   target.
-- If a selected PDF text/crop is itself a cross-reference pointer (for example
-  `Section A4.2`, `p580`, `Figure 19.1`, `Eq. (19.6)`, or a bare dotted equation
-  label such as `(19.11)`), the plugin may add a `<resolved_cross_references>`
-  block ahead of generic page background. Each reference entry should identify
-  the label, resolved target page when known, section title when known,
-  confidence, and the fetched target text/snippet. Pointer resolution first uses
-  local PDF outline/window/index/search evidence; backend read-only PDF context
-  may be used only when local evidence is insufficient and a resolvable tracked
-  identity exists. Pointer resolution failures must not silently turn the current
+- If selected PDF text/crop or the latest PDF-focused user request is itself a
+  cross-reference pointer (for example `Section A4.2`, `p580`, `Figure 19.1`,
+  `Eq. (19.6)`, `수식 (10)`, or a bare dotted equation label such as `(19.11)`),
+  the plugin may add a `<resolved_cross_references>` block ahead of generic page
+  background. Each reference entry should identify the label, resolved target
+  page when known, section title when known, confidence, and the fetched target
+  text/snippet. Pointer resolution first uses local PDF outline/window/index/search
+  evidence. For an exact equation label in the latest request that is missing
+  from the loaded window, the plugin may fetch a small ordered adjacent-page set
+  through read-only backend PDF context (`page_num=<candidate>`, `radius=0`), next
+  page first, and must stop at the first exact label match. If that bounded scan
+  exhausts without an exact label, any loose same-number search hit must remain
+  unresolved and must not be serialized into `<resolved_cross_references>`.
+  Latest-request resolution runs only for the active PDF or an explicit primary
+  PDF context ref with the same canonical document identity; visible,
+  pinned-background, and merely prompt-included PDF tabs do not qualify. This
+  fetch requires a resolvable current-device source identity, never registers
+  the PDF, and never broadens a provider's native filesystem roots or tool
+  permissions. Pointer resolution failures must not silently turn the current
   page into the answer target; the prompt must tell the provider when the
   referenced target could not be located.
 - Attached PDF/image snips must be sent to vision-capable models as image parts.

@@ -71,8 +71,12 @@ import {
   shouldIncludeOpenTab,
 } from "../../context/openTabContext";
 import { parseAnswerLinkTarget, type AnswerLinkTarget } from "../../context/answerLinkNavigation";
-import { resolveSelectionReferencesBlock } from "../../context/pdfReferenceContext";
 import {
+  resolveSelectionReferencesBlock,
+  resolveSelectionReferencesBlockAsync,
+} from "../../context/pdfReferenceContext";
+import {
+  shouldResolveLatestUserPdfReferences,
   shouldRunCuratorDomainQuery,
   shouldUseBackendPdfContext,
 } from "../../context/providerContextPolicy";
@@ -1752,6 +1756,52 @@ export class ChatSidebarView extends ItemView {
       const windowPages = useBackendPdfContext
         ? backendCtx?.pages ?? pdf.windowPages ?? []
         : pdf.windowPages ?? [];
+      const outline = backendCtx?.outline ?? pdf.outline ?? [];
+      let resolvedReferencesBlock = "";
+      if (
+        shouldResolveLatestUserPdfReferences({
+          target: {
+            isActive: tab.isActive,
+            openTabKey: this.getOpenTabKey(tab),
+            filePath: pdf.filePath || tab.filePath,
+            fileHash: pdf.fileHash,
+            zoteroAttachmentKey: pdf.zoteroAttachmentKey,
+          },
+          userContextRefs,
+        })
+      ) {
+        resolvedReferencesBlock = await resolveSelectionReferencesBlockAsync(
+          query,
+          {
+            outline,
+            windowPages,
+            pageNum: pdf.pageNum,
+            pageCount: backendCtx?.totalPages || pdf.pageCount || sourceStatus?.pageCount,
+            pageLabels: pdf.pageLabels,
+          },
+          async (pageNum) => {
+            if (
+              !client.available ||
+              (!sourcePath && !sourceStatus?.sourceId && !pdf.fileHash && !pdf.zoteroAttachmentKey)
+            ) {
+              return undefined;
+            }
+            const startedAt = performance.now();
+            const targetCtx = await client.getPdfContext({
+              filePath: sourcePath,
+              sourceId: sourceStatus?.sourceId,
+              fileHash: pdf.fileHash,
+              zoteroAttachmentKey: pdf.zoteroAttachmentKey,
+              pageNum,
+              radius: 0,
+              maxPages: 1,
+            });
+            this.logContextTiming("backend_pdf_reference", startedAt, docLabel);
+            return targetCtx?.pages.find((page) => page.pageNum === pageNum)?.text;
+          }
+        );
+      }
+      if (resolvedReferencesBlock) sections.push(resolvedReferencesBlock);
       if (windowPages.length > 0) {
         const contextSource = useBackendPdfContext
           ? backendCtx?.contextSource ?? "ephemeral_parse"
@@ -1763,7 +1813,6 @@ export class ChatSidebarView extends ItemView {
       }
 
       if (this.plugin.settings.pdfOutlineEnabled) {
-        let outline = backendCtx?.outline ?? pdf.outline ?? [];
         if (outline.length > 0) {
           sections.push(
             `<document_outline document="${escapeAttribute(tab.label)}">\n${formatOutline(outline)}\n</document_outline>`

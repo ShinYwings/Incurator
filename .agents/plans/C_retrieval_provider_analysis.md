@@ -1,6 +1,7 @@
 # Domain Analysis C — Retrieval, Provider, Prompt, And Process Boundaries
 
 Date: 2026-07-30
+Status: ACTIVE — input to regression-audit P7 and P8.
 Confirmed findings: F08–F13, F19–F22.
 
 ## 1. Design Constraints And Invariants
@@ -98,4 +99,3 @@ shutdown():
     terminate_process_with_deadline()
     clear_runtime_state()
 ```
-

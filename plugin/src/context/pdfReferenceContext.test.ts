@@ -51,6 +51,66 @@ describe("resolveSelectionReferences", () => {
 // ── async resolver ────────────────────────────────────────────────────────────
 
 describe("resolveSelectionReferencesAsync", () => {
+  it("fetches the next page for a latest-user Korean equation reference", async () => {
+    const fetch = vi.fn().mockImplementation(async (pn: number) => {
+      if (pn === 6) {
+        return [
+          "Two possible solutions (A and B) exist for the rotation and skew-symmetric matrix estimates.",
+          "==> equation image intentionally omitted <==",
+          "The ±1 term in Eq. (10) denotes either 1 or −1 on the diagonal so that both rotation determinants equal 1.",
+        ].join("\n");
+      }
+      return undefined;
+    });
+
+    const block = await resolveSelectionReferencesBlockAsync(
+      "수식 (10)이 본문이랑 완전 다른데?",
+      {
+        windowPages: [
+          page(5, "Previous derivation\nL_{recon} = ||x - \\hat{x}||^2 \\quad (9)"),
+          page(6, "Appendix continuation — page header only"),
+        ],
+        pageNum: 5,
+        pageCount: 20,
+        outline: [],
+      },
+      fetch
+    );
+
+    expect(fetch.mock.calls.map(([pn]) => pn)).toEqual([6]);
+    expect(block).toContain('label="Equation 10"');
+    expect(block).toContain('target_page="6"');
+    expect(block).toContain("±1 term in Eq. (10)");
+  });
+
+  it("fails closed when the bounded adjacent scan finds no exact equation label", async () => {
+    const fetch = vi.fn().mockImplementation(async (pageNum: number) => {
+      const adjacentText = new Map([
+        [6, "The next page discusses equation systems with 10 unknowns."],
+        [4, "Earlier numerical results include 10 observations."],
+        [7, "The equation discussion continues with generic prose and 10 cases."],
+        [3, "Background material lists 10 variables."],
+      ]);
+      return adjacentText.get(pageNum);
+    });
+
+    const block = await resolveSelectionReferencesBlockAsync(
+      "수식 (10)을 설명해줘",
+      {
+        windowPages: [
+          page(5, "The equation system has 10 unknowns, but no numbered equation label is present."),
+        ],
+        pageNum: 5,
+        pageCount: 20,
+        outline: [],
+      },
+      fetch
+    );
+
+    expect(fetch.mock.calls.map(([pageNum]) => pageNum)).toEqual([6, 4, 7, 3]);
+    expect(block).toBe("");
+  });
+
   it("resolves equation ref from outline (no fetch needed)", async () => {
     const fetch = vi.fn().mockResolvedValue(undefined);
     const result = await resolveSelectionReferencesAsync(

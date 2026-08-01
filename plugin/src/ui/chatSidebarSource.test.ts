@@ -236,6 +236,26 @@ describe("chat sidebar context chip source contract", () => {
     expect(providerContext).not.toContain("const shouldFetchBackendContext");
   });
 
+  it("resolves latest-user PDF references before generic window context", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
+    const providerContext = source.slice(
+      source.indexOf("private async buildIncuratorProviderContext"),
+      source.indexOf("private async timedContextCall")
+    );
+
+    expect(source).toContain("resolveSelectionReferencesBlockAsync");
+    expect(providerContext).toContain("shouldResolveLatestUserPdfReferences({");
+    expect(providerContext).toContain("resolveSelectionReferencesBlockAsync(");
+    expect(providerContext).toContain("        query,");
+    expect(providerContext).toContain("radius: 0");
+    expect(providerContext).toContain("maxPages: 1");
+    expect(providerContext.indexOf("if (resolvedReferencesBlock)"))
+      .toBeLessThan(providerContext.indexOf("<pdf_window document="));
+    expect(providerContext.indexOf("shouldResolveLatestUserPdfReferences({"))
+      .toBeLessThan(providerContext.indexOf("resolveSelectionReferencesBlockAsync("));
+  });
+
   it("grounds default Incurator sidechat context with evidence packs, not backend answers", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
     const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");

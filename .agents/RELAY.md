@@ -2,64 +2,68 @@
 
 ## Goal
 
-Close every confirmed finding from the second whole-system review and complete
-the release-chain audit from v0.32.0 through merged v0.39.0.
+Ship v0.39.2 so latest-user PDF references such as `수식 (10)` resolve the
+target page before a headless provider is launched, without granting native
+filesystem access to external Zotero/iCloud PDFs, and close two correctness
+gaps found during review before PR #103 merges.
 
 ## Plan Reference
 
-- Master plan: `.agents/plans/02_v032_regression_audit.md`
-- Evidence ledger: `.agents/plans/02_v032_regression_evidence.md`
-- Domain analyses:
-  - `.agents/plans/A_v032_release_history_analysis.md`
-  - `.agents/plans/B_integrity_lifecycle_analysis.md`
-  - `.agents/plans/C_retrieval_provider_analysis.md`
-  - `.agents/plans/D_plugin_persistence_analysis.md`
-- Umbrella: `.agents/plans/01_system_stability_overhaul.md`
+- Branch: `hotfix/v0.39.2-equation-reference-context`
+- Draft PR: `https://github.com/ShinYwings/Incurator/pull/103`
+- Review plan/domain/evidence are preserved at commits `186c2da` and `f95b1e0`
+  and deleted from the active workspace after implementation.
 
 ## Analysis & Reasoning
 
-- P5 started from merged v0.39.0 commit `d8d1e39` on
-  `release/v0.39.1`.
-- Two historical passes cover PRs #80–#86 and #98. They confirmed F01/F07 and
-  added F23–F24: future-clock local reinsert and malformed current peer-header
-  handling.
-- Source deletion now closes canonical and device-local dependencies
-  transactionally while preserving independently supported shared graph state.
-- Post-publish failure or interruption recovers stable projections from the
-  authoritative DB without another LLM call or generation. Re-emit updates only
-  regenerated ATM/CON/SYN hashes and deleted orphan CTX hashes.
-- No schema or public API/CLI contract change was required.
+- The real page-6 PDF extraction omits the equation image but contains an exact
+  `Eq. (10)` prose anchor and the surrounding explanation needed to correct the
+  answer.
+- The root fix recognizes latest-user `수식 (10)` / `Eq. (10)` pointers,
+  refreshes a capped next-first adjacent page through the existing read-only
+  PDF API, and injects `<resolved_cross_references>` before generic PDF context.
+- External Zotero/iCloud paths remain outside provider filesystem roots; no
+  command permission, trust flag, or broad `--add-dir` was added.
+- Review reproduction proved that scan exhaustion currently returns a loose
+  current-page BM25 hit even when no adjacent page has the exact equation label.
+- Review inspection also proved that every prompt-included PDF tab can claim a
+  latest-user pointer, including background PDFs in Markdown-focused turns.
 
 ## Progress Status
 
-- P1–P5: complete.
-- Release commits:
-  - `da57809` — source lifecycle/projection implementation and tests;
-  - `17c96fc` — audit plan/evidence;
-  - `c3f20c8` — v0.39.1 release metadata.
-- Full backend: 1,373 passed, 6 skipped, 4 expected xfails.
-- Plugin: 68 files / 737 tests passed.
-- Ruff, Mypy (126 files), TypeScript, production build, docs/spec parity, and
-  npm audit (0 vulnerabilities): passed.
-- Isolated source deletion, lint 100/100, no-deep sync, and external Zotero
-  Reference Mode smoke: passed.
-- D2 was not rerun; exact non-Q06 drift hashes and rationale are re-armed.
-- Production `last_root` and MCP pointers resolve to
-  `/Users/shin/shinywings/second_brain`; active testbed was not mutated.
-- `release/v0.39.1` is pushed and draft PR #102 is open.
-- Latest-head push and pull-request CI both pass Backend and Plugin tests.
-  Version Consistency passes on push and is intentionally skipped on the PR
-  event.
+- Docs, TDD regression, implementation, and integration source contract are
+  complete.
+- Focused plugin tests: 71 passed. Full plugin tests: 740 passed. TypeScript and
+  production build passed.
+- Backend Ruff/MyPy passed; pytest: 1373 passed, 6 skipped, 4 expected xfails.
+- Disposable PDF smoke passed without mutating production or active testbed.
+- One isolated live Antigravity replay succeeded with no native-tool denial.
+- Implementation commit: `b1dc17e`.
+- Release commit: `c018a34` (`chore(release): v0.39.2`).
+- v0.39.2 manifests, changelog, roadmap cleanup, and plan deletion are complete;
+  version/spec consistency passed 10 tests.
+- Branch is pushed and draft PR #103 is open against `master`.
+- GitHub CI is green at `e02859b`, but code review found two merge-blocking
+  correctness gaps. Both are fixed by `c12b6de`: exhausted exact-label scans
+  fail closed, and latest-question resolution is gated to the active or
+  explicitly attached primary PDF. Focused tests pass 63/63; full plugin tests
+  pass 744/744; TypeScript, production build, backend pytest (1373 passed,
+  6 skipped, 4 expected xfails), Ruff, and MyPy pass.
+- The v0.39.2 changelog, roadmap cleanup, planning-artifact deletion, and final
+  release commit `0143941` are complete and pushed to PR #103. GitHub backend,
+  plugin, and version-consistency checks passed for that review-hardened head.
 
 ## Critical Context / Blockers
 
-- Human merge of PR #102 is the only remaining P5 action.
-- Do not mutate production `second_brain`, the active ResNet testbed, or the
-  consumed D2 holdout.
-- P6 durable-state persistence work must start from clean merged `master`, not
-  from the v0.39.1 release branch.
+- No local implementation blocker remains.
+- Human review/merge of PR #103 is the only remaining v0.39.2 action.
+- Do not repeat the live-provider replay; the one permitted call is complete.
+- Do not mutate production `second_brain` or an active testbed.
+- v0.39.x stability work remains queued behind this hotfix merge.
 
 ## Immediate Next Action
 
-After PR #102 merges, fast-forward local `master`, remove the merged release
-branch, and begin P6 from the clean merged anchor.
+1. Human reviews and merges draft PR #103.
+2. After merge, fast-forward local `master` and reset relay to the documented
+   minimal IDLE stub.
+3. Resume the v0.39.x stability audit at P6 on a fresh branch from `master`.

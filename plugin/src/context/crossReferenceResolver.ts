@@ -167,7 +167,7 @@ const PATTERNS: PatternSpec[] = [
   // Eq. (19.6) / Equation 19.4
   {
     kind: "equation",
-    re: /\b(?:equations?|eqs?|eqn)\.?\s*\(?(\d+(?:\.\d+)*)\)?/gi,
+    re: /(?:\b(?:equations?|eqs?|eqn)\.?|수식)\s*\(?(\d+(?:\.\d+)*)\)?/gi,
     build: (m) => ({ label: `Equation ${m[1]}`, objectNumber: m[1] }),
   },
   // Bare equation label such as "(19.11)" in math prose.
@@ -220,14 +220,15 @@ export function extractReferences(selectedText: string): ReferenceQuery[] {
 // ── Caption / definition index (sioyek-style) ─────────────────────
 
 const CAPTION_LINE_RE =
-  /^\s*(figures?|figs?|tables?|tbls?|equations?|eqs?|eqn|theorems?|lemmas?|sections?)\.?\s+([A-Z]?\d+(?:\.\d+)*[a-z]?)\b/i;
-const DISPLAY_EQUATION_LABEL_RE = /(^|[\s,;:])\(([A-Z]?\d+(?:\.\d+)+)\)(?=$|[\s,.;:])/gi;
+  /^\s*(figures?|figs?|tables?|tbls?|equations?|eqs?|eqn|수식|theorems?|lemmas?|sections?)\.?\s+([A-Z]?\d+(?:\.\d+)*[a-z]?)\b/i;
+const DISPLAY_EQUATION_LABEL_RE = /(^|[\s,;:])\(([A-Z]?\d+(?:\.\d+)*)\)(?=$|[\s,.;:])/gi;
+const DISPLAY_EQUATION_MATH_RE = /[=+\-*/^_{}]|\\[A-Za-z]+|[∑∫√≤≥≈≠]/u;
 
 function captionKind(word: string): ReferenceKind {
   const w = word.toLowerCase();
   if (w.startsWith("fig")) return "figure";
   if (w.startsWith("tab") || w.startsWith("tbl")) return "table";
-  if (w.startsWith("eq")) return "equation";
+  if (w.startsWith("eq") || w === "수식") return "equation";
   if (w.startsWith("sec")) return "section";
   return "theorem";
 }
@@ -244,7 +245,9 @@ export function buildCaptionIndex(
   const entries: CaptionEntry[] = [];
   for (const page of pages) {
     if (!page.text) continue;
-    for (const rawLine of page.text.split(/\r?\n/)) {
+    const rawLines = page.text.split(/\r?\n/);
+    for (let lineIndex = 0; lineIndex < rawLines.length; lineIndex++) {
+      const rawLine = rawLines[lineIndex];
       const line = rawLine.trim();
       const m = CAPTION_LINE_RE.exec(rawLine);
       if (m) {
@@ -260,9 +263,13 @@ export function buildCaptionIndex(
       let eq: RegExpExecArray | null;
       while ((eq = DISPLAY_EQUATION_LABEL_RE.exec(rawLine)) !== null) {
         const beforeLabel = rawLine.slice(0, eq.index + eq[1].length).trim();
+        const singleNumber = !eq[2].includes(".");
+        const standaloneLabel = line === `(${eq[2]})`;
+        const previousLine = rawLines[lineIndex - 1]?.trim() ?? "";
         const looksLikeDisplayedMath =
-          beforeLabel.length === 0 ||
-          /[=+\-*/^_{}]|\\[A-Za-z]+|[∑∫√≤≥≈≠]/u.test(beforeLabel);
+          DISPLAY_EQUATION_MATH_RE.test(beforeLabel) ||
+          (!singleNumber && beforeLabel.length === 0) ||
+          (singleNumber && standaloneLabel && DISPLAY_EQUATION_MATH_RE.test(previousLine));
         if (!looksLikeDisplayedMath) continue;
         entries.push({
           kind: "equation",

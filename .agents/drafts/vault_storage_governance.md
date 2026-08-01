@@ -1,5 +1,8 @@
 # Vault Storage Governance & Quota Visibility
 
+Status: DEFERRED — retained as an unplanned roadmap draft; no implementation is
+authorized from this document alone.
+
 ## Context
 
 RAG & Knowledge Quality Stabilization must measure duplicate amplification,

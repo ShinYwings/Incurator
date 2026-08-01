@@ -22,6 +22,7 @@ import type { PdfOutlineItem, PdfWindowPage } from "../types";
 const EXACT_OUTLINE_RANGE_FETCH_LIMIT = 12;
 const CHAPTER_OUTLINE_RANGE_FETCH_LIMIT = 24;
 const OUTLINE_RANGE_FETCH_BATCH_SIZE = 6;
+const ADJACENT_EQUATION_PAGE_OFFSETS = [1, -1, 2, -2] as const;
 
 export interface PdfReferenceSource {
   outline?: PdfOutlineItem[];
@@ -125,6 +126,52 @@ function needsOutlineExpansion(
   currentPage: number | undefined
 ): boolean {
   return ref.method === "unresolved" || isWeakCurrentPageHit(ref, currentPage);
+}
+
+function needsAdjacentEquationExpansion(ref: ResolvedReference): boolean {
+  return (
+    ref.query.kind === "equation" &&
+    /^\d+$/.test(ref.query.objectNumber ?? "") &&
+    ref.method !== "caption-index"
+  );
+}
+
+function failClosedUnresolvedAdjacentEquations(
+  resolved: ResolvedReference[]
+): ResolvedReference[] {
+  return resolved.map((ref) =>
+    needsAdjacentEquationExpansion(ref)
+      ? {
+          query: ref.query,
+          label: ref.label,
+          confidence: 0,
+          method: "unresolved" as const,
+        }
+      : ref
+  );
+}
+
+function adjacentEquationCandidatePages(
+  currentPage: number | undefined,
+  pageCount: number | undefined
+): number[] {
+  if (typeof currentPage !== "number") return [];
+  return ADJACENT_EQUATION_PAGE_OFFSETS
+    .map((offset) => currentPage + offset)
+    .filter(
+      (pageNum) =>
+        pageNum > 0 &&
+        (typeof pageCount !== "number" || pageCount <= 0 || pageNum <= pageCount)
+    );
+}
+
+function pageHasExactEquationLabel(text: string | undefined, objectNumber: string): boolean {
+  if (!text) return false;
+  const escapedNumber = objectNumber.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(
+    `(?:\\b(?:equations?|eqs?|eqn)\\.?|수식)\\s*\\(?${escapedNumber}\\)?(?![\\d.])`,
+    "i"
+  ).test(text);
 }
 
 function orderedUniquePages(pages: Iterable<number>): number[] {
@@ -253,11 +300,38 @@ export async function resolveSelectionReferencesAsync(
   let changed = await fetchPages(orderedUniquePages(directMissingPages));
   let latest = changed ? resolveReferences(refs, buildCtx()) : pass1;
 
+  // Globally numbered equations commonly continue on the next physical page
+  // without a useful ToC entry. Probe only a small next-first neighborhood,
+  // one page at a time, and stop at the first exact displayed-label hit.
+  if (latest.some(needsAdjacentEquationExpansion)) {
+    for (const pageNum of adjacentEquationCandidatePages(source.pageNum, source.pageCount)) {
+      const pageChanged = await fetchPages([pageNum]);
+      changed = changed || pageChanged;
+      if (!pageChanged) continue;
+      latest = resolveReferences(refs, buildCtx());
+      if (!latest.some(needsAdjacentEquationExpansion)) return latest;
+      const pendingEquations = latest.filter(needsAdjacentEquationExpansion);
+      if (
+        pendingEquations.every(
+          (ref) =>
+            ref.targetPage === pageNum &&
+            pageHasExactEquationLabel(
+              pageTextMap.get(pageNum),
+              ref.query.objectNumber ?? ""
+            )
+        )
+      ) {
+        return latest;
+      }
+    }
+  }
+
   // Outline fallback can span many pages. Fetch in small batches and stop as
   // soon as the resolver finds the referenced target.
   const outlinePages: number[] = [];
   for (const r of pass1) {
     if (!needsOutlineExpansion(r, source.pageNum)) continue;
+    if (needsAdjacentEquationExpansion(r)) continue;
     for (const pageNum of outlineCandidatePagesForReference(r.query, outline, source.pageCount)) {
       if (!pageTextMap.has(pageNum)) outlinePages.push(pageNum);
     }
@@ -276,14 +350,16 @@ export async function resolveSelectionReferencesAsync(
   if (!changed) {
     // No page text was fetched; suppress any refs whose snippet is empty so the
     // LLM doesn't receive a resolved-looking reference with no content.
-    return pass1.map((r) =>
-      r.method !== "unresolved" && r.targetPage !== undefined && !pageTextMap.has(r.targetPage)
-        ? { ...r, method: "unresolved" as const }
-        : r
+    return failClosedUnresolvedAdjacentEquations(
+      pass1.map((r) =>
+        r.method !== "unresolved" && r.targetPage !== undefined && !pageTextMap.has(r.targetPage)
+          ? { ...r, method: "unresolved" as const }
+          : r
+      )
     );
   }
 
-  return latest;
+  return failClosedUnresolvedAdjacentEquations(latest);
 }
 
 /** Async convenience wrapper: resolve, fetch missing pages, format. Returns "" when nothing resolves. */

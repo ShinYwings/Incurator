@@ -598,13 +598,25 @@ vault-relative Markdown/PDF context and usable ContextService locators expose a
 completed `vault_link_target` literal for providers to copy; absolute, external,
 unsupported, degraded, or source-kind/suffix-mismatched paths do not.
 
-For PDF selected-context turns, a selected phrase that is itself a pointer
-(`Section A4.2`, `p580`, `Figure 19.1`, `Eq. (19.6)`, etc.) changes the target
-of the turn: the system should resolve the referenced section/page/object from
-the PDF outline and local page/window text, inject the resolved target context
-ahead of generic page background, and answer about the referenced target. If the
-pointer is detected but cannot be resolved, the answer must say so instead of
-silently explaining the visible page or inventing external knowledge.
+For PDF-focused turns, either a selected phrase or the latest user request may
+itself be a pointer (`Section A4.2`, `p580`, `Figure 19.1`, `Eq. (19.6)`,
+`수식 (10)`, etc.). That pointer changes the target of the turn: the system
+should resolve the referenced section/page/object from the PDF outline and local
+page/window text, inject the resolved target context ahead of generic page
+background, and answer about the referenced target. When an exact equation
+label from the latest request is just outside the loaded window, sidechat may
+fetch only a small ordered set of adjacent pages through the existing read-only
+PDF context boundary (`page_num=<candidate>`, `radius=0`), checking the next page
+first and stopping at the first exact label match. Exhausting that bounded scan
+without an exact label MUST leave the pointer unresolved; a loose same-number
+BM25 hit MUST NOT be serialized as resolved evidence. Automatic resolution of a
+latest-request pointer MUST be scoped to the active PDF document or an explicit
+primary PDF context reference whose canonical document identity matches the
+candidate tab. Visibility, pinning as background, or prompt inclusion alone does
+not make a PDF the focus of a Markdown turn. This targeted fetch must not
+register the PDF or grant the provider native access to an external PDF path. If
+the pointer is detected but cannot be resolved, the answer must say so instead
+of silently explaining the visible page or inventing external knowledge.
 Printed page references should use the PDF's native PageLabels map when
 available instead of assuming printed page `N` equals physical page `N`.
 
