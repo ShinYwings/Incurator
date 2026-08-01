@@ -1,8 +1,8 @@
 # v0.32.0+ Stability Regression Audit — Remaining Plan
 
 Updated: 2026-08-01
-Status: ACTIVE — P1–P6 shipped through v0.40.0; P7 review follow-up is
-delivered and green on draft PR #106.
+Status: ACTIVE — P1–P7 shipped through v0.40.1; P8 is approved and active on
+`release/v0.40.2`.
 
 ## Objective
 
@@ -75,6 +75,60 @@ public API surface.
 - Require exact, finite embedding and reranker result cardinality.
 - Attribute prompt traces to the provider/model that actually succeeds.
 - Sort prompt versions numerically and reject malformed registrations.
+
+### P8 Implementation — Approved 2026-08-01
+
+The user's `go` instruction approves this phase of the already-approved
+release-chain audit.
+
+#### Objective
+
+Make retrieval and prompt traces truthfully represent provider degradation,
+reject structurally invalid provider responses before persistence or ranking,
+and make versioned prompt selection deterministic beyond single digits.
+
+#### Non-Goals And Stop Conditions
+
+- Do not change ranking weights, lexical matching, vector similarity, schema,
+  provider selection, or public command/config surfaces.
+- Vector-only mode remains vector-only; a query-embedding failure returns no
+  invented lexical candidates but records `fallback_mode=lex` and a stable
+  `vector_failed` warning.
+- Reject an invalid embedding batch atomically; do not persist a valid-looking
+  prefix from a short/long/non-finite response.
+- Stop and re-plan if the fix requires a schema or public configuration change.
+
+#### Locked Decisions
+
+- F08: vector query helpers return a typed outcome carrying data or a stable
+  failure warning. Any runtime query-embedding failure disables later vector
+  expansion attempts and records lexical degradation in hybrid and vec-only
+  traces.
+- F19: reranker scores must have exactly one finite numeric value per fused
+  candidate. Invalid output preserves the complete RRF order and emits
+  `reranker_failed`.
+- F20: embedding output must have exactly one non-empty finite numeric vector
+  per requested chunk. Invalid batches persist nothing and count every batch
+  item as failed.
+- F21: a completed prompt trace finalizes `model_provider` and `model_name`
+  from the provider that produced its final response; a provider exception
+  keeps the start-time attribution and never masks the original error.
+- F22: prompt versions use `v<integer>(.<integer>)*`, are parsed into numeric
+  tuples, and are sorted numerically for latest lookup and registry listing.
+
+#### Strict Gates And TDD Phases
+
+1. P0 Contract: synchronize the search, prompt, trace, and provider-output
+   contracts in static specs plus English guides and their Korean pairs.
+2. P1 Red: add regressions for hybrid/vec-only query embedding failure;
+   short/long/NaN embedding and reranker output; successful failover trace
+   attribution; v9/v10 ordering; and malformed prompt versions.
+3. P2 Green: implement only the locked boundary checks and pass focused engine,
+   embedding, prompt registry, prompt trace, and DB tests.
+4. P3 Release proof: re-arm the consumed lexical holdout drift tripwire with a
+   non-impact proof; pass all repository gates; document the isolated-test
+   boundary; bump and release v0.40.2; push a draft PR; and verify latest-head
+   CI.
 
 ## P9 — Final Release-Chain Dry Pass
 

@@ -178,6 +178,36 @@ def test_embed_corpus_records_failures(db_path: Path):
     assert emb.embedded == 0 and emb.failures >= 1 and "ollama down" in emb.warning
 
 
+@pytest.mark.parametrize("kind", ["short", "long", "non-finite"])
+def test_embed_corpus_rejects_invalid_batch_atomically(
+    db_path: Path, kind: str
+) -> None:
+    first_doc = _doc(db_path, "ATM-1", "first", "alpha beta gamma delta.")
+    second_doc = _doc(db_path, "ATM-2", "second", "epsilon zeta eta theta.")
+    embedding.materialize_chunks(db_path)
+    total = len(db.list_search_chunks_for_doc(db_path, first_doc))
+    total += len(db.list_search_chunks_for_doc(db_path, second_doc))
+    assert total >= 2
+
+    class _Invalid(_FakeEmbedder):
+        def embed(self, texts):
+            vectors = super().embed(texts)
+            if kind == "short":
+                return vectors[:-1]
+            if kind == "long":
+                return [*vectors, [1.0, 0.0, 0.0, 0.0]]
+            vectors[0][0] = float("nan")
+            return vectors
+
+    result = embedding.embed_corpus(db_path, _Invalid(), batch_size=total)
+
+    assert result.embedded == 0
+    assert result.failures == total
+    assert result.degraded is True
+    assert "embedding failed:" in result.warning
+    assert db.get_search_embeddings(db_path, "ollama", "bge-m3") == []
+
+
 def test_build_embedder_factory():
     cfg = {"embedding": "ollama::bge-m3", "embedding_dim": 1024}
     em = providers.build_embedder(cfg, ollama_host="http://localhost:11434")

@@ -1061,7 +1061,7 @@ Verifies if the system's 'brain' and 'eyes' are correctly set up.
 -   **Reranking**: Indicates whether the configured search reranker is available. High-quality answers should use a real reranker/cross-encoder or validated search-fine-tuned model; RRF-only is a degraded fallback.
 -   **Query expansion**: Indicates whether recovery-only Tier-2 expansion can run. If unavailable, deterministic lexical/vector expansion still runs and the trace records the degraded stage.
 -   **Search readiness**: Shows DB-native FTS5 readiness, embedded chunk counts, vector readiness, provider/model, and any degraded stage.
--   **Search index degradation**: If embeddings, query expansion, or reranking are unavailable, lexical FTS5 search remains usable and the query trace records `vector_unavailable`, `query_expander_unavailable`, or `reranker_unavailable`. Run `wiki reindex` after fixing provider/model configuration to rebuild chunks and embeddings.
+-   **Search index degradation**: If embeddings, query expansion, or reranking are unavailable, lexical FTS5 search remains usable. A missing index records `vector_unavailable`; a runtime query-embedding error or invalid result records `vector_failed`; and invalid reranker output records `reranker_failed` while preserving the complete RRF order. Vector-only queries report the vector failure without inventing lexical hits. Corpus embedding and reranking accept only exact-cardinality finite numeric provider output. Run `wiki reindex` after fixing provider/model configuration to rebuild chunks and embeddings.
 
 #### 📂 Knowledge Source Status (Sources)
 Checks the 'entrance of the pipeline' where raw data is turned into knowledge.

@@ -477,6 +477,10 @@ before any patch and protects source truth:
 
 Every LLM call is a registered, versioned prompt contract that records a
 `prompt_runs` (`PTR-`) trace (model, validator status, input/output hashes).
+Prompt versions use `v<integer>(.<integer>)*`; malformed versions are rejected,
+and latest/list ordering is numeric (`v10` follows `v9`). If provider failover
+succeeds, the trace records the provider/model that produced the final response,
+not the failed primary captured when the row opened.
 If the provider call raises after the trace is opened, the trace is closed as
 `failed` with the exception recorded instead of remaining `pending`.
 Inspect with `wiki prompt list|show|trace|eval` or MCP `curator_get_prompt_trace`.

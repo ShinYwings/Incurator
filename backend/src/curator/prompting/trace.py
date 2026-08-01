@@ -88,6 +88,7 @@ def finish_prompt_run(
     validation: ValidationResult,
     retry_count: int = 0,
     latency_ms: int | None = None,
+    client: Any = None,
 ) -> None:
     """Close a prompt run, recording output hash and validator outcome."""
     if not validation.ok:
@@ -104,4 +105,6 @@ def finish_prompt_run(
         validator_errors=validation.errors,
         retry_count=retry_count,
         latency_ms=latency_ms,
+        model_provider=provider_name(client) if client is not None else None,
+        model_name=model_name(client) if client is not None else None,
     )

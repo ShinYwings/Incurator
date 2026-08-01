@@ -194,6 +194,7 @@ def run_prompt(
         validation=validation,
         retry_count=retry_count,
         latency_ms=latency_ms,
+        client=client,
     )
     return PromptRunResult(
         trace_id=trace_id,

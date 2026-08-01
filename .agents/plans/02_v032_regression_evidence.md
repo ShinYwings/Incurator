@@ -1,7 +1,7 @@
 # v0.32.0+ Stability Regression Audit — Active Evidence Ledger
 
 Updated: 2026-08-01
-Rollback anchor for P7: merged v0.40.0 relay-reset head `57665c7`.
+Rollback anchor for P8: clean merged v0.40.1 relay-reset head `710817c`.
 
 ## Completed Boundary
 
@@ -147,6 +147,28 @@ tests.
 
 Required proof: lexical fallback, vector-only failure, short/long/NaN provider
 outputs, failover trace attribution, and v9/v10 ordering tests.
+
+### P8 Baseline — v0.40.2
+
+- Branch/base: `release/v0.40.2` from clean merged relay-reset head `710817c`.
+- Target: patch v0.40.2; no schema, command, setting, or ranking-policy change.
+- Confirmed code boundaries: `HybridEngine._vector_list` turns every query
+  embedding exception or empty response into an untraced empty vector list;
+  `_rerank` and `embed_corpus` accept provider prefixes through `zip` and do
+  not reject non-finite scores/vectors; `run_prompt` records provider/model only
+  before `FailoverClient` selects a successful provider; `PromptRegistry`
+  compares versions lexicographically.
+- Frozen D2 boundary: `D2_HOLDOUT_RESULT.yml` is consumed (`run_count: 3`) and
+  pins `retrieval/engine.py` plus `retrieval/embedding.py`. Its accepted Q06
+  configuration is DB-native lexical FTS5/BM25 with `rerank: false`,
+  `providers: none`, and no model judges. P8 changes only provider-present
+  vector/reranker branches, so the accepted ranking inputs and metric are
+  unaffected. Re-arm the two fingerprints after implementation; do not rerun
+  the holdout.
+- Testbed/Reference Mode boundary: the existing testbed resembles the historical
+  `complex_math_backprop` scenario and includes retired EXH-era assertions. P8
+  uses temporary current-schema databases and deterministic fake providers;
+  do not reinitialize or mutate that unrelated testbed or production vault.
 
 ## Validation Record Template
 

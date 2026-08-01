@@ -499,7 +499,11 @@ grounding하며, explore의 후속 질문/인사이트 생성은 별도 검색 �
 ### 9.3 프롬프트 추적성
 
 모든 LLM 호출은 등록된 버전 있는 프롬프트 계약이며 `prompt_runs`(`PTR-`) 트레이스
-(모델, 검증자 상태, 입출력 해시)를 남깁니다. `wiki prompt list|show|trace|eval`
+(모델, 검증자 상태, 입출력 해시)를 남깁니다. Prompt version은
+`v<정수>(.<정수>)*` 형식을 사용하며, 잘못된 version은 등록을 거부하고 최신
+version과 목록은 숫자 순서로 정렬합니다(`v10`은 `v9` 다음입니다). Provider
+failover가 성공하면 trace에는 row 생성 시 기록된 실패한 primary가 아니라 최종
+응답을 만든 provider/model이 기록됩니다. `wiki prompt list|show|trace|eval`
 또는 MCP `curator_get_prompt_trace`로 검사합니다. provider 호출이 trace 생성 후
 예외를 내면 해당 trace는 `pending`으로 남지 않고 예외 내용과 함께 `failed`로
 닫힙니다. 모든 쿼리는 라우트·증거·프롬프트 실행을 잇는 `QTR-` 트레이스를

@@ -63,8 +63,10 @@ requests in one shutdown function.
 ## 4. Final Decision
 
 - `_vector_list` returns data plus a failure marker; the caller records
-  `fallback_mode=lex` and a stable warning, including in vec-only mode.
-- Validate embedding/reranker lengths and numeric values before storing/ranking.
+  `fallback_mode=lex` and a stable `vector_failed` warning, including in
+  vec-only mode. Vec-only mode does not synthesize lexical candidates.
+- Validate embedding/reranker lengths and finite numeric values before
+  storing/ranking. Reject an invalid embedding batch without partial writes.
 - Replace the single abort slot with request-owned handles and an explicit
   surface cancellation API; a shared slot may remain only as a pointer to the
   foreground request, never as the source of truth. Requests with an explicit
@@ -79,8 +81,9 @@ requests in one shutdown function.
   the protocol buffer when a generation starts.
 - Add command-class timeout/output policies to the plugin backend runner.
 - Finalize prompt trace provider/model after successful failover.
-- Parse prompt versions into numeric tuples and reject malformed versions at
-  registration.
+- Parse `v<integer>(.<integer>)*` prompt versions into numeric tuples and reject
+  malformed versions at registration; use the numeric key for latest lookup
+  and registry listing.
 
 ## 5. Pseudocode
 
