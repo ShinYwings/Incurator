@@ -1,16 +1,17 @@
 # v0.32.0+ Stability Regression Audit — Active Evidence Ledger
 
 Updated: 2026-08-01
-Rollback anchor for P6: merged v0.39.2 relay-reset head `346fcdb`.
+Rollback anchor for P7: merged v0.40.0 relay-reset head `57665c7`.
 
 ## Completed Boundary
 
-- P1–P5 are merged; P6 is verified on the v0.39.3 release branch and its
-  completed domain analysis is preserved in Git history.
+- P1–P6 are merged; P6 shipped in v0.40.0 after persistence review hardening
+  and its completed domain analysis is preserved in Git history.
 - v0.39.1 closed source deletion, serving-state eviction, and deterministic
   post-publish projection recovery.
 - v0.39.2 closed latest-user PDF equation-reference context recovery.
-- v0.39.3 closes durable-state integrity findings F14–F16.
+- v0.40.0 closes durable-state integrity findings F14–F16 plus commit-boundary
+  config/plugin merge and permission regressions found during review.
 
 ## P6 Findings
 
@@ -55,6 +56,9 @@ redaction fixtures.
   PR #104: `https://github.com/ShinYwings/Incurator/pull/104`.
 - GitHub CI passed on delivery head `953a408`: backend, plugin, and version
   consistency all green for push/PR events (one duplicate version job skipped).
+- Review follow-up promoted the unreleased patch to v0.40.0 because atomic
+  plugin processing requires Obsidian 1.1.0. Successor PR #105 merged as
+  `066a158`; final local/backend/plugin gates and latest-head CI were green.
 
 ## P7 Findings
 
@@ -64,6 +68,77 @@ redaction fixtures.
 Required proof: overlapping request tests, dismiss/abort tests, MCP collision
 and restart tests, hung-process timeout tests, and legitimate long-command
 tests.
+
+### P7 Review Follow-Up Baseline — PR #106 head `4b354fd`
+
+- RF1 reproduced by inspection: `beginRequest(ownerSignal)` still assigns the
+  global foreground pointer while sidebar Stop/session paths call the unscoped
+  `LLMClient.abort()` API.
+- RF2 reproduced by inspection: Quick Query creates its controller before
+  asynchronous PDF reference resolution, while provider methods do not reject
+  an already-aborted signal before launch; streaming CLI calls `spawn` before
+  checking the signal and non-streaming HTTP eagerly constructs `requestUrl`.
+- RF3 reproduced by inspection: both Ollama catch blocks classify `AbortError`
+  as provider failure before the cancellation-aware outer path can observe it.
+- RF4 reproduced by inspection: MCP `error`/`exit` callbacks compare process
+  identity but stdout always feeds the instance-wide buffer, which is never
+  cleared on restart.
+- Rollback anchor for the review follow-up is pushed PR head `4b354fd`; the
+  worktree was clean before planning. No vault, testbed, DB, or external
+  reference state is involved.
+
+### P7 Review Follow-Up Validation
+
+- Red phase: 6 failures across 3 files reproduced the wrong foreground target,
+  eager `requestUrl`/CLI launch, both Ollama cancellation mappings, and stale
+  MCP stdout buffer poisoning; the other 76 focused tests passed.
+- Green phase: 109 focused provider/MCP/Quick Query/backend lifecycle tests and
+  TypeScript passed after implementation.
+- Full local gates: plugin Vitest passed 778/778 and the production bundle
+  built; backend pytest passed 1386 with 6 skipped and 4 expected failures;
+  Ruff passed; mypy passed across 127 source files; `git diff --check` passed.
+- No version change is required because v0.40.1 remains unreleased and all
+  manifests already agree. `CHANGELOG.md`, the English/Korean plugin guides,
+  and plugin schema now describe the hardened boundary.
+- Testbed/Reference Mode remains out of scope: the follow-up changes only
+  device-local provider/process lifetime code with deterministic fake-process
+  coverage. No production or testbed path/configuration was read or modified.
+- Delivery commit `0258536` (`fix(plugin): close lifecycle review gaps`) is
+  pushed to PR #106. On that exact head, both backend jobs and both plugin jobs
+  passed; push-event version consistency passed and its duplicate PR-event job
+  correctly skipped.
+
+### P7 Baseline — v0.40.1
+
+- Branch/base: `release/v0.40.1` from clean merged relay-reset head `57665c7`.
+- Target: patch v0.40.1; no schema/public-contract change is planned.
+- Docs-first contract update: plugin lifecycle, external MCP, Quick Query, and
+  backend command bounds are synchronized in the English guide, Korean guide,
+  and plugin schema.
+- Red phase: 8 focused failures reproduced request overlap/foreground restore,
+  caller-owned CLI cancellation, dropped CLI model/PATH, MCP identifier
+  collision, pending shutdown, missing forced kill, stale restart exit, and the
+  absent backend-boundary module. The remaining 67 focused tests passed.
+- Green phase: `npx tsc --noEmit` plus 107 focused provider/MCP/backend/Quick
+  Query tests passed; the latest focused lifecycle set passes 100/100 after
+  cancellation shutdown hardening.
+- Full plugin validation from `plugin/`: 769/769 Vitest tests passed and the
+  production bundle built. A root-cwd Vitest invocation was discarded because
+  `pluginCompatibility.test.ts` intentionally resolves manifests from the
+  plugin working directory; the canonical plugin-cwd invocation is green.
+- Full repository gates: backend 1386 passed / 6 skipped / 4 xfailed, Ruff
+  passed, mypy passed, plugin 769/769 passed, TypeScript passed, production
+  plugin build passed, and post-bump spec/version sync passed 10/10.
+- Testbed/Reference Mode: not run for P7. These defects are device-local
+  provider/process lifetime boundaries with deterministic fake-process tests;
+  the active scenario was not identified, and the approved P7 boundary forbids
+  mutating the existing testbed or production `second_brain` for these proofs.
+- Implementation commit: `033a4fd` (`fix(plugin): harden provider and process
+  lifetimes`); release commit: `d626a5d` (`chore(release): v0.40.1`).
+- Delivery: draft PR #106, `https://github.com/ShinYwings/Incurator/pull/106`.
+  GitHub CI passed on release head `d626a5d`: backend and plugin jobs were green
+  for both push/PR events, version consistency was green for the push event,
+  and the duplicate PR-event version job correctly skipped.
 
 ## P8 Findings
 

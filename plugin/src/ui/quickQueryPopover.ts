@@ -127,6 +127,7 @@ export class QuickQueryPopover {
   private repositionHandler: (() => void) | null = null;
   private childPopovers = new Set<QuickQueryPopover>();
   private onPopoverRemoved: ((popover: QuickQueryPopover) => void) | null = null;
+  private requestAbortController: AbortController | null = null;
 
   constructor(plugin: ObsidianAIAgent) {
     this.plugin = plugin;
@@ -456,6 +457,8 @@ export class QuickQueryPopover {
     input: HTMLInputElement
   ): Promise<void> {
     this.isProcessing = true;
+    const requestController = new AbortController();
+    this.requestAbortController = requestController;
     answerEl.empty();
     answerEl.createSpan({
       cls: "ai-agent-quick-query-loading",
@@ -511,11 +514,14 @@ export class QuickQueryPopover {
           // Tool isolation (v0.19.0): the popover is an ephemeral, read-only
           // reading assistant — never inject MCP tools, so it cannot run scripts
           // or traverse the filesystem.
-          { toolPolicy: "none" }
+          { toolPolicy: "none", signal: requestController.signal }
         );
       } else {
         // Ephemeral popover: no tools / OS-sandboxed CLI (v0.23.0).
-        raw = await this.plugin.llmClient.complete(messages, { toolPolicy: "none" });
+        raw = await this.plugin.llmClient.complete(messages, {
+          toolPolicy: "none",
+          signal: requestController.signal,
+        });
       }
     } catch (err: unknown) {
       this.isProcessing = false;
@@ -529,6 +535,10 @@ export class QuickQueryPopover {
       input.placeholder = "Ask a follow-up…";
       inputRow.show();
       return;
+    } finally {
+      if (this.requestAbortController === requestController) {
+        this.requestAbortController = null;
+      }
     }
 
     this.isProcessing = false;
@@ -581,7 +591,8 @@ export class QuickQueryPopover {
       this.popoverKeyHandler = null;
     }
     if (this.isProcessing) {
-      this.plugin.llmClient.abort();
+      this.requestAbortController?.abort();
+      this.requestAbortController = null;
       this.isProcessing = false;
     }
     this.popoverEl?.remove();

@@ -38,7 +38,8 @@ describe("quick query: message building", () => {
     const callStart = source.indexOf("this.plugin.llmClient.streamChat(");
     expect(callStart).toBeGreaterThanOrEqual(0);
     const callBody = source.slice(callStart, source.indexOf("} else {", callStart));
-    expect(callBody).toContain('{ toolPolicy: "none" }');
+    expect(callBody).toContain('toolPolicy: "none"');
+    expect(callBody).toContain("signal: requestController.signal");
   });
 });
 
@@ -156,6 +157,16 @@ describe("quick query: persistent popover lifecycle (v0.15.0)", () => {
     expect(body).toContain("this.childPopovers.add(session)");
     expect(body).toContain("session.openSinglePopover(rect)");
     expect(body).toContain("this.childPopovers.delete(popover)");
+  });
+
+  it("dismisses only the request owned by that popover", () => {
+    const body = source.slice(
+      source.indexOf("private removePopover"),
+      source.indexOf("handleDocumentClick"),
+    );
+
+    expect(body).toContain("this.requestAbortController?.abort()");
+    expect(body).not.toContain("this.plugin.llmClient.abort()");
   });
 
   it("keeps open popovers immune to outside clicks and handles text-node targets", () => {

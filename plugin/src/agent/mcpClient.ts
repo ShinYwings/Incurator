@@ -19,6 +19,10 @@ interface JsonRpcResponse {
   error?: { code: number; message: string; data?: unknown };
 }
 
+const MCP_GRACEFUL_SHUTDOWN_MS = 500;
+const MCP_TERMINATE_WAIT_MS = 1500;
+const MCP_FORCE_KILL_WAIT_MS = 500;
+
 // ─── MCP Client ─────────────────────────────────────────────────
 
 export class MCPClient {
@@ -30,11 +34,13 @@ export class MCPClient {
     {
       resolve: (value: unknown) => void;
       reject: (reason: unknown) => void;
+      timeout: ReturnType<typeof setTimeout>;
     }
   >();
   private buffer = "";
   private _tools: MCPTool[] = [];
   private _ready = false;
+  private shuttingDown = false;
 
   constructor(config: MCPServerConfig) {
     this.config = config;
@@ -59,29 +65,51 @@ export class MCPClient {
     if (this.process) {
       await this.shutdown();
     }
+    this.shuttingDown = false;
+    this.buffer = "";
 
     return new Promise((resolve, reject) => {
+      let child: ChildProcess;
+      let startupSettled = false;
+      let startupTimer: ReturnType<typeof setTimeout> | null = null;
+      const resolveStartup = () => {
+        if (startupSettled) return;
+        startupSettled = true;
+        resolve();
+      };
+      const rejectStartup = (error: unknown) => {
+        if (startupSettled) return;
+        startupSettled = true;
+        reject(error);
+      };
       try {
-        this.process = spawn(this.config.command, this.config.args, {
+        child = spawn(this.config.command, this.config.args, {
           stdio: ["pipe", "pipe", "pipe"],
           env: { ...process.env, ...this.config.env },
         });
+        this.process = child;
 
-        this.process.stdout?.on("data", (data: Buffer) => {
+        child.stdout?.on("data", (data: Buffer) => {
+          if (this.process !== child) return;
           this.onData(data.toString("utf-8"));
         });
 
-        this.process.stderr?.on("data", (data: Buffer) => {
+        child.stderr?.on("data", (data: Buffer) => {
           logger.warn(`[MCP:${this.config.name}] stderr:`, data.toString());
         });
 
-        this.process.on("error", (err) => {
+        child.on("error", (err) => {
           logger.error(`[MCP:${this.config.name}] process error:`, err);
-          this._ready = false;
-          reject(err);
+          if (this.process === child) {
+            this._ready = false;
+            this.process = null;
+            this.rejectAllPending(err);
+          }
+          rejectStartup(err);
         });
 
-        this.process.on("exit", (code) => {
+        child.on("exit", (code) => {
+          if (startupTimer) clearTimeout(startupTimer);
           // A non-zero exit means the MCP server crashed — keep it visible
           // (warn) for troubleshooting; a clean exit stays gated (debug).
           if (code) {
@@ -89,28 +117,40 @@ export class MCPClient {
           } else {
             logger.debug(`[MCP:${this.config.name}] exited with code ${code}`);
           }
-          this._ready = false;
-          this.process = null;
-          // Reject all pending requests
-          for (const [, pending] of this.pending) {
-            pending.reject(new Error(`MCP process exited with code ${code}`));
+          if (this.process === child) {
+            this._ready = false;
+            this.process = null;
+            this._tools = [];
+            this.rejectAllPending(
+              new Error(`MCP process exited with code ${code}`),
+            );
           }
-          this.pending.clear();
+          rejectStartup(new Error(`MCP process exited with code ${code}`));
         });
 
         // Initialize after a short delay to let the process start
-        setTimeout(async () => {
+        startupTimer = setTimeout(async () => {
           try {
+            if (this.process !== child) {
+              throw new Error(`MCP server "${this.config.name}" stopped during startup`);
+            }
             await this.initialize();
             await this.refreshTools();
+            if (this.process !== child) {
+              throw new Error(`MCP server "${this.config.name}" stopped during startup`);
+            }
             this._ready = true;
-            resolve();
+            resolveStartup();
           } catch (err) {
-            reject(err);
+            rejectStartup(err);
+            if (this.process === child && !this.shuttingDown) {
+              this._ready = false;
+              await this.shutdown();
+            }
           }
         }, 500);
       } catch (err) {
-        reject(err);
+        rejectStartup(err);
       }
     });
   }
@@ -161,28 +201,34 @@ export class MCPClient {
    * Gracefully shut down the MCP server.
    */
   async shutdown(): Promise<void> {
-    if (!this.process) return;
+    const child = this.process;
+    this.shuttingDown = true;
+    this._ready = false;
+    this.rejectAllPending(
+      new Error(`MCP server "${this.config.name}" is shutting down`),
+    );
+    if (!child) return;
 
     try {
       this.sendNotification("notifications/cancelled", {});
-      // Give it a moment to clean up
-      await new Promise<void>((resolve) => {
-        const timeout = setTimeout(() => {
-          this.process?.kill("SIGTERM");
-          resolve();
-        }, 2000);
-
-        this.process?.on("exit", () => {
-          clearTimeout(timeout);
-          resolve();
-        });
-      });
-    } catch {
-      this.process?.kill("SIGKILL");
-    } finally {
+    } catch (error) {
+      logger.warn(
+        `[MCP:${this.config.name}] shutdown notification failed:`,
+        error,
+      );
+    }
+    let exited = await this.waitForExit(child, MCP_GRACEFUL_SHUTDOWN_MS);
+    if (!exited) {
+      child.kill("SIGTERM");
+      exited = await this.waitForExit(child, MCP_TERMINATE_WAIT_MS);
+    }
+    if (!exited) {
+      child.kill("SIGKILL");
+      await this.waitForExit(child, MCP_FORCE_KILL_WAIT_MS);
+    }
+    if (this.process === child) {
       this.process = null;
-      this._ready = false;
-      this.pending.clear();
+      this._tools = [];
     }
   }
 
@@ -193,6 +239,10 @@ export class MCPClient {
     params: Record<string, unknown>
   ): Promise<unknown> {
     return new Promise((resolve, reject) => {
+      if (this.shuttingDown) {
+        reject(new Error(`MCP server "${this.config.name}" is shutting down`));
+        return;
+      }
       if (!this.process?.stdin?.writable) {
         reject(new Error("MCP process stdin not writable"));
         return;
@@ -206,18 +256,22 @@ export class MCPClient {
         params,
       };
 
-      this.pending.set(id, { resolve, reject });
+      const timeout = setTimeout(() => {
+        const pending = this.pending.get(id);
+        if (!pending) return;
+        this.pending.delete(id);
+        pending.reject(new Error(`MCP request ${method} timed out`));
+      }, 30000);
+      this.pending.set(id, { resolve, reject, timeout });
 
       const data = JSON.stringify(request) + "\n";
-      this.process.stdin.write(data);
-
-      // Timeout after 30 seconds
-      setTimeout(() => {
-        if (this.pending.has(id)) {
-          this.pending.delete(id);
-          reject(new Error(`MCP request ${method} timed out`));
-        }
-      }, 30000);
+      try {
+        this.process.stdin.write(data);
+      } catch (error) {
+        clearTimeout(timeout);
+        this.pending.delete(id);
+        reject(error);
+      }
     });
   }
 
@@ -246,6 +300,7 @@ export class MCPClient {
         if (msg.id !== undefined && this.pending.has(msg.id)) {
           const handler = this.pending.get(msg.id)!;
           this.pending.delete(msg.id);
+          clearTimeout(handler.timeout);
           if (msg.error) {
             handler.reject(
               new Error(`MCP error: ${msg.error.message} (${msg.error.code})`)
@@ -258,6 +313,32 @@ export class MCPClient {
         // Not valid JSON, skip
       }
     }
+  }
+
+  private rejectAllPending(error: Error): void {
+    const pendingRequests = Array.from(this.pending.values());
+    this.pending.clear();
+    for (const pending of pendingRequests) {
+      clearTimeout(pending.timeout);
+      pending.reject(error);
+    }
+  }
+
+  private waitForExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
+    if (child.exitCode !== null) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (exited: boolean) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        child.off("exit", onExit);
+        resolve(exited);
+      };
+      const onExit = () => finish(true);
+      const timeout = setTimeout(() => finish(false), timeoutMs);
+      child.once("exit", onExit);
+    });
   }
 }
 

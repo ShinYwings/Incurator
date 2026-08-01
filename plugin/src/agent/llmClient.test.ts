@@ -17,21 +17,27 @@ import {
 } from "./llm/messageUtils";
 import {
   ADAPTERS,
+  buildMcpToolExposure,
   LLMClient,
   syncAgyHeadlessReadPermission,
 } from "./llm/LLMClient";
 import { DEFAULT_SETTINGS } from "../types";
 import type { LLMMessage, PluginSettings } from "../types";
 
+const obsidianMocks = vi.hoisted(() => ({
+  requestUrl: vi.fn(async () => ({ json: {} })),
+}));
+
 vi.mock("obsidian", () => ({
   Notice: class Notice {
     constructor(_message: string) {}
   },
-  requestUrl: async () => ({ json: {} }),
+  requestUrl: obsidianMocks.requestUrl,
 }));
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.clearAllMocks();
 });
 
 describe("LLM request lifecycle hardening", () => {
@@ -73,6 +79,32 @@ describe("LLM request lifecycle hardening", () => {
       "reload required"
     );
     expect(resolveCredential).not.toHaveBeenCalled();
+  });
+
+  it("does not launch a provider after cancellation during the async launch guard", async () => {
+    let releaseGuard!: () => void;
+    const guard = new Promise<void>((resolve) => {
+      releaseGuard = resolve;
+    });
+    const client = new LLMClient(
+      { ...DEFAULT_SETTINGS, provider: "openai", model: "test-model" },
+      { resolveCredential: vi.fn(async () => ({ type: "bearer", token: "token" })) } as never,
+      "",
+      undefined,
+      undefined,
+      () => guard,
+    );
+    (client as any).shouldUseCli = () => false;
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const owner = new AbortController();
+
+    const request = client.streamChat(messages, vi.fn(), { signal: owner.signal });
+    owner.abort();
+    releaseGuard();
+
+    await expect(request).resolves.toBe("");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("keeps the current request controller usable if abort runs during async authentication", async () => {
@@ -120,6 +152,153 @@ describe("LLM request lifecycle hardening", () => {
     await second;
   });
 
+  it("keeps caller-owned overlapping requests independently cancelable", async () => {
+    const client = httpClient({
+      resolveCredential: async () => ({ type: "bearer", token: "token" }),
+    });
+    const pending: Array<(response: Response) => void> = [];
+    const signals: AbortSignal[] = [];
+    vi.stubGlobal("fetch", vi.fn((_url: string, init: RequestInit) => {
+      signals.push(init.signal as AbortSignal);
+      return new Promise<Response>((resolve) => pending.push(resolve));
+    }));
+    const firstOwner = new AbortController();
+    const secondOwner = new AbortController();
+
+    const first = client.streamChat(messages, vi.fn(), { signal: firstOwner.signal });
+    await vi.waitFor(() => expect(pending).toHaveLength(1));
+    const second = client.streamChat(messages, vi.fn(), { signal: secondOwner.signal });
+    await vi.waitFor(() => expect(pending).toHaveLength(2));
+
+    firstOwner.abort();
+    expect(signals[0].aborted).toBe(true);
+    expect(signals[1].aborted).toBe(false);
+
+    pending[0](emptyStreamingResponse());
+    pending[1](emptyStreamingResponse());
+    await Promise.all([first, second]);
+  });
+
+  it("keeps caller-owned work out of the sidebar foreground abort target", async () => {
+    const client = httpClient({
+      resolveCredential: async () => ({ type: "bearer", token: "token" }),
+    });
+    const pending: Array<(response: Response) => void> = [];
+    const signals: AbortSignal[] = [];
+    vi.stubGlobal("fetch", vi.fn((_url: string, init: RequestInit) => {
+      signals.push(init.signal as AbortSignal);
+      return new Promise<Response>((resolve) => pending.push(resolve));
+    }));
+    const quickQueryOwner = new AbortController();
+
+    const sidebar = client.streamChat(messages, vi.fn());
+    await vi.waitFor(() => expect(pending).toHaveLength(1));
+    const quickQuery = client.streamChat(messages, vi.fn(), {
+      signal: quickQueryOwner.signal,
+    });
+    await vi.waitFor(() => expect(pending).toHaveLength(2));
+
+    client.abort();
+
+    expect(signals[0].aborted).toBe(true);
+    expect(signals[1].aborted).toBe(false);
+    pending[0](emptyStreamingResponse());
+    await sidebar;
+
+    client.abort();
+    expect(signals[1].aborted).toBe(false);
+    pending[1](emptyStreamingResponse());
+    await quickQuery;
+  });
+
+  it("does not construct requestUrl for an already-aborted completion", async () => {
+    const client = new LLMClient(
+      {
+        ...DEFAULT_SETTINGS,
+        provider: "deepseek",
+        model: "test-model",
+        deepseekApiKey: "test-key",
+      },
+      {} as never,
+    );
+    const owner = new AbortController();
+    owner.abort();
+
+    await expect(client.complete(messages, { signal: owner.signal })).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    expect(obsidianMocks.requestUrl).not.toHaveBeenCalled();
+  });
+
+  it("preserves streaming Ollama cancellation instead of reporting it offline", async () => {
+    const client = new LLMClient(
+      { ...DEFAULT_SETTINGS, provider: "ollama", model: "test-model" },
+      {} as never,
+    );
+    const owner = new AbortController();
+    const fetchMock = vi.fn((_url: string, init: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init.signal?.addEventListener("abort", () => {
+          reject(new DOMException("aborted", "AbortError"));
+        }, { once: true });
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const request = client.streamChat(messages, vi.fn(), { signal: owner.signal });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    owner.abort();
+
+    await expect(request).resolves.toBe("");
+  });
+
+  it("preserves non-streaming Ollama AbortError", async () => {
+    const client = new LLMClient(
+      { ...DEFAULT_SETTINGS, provider: "ollama", model: "test-model" },
+      {} as never,
+    );
+    const owner = new AbortController();
+    const fetchMock = vi.fn((_url: string, init: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init.signal?.addEventListener("abort", () => {
+          reject(new DOMException("aborted", "AbortError"));
+        }, { once: true });
+      })
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const request = client.complete(messages, { signal: owner.signal });
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    owner.abort();
+
+    await expect(request).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("restores an older active request as foreground after the newer request finishes", async () => {
+    const client = httpClient({
+      resolveCredential: async () => ({ type: "bearer", token: "token" }),
+    });
+    const pending: Array<(response: Response) => void> = [];
+    const signals: AbortSignal[] = [];
+    vi.stubGlobal("fetch", vi.fn((_url: string, init: RequestInit) => {
+      signals.push(init.signal as AbortSignal);
+      return new Promise<Response>((resolve) => pending.push(resolve));
+    }));
+
+    const first = client.streamChat(messages, vi.fn());
+    await vi.waitFor(() => expect(pending).toHaveLength(1));
+    const second = client.streamChat(messages, vi.fn());
+    await vi.waitFor(() => expect(pending).toHaveLength(2));
+
+    pending[1](emptyStreamingResponse());
+    await second;
+    client.abort();
+
+    expect(signals[0].aborted).toBe(true);
+    pending[0](emptyStreamingResponse());
+    await first;
+  });
+
   it("accepts MCP server definitions without an args array", () => {
     const client = httpClient({
       resolveCredential: async () => ({ type: "bearer", token: "token" }),
@@ -130,6 +309,63 @@ describe("LLM request lifecycle hardening", () => {
       args: [],
       env: {},
     });
+  });
+});
+
+describe("MCP model-facing tool exposure", () => {
+  it("keeps sanitized collisions unique and dispatches through original names", async () => {
+    const rawTools = [
+      {
+        serverName: "alpha.beta",
+        name: "read__item",
+        description: "first",
+        inputSchema: { type: "object" },
+      },
+      {
+        serverName: "alpha_beta",
+        name: "read__item",
+        description: "second",
+        inputSchema: { type: "object" },
+      },
+    ];
+    const exposure = buildMcpToolExposure(rawTools);
+    const names = exposure.tools.map((tool) => tool.function.name);
+
+    expect(new Set(names).size).toBe(2);
+    expect(exposure.routes.get(names[0])).toEqual({
+      serverName: "alpha.beta",
+      toolName: "read__item",
+    });
+
+    const callTool = vi.fn(async () => ({ content: [{ type: "text", text: "ok" }] }));
+    const client = new LLMClient(
+      { ...DEFAULT_SETTINGS, provider: "ollama", model: "test-model" },
+      {} as never,
+      "",
+      undefined,
+      {
+        getAllTools: () => rawTools,
+        callTool,
+      } as never,
+    );
+    let turn = 0;
+    (client as any).shouldUseCli = () => false;
+    (client as any)._streamChatSingleTurn = vi.fn(async () => {
+      turn += 1;
+      return turn === 1
+        ? {
+            text: "",
+            tool_calls: [{
+              id: "call-1",
+              function: { name: names[0], arguments: "{}" },
+            }],
+          }
+        : { text: "done" };
+    });
+
+    await client.streamChat([{ role: "user", content: "use tool" }], vi.fn());
+
+    expect(callTool).toHaveBeenCalledWith("alpha.beta", "read__item", {});
   });
 });
 

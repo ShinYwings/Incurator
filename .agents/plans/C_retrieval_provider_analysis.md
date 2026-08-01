@@ -12,6 +12,9 @@ Confirmed findings: F08–F13, F19–F22.
 - Quick Query and Sidechat must honor the same selected provider/model while
   preserving their different tool policies.
 - Every in-flight request has an independently cancelable lifetime.
+- A caller-owned request must not replace the sidebar foreground pointer, and
+  an already-aborted request must not launch any provider transport.
+- Provider-specific error mapping must preserve cancellation as `AbortError`.
 - MCP tool exposure may sanitize model-facing identifiers, but dispatch must use
   the original server and tool names.
 - Shutdown/timeout must settle every pending Promise exactly once.
@@ -24,9 +27,16 @@ Confirmed findings: F08–F13, F19–F22.
   still claims vectors are available.
 - One shared/cleared abort controller breaks CLI cancellation and overlapping
   request control.
+- A caller-owned Quick Query can still become the global foreground request,
+  causing sidebar Stop/session actions to cancel the wrong surface.
+- Cancellation during asynchronous context preparation can reach the provider
+  launch path with an already-aborted signal; Ollama rewrites aborts as
+  connectivity errors.
 - Non-streaming CLI drops the per-call model and GUI PATH augmentation.
 - MCP name sanitization is lossy and colliding.
 - MCP shutdown may clear pending requests without rejecting them.
+- MCP stdout is not generation-guarded, so late bytes from an exited child can
+  poison the replacement generation's shared newline-delimited JSON buffer.
 - Plugin backend commands have no timeout or output cap.
 - Reranker and embedding short responses silently truncate work.
 - Failover prompt traces retain the failed primary provider attribution.
@@ -57,12 +67,16 @@ requests in one shutdown function.
 - Validate embedding/reranker lengths and numeric values before storing/ranking.
 - Replace the single abort slot with request-owned handles and an explicit
   surface cancellation API; a shared slot may remain only as a pointer to the
-  foreground request, never as the source of truth.
+  foreground request, never as the source of truth. Requests with an explicit
+  owner signal do not replace the legacy sidebar foreground pointer.
+- Reject already-aborted provider work before and after asynchronous launch
+  preparation, and preserve `AbortError` through provider-specific mapping.
 - Pass model and augmented environment into every CLI path.
 - Build a bijective exposed-tool-name map; never reconstruct original names by
   splitting sanitized text.
 - Reject every pending MCP request before clearing state and wait for exit or a
-  bounded forced-kill completion.
+  bounded forced-kill completion. Guard stdout by process generation and reset
+  the protocol buffer when a generation starts.
 - Add command-class timeout/output policies to the plugin backend runner.
 - Finalize prompt trace provider/model after successful failover.
 - Parse prompt versions into numeric tuples and reject malformed versions at

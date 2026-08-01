@@ -241,7 +241,14 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
 - **Ephemeral**: It is a temporary window. Closing it with the `×` button or
   `Esc` discards that popover's exchange only — it never pollutes the chat
   sidebar history. Clicking outside an open popover only clears the floating
-  trigger button; it does not close existing popovers.
+  trigger button; it does not close existing popovers. Each open popover owns
+  its cancellation signal, so closing one does not stop another popover or the
+  chat sidebar, and it does not replace the sidebar's own Stop target. If a
+  popover is closed while PDF context is still being prepared, no provider
+  process or HTTP request starts afterward. Provider-specific error messages,
+  including Ollama reachability errors, do not replace normal cancellation.
+  Non-streaming CLI queries preserve the selected per-call model and the same
+  GUI-safe CLI search path as streaming queries.
 
 The passage you selected is sent as the primary context together with your
 question and the current page/outline as background, using the currently
@@ -781,6 +788,14 @@ stdio) and is provider-neutral. When the plugin runs its in-process agent loop
 against an HTTP provider (DeepSeek or Ollama) and feeds MCP tools to the model,
 it talks to that provider's `/v1/chat/completions` endpoint.
 
+The function names shown to a model are sanitized transport identifiers. The
+plugin keeps an explicit map back to each server's original tool name, including
+when punctuation or embedded separators would otherwise produce the same
+sanitized name. Restarting or stopping a server rejects its in-flight requests;
+a stale exit from the old process cannot mark the restarted server offline, and
+late stdout bytes from that process cannot enter the restarted server's fresh
+JSON framing buffer.
+
 As of **2026-06-05**, that tool-calling exchange follows the **OpenAI-compatible
 chat-completions convention** (`tools`, `tool_calls`, `role: "tool"`, and an
 empty-string `content` on tool-call turns). This is **not** a dependency on
@@ -972,6 +987,13 @@ sync); the granular **Add / Build / Sync / Lint / Reindex / Reset** steps live
 under an **Advanced** disclosure. For exact CLI behavior and flags, use the
 canonical [CLI Reference](USER_GUIDE.md#cli-reference). LLM Apply and Persona
 Save persist config.
+
+Backend commands are bounded so a hung subprocess cannot wait forever or grow
+memory without limit. Normal metadata/search/config operations allow up to 2
+minutes and 16 MiB of combined output; pipeline, import, model-download, and job
+operations allow up to 60 minutes and 64 MiB. Reaching a bound stops the process
+and reports a visible failure; long operations keep their larger policy instead
+of being truncated by the normal-command limits.
 
 ### Dashboard tabs (v0.3.3)
 

@@ -253,12 +253,26 @@ remains the Obsidian lifecycle entrypoint and may consume either the stable
 facades or explicit owner modules without changing command IDs, view types,
 settings fields, persisted DTOs, or backend command envelopes.
 
-### 1.4 Asynchronous lifecycle safety (v0.36.0)
+### 1.4 Asynchronous lifecycle safety (v0.36.0, strengthened in v0.40.1)
 
-- Each streaming HTTP request owns a locally captured `AbortController`. An
-  older request may clear the shared controller slot only while that slot still
-  points to its own controller, so abort and overlapping requests cannot null or
-  detach a newer request.
+- Every public provider request owns a locally captured `AbortController` for
+  its complete lifetime. `streamChat` and `complete` accept an optional caller
+  `AbortSignal`; surfaces that can overlap (including independent Quick Query
+  popovers) must create and abort their own signal. Closing one surface must not
+  abort another surface's request. A request with an explicit caller signal must
+  not replace the legacy foreground pointer used by sidebar controls.
+- `LLMClient.abort()` remains the foreground-control API for existing sidebar
+  stop/dismiss actions. The foreground pointer selects an active request but is
+  never the source of truth for another request's lifetime. When a newer request
+  finishes, an older still-active request becomes foreground again.
+- A provider request whose local signal is already aborted, including one
+  cancelled during asynchronous context preparation, must settle before any
+  HTTP or CLI transport launches. Provider-specific error classification must
+  rethrow `AbortError` unchanged.
+- Streaming and non-streaming CLI subprocesses bind to the request-local signal.
+  Non-streaming CLI construction must use the per-call model override and the
+  same GUI-safe augmented environment (`PATH` plus device-local CLI temp paths)
+  as streaming CLI construction.
 - Closing an External PDF view invalidates its render token before timer,
   observer, cache, and index cleanup. Any in-flight PDF render must discard its
   result instead of touching the closed view DOM.
@@ -850,6 +864,22 @@ The persisted current-schema field remains required. Runtime command
 preparation nevertheless normalizes malformed or legacy missing/null `args` to
 `[]` so a damaged setting cannot crash plugin startup before validation or UI
 repair.
+
+For HTTP-provider tool injection, model-facing MCP function identifiers are a
+sanitized transport detail. Each exposure pass must build an explicit,
+collision-free map from the exposed identifier to the original `(serverName,
+toolName)` pair; dispatch must never reconstruct original names by splitting or
+unsanitizing model text. If two original pairs sanitize to the same identifier,
+both remain callable under deterministic unique exposed names.
+
+MCP process shutdown rejects and removes every pending JSON-RPC request before
+clearing runtime state. It then waits for graceful exit, sends `SIGTERM` after a
+bounded grace period, escalates to `SIGKILL` if necessary, and waits for a final
+bounded completion. Late exit events from an old process generation must not
+clear a restarted server's process or ready state. Request timeout handles are
+cleared on response, exit, and shutdown so each Promise settles exactly once.
+Each generation starts with an empty newline-delimited JSON buffer, and stdout
+from a child that is no longer current must be ignored.
 
 ## 3. Model Catalogue
 
@@ -1456,6 +1486,13 @@ Rules:
   or when the backend command cannot return JSON.
 - Plugin-local Incurator calls must use backend JSON commands only. They must
   not discover or call Incurator MCP tools as a fallback.
+- The vault-local backend runner applies a command-class resource policy. Normal
+  metadata/search/config commands have a 2-minute timeout and 16 MiB combined
+  stdout/stderr limit. Long pipeline/import/model/job commands have a 60-minute
+  timeout and 64 MiB combined limit. Exceeding either bound fails visibly,
+  terminates the subprocess, escalates to a forced kill after a bounded grace
+  period, and settles the caller exactly once. Long commands must not inherit
+  the normal-command bounds.
 
 ## 8. Current Rules
 
