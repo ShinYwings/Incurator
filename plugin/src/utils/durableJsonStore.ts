@@ -4,6 +4,7 @@ export interface VaultTextAdapter {
   write(path: string, data: string): Promise<void>;
   rename(source: string, target: string): Promise<void>;
   remove(path: string): Promise<void>;
+  process(path: string, update: (raw: string) => string): Promise<string>;
 }
 
 export type JsonObjectState =
@@ -52,8 +53,8 @@ export async function atomicWriteVaultText(
     .toString(36)
     .slice(2)}`;
 
-  await adapter.write(tempPath, data);
   try {
+    await adapter.write(tempPath, data);
     await adapter.rename(tempPath, path);
   } catch (error) {
     try {

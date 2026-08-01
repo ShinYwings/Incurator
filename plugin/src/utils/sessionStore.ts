@@ -25,6 +25,19 @@ export type SessionStoreState =
 
 const adapterQueues = new WeakMap<object, Map<string, Promise<void>>>();
 
+function parseSessionStoreText(raw: string): SessionData {
+  const parsed = JSON.parse(raw) as unknown;
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    Array.isArray(parsed) ||
+    !Array.isArray((parsed as { chatSessions?: unknown }).chatSessions)
+  ) {
+    throw new TypeError("session store must contain a chatSessions array");
+  }
+  return normalizeSessionData(parsed as Partial<SessionData>);
+}
+
 function queueFor(adapter: VaultTextAdapter): Map<string, Promise<void>> {
   let queue = adapterQueues.get(adapter);
   if (!queue) {
@@ -43,7 +56,7 @@ export async function readSessionStore(
   try {
     return {
       kind: "valid",
-      value: normalizeSessionData(state.value as Partial<SessionData>),
+      value: parseSessionStoreText(state.raw),
     };
   } catch (error) {
     return { kind: "corrupt", raw: state.raw, error };
@@ -57,6 +70,9 @@ export function writeMergedSessionStore(
 ): Promise<SessionData> {
   const queues = queueFor(adapter);
   const previous = queues.get(path) ?? Promise.resolve();
+  const localSnapshot = parseSessionStoreText(
+    JSON.stringify(sanitizeSessionDataForSync(local))
+  );
   let result: SessionData;
   const operation = previous
     .catch(() => undefined)
@@ -65,10 +81,30 @@ export function writeMergedSessionStore(
       if (canonical.kind === "corrupt" || canonical.kind === "unreadable") {
         throw new SessionStoreBlockedError(canonical.kind);
       }
-      result = sanitizeSessionDataForSync(
-        canonical.kind === "valid" ? mergeSessionData(local, canonical.value) : local
-      );
-      await atomicWriteVaultText(adapter, path, JSON.stringify(result, null, 2));
+      if (canonical.kind === "missing") {
+        result = sanitizeSessionDataForSync(localSnapshot);
+        await atomicWriteVaultText(adapter, path, JSON.stringify(result, null, 2));
+        return;
+      }
+
+      const committedRaw = await adapter.process(path, (currentRaw) => {
+        let current: SessionData;
+        try {
+          current = parseSessionStoreText(currentRaw);
+        } catch {
+          throw new SessionStoreBlockedError("corrupt");
+        }
+        return JSON.stringify(
+          sanitizeSessionDataForSync(mergeSessionData(localSnapshot, current)),
+          null,
+          2
+        );
+      });
+      try {
+        result = parseSessionStoreText(committedRaw);
+      } catch {
+        throw new SessionStoreBlockedError("corrupt");
+      }
     });
 
   queues.set(path, operation);

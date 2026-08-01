@@ -178,7 +178,7 @@ describe("Session sync path hygiene", () => {
 });
 
 describe("Zotero profile durable storage", () => {
-  it("distinguishes invalid canonical state and uses atomic replacement", () => {
+  it("distinguishes invalid canonical state and uses commit-time processing", () => {
     const src = mainSource();
     const methodStart = src.indexOf("async loadZoteroProfiles(): Promise<void>");
     const methodEnd = src.indexOf("  async deleteZoteroProfile", methodStart);
@@ -186,7 +186,8 @@ describe("Zotero profile durable storage", () => {
 
     expect(body).toContain("readJsonObjectState(");
     expect(body).toContain('canonical.kind === "corrupt" || canonical.kind === "unreadable"');
-    expect(body).toContain("atomicWriteVaultText(");
+    expect(body).toContain("writeMergedZoteroProfilesStore(");
+    expect(body).toContain("ZoteroProfileStoreBlockedError");
     expect(body).not.toContain("this.app.vault.adapter.write(");
     expect(src).toContain("private zoteroProfilesPersistPromise");
     expect(src).toContain("this.zoteroProfilesPersistPromise = this.zoteroProfilesPersistPromise");

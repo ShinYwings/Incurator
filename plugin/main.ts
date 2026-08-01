@@ -56,9 +56,10 @@ import { resolveZoteroRefreshProfile } from "./src/zotero/profileBinding";
 import {
   ZOTERO_PROFILES_PATH,
   ZoteroProfilesFile,
+  ZoteroProfileStoreBlockedError,
   extractLegacyZoteroProfiles,
-  mergeZoteroProfilesFiles,
   parseZoteroProfilesFile,
+  writeMergedZoteroProfilesStore,
 } from "./src/zotero/profileStore";
 import { IncuratorDashboardModal } from "./src/ui/incuratorDashboardModal";
 
@@ -97,7 +98,6 @@ import {
   writeMergedSessionStore,
 } from "./src/utils/sessionStore";
 import {
-  atomicWriteVaultText,
   readJsonObjectState,
 } from "./src/utils/durableJsonStore";
 import { normalizeSessionData } from "./src/utils/sessionData";
@@ -1506,46 +1506,33 @@ export default class ObsidianAIAgent extends Plugin {
   /** Persist profiles through a serialized read-merge-write queue. */
   async saveZoteroProfiles(): Promise<void> {
     if (!this._zoteroProfilesLoaded) return;
+    const local: ZoteroProfilesFile = {
+      profiles: (this.settings.zoteroProfiles || []).map((profile) => ({ ...profile })),
+      recentItems: [...(this.settings.recentZoteroItems || [])],
+      deletedProfiles: { ...this.deletedZoteroProfiles },
+    };
     this.zoteroProfilesPersistPromise = this.zoteroProfilesPersistPromise
       .catch(() => undefined)
       .then(async () => {
         if (!(await this.app.vault.adapter.exists(".curator"))) {
           await this.app.vault.adapter.mkdir(".curator");
         }
-        const local: ZoteroProfilesFile = {
-          profiles: this.settings.zoteroProfiles || [],
-          recentItems: this.settings.recentZoteroItems || [],
-          deletedProfiles: this.deletedZoteroProfiles,
-        };
-        let store = local;
-        const canonical = await readJsonObjectState(
-          this.app.vault.adapter,
-          ZOTERO_PROFILES_PATH
-        );
-        if (canonical.kind === "corrupt" || canonical.kind === "unreadable") {
-          this._zoteroProfilesLoaded = false;
-          throw new Error(
-            `${ZOTERO_PROFILES_PATH} became ${canonical.kind}; refusing to overwrite it`
+        let store: ZoteroProfilesFile;
+        try {
+          store = await writeMergedZoteroProfilesStore(
+            this.app.vault.adapter,
+            ZOTERO_PROFILES_PATH,
+            local
           );
-        }
-        if (canonical.kind === "valid") {
-          const disk = parseZoteroProfilesFile(canonical.raw);
-          if (!disk) {
+        } catch (error) {
+          if (error instanceof ZoteroProfileStoreBlockedError) {
             this._zoteroProfilesLoaded = false;
-            throw new Error(
-              `${ZOTERO_PROFILES_PATH} contains invalid data; refusing to overwrite it`
-            );
           }
-          store = mergeZoteroProfilesFiles(disk, local);
+          throw error;
         }
         this.settings.zoteroProfiles = store.profiles;
         this.settings.recentZoteroItems = store.recentItems;
         this.deletedZoteroProfiles = store.deletedProfiles;
-        await atomicWriteVaultText(
-          this.app.vault.adapter,
-          ZOTERO_PROFILES_PATH,
-          JSON.stringify(store, null, 2)
-        );
       });
     return this.zoteroProfilesPersistPromise;
   }
@@ -1619,13 +1606,16 @@ export default class ObsidianAIAgent extends Plugin {
   }
 
   async saveSessionData(): Promise<void> {
+    const snapshot = normalizeSessionData(
+      JSON.parse(JSON.stringify(this.sessionData)) as Partial<SessionData>
+    );
     this.sessionPersistPromise = this.sessionPersistPromise
       .catch(() => undefined)
-      .then(() => this.writeSessionData());
+      .then(() => this.writeSessionData(snapshot));
     return this.sessionPersistPromise;
   }
 
-  private async writeSessionData(): Promise<void> {
+  private async writeSessionData(snapshot: SessionData): Promise<void> {
     if (!this.sessionStoreWritable) {
       throw new Error("canonical session store is read-only this session");
     }
@@ -1638,7 +1628,7 @@ export default class ObsidianAIAgent extends Plugin {
       this.sessionData = await writeMergedSessionStore(
         this.app.vault.adapter,
         this._sessionsPath,
-        this.sessionData
+        snapshot
       );
     } catch (error) {
       if (error instanceof SessionStoreBlockedError) {

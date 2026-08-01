@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import importlib
 import os
+import secrets
+import stat
 import tempfile
 import threading
 from collections.abc import Iterator
@@ -55,21 +57,47 @@ def atomic_write_text(path: Path, text: str, *, mode: int | None = None) -> None
     """Replace ``path`` atomically, retaining the old bytes if replacement fails."""
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temp_name = tempfile.mkstemp(
-        dir=path.parent,
-        prefix=f".{path.name}.",
-        suffix=".tmp",
-    )
-    temp_path = Path(temp_name)
+    selected_mode = mode
+    if selected_mode is None:
+        try:
+            selected_mode = stat.S_IMODE(path.stat().st_mode)
+        except FileNotFoundError:
+            selected_mode = None
+
+    create_mode = selected_mode if selected_mode is not None else 0o666
+    descriptor = -1
+    temp_path: Path | None = None
+    for _attempt in range(128):
+        candidate = path.parent / f".{path.name}.{secrets.token_hex(12)}.tmp"
+        try:
+            descriptor = os.open(
+                candidate,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                create_mode,
+            )
+            temp_path = candidate
+            break
+        except FileExistsError:
+            continue
+    if temp_path is None:
+        raise FileExistsError(f"could not create a unique temporary sibling for {path}")
+
     try:
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        handle = os.fdopen(descriptor, "w", encoding="utf-8")
+        descriptor = -1
+        with handle:
             handle.write(text)
             handle.flush()
+            if selected_mode is not None and os.name != "nt":
+                os.fchmod(handle.fileno(), selected_mode)
             os.fsync(handle.fileno())
-        if mode is not None:
-            os.chmod(temp_path, mode)
         os.replace(temp_path, path)
     finally:
+        if descriptor >= 0:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
         try:
             temp_path.unlink(missing_ok=True)
         except OSError:

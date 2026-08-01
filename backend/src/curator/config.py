@@ -542,7 +542,14 @@ def save_config(paths: WikiPaths, config: dict) -> None:
     if machine_local:
         save_global_config(machine_local)
     paths.internal.mkdir(parents=True, exist_ok=True)
-    update_config_file(paths.config_file, lambda _existing: copy.deepcopy(vault_only))
+
+    def merge_vault_config(existing: dict) -> dict:
+        current = copy.deepcopy(existing)
+        for key in MACHINE_LOCAL_CONFIG_KEYS:
+            current.pop(key, None)
+        return _merge_dict(current, vault_only)
+
+    update_config_file(paths.config_file, merge_vault_config)
 
 
 def find_wiki_root(start: Path | None = None) -> Path | None:
