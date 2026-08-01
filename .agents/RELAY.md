@@ -9,6 +9,7 @@ filesystem access to external Zotero/iCloud PDFs.
 ## Plan Reference
 
 - Branch: `hotfix/v0.39.2-equation-reference-context`
+- Draft PR: `https://github.com/ShinYwings/Incurator/pull/103`
 - Completed plan/evidence/domain artifacts are preserved at implementation
   commit `b1dc17e` and deleted from the active workspace for release.
 
@@ -33,18 +34,22 @@ filesystem access to external Zotero/iCloud PDFs.
 - Disposable PDF smoke passed without mutating production or active testbed.
 - One isolated live Antigravity replay succeeded with no native-tool denial.
 - Implementation commit: `b1dc17e`.
-- v0.39.2 manifests, changelog, roadmap cleanup, and plan deletion are ready;
+- Release commit: `c018a34` (`chore(release): v0.39.2`).
+- v0.39.2 manifests, changelog, roadmap cleanup, and plan deletion are complete;
   version/spec consistency passed 10 tests.
+- Branch is pushed and draft PR #103 is open against `master`.
 
 ## Critical Context / Blockers
 
 - No blocker remains.
 - Do not repeat the live-provider replay; the one permitted call is complete.
 - Do not mutate production `second_brain` or an active testbed.
-- v0.39.x stability work remains queued behind this hotfix.
+- Human review/merge of PR #103 is the only remaining v0.39.2 action.
+- v0.39.x stability work remains queued behind this hotfix merge.
 
 ## Immediate Next Action
 
-1. Create `chore(release): v0.39.2`.
-2. Push the branch and open the hotfix PR against `master`.
-3. Record the PR in relay state without repeating validation or provider calls.
+1. Human reviews and merges draft PR #103.
+2. After merge, fast-forward local `master` and reset relay to the documented
+   minimal IDLE stub.
+3. Resume the v0.39.x stability audit at P6 on a fresh branch from `master`.
