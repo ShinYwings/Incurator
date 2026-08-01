@@ -23,6 +23,7 @@ import type {
   PluginSettings,
   LLMMessage,
   LLMContentPart,
+  MCPTool,
   StreamChunk,
   ProviderUsage,
 } from "../../types";
@@ -512,6 +513,47 @@ export const ADAPTERS: Record<LLMProvider, ProviderAdapter> = {
 const execFileAsync = promisify(execFile);
 const CLI_TIMEOUT_MS = 5 * 60 * 1000;
 
+interface ExposedMcpTool {
+  type: "function";
+  function: {
+    name: string;
+    description?: string;
+    parameters: MCPTool["inputSchema"];
+  };
+}
+
+interface McpToolRoute {
+  serverName: string;
+  toolName: string;
+}
+
+/** Build a bijective model-facing tool list without reverse-parsing sanitized names. */
+export function buildMcpToolExposure(
+  rawTools: Array<MCPTool & { serverName: string }>,
+): { tools: ExposedMcpTool[]; routes: Map<string, McpToolRoute> } {
+  const routes = new Map<string, McpToolRoute>();
+  const tools = rawTools.map((tool) => {
+    const sanitized = `${tool.serverName}__${tool.name}`
+      .replace(/[^a-zA-Z0-9_-]/g, "_") || "mcp_tool";
+    let exposedName = sanitized;
+    let suffix = 2;
+    while (routes.has(exposedName)) {
+      exposedName = `${sanitized}__${suffix}`;
+      suffix += 1;
+    }
+    routes.set(exposedName, { serverName: tool.serverName, toolName: tool.name });
+    return {
+      type: "function" as const,
+      function: {
+        name: exposedName,
+        description: tool.description,
+        parameters: tool.inputSchema,
+      },
+    };
+  });
+  return { tools, routes };
+}
+
 export class LLMClient {
   private getAugmentedEnv(extraEnv?: Record<string, string | undefined>): NodeJS.ProcessEnv {
     const home = process.env.HOME || process.env.USERPROFILE || "";
@@ -536,7 +578,9 @@ export class LLMClient {
   }
   private settings: PluginSettings;
   private auth: CLIAuthResolver;
-  private abortController: AbortController | null = null;
+  private activeRequestControllers = new Set<AbortController>();
+  private foregroundRequestController: AbortController | null = null;
+  private requestAbortCleanup = new WeakMap<AbortController, () => void>();
   // v0.28.0 interactive chat image channel: per-CLI-call temp PNG dir + paths.
   // Set by messagesToCliPrompt → contentToCliText, read by buildCliCommand to
   // scope Read, and cleaned up in the CLI/stream finally. See PLUGIN_SCHEMA §2.1.3.
@@ -569,10 +613,57 @@ export class LLMClient {
     this.settings = settings;
   }
 
-  /** Abort any in-flight request */
+  /** Abort the foreground request selected by the active UI surface. */
   abort(): void {
-    this.abortController?.abort();
-    this.abortController = null;
+    this.foregroundRequestController?.abort();
+  }
+
+  private beginRequest(ownerSignal?: AbortSignal): AbortController {
+    const controller = new AbortController();
+    if (ownerSignal) {
+      const abortFromOwner = () => controller.abort(ownerSignal.reason);
+      if (ownerSignal.aborted) {
+        abortFromOwner();
+      } else {
+        ownerSignal.addEventListener("abort", abortFromOwner, { once: true });
+        this.requestAbortCleanup.set(controller, () => {
+          ownerSignal.removeEventListener("abort", abortFromOwner);
+        });
+      }
+    }
+    this.activeRequestControllers.add(controller);
+    this.foregroundRequestController = controller;
+    return controller;
+  }
+
+  private endRequest(controller: AbortController): void {
+    this.requestAbortCleanup.get(controller)?.();
+    this.requestAbortCleanup.delete(controller);
+    this.activeRequestControllers.delete(controller);
+    if (this.foregroundRequestController === controller) {
+      const remaining = Array.from(this.activeRequestControllers);
+      this.foregroundRequestController = remaining[remaining.length - 1] ?? null;
+    }
+  }
+
+  private withAbort<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+    if (signal.aborted) {
+      return Promise.reject(new DOMException("aborted", "AbortError"));
+    }
+    return new Promise<T>((resolve, reject) => {
+      const onAbort = () => reject(new DOMException("aborted", "AbortError"));
+      signal.addEventListener("abort", onAbort, { once: true });
+      operation.then(
+        (value) => {
+          signal.removeEventListener("abort", onAbort);
+          resolve(value);
+        },
+        (error) => {
+          signal.removeEventListener("abort", onAbort);
+          reject(error);
+        },
+      );
+    });
   }
 
   /** Test MCP Connection */
@@ -674,10 +765,12 @@ export class LLMClient {
   async streamChat(
     messages: LLMMessage[],
     onChunk: (chunk: StreamChunk) => void,
-    opts?: { toolPolicy?: ToolPolicy }
+    opts?: { toolPolicy?: ToolPolicy; signal?: AbortSignal }
   ): Promise<string> {
-    await this.beforeProviderLaunch?.();
-    const toolPolicy: ToolPolicy = opts?.toolPolicy ?? "auto";
+    const controller = this.beginRequest(opts?.signal);
+    try {
+      await this.beforeProviderLaunch?.();
+      const toolPolicy: ToolPolicy = opts?.toolPolicy ?? "auto";
     // Capture the manager once so its presence is stable across the async tool
     // loop below (no state drift if this.mcpManager is swapped mid-flight) and so
     // TypeScript narrows it to non-null after the early return — no `!` needed.
@@ -689,19 +782,18 @@ export class LLMClient {
     // TypeScript narrow it to non-null below without a `!` assertion.
     const injectTools = shouldInjectMcpTools(toolPolicy, Boolean(mcpManager), this.shouldUseCli(messages));
     if (!injectTools || !mcpManager) {
-      const { text } = await this._streamChatSingleTurn(messages, onChunk, undefined, toolPolicy);
+      const { text } = await this._streamChatSingleTurn(
+        messages,
+        onChunk,
+        undefined,
+        toolPolicy,
+        controller,
+      );
       return text;
     }
 
     const rawTools = mcpManager.getAllTools();
-    const tools = rawTools.map((t) => ({
-      type: "function",
-      function: {
-        name: `${t.serverName}__${t.name}`.replace(/[^a-zA-Z0-9_-]/g, "_"),
-        description: t.description,
-        parameters: t.inputSchema,
-      },
-    }));
+    const { tools, routes } = buildMcpToolExposure(rawTools);
 
     let currentMessages = [...messages];
     let fullFinalText = "";
@@ -714,7 +806,13 @@ export class LLMClient {
       // Don't pass tools if it's the last turn to force a final answer
       const activeTools = isLastTurn ? undefined : (tools.length > 0 ? tools : undefined);
 
-      const { text, tool_calls } = await this._streamChatSingleTurn(currentMessages, onChunk, activeTools, toolPolicy);
+      const { text, tool_calls } = await this._streamChatSingleTurn(
+        currentMessages,
+        onChunk,
+        activeTools,
+        toolPolicy,
+        controller,
+      );
       fullFinalText += text;
 
       if (!tool_calls || tool_calls.length === 0) {
@@ -732,11 +830,8 @@ export class LLMClient {
       for (const tc of tool_calls) {
         onChunk({ text: `\n> Running tool: ${tc.function.name}...\n`, done: false, eventType: "status" });
         try {
-          // e.g. "serverName__toolName"
-          const splitIdx = tc.function.name.indexOf("__");
-          if (splitIdx === -1) throw new Error("Invalid tool name format");
-          const serverName = tc.function.name.substring(0, splitIdx);
-          const toolName = tc.function.name.substring(splitIdx + 2);
+          const route = routes.get(tc.function.name);
+          if (!route) throw new Error(`Unknown MCP tool: ${tc.function.name}`);
           
           let args = {};
           try {
@@ -745,7 +840,7 @@ export class LLMClient {
             throw new Error(`Invalid JSON arguments: ${tc.function.arguments}`);
           }
 
-          const result = await mcpManager.callTool(serverName, toolName, args);
+          const result = await mcpManager.callTool(route.serverName, route.toolName, args);
           const resultContent = result.content.map(c => c.text).join("\n");
           
           currentMessages.push({
@@ -767,27 +862,31 @@ export class LLMClient {
     }
 
     return fullFinalText;
+    } finally {
+      this.endRequest(controller);
+    }
   }
 
   private async _streamChatSingleTurn(
     messages: LLMMessage[],
     onChunk: (chunk: StreamChunk) => void,
     tools?: any[],
-    toolPolicy: ToolPolicy = "auto"
+    toolPolicy: ToolPolicy = "auto",
+    requestController?: AbortController,
   ): Promise<{ text: string; tool_calls?: any[] }> {
-    const controller = new AbortController();
-    this.abortController = controller;
-    const provider = this.settings.provider;
+    const ownsController = requestController === undefined;
+    const controller = requestController ?? this.beginRequest();
+    try {
+      const provider = this.settings.provider;
 
     if (this.shouldUseCli(messages)) {
-      try {
-        const text = await this.streamChatViaCli(messages, onChunk, toolPolicy);
-        return { text };
-      } finally {
-        if (this.abortController === controller) {
-          this.abortController = null;
-        }
-      }
+      const text = await this.streamChatViaCli(
+        messages,
+        onChunk,
+        toolPolicy,
+        controller.signal,
+      );
+      return { text };
     }
 
     // For Ollama, refresh the adapter host from current settings
@@ -854,7 +953,12 @@ export class LLMClient {
           }
           this.auth.invalidate(provider);
           new Notice(`${provider} HTTP auth failed. Retrying through the provider CLI login session.`);
-          const text = await this.streamChatViaCli(messages, onChunk, toolPolicy);
+          const text = await this.streamChatViaCli(
+            messages,
+            onChunk,
+            toolPolicy,
+            controller.signal,
+          );
           return { text };
         }
         throw new Error(`LLM API error ${response.status}: ${errorText.slice(0, 200)}`);
@@ -968,14 +1072,13 @@ export class LLMClient {
         throw new Error(formatQuotaErrorMessage(provider, msg));
       }
       throw err;
-    } finally {
-      if (this.abortController === controller) {
-        this.abortController = null;
-      }
     }
 
     const tool_calls = toolCallsMap.size > 0 ? Array.from(toolCallsMap.values()) : undefined;
     return { text: fullText, tool_calls };
+    } finally {
+      if (ownsController) this.endRequest(controller);
+    }
   }
 
   /**
@@ -983,10 +1086,12 @@ export class LLMClient {
    */
   async complete(
     messages: LLMMessage[],
-    opts?: { model?: string; toolPolicy?: ToolPolicy }
+    opts?: { model?: string; toolPolicy?: ToolPolicy; signal?: AbortSignal }
   ): Promise<string> {
-    await this.beforeProviderLaunch?.();
-    const provider = this.settings.provider;
+    const controller = this.beginRequest(opts?.signal);
+    try {
+      await this.beforeProviderLaunch?.();
+      const provider = this.settings.provider;
     // Per-call model override (v0.21.0): a task-specialized light model (e.g.
     // Convert-to-LaTeX) may run on a smaller model than the main chat `model`.
     // Empty/unset falls back to the configured model, preserving prior behavior.
@@ -994,7 +1099,7 @@ export class LLMClient {
     const toolPolicy: ToolPolicy = opts?.toolPolicy ?? "auto";
 
     if (this.shouldUseCli(messages)) {
-      return this.completeViaCli(messages, toolPolicy);
+      return this.completeViaCli(messages, toolPolicy, model, controller.signal);
     }
 
     // Ollama uses fetch for non-streaming too (requestUrl may not reach localhost in all envs)
@@ -1008,6 +1113,7 @@ export class LLMClient {
           method: "POST",
           headers: adapter.buildHeaders({ type: "bearer", token: "" }),
           body: JSON.stringify(body),
+          signal: controller.signal,
         });
         if (!res.ok) throw new Error(`Ollama error ${res.status}: ${await res.text()}`);
         return adapter.parseFullResponse(await res.json());
@@ -1037,15 +1143,21 @@ export class LLMClient {
     (body as Record<string, unknown>).model = model;
 
     try {
-      const response = await requestUrl({
-        url,
-        method: "POST",
-        headers,
-        body: JSON.stringify(body),
-      });
+      const response = await this.withAbort(
+        requestUrl({
+          url,
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+        }),
+        controller.signal,
+      );
 
       return adapter.parseFullResponse(response.json);
     } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        throw err;
+      }
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("401") || msg.includes("403")) {
         if (provider === "deepseek") {
@@ -1054,12 +1166,15 @@ export class LLMClient {
         }
         this.auth.invalidate(provider);
         new Notice(`${provider} HTTP auth failed. Retrying through the provider CLI login session.`);
-        return this.completeViaCli(messages, toolPolicy);
+        return this.completeViaCli(messages, toolPolicy, model, controller.signal);
       }
       if (isQuotaErrorMessage(msg)) {
         throw new Error(formatQuotaErrorMessage(provider, msg));
       }
       throw new Error(`LLM request failed: ${msg}`);
+    }
+    } finally {
+      this.endRequest(controller);
     }
   }
 
@@ -1071,7 +1186,8 @@ export class LLMClient {
   private streamChatViaCli(
     messages: LLMMessage[],
     onChunk: (chunk: StreamChunk) => void,
-    toolPolicy: ToolPolicy = "auto"
+    toolPolicy: ToolPolicy = "auto",
+    signal: AbortSignal,
   ): Promise<string> {
     return new Promise((resolve, reject) => {
       const provider = this.settings.provider;
@@ -1265,11 +1381,10 @@ export class LLMClient {
         child.stdin?.end();
       }
 
-      if (this.abortController) {
-        this.abortController.signal.addEventListener("abort", () => {
-          child.kill();
-        });
-      }
+      const abortChild = () => child.kill();
+      if (signal.aborted) abortChild();
+      else signal.addEventListener("abort", abortChild, { once: true });
+      const detachAbort = () => signal.removeEventListener("abort", abortChild);
 
       const stdoutDecoder = new TextDecoder("utf-8");
       const stderrDecoder = new TextDecoder("utf-8");
@@ -1380,6 +1495,7 @@ export class LLMClient {
       });
 
       child.on("close", (code) => {
+        detachAbort();
         // v0.28.0: clean the per-call image dir on every terminal path (success,
         // error-exit, and abort → kill → close all flow through here).
         this.cleanupChatImageDir(imageRunDir);
@@ -1456,7 +1572,7 @@ export class LLMClient {
           provider === "openai"
             ? codexAnswerText.trim() || trimmedOutput
             : trimmedOutput;
-        const aborted = this.abortController?.signal.aborted;
+        const aborted = signal.aborted;
         const combinedForQuota = `${fullStderr}\n${fullOutput}`;
 
         if (aborted) {
@@ -1498,6 +1614,7 @@ export class LLMClient {
       });
 
       child.on("error", (err) => {
+        detachAbort();
         // spawn failure may fire without a "close"; clean the image dir here too.
         this.cleanupChatImageDir(imageRunDir);
         const msg = err instanceof Error ? err.message : String(err);
@@ -1663,7 +1780,9 @@ export class LLMClient {
 
   private async completeViaCli(
     messages: LLMMessage[],
-    toolPolicy: ToolPolicy = "auto"
+    toolPolicy: ToolPolicy = "auto",
+    model = this.settings.model,
+    signal?: AbortSignal,
   ): Promise<string> {
     const provider = this.settings.provider;
     const prompt = this.messagesToCliPrompt(messages);
@@ -1676,15 +1795,23 @@ export class LLMClient {
             `codex-output-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`
           )
         : undefined;
-    const { command, args, env } = this.buildCliCommand(prompt, outputFile, provider, false, toolPolicy);
+    const { command, args, env } = this.buildCliCommand(
+      prompt,
+      outputFile,
+      provider,
+      false,
+      toolPolicy,
+      model,
+    );
 
     try {
       const { stdout, stderr } = await execFileAsync(command, args, {
         cwd,
-        env: { ...process.env, ...env },
+        env: this.getAugmentedEnv(env),
         timeout: CLI_TIMEOUT_MS,
         maxBuffer: 10 * 1024 * 1024,
         windowsHide: true,
+        signal,
       });
 
       if (provider === "claude") {
@@ -1711,6 +1838,7 @@ export class LLMClient {
       }
       throw new Error(`${provider} CLI returned an empty response.`);
     } catch (err: unknown) {
+      if (err instanceof Error && err.name === "AbortError") throw err;
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("ENOENT")) {
         throw new Error(
@@ -1867,14 +1995,15 @@ export class LLMClient {
     outputFile?: string,
     provider?: LLMProvider,
     preferStdin = false,
-    toolPolicy: ToolPolicy = "auto"
+    toolPolicy: ToolPolicy = "auto",
+    modelOverride?: string,
   ): {
     command: string;
     args: string[];
     env?: Record<string, string>;
     stdin?: string;
   } {
-    const model = this.settings.model;
+    const model = modelOverride?.trim() || this.settings.model;
     const p = provider ?? this.settings.provider;
     // FAIL-OPEN GUARD: toolPolicy defaults to "auto" (full tools). Any EPHEMERAL surface
     // (popover, inline preview, …) MUST pass toolPolicy:"none" — a call site that omits

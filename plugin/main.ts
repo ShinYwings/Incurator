@@ -100,6 +100,10 @@ import {
 import {
   readJsonObjectState,
 } from "./src/utils/durableJsonStore";
+import {
+  backendCommandPolicy,
+  collectBackendProcess,
+} from "./src/utils/backendProcess";
 import { normalizeSessionData } from "./src/utils/sessionData";
 import { vaultMachineCacheDir } from "./src/utils/machineCache";
 import {
@@ -992,18 +996,15 @@ export default class ObsidianAIAgent extends Plugin {
       };
     }
     const prefixArgs = this.settings.incuratorBackendArgs || [];
-    return new Promise((resolve) => {
+    try {
       const cp = spawn(command, [...prefixArgs, ...cmdArgs], { cwd, env: process.env });
-      let out = "";
-      let err = "";
-      cp.stdout?.on("data", (d: Buffer) => out += d.toString());
-      cp.stderr?.on("data", (d: Buffer) => err += d.toString());
-      cp.on("error", (e) => resolve({ ok: false, error: e.message }));
-      cp.on("close", (code) => {
-        if (code === 0) resolve({ ok: true, output: out });
-        else resolve({ ok: false, output: out, error: err || out || `Exit code ${code}` });
-      });
-    });
+      return await collectBackendProcess(cp, backendCommandPolicy(cmdArgs));
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   async runBackendJsonCommand(cmdArgs: string[]): Promise<any> {

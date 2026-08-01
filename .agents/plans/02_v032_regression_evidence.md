@@ -1,16 +1,17 @@
 # v0.32.0+ Stability Regression Audit — Active Evidence Ledger
 
 Updated: 2026-08-01
-Rollback anchor for P6: merged v0.39.2 relay-reset head `346fcdb`.
+Rollback anchor for P7: merged v0.40.0 relay-reset head `57665c7`.
 
 ## Completed Boundary
 
-- P1–P5 are merged; P6 is verified on the v0.39.3 release branch and its
-  completed domain analysis is preserved in Git history.
+- P1–P6 are merged; P6 shipped in v0.40.0 after persistence review hardening
+  and its completed domain analysis is preserved in Git history.
 - v0.39.1 closed source deletion, serving-state eviction, and deterministic
   post-publish projection recovery.
 - v0.39.2 closed latest-user PDF equation-reference context recovery.
-- v0.39.3 closes durable-state integrity findings F14–F16.
+- v0.40.0 closes durable-state integrity findings F14–F16 plus commit-boundary
+  config/plugin merge and permission regressions found during review.
 
 ## P6 Findings
 
@@ -55,6 +56,9 @@ redaction fixtures.
   PR #104: `https://github.com/ShinYwings/Incurator/pull/104`.
 - GitHub CI passed on delivery head `953a408`: backend, plugin, and version
   consistency all green for push/PR events (one duplicate version job skipped).
+- Review follow-up promoted the unreleased patch to v0.40.0 because atomic
+  plugin processing requires Obsidian 1.1.0. Successor PR #105 merged as
+  `066a158`; final local/backend/plugin gates and latest-head CI were green.
 
 ## P7 Findings
 
@@ -64,6 +68,26 @@ redaction fixtures.
 Required proof: overlapping request tests, dismiss/abort tests, MCP collision
 and restart tests, hung-process timeout tests, and legitimate long-command
 tests.
+
+### P7 Baseline — v0.40.1
+
+- Branch/base: `release/v0.40.1` from clean merged relay-reset head `57665c7`.
+- Target: patch v0.40.1; no schema/public-contract change is planned.
+- Docs-first contract update: plugin lifecycle, external MCP, Quick Query, and
+  backend command bounds are synchronized in the English guide, Korean guide,
+  and plugin schema.
+- Red phase: 8 focused failures reproduced request overlap/foreground restore,
+  caller-owned CLI cancellation, dropped CLI model/PATH, MCP identifier
+  collision, pending shutdown, missing forced kill, stale restart exit, and the
+  absent backend-boundary module. The remaining 67 focused tests passed.
+- Green phase: `npx tsc --noEmit` plus 107 focused provider/MCP/backend/Quick
+  Query tests passed; the expanded focused set passes 99/99 after cancellation
+  shutdown hardening.
+- Full plugin validation from `plugin/`: 769/769 Vitest tests passed and the
+  production bundle built. A root-cwd Vitest invocation was discarded because
+  `pluginCompatibility.test.ts` intentionally resolves manifests from the
+  plugin working directory; the canonical plugin-cwd invocation is green.
+- Full repository gates, release metadata, delivery, and CI: pending.
 
 ## P8 Findings
 

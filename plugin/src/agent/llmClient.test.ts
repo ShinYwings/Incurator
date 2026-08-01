@@ -17,6 +17,7 @@ import {
 } from "./llm/messageUtils";
 import {
   ADAPTERS,
+  buildMcpToolExposure,
   LLMClient,
   syncAgyHeadlessReadPermission,
 } from "./llm/LLMClient";
@@ -120,6 +121,58 @@ describe("LLM request lifecycle hardening", () => {
     await second;
   });
 
+  it("keeps caller-owned overlapping requests independently cancelable", async () => {
+    const client = httpClient({
+      resolveCredential: async () => ({ type: "bearer", token: "token" }),
+    });
+    const pending: Array<(response: Response) => void> = [];
+    const signals: AbortSignal[] = [];
+    vi.stubGlobal("fetch", vi.fn((_url: string, init: RequestInit) => {
+      signals.push(init.signal as AbortSignal);
+      return new Promise<Response>((resolve) => pending.push(resolve));
+    }));
+    const firstOwner = new AbortController();
+    const secondOwner = new AbortController();
+
+    const first = client.streamChat(messages, vi.fn(), { signal: firstOwner.signal });
+    await vi.waitFor(() => expect(pending).toHaveLength(1));
+    const second = client.streamChat(messages, vi.fn(), { signal: secondOwner.signal });
+    await vi.waitFor(() => expect(pending).toHaveLength(2));
+
+    firstOwner.abort();
+    expect(signals[0].aborted).toBe(true);
+    expect(signals[1].aborted).toBe(false);
+
+    pending[0](emptyStreamingResponse());
+    pending[1](emptyStreamingResponse());
+    await Promise.all([first, second]);
+  });
+
+  it("restores an older active request as foreground after the newer request finishes", async () => {
+    const client = httpClient({
+      resolveCredential: async () => ({ type: "bearer", token: "token" }),
+    });
+    const pending: Array<(response: Response) => void> = [];
+    const signals: AbortSignal[] = [];
+    vi.stubGlobal("fetch", vi.fn((_url: string, init: RequestInit) => {
+      signals.push(init.signal as AbortSignal);
+      return new Promise<Response>((resolve) => pending.push(resolve));
+    }));
+
+    const first = client.streamChat(messages, vi.fn());
+    await vi.waitFor(() => expect(pending).toHaveLength(1));
+    const second = client.streamChat(messages, vi.fn());
+    await vi.waitFor(() => expect(pending).toHaveLength(2));
+
+    pending[1](emptyStreamingResponse());
+    await second;
+    client.abort();
+
+    expect(signals[0].aborted).toBe(true);
+    pending[0](emptyStreamingResponse());
+    await first;
+  });
+
   it("accepts MCP server definitions without an args array", () => {
     const client = httpClient({
       resolveCredential: async () => ({ type: "bearer", token: "token" }),
@@ -130,6 +183,63 @@ describe("LLM request lifecycle hardening", () => {
       args: [],
       env: {},
     });
+  });
+});
+
+describe("MCP model-facing tool exposure", () => {
+  it("keeps sanitized collisions unique and dispatches through original names", async () => {
+    const rawTools = [
+      {
+        serverName: "alpha.beta",
+        name: "read__item",
+        description: "first",
+        inputSchema: { type: "object" },
+      },
+      {
+        serverName: "alpha_beta",
+        name: "read__item",
+        description: "second",
+        inputSchema: { type: "object" },
+      },
+    ];
+    const exposure = buildMcpToolExposure(rawTools);
+    const names = exposure.tools.map((tool) => tool.function.name);
+
+    expect(new Set(names).size).toBe(2);
+    expect(exposure.routes.get(names[0])).toEqual({
+      serverName: "alpha.beta",
+      toolName: "read__item",
+    });
+
+    const callTool = vi.fn(async () => ({ content: [{ type: "text", text: "ok" }] }));
+    const client = new LLMClient(
+      { ...DEFAULT_SETTINGS, provider: "ollama", model: "test-model" },
+      {} as never,
+      "",
+      undefined,
+      {
+        getAllTools: () => rawTools,
+        callTool,
+      } as never,
+    );
+    let turn = 0;
+    (client as any).shouldUseCli = () => false;
+    (client as any)._streamChatSingleTurn = vi.fn(async () => {
+      turn += 1;
+      return turn === 1
+        ? {
+            text: "",
+            tool_calls: [{
+              id: "call-1",
+              function: { name: names[0], arguments: "{}" },
+            }],
+          }
+        : { text: "done" };
+    });
+
+    await client.streamChat([{ role: "user", content: "use tool" }], vi.fn());
+
+    expect(callTool).toHaveBeenCalledWith("alpha.beta", "read__item", {});
   });
 });
 
