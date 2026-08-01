@@ -751,6 +751,14 @@ All read/merge/write operations are serialized in one process so overlapping
 save requests cannot commit from the same stale disk snapshot. Backend
 `wiki reset` must not delete this shared durable file.
 
+Canonical session reads MUST distinguish `missing`, `valid`, `corrupt`, and
+`unreadable`. Only `missing` may enter legacy/default migration. `corrupt` or
+`unreadable` state MUST preserve the existing file, surface a recovery notice,
+and block ordinary writes for that plugin run; the same fail-closed rule applies
+if invalid state appears between load and save. Valid writes MUST use a sibling
+temporary file plus atomic rename after the serialized read/merge step. A failed
+rename MUST leave the previous target intact and remove the temporary file.
+
 ```typescript
 interface SessionData {
   chatSessions: ChatSession[];
@@ -798,9 +806,10 @@ Rules:
   sanitizer. Device absolute paths in `ContextRef.filePath` and runtime-local
   `backendStatus` fields must not be persisted as durable session identity.
 
-Zotero profile storage follows the same serialized read/merge/write rule.
-Profile deletion records a timestamped tombstone keyed by profile name; a
-peer-only stale profile cannot be unioned back after deletion.
+Zotero profile storage follows the same typed-read, fail-closed, serialized,
+atomic read/merge/write rule. Profile deletion records a timestamped tombstone
+keyed by profile name; a peer-only stale profile cannot be unioned back after
+deletion.
 
 ### 2.3 `MCPServerConfig`
 

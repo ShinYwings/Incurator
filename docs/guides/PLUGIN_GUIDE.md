@@ -1105,6 +1105,16 @@ Plugin data is split across these files.
 
 In v0.2.1, the plugin re-reads the latest on-disk `sessions.json` before saving and merges by session id. This preserves distinct sessions created on Linux and macOS. Deleted sessions are recorded in `deletedSessionIds` tombstones so an older synced file does not resurrect them later. If the same session is edited on both devices concurrently, the copy with the newer `updatedAt` timestamp wins.
 
+Since v0.39.3, session loading distinguishes a genuinely missing canonical
+file from corrupt or unreadable state. Legacy/default migration is allowed only
+when `.curator/sessions.json` is missing. If it exists but cannot be parsed or
+read, the original bytes stay untouched, the session store is read-only for the
+current plugin run, and a notice asks you to repair or restore the file and
+reload Obsidian. A file that becomes corrupt between load and save also blocks
+that save instead of being replaced. Valid session and Zotero-profile saves are
+serialized, merge the latest valid disk state, write a temporary sibling, and
+atomically rename it into place so sync peers never observe partial JSON.
+
 Session sync does not make absolute PDF/Zotero paths portable. Context attached
 to chat messages may preserve portable identity such as a Zotero attachment key,
 file hash, vault-relative path, and page number, but device-local absolute paths

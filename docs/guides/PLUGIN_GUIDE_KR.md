@@ -984,6 +984,16 @@ merge는 crash하지 않고 해당 property를 빈 배열로 취급합니다.
 
 v0.2.1에서는 `sessions.json` 저장 시 디스크의 최신 파일을 다시 읽고 세션 id 단위로 병합합니다. 따라서 Linux와 macOS에서 서로 다른 채팅 세션을 만들면 두 세션이 함께 보존됩니다. 삭제된 세션은 `deletedSessionIds` tombstone에 남아 Syncthing 지연으로 오래된 파일이 도착해도 되살아나지 않습니다. 단, 같은 세션을 양쪽에서 동시에 편집한 경우에는 더 최신 `updatedAt`을 가진 세션이 이깁니다.
 
+v0.39.3부터 session load는 canonical file이 실제로 없는 경우와 corrupt 또는
+unreadable 상태를 구분합니다. Legacy/default migration은
+`.curator/sessions.json`이 missing일 때만 허용됩니다. 파일이 존재하지만 parse하거나
+읽을 수 없으면 원본 byte를 그대로 보존하고, 현재 plugin 실행 동안 session store를
+read-only로 유지하며, 파일을 repair/restore한 뒤 Obsidian을 reload하라는 notice를
+표시합니다. Load 이후 save 전에 파일이 corrupt해진 경우에도 덮어쓰지 않고 save를
+중단합니다. 정상 session과 Zotero profile save는 직렬화되고, 최신 valid disk state를
+merge한 다음 sibling temp file을 써서 atomic rename하므로 sync peer가 일부만 기록된
+JSON을 보지 않습니다.
+
 세션 동기화가 PDF/Zotero의 절대경로까지 portable하게 만드는 것은 아닙니다. 채팅
 메시지에 붙은 context는 Zotero attachment key, file hash, vault-relative path,
 page number 같은 portable identity를 보존할 수 있지만, macOS나 Linux에서 캡처된
