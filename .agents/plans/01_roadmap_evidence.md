@@ -17,8 +17,8 @@ Updated: 2026-07-31
   `.agents/plans/C_retrieval_provider_analysis.md`
 - Session/secret persistence decisions:
   `.agents/plans/D_plugin_persistence_analysis.md`
-- Current hotfix evidence:
-  `.agents/plans/03_v0392_equation_reference_evidence.md`
+- v0.39.2 hotfix evidence is preserved in Git at implementation commit
+  `b1dc17e` (the transient active-plan files were deleted for release).
 
 ## Remaining Claims To Prove
 

@@ -2,6 +2,18 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.39.2] - 2026-08-01
+### Fixed
+- **Latest-User PDF Equation References**
+  Sidechat now recognizes explicit equation pointers in the latest question,
+  including `수식 (10)`, and refreshes a bounded next-first adjacent page through
+  the existing read-only PDF context API when the loaded window lacks the target
+  body. Resolved evidence is supplied before generic PDF context, so external
+  Zotero/iCloud PDFs remain outside provider filesystem roots and no native
+  `read_file` or `command` permission is needed.
+
+---
+
 ## [0.39.1] - 2026-07-30
 ### Fixed
 - **Complete Source Lifecycle Closure**

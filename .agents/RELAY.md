@@ -9,9 +9,8 @@ filesystem access to external Zotero/iCloud PDFs.
 ## Plan Reference
 
 - Branch: `hotfix/v0.39.2-equation-reference-context`
-- Master plan: `.agents/plans/03_v0392_equation_reference_context.md`
-- Evidence ledger: `.agents/plans/03_v0392_equation_reference_evidence.md`
-- Domain analysis: `.agents/plans/A_v0392_equation_reference_analysis.md`
+- Completed plan/evidence/domain artifacts are preserved at implementation
+  commit `b1dc17e` and deleted from the active workspace for release.
 
 ## Analysis & Reasoning
 
@@ -33,6 +32,9 @@ filesystem access to external Zotero/iCloud PDFs.
 - Backend Ruff/MyPy passed; pytest: 1373 passed, 6 skipped, 4 expected xfails.
 - Disposable PDF smoke passed without mutating production or active testbed.
 - One isolated live Antigravity replay succeeded with no native-tool denial.
+- Implementation commit: `b1dc17e`.
+- v0.39.2 manifests, changelog, roadmap cleanup, and plan deletion are ready;
+  version/spec consistency passed 10 tests.
 
 ## Critical Context / Blockers
 
@@ -43,8 +45,6 @@ filesystem access to external Zotero/iCloud PDFs.
 
 ## Immediate Next Action
 
-1. Commit the validated implementation and evidence.
-2. Bump all manifests to v0.39.2 and update `CHANGELOG.md`.
-3. Remove the completed roadmap item and transient v0.39.2 plan artifacts.
-4. Run version/spec consistency and final diff checks.
-5. Create `chore(release): v0.39.2`, push, and open the hotfix PR.
+1. Create `chore(release): v0.39.2`.
+2. Push the branch and open the hotfix PR against `master`.
+3. Record the PR in relay state without repeating validation or provider calls.
