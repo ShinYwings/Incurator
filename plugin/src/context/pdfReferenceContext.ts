@@ -136,6 +136,21 @@ function needsAdjacentEquationExpansion(ref: ResolvedReference): boolean {
   );
 }
 
+function failClosedUnresolvedAdjacentEquations(
+  resolved: ResolvedReference[]
+): ResolvedReference[] {
+  return resolved.map((ref) =>
+    needsAdjacentEquationExpansion(ref)
+      ? {
+          query: ref.query,
+          label: ref.label,
+          confidence: 0,
+          method: "unresolved" as const,
+        }
+      : ref
+  );
+}
+
 function adjacentEquationCandidatePages(
   currentPage: number | undefined,
   pageCount: number | undefined
@@ -335,14 +350,16 @@ export async function resolveSelectionReferencesAsync(
   if (!changed) {
     // No page text was fetched; suppress any refs whose snippet is empty so the
     // LLM doesn't receive a resolved-looking reference with no content.
-    return pass1.map((r) =>
-      r.method !== "unresolved" && r.targetPage !== undefined && !pageTextMap.has(r.targetPage)
-        ? { ...r, method: "unresolved" as const }
-        : r
+    return failClosedUnresolvedAdjacentEquations(
+      pass1.map((r) =>
+        r.method !== "unresolved" && r.targetPage !== undefined && !pageTextMap.has(r.targetPage)
+          ? { ...r, method: "unresolved" as const }
+          : r
+      )
     );
   }
 
-  return latest;
+  return failClosedUnresolvedAdjacentEquations(latest);
 }
 
 /** Async convenience wrapper: resolve, fetch missing pages, format. Returns "" when nothing resolves. */

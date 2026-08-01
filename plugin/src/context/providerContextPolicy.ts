@@ -30,6 +30,62 @@ export function shouldUseBackendPdfContext(args: {
   return true;
 }
 
+export interface PdfReferenceFocusTarget {
+  isActive: boolean;
+  openTabKey: string;
+  filePath?: string;
+  fileHash?: string;
+  zoteroAttachmentKey?: string;
+}
+
+function openTabDocumentKey(openTabKey: string | undefined): string | undefined {
+  if (!openTabKey) return undefined;
+  try {
+    const parsed: unknown = JSON.parse(openTabKey);
+    if (
+      !Array.isArray(parsed) ||
+      parsed.length < 2 ||
+      typeof parsed[0] !== "string" ||
+      typeof parsed[1] !== "string"
+    ) {
+      return undefined;
+    }
+    return JSON.stringify([parsed[0], parsed[1]]);
+  } catch {
+    return undefined;
+  }
+}
+
+function sameDefinedIdentity(left: string | undefined, right: string | undefined): boolean {
+  return Boolean(left && right && left === right);
+}
+
+function primaryPdfRefMatchesTarget(
+  ref: ContextRef,
+  target: PdfReferenceFocusTarget
+): boolean {
+  if (ref.type !== "pdf-page" || !isPrimaryUserContext(ref)) return false;
+
+  const refDocumentKey = openTabDocumentKey(ref.openTabKey);
+  const targetDocumentKey = openTabDocumentKey(target.openTabKey);
+  return (
+    sameDefinedIdentity(refDocumentKey, targetDocumentKey) ||
+    sameDefinedIdentity(ref.zoteroAttachmentKey, target.zoteroAttachmentKey) ||
+    sameDefinedIdentity(ref.fileHash, target.fileHash) ||
+    sameDefinedIdentity(ref.filePath, target.filePath)
+  );
+}
+
+export function shouldResolveLatestUserPdfReferences(args: {
+  target: PdfReferenceFocusTarget;
+  userContextRefs?: ContextRef[];
+}): boolean {
+  if (args.target.isActive) return true;
+  return includedContextRefs(args.userContextRefs).some((ref) =>
+    primaryPdfRefMatchesTarget(ref, args.target)
+  );
+}
+
 export function shouldRunCuratorDomainQuery(args: {
   query: string;
   userContextRefs?: ContextRef[];

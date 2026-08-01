@@ -76,6 +76,7 @@ import {
   resolveSelectionReferencesBlockAsync,
 } from "../../context/pdfReferenceContext";
 import {
+  shouldResolveLatestUserPdfReferences,
   shouldRunCuratorDomainQuery,
   shouldUseBackendPdfContext,
 } from "../../context/providerContextPolicy";
@@ -1756,36 +1757,50 @@ export class ChatSidebarView extends ItemView {
         ? backendCtx?.pages ?? pdf.windowPages ?? []
         : pdf.windowPages ?? [];
       const outline = backendCtx?.outline ?? pdf.outline ?? [];
-      const resolvedReferencesBlock = await resolveSelectionReferencesBlockAsync(
-        query,
-        {
-          outline,
-          windowPages,
-          pageNum: pdf.pageNum,
-          pageCount: backendCtx?.totalPages || pdf.pageCount || sourceStatus?.pageCount,
-          pageLabels: pdf.pageLabels,
-        },
-        async (pageNum) => {
-          if (
-            !client.available ||
-            (!sourcePath && !sourceStatus?.sourceId && !pdf.fileHash && !pdf.zoteroAttachmentKey)
-          ) {
-            return undefined;
-          }
-          const startedAt = performance.now();
-          const targetCtx = await client.getPdfContext({
-            filePath: sourcePath,
-            sourceId: sourceStatus?.sourceId,
+      let resolvedReferencesBlock = "";
+      if (
+        shouldResolveLatestUserPdfReferences({
+          target: {
+            isActive: tab.isActive,
+            openTabKey: this.getOpenTabKey(tab),
+            filePath: pdf.filePath || tab.filePath,
             fileHash: pdf.fileHash,
             zoteroAttachmentKey: pdf.zoteroAttachmentKey,
-            pageNum,
-            radius: 0,
-            maxPages: 1,
-          });
-          this.logContextTiming("backend_pdf_reference", startedAt, docLabel);
-          return targetCtx?.pages.find((page) => page.pageNum === pageNum)?.text;
-        }
-      );
+          },
+          userContextRefs,
+        })
+      ) {
+        resolvedReferencesBlock = await resolveSelectionReferencesBlockAsync(
+          query,
+          {
+            outline,
+            windowPages,
+            pageNum: pdf.pageNum,
+            pageCount: backendCtx?.totalPages || pdf.pageCount || sourceStatus?.pageCount,
+            pageLabels: pdf.pageLabels,
+          },
+          async (pageNum) => {
+            if (
+              !client.available ||
+              (!sourcePath && !sourceStatus?.sourceId && !pdf.fileHash && !pdf.zoteroAttachmentKey)
+            ) {
+              return undefined;
+            }
+            const startedAt = performance.now();
+            const targetCtx = await client.getPdfContext({
+              filePath: sourcePath,
+              sourceId: sourceStatus?.sourceId,
+              fileHash: pdf.fileHash,
+              zoteroAttachmentKey: pdf.zoteroAttachmentKey,
+              pageNum,
+              radius: 0,
+              maxPages: 1,
+            });
+            this.logContextTiming("backend_pdf_reference", startedAt, docLabel);
+            return targetCtx?.pages.find((page) => page.pageNum === pageNum)?.text;
+          }
+        );
+      }
       if (resolvedReferencesBlock) sections.push(resolvedReferencesBlock);
       if (windowPages.length > 0) {
         const contextSource = useBackendPdfContext

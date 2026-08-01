@@ -245,12 +245,15 @@ describe("chat sidebar context chip source contract", () => {
     );
 
     expect(source).toContain("resolveSelectionReferencesBlockAsync");
+    expect(providerContext).toContain("shouldResolveLatestUserPdfReferences({");
     expect(providerContext).toContain("resolveSelectionReferencesBlockAsync(");
     expect(providerContext).toContain("        query,");
     expect(providerContext).toContain("radius: 0");
     expect(providerContext).toContain("maxPages: 1");
     expect(providerContext.indexOf("if (resolvedReferencesBlock)"))
       .toBeLessThan(providerContext.indexOf("<pdf_window document="));
+    expect(providerContext.indexOf("shouldResolveLatestUserPdfReferences({"))
+      .toBeLessThan(providerContext.indexOf("resolveSelectionReferencesBlockAsync("));
   });
 
   it("grounds default Incurator sidechat context with evidence packs, not backend answers", () => {
