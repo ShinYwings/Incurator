@@ -50,21 +50,20 @@ gaps found during review before PR #103 merges.
   pass 744/744; TypeScript, production build, backend pytest (1373 passed,
   6 skipped, 4 expected xfails), Ruff, and MyPy pass.
 - The v0.39.2 changelog, roadmap cleanup, planning-artifact deletion, and final
-  release commit are complete. PR #103 is the delivery target for the current
-  branch head.
+  release commit `0143941` are complete and pushed to PR #103. GitHub backend,
+  plugin, and version-consistency checks passed for that review-hardened head.
 
 ## Critical Context / Blockers
 
 - No local implementation blocker remains.
-- Merge PR #103 only after GitHub checks pass for the review-hardened head.
+- Human review/merge of PR #103 is the only remaining v0.39.2 action.
 - Do not repeat the live-provider replay; the one permitted call is complete.
 - Do not mutate production `second_brain` or an active testbed.
 - v0.39.x stability work remains queued behind this hotfix merge.
 
 ## Immediate Next Action
 
-1. GitHub checks run for the review-hardened PR #103 head.
-2. Human reviews and merges draft PR #103 when green.
-3. After merge, fast-forward local `master` and reset relay to the documented
+1. Human reviews and merges draft PR #103.
+2. After merge, fast-forward local `master` and reset relay to the documented
    minimal IDLE stub.
-4. Resume the v0.39.x stability audit at P6 on a fresh branch from `master`.
+3. Resume the v0.39.x stability audit at P6 on a fresh branch from `master`.
