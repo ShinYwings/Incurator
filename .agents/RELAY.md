@@ -2,53 +2,58 @@
 
 ## Goal
 
-Ship v0.39.3 as the P6 durable-state integrity patch: preserve corrupt
-session/secret bytes, block destructive ordinary saves, serialize atomic
-session/secret/config writes, recursively redact runtime credentials, and prove
-concurrent/interrupted writes plus synced-session merges.
+Close all three actionable review findings on draft PR #104: merge project
+configuration from the freshly locked mapping, preserve peer arrivals in
+synced plugin JSON at the atomic commit boundary, and preserve normal config
+permissions while keeping secret files private from creation onward.
 
 ## Plan Reference
 
-- Branch: `release/v0.39.3`
-- Master plan: `.agents/plans/02_v032_regression_audit.md` (P7 next; P6 evidence retained)
-- Evidence ledger: `.agents/plans/02_v032_regression_evidence.md`
-- Completed domain analysis is preserved in Git history.
+- Branch: `release/v0.39.3` (will be renamed to `release/v0.40.0` before release)
+- Review-fix plan: `.agents/plans/03_v0400_persistence_review_fixes.md`
+- Review-fix evidence: `.agents/plans/03_v0400_persistence_review_evidence.md`
+- Parent audit plan: `.agents/plans/02_v032_regression_audit.md` (P7 remains next)
+- Draft PR: `https://github.com/ShinYwings/Incurator/pull/104`
 
 ## Analysis & Reasoning
 
-- P6 addresses confirmed F14–F16 from the v0.32.0+ release-chain audit.
-- The batch is backward-compatible integrity hardening with no schema or public
-  contract change, so the correct version is patch `0.39.3`.
-- Root-cause fixes must distinguish missing, valid, corrupt, and unreadable
-  state rather than recovering through defaults that can later overwrite bytes.
-- Production `second_brain` and any active testbed remain out of scope; use
-  deterministic tests and isolated disposable fixtures.
+- The original project-config callback discarded the mapping read under the
+  lock, so an unrelated peer key could be lost despite serialization.
+- The plugin's promise queue serialized only this JavaScript process; it did
+  not protect a canonical file replaced by a sync peer between read and rename.
+- `mkstemp()` forced replacement files to `0600`, unintentionally tightening
+  ordinary config files instead of preserving their mode or normal umask.
+- Obsidian's `DataAdapter.process()` entered the official API in 1.1.0. Using
+  it closes the existing-file commit race, but raises the declared minimum from
+  1.0.0 to 1.1.0. Under the repository's 0.x SemVer rule this contract change
+  promotes the unreleased patch to minor v0.40.0; `versions.json` must retain
+  v0.39.2 as the compatible fallback for Obsidian 1.0.x.
 
 ## Progress Status
 
-- PR #103 / v0.39.2 merged as `c319e6b`; local `master` was fast-forwarded.
-- Created `release/v0.39.3` from clean merged relay-reset head `346fcdb`.
-- Implemented typed fail-closed canonical session/profile reads, serialized
-  atomic plugin saves, locked atomic secret/config mutation, and recursive
-  runtime credential redaction.
-- Added deterministic corruption, interruption, concurrency, synced-session,
-  and recursive-redaction proofs; updated paired guides and static specs.
-- Final release-head gates passed: backend 1,382 passed / 6 skipped /
+- Captured and triaged all three review findings into the active roadmap.
+- Completed the required Arena proposal, independent domain validation, and
+  red-team critique; the master plan and evidence ledger are being finalized.
+- No application code has changed during planning.
+- Prior PR-head gates at `268d6c3` were green: backend 1,382 passed / 6 skipped /
   4 xfailed, Ruff and mypy clean, plugin build clean, Vitest 749 passed.
-- Version/changelog closure is prepared for patch `0.39.3`; P6 is removed from
-  the active roadmap and P7 is next.
-- Release commit `272c7fa` was pushed and draft PR #104 targets `master`:
-  `https://github.com/ShinYwings/Incurator/pull/104`.
-- GitHub CI passed on delivery head `953a408`: backend, plugin, and version
-  consistency are green; one duplicate version job was skipped as expected.
 
 ## Critical Context / Blockers
 
-- P6 required no schema or public contract change.
-- Preserve corrupt/unreadable source bytes; do not test against live user state.
+- Existing session/profile files must merge the exact bytes supplied to the
+  synchronous `DataAdapter.process()` callback. No racy fallback is allowed.
+- The portable adapter has no create-if-absent/CAS contract; first simultaneous
+  creation remains an explicitly documented limitation, not a falsely claimed
+  guarantee.
+- Generic process/write failures must reject the save without permanently
+  classifying valid canonical bytes as corrupt.
+- Explicit secret temps must be `0600` from byte zero. Existing ordinary files
+  preserve POSIX mode; new ordinary files receive kernel umask semantics.
 - Do not mutate production `second_brain` or an active testbed.
 
 ## Immediate Next Action
 
-1. Human review and merge draft PR #104.
-2. After merge, follow the documented IDLE relay-reset procedure.
+1. Finalize the Arena consensus, domain analyses, master plan, and evidence.
+2. Update authoritative docs, then add failing regression tests.
+3. Implement, run focused and full gates, rename/push the release branch, update
+   PR #104, and wait for the latest GitHub CI result.
