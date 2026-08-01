@@ -2,7 +2,7 @@
 
 Updated: 2026-08-01
 Status: ACTIVE — P1–P6 shipped through v0.40.0; P7 review follow-up is
-implemented and locally validated on draft PR #106.
+delivered and green on draft PR #106.
 
 ## Objective
 

@@ -55,6 +55,9 @@ dispatch collision-free, settle shutdown requests, and bound backend processes.
 - Red proof reproduced 6 failures. Green validation passes 109 focused tests,
   TypeScript, all 778 plugin tests, production build, backend 1386 passed / 6
   skipped / 4 xfailed, Ruff, mypy, and diff whitespace checks.
+- Review-fix commit `0258536` is pushed to PR #106. On that exact head, both
+  backend and both plugin GitHub jobs passed; version consistency passed for the
+  push event and the duplicate PR-event job correctly skipped.
 
 ## Critical Context / Blockers
 
@@ -65,6 +68,7 @@ dispatch collision-free, settle shutdown requests, and bound backend processes.
 
 ## Immediate Next Action
 
-1. Commit and push the validated review follow-up to PR #106.
-2. Verify the latest-head GitHub checks are green.
-3. Hand the draft PR back for human review/merge.
+1. Human reviews and merges PR #106.
+2. After merge, reset RELAY on updated `master` through the documented IDLE
+   procedure.
+3. Continue the active stability audit with P8.

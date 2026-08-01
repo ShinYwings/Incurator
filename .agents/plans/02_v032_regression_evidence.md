@@ -103,6 +103,10 @@ tests.
 - Testbed/Reference Mode remains out of scope: the follow-up changes only
   device-local provider/process lifetime code with deterministic fake-process
   coverage. No production or testbed path/configuration was read or modified.
+- Delivery commit `0258536` (`fix(plugin): close lifecycle review gaps`) is
+  pushed to PR #106. On that exact head, both backend jobs and both plugin jobs
+  passed; push-event version consistency passed and its duplicate PR-event job
+  correctly skipped.
 
 ### P7 Baseline — v0.40.1
 
