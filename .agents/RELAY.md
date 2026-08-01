@@ -39,6 +39,8 @@ concurrent/interrupted writes plus synced-session merges.
   the active roadmap and P7 is next.
 - Release commit `272c7fa` was pushed and draft PR #104 targets `master`:
   `https://github.com/ShinYwings/Incurator/pull/104`.
+- GitHub CI passed on delivery head `953a408`: backend, plugin, and version
+  consistency are green; one duplicate version job was skipped as expected.
 
 ## Critical Context / Blockers
 
@@ -48,5 +50,5 @@ concurrent/interrupted writes plus synced-session merges.
 
 ## Immediate Next Action
 
-1. Wait for GitHub CI on the latest delivery head and address any failure.
-2. After PR #104 merges, follow the documented IDLE relay-reset procedure.
+1. Human review and merge draft PR #104.
+2. After merge, follow the documented IDLE relay-reset procedure.
