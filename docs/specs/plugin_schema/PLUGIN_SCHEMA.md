@@ -1184,12 +1184,17 @@ Rules:
   evidence. For an exact equation label in the latest request that is missing
   from the loaded window, the plugin may fetch a small ordered adjacent-page set
   through read-only backend PDF context (`page_num=<candidate>`, `radius=0`), next
-  page first, and must stop at the first exact label match. This fetch requires a
-  resolvable current-device source identity, never registers the PDF, and never
-  broadens a provider's native filesystem roots or tool permissions. Pointer
-  resolution failures must not silently turn the current page into the answer
-  target; the prompt must tell the provider when the referenced target could not
-  be located.
+  page first, and must stop at the first exact label match. If that bounded scan
+  exhausts without an exact label, any loose same-number search hit must remain
+  unresolved and must not be serialized into `<resolved_cross_references>`.
+  Latest-request resolution runs only for the active PDF or an explicit primary
+  PDF context ref with the same canonical document identity; visible,
+  pinned-background, and merely prompt-included PDF tabs do not qualify. This
+  fetch requires a resolvable current-device source identity, never registers
+  the PDF, and never broadens a provider's native filesystem roots or tool
+  permissions. Pointer resolution failures must not silently turn the current
+  page into the answer target; the prompt must tell the provider when the
+  referenced target could not be located.
 - Attached PDF/image snips must be sent to vision-capable models as image parts.
   For non-vision models, the prompt must explicitly state that image details are
   unavailable instead of silently dropping the crop. A primary-focus reference

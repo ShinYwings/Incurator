@@ -4,14 +4,16 @@
 
 Ship v0.39.2 so latest-user PDF references such as `수식 (10)` resolve the
 target page before a headless provider is launched, without granting native
-filesystem access to external Zotero/iCloud PDFs.
+filesystem access to external Zotero/iCloud PDFs, and close two correctness
+gaps found during review before PR #103 merges.
 
 ## Plan Reference
 
 - Branch: `hotfix/v0.39.2-equation-reference-context`
 - Draft PR: `https://github.com/ShinYwings/Incurator/pull/103`
-- Completed plan/evidence/domain artifacts are preserved at implementation
-  commit `b1dc17e` and deleted from the active workspace for release.
+- Review hardening plan: `.agents/plans/04_v0392_reference_review_hardening.md`
+- Domain analysis: `.agents/plans/A_v0392_reference_review_hardening.md`
+- Evidence: `.agents/plans/04_v0392_reference_review_evidence.md`
 
 ## Analysis & Reasoning
 
@@ -23,6 +25,10 @@ filesystem access to external Zotero/iCloud PDFs.
   PDF API, and injects `<resolved_cross_references>` before generic PDF context.
 - External Zotero/iCloud paths remain outside provider filesystem roots; no
   command permission, trust flag, or broad `--add-dir` was added.
+- Review reproduction proved that scan exhaustion currently returns a loose
+  current-page BM25 hit even when no adjacent page has the exact equation label.
+- Review inspection also proved that every prompt-included PDF tab can claim a
+  latest-user pointer, including background PDFs in Markdown-focused turns.
 
 ## Progress Status
 
@@ -38,18 +44,23 @@ filesystem access to external Zotero/iCloud PDFs.
 - v0.39.2 manifests, changelog, roadmap cleanup, and plan deletion are complete;
   version/spec consistency passed 10 tests.
 - Branch is pushed and draft PR #103 is open against `master`.
+- GitHub CI is green at `e02859b`, but code review found two merge-blocking
+  correctness gaps. The user approved the review-hardening plan; docs-first
+  contracts and TDD implementation are complete. Focused tests pass 63/63;
+  full validation is pending.
 
 ## Critical Context / Blockers
 
-- No blocker remains.
+- PR #103 must not merge until the two review findings are fixed and validated.
 - Do not repeat the live-provider replay; the one permitted call is complete.
 - Do not mutate production `second_brain` or an active testbed.
-- Human review/merge of PR #103 is the only remaining v0.39.2 action.
 - v0.39.x stability work remains queued behind this hotfix merge.
 
 ## Immediate Next Action
 
-1. Human reviews and merges draft PR #103.
-2. After merge, fast-forward local `master` and reset relay to the documented
+1. Implement docs-first and TDD fixes, run full local validation, and push the
+   follow-up commits to PR #103.
+2. Human reviews and merges draft PR #103.
+3. After merge, fast-forward local `master` and reset relay to the documented
    minimal IDLE stub.
-3. Resume the v0.39.x stability audit at P6 on a fresh branch from `master`.
+4. Resume the v0.39.x stability audit at P6 on a fresh branch from `master`.

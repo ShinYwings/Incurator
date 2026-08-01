@@ -458,10 +458,15 @@ PDF 중심 turn에서 Sidechat은 선택하거나 crop한 텍스트 안의 참�
 끝나는데 사용자가 `Eq. (10)` 또는 `수식 (10)`을 물으면, 먼저 이미 확보한 page
 window를 확인합니다. 정확한 label이 없으면 read-only PDF context service를 통해
 인접 페이지를 한 페이지씩 작은 범위로 요청하고(다음 페이지 우선, `radius=0`),
-처음 정확히 일치하는 label에서 중단합니다. 일치한 페이지는 일반 PDF window보다
-앞선 `<resolved_cross_references>`로 전달됩니다. 외부 Zotero/iCloud PDF는 provider의
-native filesystem root 밖에 그대로 두며, provider에는 직접 file access가 아니라
-해결된 텍스트만 제공합니다.
+처음 정확히 일치하는 label에서 중단합니다. 제한된 탐색이 끝날 때까지 정확한 label을
+찾지 못하면 Sidechat은 fail-closed로 동작하며, 번호만 비슷한 느슨한 search hit를
+해결된 대상으로 바꾸지 않습니다. 최신 질문의 자동 lookup은 활성 PDF 또는 동일한
+canonical document identity를 가진 primary context로 사용자가 명시적으로 첨부한
+PDF에 대해서만 실행됩니다. 단순히 보이거나 pinned background이거나 prompt에 포함된
+PDF tab은 Markdown 중심 질문의 참조를 가져갈 수 없습니다. 일치한 페이지는 일반 PDF
+window보다 앞선 `<resolved_cross_references>`로 전달됩니다. 외부 Zotero/iCloud PDF는
+provider의 native filesystem root 밖에 그대로 두며, provider에는 직접 file access가
+아니라 해결된 텍스트만 제공합니다.
 
 content hash나 등록된 source identity가 있으면 sidechat과 quick-query popover는
 같은 backend PDF page cache를 공유합니다:

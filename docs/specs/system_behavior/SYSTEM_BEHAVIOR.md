@@ -607,7 +607,13 @@ background, and answer about the referenced target. When an exact equation
 label from the latest request is just outside the loaded window, sidechat may
 fetch only a small ordered set of adjacent pages through the existing read-only
 PDF context boundary (`page_num=<candidate>`, `radius=0`), checking the next page
-first and stopping at the first exact label match. This targeted fetch must not
+first and stopping at the first exact label match. Exhausting that bounded scan
+without an exact label MUST leave the pointer unresolved; a loose same-number
+BM25 hit MUST NOT be serialized as resolved evidence. Automatic resolution of a
+latest-request pointer MUST be scoped to the active PDF document or an explicit
+primary PDF context reference whose canonical document identity matches the
+candidate tab. Visibility, pinning as background, or prompt inclusion alone does
+not make a PDF the focus of a Markdown turn. This targeted fetch must not
 register the PDF or grant the provider native access to an external PDF path. If
 the pointer is detected but cannot be resolved, the answer must say so instead
 of silently explaining the visible page or inventing external knowledge.
