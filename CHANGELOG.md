@@ -2,6 +2,26 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.39.3] - 2026-08-01
+### Fixed
+- **Fail-Closed Plugin Persistence**
+  Chat-session and Zotero-profile storage now distinguishes missing state from
+  corrupt or unreadable canonical files. Invalid files remain untouched and
+  block ordinary saves; valid read/merge/write operations are serialized and
+  atomically replaced so synced peers cannot observe partial JSON or lose
+  unrelated sessions and profiles.
+- **Durable Secret And Config Updates**
+  Encrypted-secret and YAML-config mutations now hold per-target locks across
+  fail-closed read/merge/write operations and commit through flushed temporary
+  files. Concurrent writers preserve unrelated values, while corrupt state and
+  interrupted replacement leave the previous bytes intact.
+- **Recursive Runtime Credential Redaction**
+  Plugin-readable runtime snapshots now remove credential-bearing keys at every
+  nested mapping and array depth while retaining non-secret provider, model,
+  and feature selections.
+
+---
+
 ## [0.39.2] - 2026-08-01
 ### Fixed
 - **Latest-User PDF Equation References**
