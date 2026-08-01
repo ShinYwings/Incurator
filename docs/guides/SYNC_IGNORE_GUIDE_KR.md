@@ -51,7 +51,7 @@ testbed/
 > 일부만 기록된 JSONL 파일을 읽지 않습니다.
 
 > **참고**: `sessions.json`과 `data.json` 분리 구조
-> 채팅 히스토리(`.curator/sessions.json`)는 안전한 보존과 동기화를 위해 플러그인 폴더 외부(`.curator/`)에 저장되며 세션 단위 병합과 삭제 tombstone을 지원합니다.
+> 채팅 히스토리(`.curator/sessions.json`)는 안전한 보존과 동기화를 위해 플러그인 폴더 외부(`.curator/`)에 저장되며 세션 단위 병합, 삭제 tombstone, commit-time content 기반 atomic process를 지원합니다. 첫 생성은 temp sibling을 사용할 수 있으며 중단된 temp write는 일부 JSON을 게시하지 않고 정리됩니다. Canonical file이 corrupt 또는 unreadable이면 원본을 보존하고 일반 save를 차단하며, missing이나 빈 default로 취급해 덮어쓰지 않습니다.
 > backend 실행 파일 경로, MCP command, Zotero 경로처럼 기기마다 달라지는 UI 캐시/설정은 `.obsidian/plugins/.../data.json`에 저장되어 로컬로 유지됩니다.
 > 동기화된 세션은 Zotero attachment key, file hash, vault-relative path, page 같은 PDF portable identity를 보존할 수 있지만, PDF/Zotero 절대경로는 사용 전에 각 기기에서 검증하거나 다시 해석합니다.
 

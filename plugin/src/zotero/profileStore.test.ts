@@ -1,13 +1,62 @@
 import { describe, expect, it } from "vitest";
 
 import type { ZoteroImportProfile } from "../types";
+import type { VaultTextAdapter } from "../utils/durableJsonStore";
 import {
   ZOTERO_PROFILES_PATH,
+  ZoteroProfileStoreBlockedError,
   extractLegacyZoteroProfiles,
   mergeZoteroProfilesFiles,
   normalizeZoteroProfilesFile,
   parseZoteroProfilesFile,
+  writeMergedZoteroProfilesStore,
 } from "./profileStore";
+
+class MemoryAdapter implements VaultTextAdapter {
+  readonly files = new Map<string, string>();
+  beforeProcess?: (path: string) => void;
+  failProcessAfterUpdate = false;
+
+  async exists(path: string): Promise<boolean> {
+    return this.files.has(path);
+  }
+
+  async read(path: string): Promise<string> {
+    const value = this.files.get(path);
+    if (value === undefined) throw new Error("missing");
+    return value;
+  }
+
+  async write(path: string, data: string): Promise<void> {
+    this.files.set(path, data);
+  }
+
+  async rename(source: string, target: string): Promise<void> {
+    const value = this.files.get(source);
+    if (value === undefined) throw new Error("missing temp");
+    this.files.set(target, value);
+    this.files.delete(source);
+  }
+
+  async remove(path: string): Promise<void> {
+    this.files.delete(path);
+  }
+
+  async process(path: string, update: (raw: string) => string): Promise<string> {
+    const beforeProcess = this.beforeProcess;
+    this.beforeProcess = undefined;
+    beforeProcess?.(path);
+    const current = this.files.get(path);
+    if (current === undefined) throw new Error("missing");
+    const next = update(current);
+    if (this.failProcessAfterUpdate) {
+      this.failProcessAfterUpdate = false;
+      throw new Error("interrupted process commit");
+    }
+    this.files.set(path, next);
+    return next;
+  }
+}
 
 function profile(name: string): ZoteroImportProfile {
   return {
@@ -187,6 +236,79 @@ describe("mergeZoteroProfilesFiles", () => {
 
     expect(merged.profiles).toEqual([recreated]);
     expect(merged.deletedProfiles.Recreated).toBeUndefined();
+  });
+});
+
+describe("writeMergedZoteroProfilesStore", () => {
+  it("merges peer profiles and tombstones visible at commit time", async () => {
+    const adapter = new MemoryAdapter();
+    adapter.files.set(
+      ZOTERO_PROFILES_PATH,
+      JSON.stringify({ profiles: [profile("Remote")], recentItems: ["REMOTE"] })
+    );
+    adapter.beforeProcess = () => {
+      adapter.files.set(
+        ZOTERO_PROFILES_PATH,
+        JSON.stringify({
+          profiles: [profile("Remote"), profile("Peer"), profile("Deleted")],
+          recentItems: ["PEER", "REMOTE"],
+          deletedProfiles: { Deleted: 1_800_000_000_000 },
+        })
+      );
+    };
+
+    const committed = await writeMergedZoteroProfilesStore(
+      adapter,
+      ZOTERO_PROFILES_PATH,
+      {
+        profiles: [profile("Local"), profile("Deleted")],
+        recentItems: ["LOCAL"],
+        deletedProfiles: {},
+      }
+    );
+
+    expect(committed.profiles.map((item) => item.name).sort())
+      .toEqual(["Local", "Peer", "Remote"]);
+    expect(committed.recentItems).toEqual(["LOCAL", "PEER", "REMOTE"]);
+    expect(committed.deletedProfiles.Deleted).toBe(1_800_000_000_000);
+  });
+
+  it("preserves structural corruption injected at commit time", async () => {
+    const adapter = new MemoryAdapter();
+    adapter.files.set(
+      ZOTERO_PROFILES_PATH,
+      JSON.stringify({ profiles: [profile("Remote")], recentItems: [] })
+    );
+    const corrupt = '{"profiles":';
+    adapter.beforeProcess = () => adapter.files.set(ZOTERO_PROFILES_PATH, corrupt);
+
+    await expect(
+      writeMergedZoteroProfilesStore(adapter, ZOTERO_PROFILES_PATH, {
+        profiles: [profile("Local")],
+        recentItems: [],
+        deletedProfiles: {},
+      })
+    ).rejects.toBeInstanceOf(ZoteroProfileStoreBlockedError);
+    expect(adapter.files.get(ZOTERO_PROFILES_PATH)).toBe(corrupt);
+  });
+
+  it("preserves canonical bytes when process commit is interrupted", async () => {
+    const adapter = new MemoryAdapter();
+    const original = JSON.stringify({
+      profiles: [profile("Remote")],
+      recentItems: ["REMOTE"],
+    });
+    adapter.files.set(ZOTERO_PROFILES_PATH, original);
+    adapter.failProcessAfterUpdate = true;
+
+    await expect(
+      writeMergedZoteroProfilesStore(adapter, ZOTERO_PROFILES_PATH, {
+        profiles: [profile("Local")],
+        recentItems: ["LOCAL"],
+        deletedProfiles: {},
+      })
+    ).rejects.toThrow("interrupted process commit");
+    expect(adapter.files.get(ZOTERO_PROFILES_PATH)).toBe(original);
   });
 });
 

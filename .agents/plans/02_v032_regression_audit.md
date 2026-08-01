@@ -1,7 +1,7 @@
 # v0.32.0+ Stability Regression Audit — Remaining Plan
 
-Updated: 2026-07-31
-Status: ACTIVE — P1–P5 shipped through v0.39.1; P6 is next after v0.39.2.
+Updated: 2026-08-01
+Status: ACTIVE — P1–P6 shipped through v0.39.3; P7 is next.
 
 ## Objective
 
@@ -13,16 +13,7 @@ and re-planning as a Minor release.
 ## Domain References
 
 - `.agents/plans/C_retrieval_provider_analysis.md`
-- `.agents/plans/D_plugin_persistence_analysis.md`
 - `.agents/plans/02_v032_regression_evidence.md`
-
-## P6 — Durable-State Integrity
-
-- Distinguish missing, valid, corrupt, and unreadable state.
-- Preserve corrupt session/secret bytes and block destructive ordinary saves.
-- Serialize atomic session, secret, and config writes.
-- Recursively redact credentials from runtime snapshots.
-- Test concurrent/interrupted writes and synced-session merges.
 
 ## P7 — Provider, MCP, And Process Lifetimes
 

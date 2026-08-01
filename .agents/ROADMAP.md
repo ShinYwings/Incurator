@@ -8,8 +8,7 @@ belong in Git history, not the active workspace. New raw reports enter through
 
 ## Active Queue
 
-1. **v0.39.x Stability Regression Audit — P6 through P10**
-   - P6: durable sessions/secrets/config writes and runtime redaction.
+1. **v0.39.x Stability Regression Audit — P7 through P10**
    - P7: provider, MCP, cancellation, shutdown, timeout, and output bounds.
    - P8: vector degradation, provider cardinality, failover attribution, and
      prompt-version ordering.

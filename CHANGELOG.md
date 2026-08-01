@@ -2,6 +2,35 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.40.0] - 2026-08-01
+### Changed
+- **Obsidian 1.1.0 Minimum**
+  Existing synced session and Zotero-profile commits now use Obsidian's atomic
+  adapter processing API. The plugin therefore requires Obsidian 1.1.0 or
+  newer; `versions.json` keeps v0.39.2 available to Obsidian 1.0.x users.
+
+### Fixed
+- **Fail-Closed Plugin Persistence**
+  Chat-session and Zotero-profile storage now distinguishes missing state from
+  corrupt or unreadable canonical files. Invalid files remain untouched and
+  block ordinary saves. Existing valid files parse and merge the canonical text
+  supplied at the atomic commit boundary, preserving peer arrivals and deletion
+  tombstones; interrupted commits and initial temp writes preserve canonical
+  bytes and clean temporary siblings.
+- **Durable Secret And Config Updates**
+  Encrypted-secret and YAML-config mutations now hold per-target locks across
+  fail-closed read/merge/write operations and commit through flushed temporary
+  files. Project saves merge into the freshly locked mapping so peer-only
+  nested keys survive. Existing ordinary config modes are preserved, new files
+  follow normal umask semantics, and secret temps are private from creation;
+  corrupt state and interrupted replacement leave prior bytes and modes intact.
+- **Recursive Runtime Credential Redaction**
+  Plugin-readable runtime snapshots now remove credential-bearing keys at every
+  nested mapping and array depth while retaining non-secret provider, model,
+  and feature selections.
+
+---
+
 ## [0.39.2] - 2026-08-01
 ### Fixed
 - **Latest-User PDF Equation References**

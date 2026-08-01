@@ -24,6 +24,11 @@ During `wiki init`, if you choose to build the plugin, the output (`main.js`, `m
 
 In Obsidian, go to **Settings → Community Plugins → Installed Plugins** and enable `AI Agent`.
 
+Incurator v0.40.0 and later require Obsidian 1.1.0 or newer because synced
+session/profile commits use Obsidian's atomic adapter processing API. Obsidian
+1.0.x remains on the compatible Incurator v0.39.2 release through
+`versions.json`.
+
 > **Note:** If you need to build the plugin manually, run `npm install` and `npm run build` inside the `plugin/` directory.
 
 ---
@@ -1064,11 +1069,11 @@ paths) are loaded only from the current device's repo-local
 `.cache/config/config.yml`; if those blocks are present in synced
 `.curator/settings.yml`, the backend ignores them so Linux and macOS paths do
 not overwrite each other.
-Zotero profile saves are serialized and re-read/merged immediately before each
-write, so a stale device cannot erase peer-only profiles during an unrelated
-settings save. If a partially damaged decoded payload is missing `profiles` or
-`recentItems`, the merge treats that property as an empty array rather than
-crashing.
+Zotero profile saves are serialized and merge the canonical text supplied at
+the atomic commit boundary, so a stale device cannot erase peer-only profiles
+during an unrelated settings save. If a partially damaged decoded payload is
+missing `profiles` or `recentItems`, the merge treats that property as an empty
+array rather than crashing.
 
 | Setting | Default | Effect |
 | --- | --- | --- |
@@ -1104,6 +1109,23 @@ Plugin data is split across these files.
 | `<repo>/.cache/vaults/<vault-key>/runtime/*.json` | Backend dashboard/status snapshots | Local only |
 
 In v0.2.1, the plugin re-reads the latest on-disk `sessions.json` before saving and merges by session id. This preserves distinct sessions created on Linux and macOS. Deleted sessions are recorded in `deletedSessionIds` tombstones so an older synced file does not resurrect them later. If the same session is edited on both devices concurrently, the copy with the newer `updatedAt` timestamp wins.
+
+Since v0.40.0, session loading distinguishes a genuinely missing canonical
+file from corrupt or unreadable state. Legacy/default migration is allowed only
+when `.curator/sessions.json` is missing. If it exists but cannot be parsed or
+read, the original bytes stay untouched, the session store is read-only for the
+current plugin run, and a notice asks you to repair or restore the file and
+reload Obsidian. A file that becomes corrupt between load and save also blocks
+that save instead of being replaced. For an existing valid session or
+Zotero-profile file, the serialized save parses and merges the exact canonical
+text supplied by Obsidian's atomic process callback, including a peer update or
+deletion tombstone that arrived just before commit. The plugin adopts in-memory
+state only after that commit succeeds. A transient process failure rejects that
+save without falsely marking valid data corrupt. Initial creation may use a
+temporary sibling and rename; partial temp-write and rename failures clean the
+sibling and never publish partial JSON. Obsidian's portable adapter has no
+simultaneous create-if-absent guarantee, so conflict-free first creation is not
+claimed.
 
 Session sync does not make absolute PDF/Zotero paths portable. Context attached
 to chat messages may preserve portable identity such as a Zotero attachment key,
@@ -1242,8 +1264,10 @@ lived in the plugin's `data.json`, which is typically excluded from sync, so
 each device saw a different profile list.) On first load after upgrading, the
 plugin migrates existing profiles out of `data.json` automatically and
 non-destructively; profiles contain only vault-relative paths, so they are safe
-to share between Linux and macOS. Concurrent edits resolve last-write-wins —
-profiles change rarely, so no merge machinery is needed.
+to share between Linux and macOS. Serialized saves merge peer-only profiles,
+recent-item keys, and deletion tombstones from the canonical commit-time value.
+Same-name concurrent edits remain last-write-wins according to the stored
+profile timestamps.
 
 If `.curator/zotero_profiles.json` ever becomes corrupted (invalid JSON or an
 unrecognizable structure — e.g. an interrupted sync or a bad hand-edit), the

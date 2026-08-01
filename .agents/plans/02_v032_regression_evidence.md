@@ -1,14 +1,16 @@
 # v0.32.0+ Stability Regression Audit — Active Evidence Ledger
 
-Updated: 2026-07-31
-Rollback anchor for remaining work: merged v0.39.1 `bc61fab`.
+Updated: 2026-08-01
+Rollback anchor for P6: merged v0.39.2 relay-reset head `346fcdb`.
 
 ## Completed Boundary
 
-- P1–P5 are complete and preserved in Git history.
+- P1–P5 are merged; P6 is verified on the v0.39.3 release branch and its
+  completed domain analysis is preserved in Git history.
 - v0.39.1 closed source deletion, serving-state eviction, and deterministic
   post-publish projection recovery.
-- Remaining work begins only after the higher-priority v0.39.2 hotfix.
+- v0.39.2 closed latest-user PDF equation-reference context recovery.
+- v0.39.3 closes durable-state integrity findings F14–F16.
 
 ## P6 Findings
 
@@ -21,6 +23,38 @@ Rollback anchor for remaining work: merged v0.39.1 `bc61fab`.
 Required proof: byte preservation, fail-closed saves, atomic serialized writes,
 concurrent/interrupted write tests, synced-session merge tests, and recursive
 redaction fixtures.
+
+### P6 Validation Record — v0.39.3
+
+- Branch/base: `release/v0.39.3` from `346fcdb`.
+- Red phase: focused backend collection failed because `curator.durable_io` did
+  not exist; focused plugin tests failed because the typed session store did not
+  exist and `main.ts` still conflated missing/corrupt state.
+- Contracts: updated the plugin/session and sync guides (English first, Korean
+  synchronized), plugin schema, and system behavior spec for typed canonical
+  reads, fail-closed mutation, atomic serialization, and recursive redaction.
+- Implementation: added per-path locked atomic backend writes; routed secret,
+  global/project config, CLI config-set, and schema-version mutations through
+  them; added typed atomic plugin JSON/session stores and wired session/Zotero
+  persistence through them; recursively removed credential-bearing snapshot
+  keys.
+- Focused proofs: corrupt bytes survive failed mutation; missing/corrupt/
+  unreadable and structurally invalid session state remain distinct; 24 secret
+  and 32 config concurrent updates retain unrelated keys; interrupted backend
+  replacement and plugin rename preserve the prior target and remove temps;
+  Linux/macOS/remote sessions merge; nested credential fixtures are absent.
+- Full release-head local gates: backend `pytest` 1,382 passed / 6 skipped / 4 xfailed;
+  Ruff clean; mypy clean across 127 source files; plugin production build clean;
+  Vitest 69 files / 749 tests passed; version/spec consistency 10 passed.
+- Testbed/Reference Mode: not run because P6 changes only durable local state
+  and its approved plan forbids mutating the active testbed or production vault;
+  all proofs use isolated temporary directories and mocked vault adapters.
+- Production-path restoration: no production or active-testbed path was read or
+  written; no path override was changed.
+- Delivery: implementation commit `932fbc1`; release commit `272c7fa`; draft
+  PR #104: `https://github.com/ShinYwings/Incurator/pull/104`.
+- GitHub CI passed on delivery head `953a408`: backend, plugin, and version
+  consistency all green for push/PR events (one duplicate version job skipped).
 
 ## P7 Findings
 

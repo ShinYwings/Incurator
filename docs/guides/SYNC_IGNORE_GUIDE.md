@@ -51,7 +51,17 @@ testbed/
 > Snapshot and local sync-state writes use temp-file + atomic rename, so peers
 > never observe a partially written JSONL file.
 
-> **Note**: `sessions.json` may be synchronized in v0.2.1 because the plugin merges by session id before saving and records delete tombstones in `deletedSessionIds`. Keep `data.json` local if settings contain per-device paths such as MCP commands, backend executable paths, or Zotero paths. Synced sessions may carry portable PDF identity (Zotero attachment key, file hash, vault-relative path, page), but absolute PDF/Zotero paths are verified or re-resolved on each device before use.
+> **Note**: `sessions.json` may be synchronized because the plugin merges by
+> session id before saving, records delete tombstones in `deletedSessionIds`,
+> and processes an existing canonical file atomically from its commit-time
+> contents. Initial creation may use a temporary sibling; interrupted temp
+> writes are cleaned without publishing partial JSON. A corrupt or unreadable canonical file
+> is preserved and blocks ordinary saves; it is never treated as missing or
+> overwritten by defaults. Keep `data.json` local if settings contain
+> per-device paths such as MCP commands, backend executable paths, or Zotero
+> paths. Synced sessions may carry portable PDF identity (Zotero attachment
+> key, file hash, vault-relative path, page), but absolute PDF/Zotero paths are
+> verified or re-resolved on each device before use.
 
 ### Obsidian Plugin Deployment Across macOS/Linux
 

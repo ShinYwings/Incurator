@@ -108,44 +108,39 @@ def config_set(
         paths = _resolve_root_or_die()
         config_file = paths.config_file
 
-    existing: dict = {}
-    if config_file.exists():
-        with config_file.open("r", encoding="utf-8") as f:
-            existing = _yaml.safe_load(f) or {}
-
     # Parse value: try JSON first, then treat as plain string
     try:
         parsed_value: object = _json.loads(value)
     except (ValueError, TypeError):
         parsed_value = str(value).replace("~", str(Path.home()))
 
-    # Navigate/create nested dict and apply
-    parts = key.split(".")
-    target = existing
-    for part in parts[:-1]:
-        if not isinstance(target.get(part), dict):
-            target[part] = {}
-        target = target[part]  # type: ignore[assignment]
+    def apply_update(existing: dict) -> dict:
+        parts = key.split(".")
+        target = existing
+        for part in parts[:-1]:
+            if not isinstance(target.get(part), dict):
+                target[part] = {}
+            target = target[part]  # type: ignore[assignment]
 
-    leaf = parts[-1]
-    if append:
-        current = target.get(leaf)
-        if isinstance(current, list):
-            existing_list = current
-        elif current is not None:
-            existing_list = [current]
+        leaf = parts[-1]
+        if append:
+            current = target.get(leaf)
+            if isinstance(current, list):
+                existing_list = current
+            elif current is not None:
+                existing_list = [current]
+            else:
+                existing_list = []
+            items = parsed_value if isinstance(parsed_value, list) else [parsed_value]
+            for item in items:
+                if item not in existing_list:
+                    existing_list.append(item)
+            target[leaf] = existing_list
         else:
-            existing_list = []
-        items = parsed_value if isinstance(parsed_value, list) else [parsed_value]
-        for item in items:
-            if item not in existing_list:
-                existing_list.append(item)
-        target[leaf] = existing_list
-    else:
-        target[leaf] = parsed_value
+            target[leaf] = parsed_value
+        return existing
 
-    with config_file.open("w", encoding="utf-8") as f:
-        _yaml.safe_dump(existing, f, sort_keys=False, default_flow_style=False, allow_unicode=True)
+    cfg.update_config_file(config_file, apply_update)
 
     scope = "global" if global_cfg else "project"
     console.print(f"[green]✓[/green] {scope} config updated: [bold]{key}[/bold] = {_json.dumps(parsed_value, ensure_ascii=False)}")

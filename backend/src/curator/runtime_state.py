@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import sys
 from datetime import datetime, timezone
@@ -255,6 +256,27 @@ def _search_models_status(search_config: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _is_credential_key(key: object) -> bool:
+    normalized = re.sub(r"[^a-z0-9]", "", str(key).lower())
+    return normalized.endswith(
+        ("apikey", "token", "password", "secret", "credential", "credentials")
+    )
+
+
+def _redact_credentials(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _redact_credentials(item)
+            for key, item in value.items()
+            if not _is_credential_key(key)
+        }
+    if isinstance(value, list):
+        return [_redact_credentials(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_redact_credentials(item) for item in value)
+    return value
+
+
 def _portable_status_config(config: dict[str, Any]) -> dict[str, Any]:
     """Return config blocks safe for plugin runtime JSON snapshots.
 
@@ -262,13 +284,14 @@ def _portable_status_config(config: dict[str, Any]) -> dict[str, Any]:
     stay outside the vault, and backend commands provide live resolution.
     """
 
-    llm = dict(config.get("llm", {}) or {})
-    search_cfg = dict(config.get("search", {}) or {})
+    safe_config = _redact_credentials(config)
+    llm = dict(safe_config.get("llm", {}) or {})
+    search_cfg = dict(safe_config.get("search", {}) or {})
     for key in ("embedding_model_path", "reranker_model_path", "query_expander_model_path"):
         if key in search_cfg:
             search_cfg[key] = ""
 
-    external_cfg = dict(config.get("external", {}) or {})
+    external_cfg = dict(safe_config.get("external", {}) or {})
     external_cfg.pop("roots", None)
     external_cfg["path_roots"] = {}
     zotero_cfg = dict(external_cfg.get("zotero", {}) or {})
@@ -278,10 +301,10 @@ def _portable_status_config(config: dict[str, Any]) -> dict[str, Any]:
     return {
         "llm": llm,
         "search": search_cfg,
-        "sync": config.get("sync", {}),
-        "curate": config.get("curate", {}),
+        "sync": safe_config.get("sync", {}),
+        "curate": safe_config.get("curate", {}),
         "external": external_cfg,
-        "persona": config.get("persona", {}),
+        "persona": safe_config.get("persona", {}),
     }
 
 

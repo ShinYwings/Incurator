@@ -160,19 +160,37 @@ describe("Quick Query PDF reference fetch", () => {
 });
 
 describe("Session sync path hygiene", () => {
-  it("sanitizes session data immediately before writing sessions.json", () => {
+  it("uses the typed fail-closed atomic session store", () => {
     const src = mainSource();
     const methodStart = src.indexOf("async saveSessionData(): Promise<void>");
     const methodEnd = src.indexOf("  private async syncDeviceRegistryFromSyncthing", methodStart);
     const body = src.slice(methodStart, methodEnd);
 
-    expect(src).toContain("sanitizeSessionDataForSync");
-    expect(body).toContain("sessionData = sanitizeSessionDataForSync(sessionData);");
-    expect(body.indexOf("sessionData = sanitizeSessionDataForSync(sessionData);")).toBeLessThan(
-      body.indexOf("this.app.vault.adapter.write(")
-    );
+    expect(src).toContain("readSessionStore");
+    expect(src).toContain("writeMergedSessionStore");
+    expect(src).toContain('canonical.kind === "corrupt" || canonical.kind === "unreadable"');
+    expect(src).toContain("private sessionStoreWritable = false");
+    expect(body).toContain("if (!this.sessionStoreWritable)");
+    expect(body).not.toContain("this.app.vault.adapter.write(");
     expect(src).toContain("private sessionPersistPromise");
     expect(src).toContain("this.sessionPersistPromise = this.sessionPersistPromise");
+  });
+});
+
+describe("Zotero profile durable storage", () => {
+  it("distinguishes invalid canonical state and uses commit-time processing", () => {
+    const src = mainSource();
+    const methodStart = src.indexOf("async loadZoteroProfiles(): Promise<void>");
+    const methodEnd = src.indexOf("  async deleteZoteroProfile", methodStart);
+    const body = src.slice(methodStart, methodEnd);
+
+    expect(body).toContain("readJsonObjectState(");
+    expect(body).toContain('canonical.kind === "corrupt" || canonical.kind === "unreadable"');
+    expect(body).toContain("writeMergedZoteroProfilesStore(");
+    expect(body).toContain("ZoteroProfileStoreBlockedError");
+    expect(body).not.toContain("this.app.vault.adapter.write(");
+    expect(src).toContain("private zoteroProfilesPersistPromise");
+    expect(src).toContain("this.zoteroProfilesPersistPromise = this.zoteroProfilesPersistPromise");
   });
 });
 

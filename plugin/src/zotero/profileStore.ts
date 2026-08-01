@@ -1,4 +1,9 @@
 import type { ZoteroImportProfile } from "../types";
+import {
+  atomicWriteVaultText,
+  readJsonObjectState,
+  type VaultTextAdapter,
+} from "../utils/durableJsonStore";
 
 /** Durable store for Zotero import profiles + recent-item LRU (v0.30.0).
  *
@@ -16,6 +21,13 @@ export interface ZoteroProfilesFile {
   profiles: ZoteroImportProfile[];
   recentItems: string[];
   deletedProfiles: Record<string, number>;
+}
+
+export class ZoteroProfileStoreBlockedError extends Error {
+  constructor(kind: "corrupt" | "unreadable") {
+    super(`canonical Zotero profile store is ${kind}`);
+    this.name = "ZoteroProfileStoreBlockedError";
+  }
 }
 
 /** Merge a freshly read synced store with this process's pending edits.
@@ -150,6 +162,31 @@ export function parseZoteroProfilesFile(raw: string): ZoteroProfilesFile | null 
     return null;
   }
   return normalizeZoteroProfilesFile(parsed);
+}
+
+export async function writeMergedZoteroProfilesStore(
+  adapter: VaultTextAdapter,
+  path: string,
+  local: ZoteroProfilesFile
+): Promise<ZoteroProfilesFile> {
+  const localSnapshot = normalizeZoteroProfilesFile(local);
+  const canonical = await readJsonObjectState(adapter, path);
+  if (canonical.kind === "corrupt" || canonical.kind === "unreadable") {
+    throw new ZoteroProfileStoreBlockedError(canonical.kind);
+  }
+  if (canonical.kind === "missing") {
+    await atomicWriteVaultText(adapter, path, JSON.stringify(localSnapshot, null, 2));
+    return localSnapshot;
+  }
+
+  const committedRaw = await adapter.process(path, (currentRaw) => {
+    const current = parseZoteroProfilesFile(currentRaw);
+    if (current === null) throw new ZoteroProfileStoreBlockedError("corrupt");
+    return JSON.stringify(mergeZoteroProfilesFiles(current, localSnapshot), null, 2);
+  });
+  const committed = parseZoteroProfilesFile(committedRaw);
+  if (committed === null) throw new ZoteroProfileStoreBlockedError("corrupt");
+  return committed;
 }
 
 /** Extract the legacy `data.json` fields for one-time migration.

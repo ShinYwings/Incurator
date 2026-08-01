@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.39.0)
+# Incurator - System Behavior (v0.40.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -717,6 +717,14 @@ provider-native control:
   plaintext `llm.deepseek-api.api_key`. Environment variables take precedence.
   `api_key_secret` points to a local encrypted secret outside the shared vault;
   shared/project config must not contain newly stored plaintext API keys.
+  The encrypted secret store distinguishes missing from corrupt/unreadable JSON.
+  A corrupt/unreadable existing store is preserved and every mutation fails
+  closed rather than treating it as `{}`. Secret read/merge/write mutations are
+  process-locked and replace a flushed temporary sibling atomically. Secret
+  temporary files are created with mode `0600` from their first byte rather
+  than being tightened only after credential data is written, so
+  concurrent writers cannot lose unrelated credentials and interrupted writes
+  leave the prior store intact.
   Current catalogue
   entries are `deepseek-v4-flash` and `deepseek-v4-pro`; legacy aliases
   `deepseek-chat` and `deepseek-reasoner` are not preferred because DeepSeek
@@ -763,6 +771,28 @@ The dashboard writes Primary via `config provider` and Fallback via
 `config set` defaults to `--global`, and the project `llm` block shadows global
 keys on load — so writing the fallback globally silently masked it. Mixing config
 scopes for related `llm` keys is a defect.
+
+Global and project config mutations MUST hold a per-target process/file lock
+across read/merge/write and replace a flushed sibling temporary file atomically.
+Concurrent `config set`, provider, model-setup, or API mutations must preserve
+unrelated keys. An existing corrupt, unreadable, or non-mapping YAML file must
+be preserved and the mutation must fail closed; it must not be overwritten with
+defaults or a partial update.
+
+`save_config()` may receive an effective project snapshot loaded before a sync
+peer edits `.curator/settings.yml`. Its locked updater MUST start from the
+mapping freshly read under the target lock, remove every machine-local top-level
+block, and recursively merge the requested vault-scoped values into that
+current mapping. Unrelated current top-level and nested keys survive. Requested
+same-key values are local-wins; omission from a full snapshot is not a deletion
+instruction. A deliberate deletion uses a targeted locked updater instead.
+
+Atomic replacement preserves an existing ordinary config file's POSIX
+permission bits. A new ordinary config uses normal kernel umask semantics from
+a requested creation mode of `0666`; an explicitly private secret/key target is
+created and committed as `0600`. Interrupted replacement preserves both the old
+bytes and old mode and removes the temporary sibling. This contract covers mode
+bits only, not ownership, ACLs, extended attributes, or hard-link identity.
 
 After `wiki config provider` and project-scoped `wiki config set --local`, the
 CLI must make a best-effort attempt to refresh repo-cache `runtime/*.json` so the
@@ -831,6 +861,10 @@ Rules:
 - Runtime snapshots must be derived from backend-owned state (`state.sqlite`,
   internal search metadata, job queue, config) and must not become a second
   source of truth.
+- Runtime snapshots recursively omit credential-bearing keys at every mapping
+  depth, including values nested in provider blocks, arrays, and accepted legacy
+  config. Provider/model selection may remain, but plaintext API keys, tokens,
+  passwords, secrets, and credential objects must never be serialized.
 - Runtime snapshot refresh is cache maintenance. If a mutating CLI command hits
   an expected local refresh failure (file-system error, a locked `state.sqlite`,
   or a malformed config during `config set --local`), the command should still

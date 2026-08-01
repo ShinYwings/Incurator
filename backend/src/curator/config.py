@@ -10,8 +10,10 @@ All Curator state lives exclusively in `.curator/`.
 
 from __future__ import annotations
 
-import logging
+import copy
 import hashlib
+import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -19,6 +21,7 @@ from typing import Optional
 import yaml
 
 from . import constants as consts
+from . import durable_io
 
 logger = logging.getLogger(__name__)
 
@@ -365,36 +368,61 @@ def prepare_machine_state(paths: WikiPaths) -> None:
     marker = cache_dir / "vault_root"
     marker.write_text(str(paths.root.expanduser().resolve(strict=False)), encoding="utf-8")
 
+
+def _read_config_mapping_for_update(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        raise durable_io.DurableStateError(
+            f"config is unreadable or corrupt: {path}"
+        ) from exc
+    if loaded is None:
+        return {}
+    if not isinstance(loaded, dict):
+        raise durable_io.DurableStateError(f"config root is not a mapping: {path}")
+    return loaded
+
+
+def _dump_config(config: dict) -> str:
+    return yaml.safe_dump(
+        config,
+        sort_keys=False,
+        default_flow_style=False,
+        allow_unicode=True,
+    )
+
+
+def update_config_file(path: Path, update: Callable[[dict], dict]) -> dict:
+    """Atomically update one YAML mapping while holding its per-path lock."""
+
+    with durable_io.locked_path(path):
+        current = _read_config_mapping_for_update(path)
+        updated = update(current)
+        if not isinstance(updated, dict):
+            raise TypeError("config updater must return a mapping")
+        durable_io.atomic_write_text(path, _dump_config(updated))
+        return updated
+
+
+def _merge_dict(base: dict, updates: dict) -> dict:
+    for key, value in updates.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict):
+            base[key] = _merge_dict(base[key], value)
+        else:
+            base[key] = copy.deepcopy(value)
+    return base
+
 def save_global_config(config: dict) -> None:
     """Write config to the global cache config directory, merging with existing."""
     global_dir = get_global_config_dir()
     global_dir.mkdir(parents=True, exist_ok=True)
     config_file = global_dir / consts.FILE_GLOBAL_CONFIG_YML
-
-    existing = {}
-    if config_file.exists():
-        try:
-            with config_file.open("r", encoding="utf-8") as f:
-                data = yaml.safe_load(f)
-                if isinstance(data, dict):
-                    existing = data
-        except (OSError, yaml.YAMLError) as e:
-            logger.warning(
-                "Could not read existing global config '%s' (%s) — overwriting with merged values.",
-                config_file, e,
-            )
-
-    def merge_dict(a: dict, b: dict) -> dict:
-        for k, v in b.items():
-            if isinstance(v, dict) and isinstance(a.get(k), dict):
-                a[k] = merge_dict(a[k], v)
-            else:
-                a[k] = v
-        return a
-
-    merged = merge_dict(existing, config)
-    with config_file.open("w", encoding="utf-8") as f:
-        yaml.safe_dump(merged, f, sort_keys=False, default_flow_style=False, allow_unicode=True)
+    update_config_file(
+        config_file,
+        lambda existing: _merge_dict(copy.deepcopy(existing), config),
+    )
 
 
 def get_last_root() -> Optional[Path]:
@@ -514,8 +542,14 @@ def save_config(paths: WikiPaths, config: dict) -> None:
     if machine_local:
         save_global_config(machine_local)
     paths.internal.mkdir(parents=True, exist_ok=True)
-    with paths.config_file.open("w", encoding="utf-8") as f:
-        yaml.safe_dump(vault_only, f, sort_keys=False, default_flow_style=False, allow_unicode=True)
+
+    def merge_vault_config(existing: dict) -> dict:
+        current = copy.deepcopy(existing)
+        for key in MACHINE_LOCAL_CONFIG_KEYS:
+            current.pop(key, None)
+        return _merge_dict(current, vault_only)
+
+    update_config_file(paths.config_file, merge_vault_config)
 
 
 def find_wiki_root(start: Path | None = None) -> Path | None:
