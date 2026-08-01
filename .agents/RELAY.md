@@ -11,9 +11,8 @@ gaps found during review before PR #103 merges.
 
 - Branch: `hotfix/v0.39.2-equation-reference-context`
 - Draft PR: `https://github.com/ShinYwings/Incurator/pull/103`
-- Review hardening plan: `.agents/plans/04_v0392_reference_review_hardening.md`
-- Domain analysis: `.agents/plans/A_v0392_reference_review_hardening.md`
-- Evidence: `.agents/plans/04_v0392_reference_review_evidence.md`
+- Review plan/domain/evidence are preserved at commits `186c2da` and `f95b1e0`
+  and deleted from the active workspace after implementation.
 
 ## Analysis & Reasoning
 
@@ -45,23 +44,27 @@ gaps found during review before PR #103 merges.
   version/spec consistency passed 10 tests.
 - Branch is pushed and draft PR #103 is open against `master`.
 - GitHub CI is green at `e02859b`, but code review found two merge-blocking
-  correctness gaps. The user approved the review-hardening plan; docs-first
-  contracts and TDD implementation are complete. Focused tests pass 63/63;
-  full plugin tests pass 744/744; TypeScript, production build, backend pytest
-  (1373 passed, 6 skipped, 4 expected xfails), Ruff, and MyPy pass.
+  correctness gaps. Both are fixed by `c12b6de`: exhausted exact-label scans
+  fail closed, and latest-question resolution is gated to the active or
+  explicitly attached primary PDF. Focused tests pass 63/63; full plugin tests
+  pass 744/744; TypeScript, production build, backend pytest (1373 passed,
+  6 skipped, 4 expected xfails), Ruff, and MyPy pass.
+- The v0.39.2 changelog, roadmap cleanup, planning-artifact deletion, and final
+  release commit are complete. PR #103 is the delivery target for the current
+  branch head.
 
 ## Critical Context / Blockers
 
-- PR #103 must not merge until the two review findings are fixed and validated.
+- No local implementation blocker remains.
+- Merge PR #103 only after GitHub checks pass for the review-hardened head.
 - Do not repeat the live-provider replay; the one permitted call is complete.
 - Do not mutate production `second_brain` or an active testbed.
 - v0.39.x stability work remains queued behind this hotfix merge.
 
 ## Immediate Next Action
 
-1. Implement docs-first and TDD fixes, run full local validation, and push the
-   follow-up commits to PR #103.
-2. Human reviews and merges draft PR #103.
+1. GitHub checks run for the review-hardened PR #103 head.
+2. Human reviews and merges draft PR #103 when green.
 3. After merge, fast-forward local `master` and reset relay to the documented
    minimal IDLE stub.
 4. Resume the v0.39.x stability audit at P6 on a fresh branch from `master`.
