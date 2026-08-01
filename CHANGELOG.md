@@ -10,7 +10,10 @@ All notable changes to Incurator are documented here.
   the existing read-only PDF context API when the loaded window lacks the target
   body. Resolved evidence is supplied before generic PDF context, so external
   Zotero/iCloud PDFs remain outside provider filesystem roots and no native
-  `read_file` or `command` permission is needed.
+  `read_file` or `command` permission is needed. Resolution now fails closed
+  when the bounded scan finds no exact equation label, and latest-question
+  pointers are scoped to the active or explicitly attached primary PDF instead
+  of being claimed by background PDF tabs.
 
 ---
 

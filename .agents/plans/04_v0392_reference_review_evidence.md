@@ -45,5 +45,16 @@ Status: IMPLEMENTATION APPROVED
   `chatSidebarSource.test.ts`.
 - Docs/spec synchronization: English/Korean plugin guides, system behavior, and
   plugin schema updated.
-- Full local validation: pending implementation.
-- PR follow-up commits/checks: pending implementation.
+- Full local validation:
+  - plugin Vitest: 744 passed across 68 files;
+  - TypeScript `--noEmit`: passed;
+  - production plugin build: passed;
+  - backend pytest: 1373 passed, 6 skipped, 4 expected xfails;
+  - backend Ruff and MyPy: passed.
+- Testbed/live-provider handling: no active testbed or production vault was
+  mutated. The affected behavior is plugin-local and covered by deterministic
+  runtime/source-contract tests; the previously successful disposable PDF smoke
+  remains the external-fixture control. The live provider replay was not
+  repeated per the relay constraint.
+- Follow-up commits: `186c2da` (contracts/plan) and `c12b6de` (TDD fix).
+- PR follow-up push/checks: pending delivery.

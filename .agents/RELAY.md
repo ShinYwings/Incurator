@@ -47,7 +47,8 @@ gaps found during review before PR #103 merges.
 - GitHub CI is green at `e02859b`, but code review found two merge-blocking
   correctness gaps. The user approved the review-hardening plan; docs-first
   contracts and TDD implementation are complete. Focused tests pass 63/63;
-  full validation is pending.
+  full plugin tests pass 744/744; TypeScript, production build, backend pytest
+  (1373 passed, 6 skipped, 4 expected xfails), Ruff, and MyPy pass.
 
 ## Critical Context / Blockers
 
