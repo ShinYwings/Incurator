@@ -91,7 +91,16 @@ import {
   stampMathSourceData,
 } from "./src/utils/textUtils";
 import { rewriteCuratorLinks } from "./src/utils/curatorWikilinks";
-import { mergeSessionData, normalizeSessionData, sanitizeSessionDataForSync } from "./src/utils/sessionData";
+import {
+  SessionStoreBlockedError,
+  readSessionStore,
+  writeMergedSessionStore,
+} from "./src/utils/sessionStore";
+import {
+  atomicWriteVaultText,
+  readJsonObjectState,
+} from "./src/utils/durableJsonStore";
+import { normalizeSessionData } from "./src/utils/sessionData";
 import { vaultMachineCacheDir } from "./src/utils/machineCache";
 import {
   mergeDeviceRegistry,
@@ -144,6 +153,7 @@ export default class ObsidianAIAgent extends Plugin {
   private settingsPersistPromise: Promise<void> = Promise.resolve();
   private zoteroProfilesPersistPromise: Promise<void> = Promise.resolve();
   private sessionPersistPromise: Promise<void> = Promise.resolve();
+  private sessionStoreWritable = false;
   private deletedZoteroProfiles: Record<string, number> = {};
   private localIncuratorRepoPathHint = "";
   private runtimePluginBundleHash: string | null = null;
@@ -1421,28 +1431,34 @@ export default class ObsidianAIAgent extends Plugin {
    *  mirror them into settings (all call sites read settings.zoteroProfiles).
    *  Migrates legacy data.json fields on first load (PLUGIN_SCHEMA v0.30.0).
    *
-   *  The file read and the JSON parse are handled separately (PR #78 review):
-   *  a corrupted-but-existing store must NOT fall through to the legacy
+   *  Missing, unreadable, and corrupt canonical states are distinguished:
+   *  a present-but-invalid store must NOT fall through to the legacy
    *  migration — post-migration the legacy fields are blank, so that fallback
    *  would mark an empty list as loaded and the next save would silently
    *  overwrite the recoverable file. Never throws: a failure here must not
    *  abort plugin onload. */
   async loadZoteroProfiles(): Promise<void> {
-    let raw: string | null = null;
-    try {
-      raw = await this.app.vault.adapter.read(ZOTERO_PROFILES_PATH);
-    } catch {
-      raw = null; // Missing/unreadable store — legacy migration below.
+    const canonical = await readJsonObjectState(
+      this.app.vault.adapter,
+      ZOTERO_PROFILES_PATH
+    );
+    if (canonical.kind === "corrupt" || canonical.kind === "unreadable") {
+      logger.error(
+        `${ZOTERO_PROFILES_PATH} is ${canonical.kind} — Zotero profiles are ` +
+          "read-only this session; repair or delete the file and reload Obsidian."
+      );
+      new Notice(
+        "Zotero profiles file is unavailable or corrupted — profiles are read-only until " +
+          `${ZOTERO_PROFILES_PATH} is repaired or removed.`
+      );
+      return;
     }
 
-    if (raw !== null) {
-      const store = parseZoteroProfilesFile(raw);
+    if (canonical.kind === "valid") {
+      const store = parseZoteroProfilesFile(canonical.raw);
       if (store === null) {
-        // Corrupted JSON: keep profiles read-only this session. The load guard
-        // stays false, so saveZoteroProfiles() will never overwrite the file —
-        // the user can repair or delete it and reload.
         logger.error(
-          `${ZOTERO_PROFILES_PATH} contains invalid JSON — Zotero profiles are ` +
+          `${ZOTERO_PROFILES_PATH} contains invalid data — Zotero profiles are ` +
             "read-only this session; repair or delete the file and reload Obsidian."
         );
         new Notice(
@@ -1502,17 +1518,31 @@ export default class ObsidianAIAgent extends Plugin {
           deletedProfiles: this.deletedZoteroProfiles,
         };
         let store = local;
-        try {
-          const raw = await this.app.vault.adapter.read(ZOTERO_PROFILES_PATH);
-          const disk = parseZoteroProfilesFile(raw);
-          if (disk) store = mergeZoteroProfilesFiles(disk, local);
-        } catch {
-          // Missing store: write the local snapshot below.
+        const canonical = await readJsonObjectState(
+          this.app.vault.adapter,
+          ZOTERO_PROFILES_PATH
+        );
+        if (canonical.kind === "corrupt" || canonical.kind === "unreadable") {
+          this._zoteroProfilesLoaded = false;
+          throw new Error(
+            `${ZOTERO_PROFILES_PATH} became ${canonical.kind}; refusing to overwrite it`
+          );
+        }
+        if (canonical.kind === "valid") {
+          const disk = parseZoteroProfilesFile(canonical.raw);
+          if (!disk) {
+            this._zoteroProfilesLoaded = false;
+            throw new Error(
+              `${ZOTERO_PROFILES_PATH} contains invalid data; refusing to overwrite it`
+            );
+          }
+          store = mergeZoteroProfilesFiles(disk, local);
         }
         this.settings.zoteroProfiles = store.profiles;
         this.settings.recentZoteroItems = store.recentItems;
         this.deletedZoteroProfiles = store.deletedProfiles;
-        await this.app.vault.adapter.write(
+        await atomicWriteVaultText(
+          this.app.vault.adapter,
           ZOTERO_PROFILES_PATH,
           JSON.stringify(store, null, 2)
         );
@@ -1535,37 +1565,56 @@ export default class ObsidianAIAgent extends Plugin {
   }
 
   async loadSessionData(): Promise<void> {
-    try {
-      const raw = await this.app.vault.adapter.read(this._sessionsPath);
-      const parsed = JSON.parse(raw) as Partial<SessionData>;
-      this.sessionData = normalizeSessionData(parsed);
-    } catch {
-      // File missing or unreadable in .curator — check legacy locations for migration
-      try {
-        const oldRaw = await this.app.vault.adapter.read(`${this.manifest.dir}/sessions.json`);
-        this.sessionData = normalizeSessionData(JSON.parse(oldRaw) as Partial<SessionData>);
-        await this.saveSessionData();
-        await this.app.vault.adapter.remove(`${this.manifest.dir}/sessions.json`);
-        return;
-      } catch {
-        // Proceed to check data.json legacy migration if standalone sessions.json is also missing
-      }
+    const canonical = await readSessionStore(
+      this.app.vault.adapter,
+      this._sessionsPath
+    );
+    if (canonical.kind === "valid") {
+      this.sessionData = canonical.value;
+      this.sessionStoreWritable = true;
+      return;
+    }
+    if (canonical.kind === "corrupt" || canonical.kind === "unreadable") {
+      this.sessionData = { ...DEFAULT_SESSION_DATA };
+      this.sessionStoreWritable = false;
+      logger.error(
+        `${this._sessionsPath} is ${canonical.kind}; session persistence is disabled ` +
+          "until the canonical file is repaired or removed and Obsidian is reloaded."
+      );
+      new Notice(
+        "Chat sessions file is unavailable or corrupted — existing bytes were preserved " +
+          "and session saving is disabled until it is repaired or removed."
+      );
+      return;
+    }
 
-      const raw = (await this.loadData()) || {};
-      const legacy = raw as { chatSessions?: SessionData["chatSessions"]; activeChatSessionId?: string };
-      if (legacy.chatSessions?.length) {
-        this.sessionData = {
-          chatSessions: legacy.chatSessions,
-          activeChatSessionId: legacy.activeChatSessionId,
-        };
-        // Persist to new location and remove from settings
-        await this.saveSessionData();
-        delete (this.settings as unknown as Record<string, unknown>).chatSessions;
-        delete (this.settings as unknown as Record<string, unknown>).activeChatSessionId;
-        await this.persistSettings();
-      } else {
-        this.sessionData = { ...DEFAULT_SESSION_DATA };
-      }
+    this.sessionStoreWritable = true;
+    // Canonical file is genuinely missing — legacy migration is now safe.
+    try {
+      const oldRaw = await this.app.vault.adapter.read(`${this.manifest.dir}/sessions.json`);
+      this.sessionData = normalizeSessionData(
+        JSON.parse(oldRaw) as Partial<SessionData>
+      );
+      await this.saveSessionData();
+      await this.app.vault.adapter.remove(`${this.manifest.dir}/sessions.json`);
+      return;
+    } catch {
+      // Proceed to data.json legacy migration.
+    }
+
+    const raw = (await this.loadData()) || {};
+    const legacy = raw as { chatSessions?: SessionData["chatSessions"]; activeChatSessionId?: string };
+    if (legacy.chatSessions?.length) {
+      this.sessionData = {
+        chatSessions: legacy.chatSessions,
+        activeChatSessionId: legacy.activeChatSessionId,
+      };
+      await this.saveSessionData();
+      delete (this.settings as unknown as Record<string, unknown>).chatSessions;
+      delete (this.settings as unknown as Record<string, unknown>).activeChatSessionId;
+      await this.persistSettings();
+    } else {
+      this.sessionData = { ...DEFAULT_SESSION_DATA };
     }
   }
 
@@ -1577,27 +1626,30 @@ export default class ObsidianAIAgent extends Plugin {
   }
 
   private async writeSessionData(): Promise<void> {
-    let sessionData = this.sessionData;
-    try {
-      const raw = await this.app.vault.adapter.read(this._sessionsPath);
-      const remote = normalizeSessionData(JSON.parse(raw) as Partial<SessionData>);
-      sessionData = mergeSessionData(this.sessionData, remote);
-      this.sessionData = sessionData;
-    } catch {
-      // Missing or unreadable sessions.json: write the current in-memory session state.
+    if (!this.sessionStoreWritable) {
+      throw new Error("canonical session store is read-only this session");
     }
 
     if (!(await this.app.vault.adapter.exists(".curator"))) {
       await this.app.vault.adapter.mkdir(".curator");
     }
 
-    sessionData = sanitizeSessionDataForSync(sessionData);
-    this.sessionData = sessionData;
-
-    await this.app.vault.adapter.write(
-      this._sessionsPath,
-      JSON.stringify(sessionData, null, 2)
-    );
+    try {
+      this.sessionData = await writeMergedSessionStore(
+        this.app.vault.adapter,
+        this._sessionsPath,
+        this.sessionData
+      );
+    } catch (error) {
+      if (error instanceof SessionStoreBlockedError) {
+        this.sessionStoreWritable = false;
+        new Notice(
+          "Chat sessions file changed to an invalid state; saving is disabled " +
+            "until it is repaired or removed and Obsidian is reloaded."
+        );
+      }
+      throw error;
+    }
   }
 
   private async syncDeviceRegistryFromSyncthing(): Promise<void> {

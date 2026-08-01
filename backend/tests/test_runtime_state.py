@@ -238,6 +238,39 @@ class TestRuntimeStateSnapshots(unittest.TestCase):
         self.assertEqual(status["devices"][0]["platform"], {"system": "Linux"})
         self.assertEqual(_absolute_strings(status), [])
 
+    def test_status_snapshot_recursively_redacts_legacy_credentials(self) -> None:
+        status = runtime_state.build_status_snapshot(
+            self.paths,
+            {
+                "llm": {
+                    "primary": "deepseek-api::deepseek-v4-flash",
+                    "deepseek-api": {
+                        "api_key": "plaintext-key",
+                        "api_key_secret": "secret:deepseek-api-key",
+                        "nested": [
+                            {"refreshToken": "refresh-me", "model": "keep-model"},
+                            {"credentials": {"password": "nested-password"}},
+                        ],
+                    },
+                },
+                "search": {"rerank": True},
+                "sync": {"token": "sync-token", "enabled": True},
+            },
+        )
+
+        serialized = json.dumps(status, sort_keys=True)
+        for secret in (
+            "plaintext-key",
+            "secret:deepseek-api-key",
+            "refresh-me",
+            "nested-password",
+            "sync-token",
+        ):
+            self.assertNotIn(secret, serialized)
+        self.assertEqual(status["llm"]["primary"], "deepseek-api::deepseek-v4-flash")
+        self.assertEqual(status["llm"]["deepseek-api"]["nested"][0]["model"], "keep-model")
+        self.assertTrue(status["sync"]["enabled"])
+
     def test_zotero_source_snapshot_uses_portable_source_path(self) -> None:
         with db.connect(self.paths.state_db) as conn:
             conn.execute("DELETE FROM sources")

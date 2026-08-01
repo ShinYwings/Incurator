@@ -86,20 +86,11 @@ def get_vault_schema_version(paths: cfg.WikiPaths) -> int:
 
 def set_vault_schema_version(paths: cfg.WikiPaths, version: int) -> None:
     """Write vault_schema_version into vault config file."""
-    if not paths.config_file.exists():
-        paths.internal.mkdir(parents=True, exist_ok=True)
-        current: dict[str, Any] = {}
-    else:
-        try:
-            current = yaml.safe_load(paths.config_file.read_text(encoding="utf-8")) or {}
-        except Exception:
-            current = {}
-    current["vault_schema_version"] = version
-    paths.internal.mkdir(parents=True, exist_ok=True)
-    paths.config_file.write_text(
-        yaml.safe_dump(current, sort_keys=False, default_flow_style=False, allow_unicode=True),
-        encoding="utf-8",
-    )
+    def update(current: dict) -> dict:
+        current["vault_schema_version"] = version
+        return current
+
+    cfg.update_config_file(paths.config_file, update)
 
 
 # ---------------------------------------------------------------------------
