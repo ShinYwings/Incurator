@@ -39,7 +39,11 @@ dispatch collision-free, settle shutdown requests, and bound backend processes.
   set, all 769 plugin tests, and a production plugin build.
 - Full backend gates pass (1386 passed / 6 skipped / 4 xfailed, Ruff, mypy), as
   do post-bump spec/version checks (10/10). Implementation commit: `033a4fd`.
-- v0.40.1 manifests and changelog are ready for the final release commit.
+- Release commit `d626a5d` is pushed in draft PR #106:
+  `https://github.com/ShinYwings/Incurator/pull/106`.
+- GitHub CI passed on release head `d626a5d` for backend, plugin, and version
+  consistency. The delivery-note head changes only agent state; the PR is the
+  live authority for its final check state.
 
 ## Critical Context / Blockers
 
@@ -50,6 +54,6 @@ dispatch collision-free, settle shutdown requests, and bound backend processes.
 
 ## Immediate Next Action
 
-1. Create the required `chore(release): v0.40.1` commit.
-2. Push, open the draft PR, and wait for latest-head GitHub CI.
-3. Update RELAY/evidence with delivery state without claiming P7 merged.
+1. Confirm the delivery-note head remains green in PR #106.
+2. Human reviews and merges PR #106.
+3. After merge, reset RELAY on updated `master`, then continue with P8.

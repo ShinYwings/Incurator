@@ -1,7 +1,8 @@
 # v0.32.0+ Stability Regression Audit — Remaining Plan
 
 Updated: 2026-08-01
-Status: ACTIVE — P1–P6 shipped through v0.40.0; P7 is in progress.
+Status: ACTIVE — P1–P6 shipped through v0.40.0; P7 is delivered in draft PR
+#106 and awaiting merge.
 
 ## Objective
 

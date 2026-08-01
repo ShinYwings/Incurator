@@ -95,7 +95,11 @@ tests.
   the active scenario was not identified, and the approved P7 boundary forbids
   mutating the existing testbed or production `second_brain` for these proofs.
 - Implementation commit: `033a4fd` (`fix(plugin): harden provider and process
-  lifetimes`). Release commit, delivery, and CI: pending.
+  lifetimes`); release commit: `d626a5d` (`chore(release): v0.40.1`).
+- Delivery: draft PR #106, `https://github.com/ShinYwings/Incurator/pull/106`.
+  GitHub CI passed on release head `d626a5d`: backend and plugin jobs were green
+  for both push/PR events, version consistency was green for the push event,
+  and the duplicate PR-event version job correctly skipped.
 
 ## P8 Findings
 
