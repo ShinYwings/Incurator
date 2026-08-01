@@ -51,6 +51,8 @@ redaction fixtures.
   all proofs use isolated temporary directories and mocked vault adapters.
 - Production-path restoration: no production or active-testbed path was read or
   written; no path override was changed.
+- Delivery: implementation commit `932fbc1`; release commit `272c7fa`; draft
+  PR #104: `https://github.com/ShinYwings/Incurator/pull/104`.
 
 ## P7 Findings
 

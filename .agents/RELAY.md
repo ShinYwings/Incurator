@@ -37,6 +37,8 @@ concurrent/interrupted writes plus synced-session merges.
   4 xfailed, Ruff and mypy clean, plugin build clean, Vitest 749 passed.
 - Version/changelog closure is prepared for patch `0.39.3`; P6 is removed from
   the active roadmap and P7 is next.
+- Release commit `272c7fa` was pushed and draft PR #104 targets `master`:
+  `https://github.com/ShinYwings/Incurator/pull/104`.
 
 ## Critical Context / Blockers
 
@@ -46,5 +48,5 @@ concurrent/interrupted writes plus synced-session merges.
 
 ## Immediate Next Action
 
-1. Review the complete diff and commit `chore(release): v0.39.3` closure.
-2. Push `release/v0.39.3`, open the draft PR, and record its URL/latest head.
+1. Wait for GitHub CI on the latest delivery head and address any failure.
+2. After PR #104 merges, follow the documented IDLE relay-reset procedure.
