@@ -29,6 +29,7 @@ attribution, and numeric prompt-version ordering.
   778 passed; Ruff, mypy, TypeScript, production build, docs/version consistency,
   and frozen-holdout fingerprints passed.
 - Implementation commit: `a9792e3`.
+- Release commit: `1760397`; draft PR #107 is open against `master`.
 
 ## Critical Context / Blockers
 
@@ -39,5 +40,5 @@ attribution, and numeric prompt-version ordering.
 
 ## Immediate Next Action
 
-Create `chore(release): v0.40.2`, push `release/v0.40.2`, open the draft PR, and
-verify latest-head GitHub CI.
+Push the final delivery metadata commit and verify latest-head GitHub CI for
+draft PR #107 before handing off for human review.

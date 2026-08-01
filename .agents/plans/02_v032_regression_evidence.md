@@ -195,7 +195,10 @@ outputs, failover trace attribution, and v9/v10 ordering tests.
   DBs and deterministic fake providers. No production or testbed path/config
   was read, written, or overridden.
 - Implementation commit: `a9792e3` (`fix(core): enforce retrieval and prompt
-  integrity`). Release commit and draft PR are the remaining delivery steps.
+  integrity`); release commit: `1760397` (`chore(release): v0.40.2`).
+- Delivery: draft PR #107,
+  `https://github.com/ShinYwings/Incurator/pull/107`. Latest-head GitHub CI is
+  pending on the final delivery metadata commit.
 
 ## Validation Record Template
 
