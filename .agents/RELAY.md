@@ -13,7 +13,7 @@ and preserve intended config/secret permissions.
 - Review plan/domain analyses were implemented and deleted; history begins at
   `b08ec84`.
 - Closed predecessor draft: `https://github.com/ShinYwings/Incurator/pull/104`
-- Successor v0.40.0 draft: pending publication.
+- Successor v0.40.0 draft: `https://github.com/ShinYwings/Incurator/pull/105`.
 
 ## Analysis & Reasoning
 
@@ -39,6 +39,11 @@ and preserve intended config/secret permissions.
 - Build manifests, all static spec titles, changelog, plugin minimum support,
   and compatibility fallback agree on v0.40.0.
 - Production `second_brain` and active testbed state were not touched.
+- Release commit `77f34bd` was pushed to `release/v0.40.0`; draft PR #105
+  targets `master` and supersedes closed review-history PR #104.
+- GitHub CI passed on release head `77f34bd`: both backend jobs and both plugin
+  jobs are green, version consistency is green, and the duplicate version job
+  was skipped as expected.
 
 ## Critical Context / Blockers
 
@@ -48,12 +53,10 @@ and preserve intended config/secret permissions.
 - GitHub closed PR #104 when its remote head branch was renamed. The correctly
   named v0.40.0 branch requires a successor draft PR; no code/review data was
   lost.
-- No implementation blocker remains. Latest-head GitHub CI is still pending.
+- No implementation or CI blocker remains.
 
 ## Immediate Next Action
 
-1. Create `chore(release): v0.40.0`, push `release/v0.40.0`, and open the
-   successor draft PR against `master`.
-2. Wait for latest-head GitHub CI and record the result here.
-3. Human reviews and merges the successor PR; then reset relay through the
+1. Human reviews and merges draft PR #105.
+2. After merge, reset relay through the
    documented IDLE cleanup procedure.
