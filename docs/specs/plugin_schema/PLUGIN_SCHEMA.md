@@ -259,11 +259,16 @@ settings fields, persisted DTOs, or backend command envelopes.
   its complete lifetime. `streamChat` and `complete` accept an optional caller
   `AbortSignal`; surfaces that can overlap (including independent Quick Query
   popovers) must create and abort their own signal. Closing one surface must not
-  abort another surface's request.
+  abort another surface's request. A request with an explicit caller signal must
+  not replace the legacy foreground pointer used by sidebar controls.
 - `LLMClient.abort()` remains the foreground-control API for existing sidebar
   stop/dismiss actions. The foreground pointer selects an active request but is
   never the source of truth for another request's lifetime. When a newer request
   finishes, an older still-active request becomes foreground again.
+- A provider request whose local signal is already aborted, including one
+  cancelled during asynchronous context preparation, must settle before any
+  HTTP or CLI transport launches. Provider-specific error classification must
+  rethrow `AbortError` unchanged.
 - Streaming and non-streaming CLI subprocesses bind to the request-local signal.
   Non-streaming CLI construction must use the per-call model override and the
   same GUI-safe augmented environment (`PATH` plus device-local CLI temp paths)
@@ -873,6 +878,8 @@ bounded grace period, escalates to `SIGKILL` if necessary, and waits for a final
 bounded completion. Late exit events from an old process generation must not
 clear a restarted server's process or ready state. Request timeout handles are
 cleared on response, exit, and shutdown so each Promise settles exactly once.
+Each generation starts with an empty newline-delimited JSON buffer, and stdout
+from a child that is no longer current must be ignored.
 
 ## 3. Model Catalogue
 

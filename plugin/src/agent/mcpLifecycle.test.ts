@@ -144,4 +144,32 @@ describe("MCP process lifecycle", () => {
     expect((mcp as any).process).toBe(replacement);
     expect(mcp.ready).toBe(true);
   });
+
+  it("ignores late stdout from an old process generation during restart", async () => {
+    vi.useFakeTimers();
+    const oldProcess = new FakeMcpProcess();
+    const replacement = new FakeMcpProcess();
+    processMocks.spawn
+      .mockReturnValueOnce(oldProcess)
+      .mockReturnValueOnce(replacement);
+    const mcp = client();
+
+    const firstStart = mcp.start();
+    await vi.advanceTimersByTimeAsync(500);
+    await firstStart;
+    oldProcess.exitOnSignal = "SIGTERM";
+
+    const restartOutcome = mcp.start().then(
+      () => "started",
+      () => "failed",
+    );
+    await vi.advanceTimersByTimeAsync(500);
+    expect((mcp as any).process).toBe(replacement);
+
+    oldProcess.stdout.emit("data", Buffer.from('{"jsonrpc":"2.0",'));
+    await vi.advanceTimersByTimeAsync(31_000);
+
+    await expect(restartOutcome).resolves.toBe("started");
+    expect(mcp.ready).toBe(true);
+  });
 });

@@ -513,6 +513,11 @@ export const ADAPTERS: Record<LLMProvider, ProviderAdapter> = {
 const execFileAsync = promisify(execFile);
 const CLI_TIMEOUT_MS = 5 * 60 * 1000;
 
+function isAbortError(error: unknown): boolean {
+  return typeof error === "object" && error !== null &&
+    "name" in error && error.name === "AbortError";
+}
+
 interface ExposedMcpTool {
   type: "function";
   function: {
@@ -578,7 +583,7 @@ export class LLMClient {
   }
   private settings: PluginSettings;
   private auth: CLIAuthResolver;
-  private activeRequestControllers = new Set<AbortController>();
+  private foregroundRequestControllers = new Set<AbortController>();
   private foregroundRequestController: AbortController | null = null;
   private requestAbortCleanup = new WeakMap<AbortController, () => void>();
   // v0.28.0 interactive chat image channel: per-CLI-call temp PNG dir + paths.
@@ -631,29 +636,44 @@ export class LLMClient {
         });
       }
     }
-    this.activeRequestControllers.add(controller);
-    this.foregroundRequestController = controller;
+    if (!ownerSignal) {
+      this.foregroundRequestControllers.add(controller);
+      this.foregroundRequestController = controller;
+    }
     return controller;
   }
 
   private endRequest(controller: AbortController): void {
     this.requestAbortCleanup.get(controller)?.();
     this.requestAbortCleanup.delete(controller);
-    this.activeRequestControllers.delete(controller);
+    this.foregroundRequestControllers.delete(controller);
     if (this.foregroundRequestController === controller) {
-      const remaining = Array.from(this.activeRequestControllers);
+      const remaining = Array.from(this.foregroundRequestControllers);
       this.foregroundRequestController = remaining[remaining.length - 1] ?? null;
     }
   }
 
-  private withAbort<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  private withAbort<T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T> {
     if (signal.aborted) {
       return Promise.reject(new DOMException("aborted", "AbortError"));
     }
     return new Promise<T>((resolve, reject) => {
       const onAbort = () => reject(new DOMException("aborted", "AbortError"));
       signal.addEventListener("abort", onAbort, { once: true });
-      operation.then(
+      if (signal.aborted) {
+        signal.removeEventListener("abort", onAbort);
+        reject(new DOMException("aborted", "AbortError"));
+        return;
+      }
+      let operationPromise: Promise<T>;
+      try {
+        operationPromise = operation();
+      } catch (error) {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+        return;
+      }
+      operationPromise.then(
         (value) => {
           signal.removeEventListener("abort", onAbort);
           resolve(value);
@@ -769,7 +789,15 @@ export class LLMClient {
   ): Promise<string> {
     const controller = this.beginRequest(opts?.signal);
     try {
+      if (controller.signal.aborted) {
+        onChunk({ text: "", done: true });
+        return "";
+      }
       await this.beforeProviderLaunch?.();
+      if (controller.signal.aborted) {
+        onChunk({ text: "", done: true });
+        return "";
+      }
       const toolPolicy: ToolPolicy = opts?.toolPolicy ?? "auto";
     // Capture the manager once so its presence is stable across the async tool
     // loop below (no state drift if this.mcpManager is swapped mid-flight) and so
@@ -932,6 +960,7 @@ export class LLMClient {
           signal: controller.signal,
         });
       } catch (fetchErr) {
+        if (isAbortError(fetchErr)) throw fetchErr;
         if (provider === "ollama") {
           throw new Error(
             `Ollama is not reachable at ${this.settings.ollamaHost || "http://localhost:11434"}.\n` +
@@ -1063,7 +1092,7 @@ export class LLMClient {
       // Ensure we send a done signal
       onChunk({ text: "", done: true });
     } catch (err: unknown) {
-      if (err instanceof DOMException && err.name === "AbortError") {
+      if (isAbortError(err)) {
         onChunk({ text: "", done: true });
         return { text: fullText };
       }
@@ -1090,7 +1119,13 @@ export class LLMClient {
   ): Promise<string> {
     const controller = this.beginRequest(opts?.signal);
     try {
+      if (controller.signal.aborted) {
+        throw new DOMException("aborted", "AbortError");
+      }
       await this.beforeProviderLaunch?.();
+      if (controller.signal.aborted) {
+        throw new DOMException("aborted", "AbortError");
+      }
       const provider = this.settings.provider;
     // Per-call model override (v0.21.0): a task-specialized light model (e.g.
     // Convert-to-LaTeX) may run on a smaller model than the main chat `model`.
@@ -1118,6 +1153,7 @@ export class LLMClient {
         if (!res.ok) throw new Error(`Ollama error ${res.status}: ${await res.text()}`);
         return adapter.parseFullResponse(await res.json());
       } catch (err) {
+        if (isAbortError(err)) throw err;
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes("Failed to fetch") || msg.includes("ECONNREFUSED")) {
           throw new Error(`Ollama not reachable at ${this.settings.ollamaHost || "http://localhost:11434"}. Run: ollama serve`);
@@ -1144,7 +1180,7 @@ export class LLMClient {
 
     try {
       const response = await this.withAbort(
-        requestUrl({
+        () => requestUrl({
           url,
           method: "POST",
           headers,
@@ -1155,7 +1191,7 @@ export class LLMClient {
 
       return adapter.parseFullResponse(response.json);
     } catch (err: unknown) {
-      if (err instanceof DOMException && err.name === "AbortError") {
+      if (isAbortError(err)) {
         throw err;
       }
       const msg = err instanceof Error ? err.message : String(err);
@@ -1190,6 +1226,11 @@ export class LLMClient {
     signal: AbortSignal,
   ): Promise<string> {
     return new Promise((resolve, reject) => {
+      if (signal.aborted) {
+        onChunk({ text: "", done: true });
+        resolve("");
+        return;
+      }
       const provider = this.settings.provider;
       const prompt = this.messagesToCliPrompt(messages);
       const imageRunDir = this._chatImageRunDir;
@@ -1784,6 +1825,9 @@ export class LLMClient {
     model = this.settings.model,
     signal?: AbortSignal,
   ): Promise<string> {
+    if (signal?.aborted) {
+      throw new DOMException("aborted", "AbortError");
+    }
     const provider = this.settings.provider;
     const prompt = this.messagesToCliPrompt(messages);
     const imageRunDir = this._chatImageRunDir;

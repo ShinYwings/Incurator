@@ -69,6 +69,41 @@ Required proof: overlapping request tests, dismiss/abort tests, MCP collision
 and restart tests, hung-process timeout tests, and legitimate long-command
 tests.
 
+### P7 Review Follow-Up Baseline — PR #106 head `4b354fd`
+
+- RF1 reproduced by inspection: `beginRequest(ownerSignal)` still assigns the
+  global foreground pointer while sidebar Stop/session paths call the unscoped
+  `LLMClient.abort()` API.
+- RF2 reproduced by inspection: Quick Query creates its controller before
+  asynchronous PDF reference resolution, while provider methods do not reject
+  an already-aborted signal before launch; streaming CLI calls `spawn` before
+  checking the signal and non-streaming HTTP eagerly constructs `requestUrl`.
+- RF3 reproduced by inspection: both Ollama catch blocks classify `AbortError`
+  as provider failure before the cancellation-aware outer path can observe it.
+- RF4 reproduced by inspection: MCP `error`/`exit` callbacks compare process
+  identity but stdout always feeds the instance-wide buffer, which is never
+  cleared on restart.
+- Rollback anchor for the review follow-up is pushed PR head `4b354fd`; the
+  worktree was clean before planning. No vault, testbed, DB, or external
+  reference state is involved.
+
+### P7 Review Follow-Up Validation
+
+- Red phase: 6 failures across 3 files reproduced the wrong foreground target,
+  eager `requestUrl`/CLI launch, both Ollama cancellation mappings, and stale
+  MCP stdout buffer poisoning; the other 76 focused tests passed.
+- Green phase: 109 focused provider/MCP/Quick Query/backend lifecycle tests and
+  TypeScript passed after implementation.
+- Full local gates: plugin Vitest passed 778/778 and the production bundle
+  built; backend pytest passed 1386 with 6 skipped and 4 expected failures;
+  Ruff passed; mypy passed across 127 source files; `git diff --check` passed.
+- No version change is required because v0.40.1 remains unreleased and all
+  manifests already agree. `CHANGELOG.md`, the English/Korean plugin guides,
+  and plugin schema now describe the hardened boundary.
+- Testbed/Reference Mode remains out of scope: the follow-up changes only
+  device-local provider/process lifetime code with deterministic fake-process
+  coverage. No production or testbed path/configuration was read or modified.
+
 ### P7 Baseline — v0.40.1
 
 - Branch/base: `release/v0.40.1` from clean merged relay-reset head `57665c7`.

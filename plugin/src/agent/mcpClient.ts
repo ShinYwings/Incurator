@@ -66,6 +66,7 @@ export class MCPClient {
       await this.shutdown();
     }
     this.shuttingDown = false;
+    this.buffer = "";
 
     return new Promise((resolve, reject) => {
       let child: ChildProcess;
@@ -89,6 +90,7 @@ export class MCPClient {
         this.process = child;
 
         child.stdout?.on("data", (data: Buffer) => {
+          if (this.process !== child) return;
           this.onData(data.toString("utf-8"));
         });
 

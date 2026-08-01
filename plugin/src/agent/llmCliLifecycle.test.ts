@@ -60,6 +60,20 @@ function cliClient(): LLMClient {
 }
 
 describe("CLI request ownership", () => {
+  it("does not spawn a streaming CLI for an already-aborted request", async () => {
+    const client = cliClient();
+    (client as any).buildCliCommand = () => ({ command: "agy", args: [], env: {} });
+    const owner = new AbortController();
+    owner.abort();
+
+    await expect(client.streamChat(
+      [{ role: "user", content: "cancelled" }],
+      vi.fn(),
+      { signal: owner.signal },
+    )).resolves.toBe("");
+    expect(processMocks.spawn).not.toHaveBeenCalled();
+  });
+
   it("binds each overlapping CLI child to its caller-owned signal", async () => {
     const children = [new FakeCliProcess(), new FakeCliProcess()];
     processMocks.spawn
@@ -110,5 +124,17 @@ describe("CLI request ownership", () => {
     expect(capturedEnv?.PATH).not.toBe(process.env.PATH);
     expect(capturedEnv?.PATH).toContain(process.env.PATH || "");
     expect(capturedEnv?.TMPDIR).toMatch(/incurator-cli-lifecycle-.*\/tmp$/);
+  });
+
+  it("does not execute a non-streaming CLI for an already-aborted request", async () => {
+    const client = cliClient();
+    const owner = new AbortController();
+    owner.abort();
+
+    await expect(client.complete(
+      [{ role: "user", content: "cancelled" }],
+      { signal: owner.signal },
+    )).rejects.toMatchObject({ name: "AbortError" });
+    expect(processMocks.execFile).not.toHaveBeenCalled();
   });
 });

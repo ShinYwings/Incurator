@@ -230,8 +230,11 @@ LLM이 제안 생성 → Diff 표시 → Accept / Reject
   소멸하며 사이드바 대화 기록을 오염시키지 않습니다. 열린 팝업 바깥을 클릭하면
   떠 있던 트리거 버튼만 사라지고 기존 팝업은 닫히지 않습니다. 열린 각 팝업이 자신의
   cancellation signal을 소유하므로 하나를 닫아도 다른 팝업이나 chat sidebar는
-  중단되지 않습니다. non-streaming CLI query도 선택한 per-call model과 streaming
-  query와 동일한 GUI-safe CLI search path를 유지합니다.
+  중단되지 않으며, sidebar 자체의 Stop 대상도 바꾸지 않습니다. PDF context를 준비하는
+  동안 팝업을 닫으면 이후 provider process나 HTTP request가 시작되지 않습니다.
+  Ollama 연결 오류를 포함한 provider별 오류 메시지도 정상 cancellation을 대체하지
+  않습니다. non-streaming CLI query도 선택한 per-call model과 streaming query와
+  동일한 GUI-safe CLI search path를 유지합니다.
 
 선택한 구절은 질문과 함께 1차 컨텍스트로 전달되고, 현재 페이지/outline은 배경으로
 전달됩니다. 현재 설정된 AI 제공자/모델을 사용합니다. 버튼이 뜨지 않게 하려면
@@ -692,7 +695,8 @@ provider 중립적입니다. 플러그인이 HTTP provider(DeepSeek·Ollama)를 
 separator 때문에 서로 다른 도구가 같은 정리된 이름이 되더라도, 플러그인은 각 server의
 원래 tool name으로 돌아가는 명시적 map을 유지합니다. server를 재시작하거나 중지하면
 진행 중 요청은 reject되며, 이전 process의 늦은 exit가 재시작된 server를 offline으로
-표시할 수 없습니다.
+표시할 수 없습니다. 또한 이전 process에서 늦게 도착한 stdout byte는 재시작된 server의
+새 JSON framing buffer에 들어갈 수 없습니다.
 
 **2026-06-05 기준**, 이 툴 호출 교환은 **OpenAI-호환 chat-completions 규약**(`tools`,
 `tool_calls`, `role: "tool"`, 그리고 tool-call 턴의 빈 `content`는 빈 문자열)을

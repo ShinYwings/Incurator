@@ -24,6 +24,9 @@ dispatch collision-free, settle shutdown requests, and bound backend processes.
   exposed-name to original server/tool map rather than reverse parsing.
 - Timeout/output policies must vary by command class so hung requests terminate
   without truncating legitimate build/update operations.
+- PR review found four P7 follow-ups: caller-owned requests must not replace the
+  sidebar foreground pointer; pre-aborted requests must not launch; Ollama must
+  preserve `AbortError`; and MCP stdout/buffers must be generation-local.
 
 ## Progress Status
 
@@ -44,6 +47,14 @@ dispatch collision-free, settle shutdown requests, and bound backend processes.
 - GitHub CI passed on release head `d626a5d` for backend, plugin, and version
   consistency. The delivery-note head changes only agent state; the PR is the
   live authority for its final check state.
+- The user approved all four Codex review findings at PR head `4b354fd`. The
+  plan-first follow-up is implemented: caller-owned work is excluded from the
+  sidebar foreground stack; pre-launch cancellation is checked around the async
+  guard and at CLI/HTTP boundaries; Ollama preserves aborts; MCP stdout and
+  framing are generation-local.
+- Red proof reproduced 6 failures. Green validation passes 109 focused tests,
+  TypeScript, all 778 plugin tests, production build, backend 1386 passed / 6
+  skipped / 4 xfailed, Ruff, mypy, and diff whitespace checks.
 
 ## Critical Context / Blockers
 
@@ -54,6 +65,6 @@ dispatch collision-free, settle shutdown requests, and bound backend processes.
 
 ## Immediate Next Action
 
-1. Confirm the delivery-note head remains green in PR #106.
-2. Human reviews and merges PR #106.
-3. After merge, reset RELAY on updated `master`, then continue with P8.
+1. Commit and push the validated review follow-up to PR #106.
+2. Verify the latest-head GitHub checks are green.
+3. Hand the draft PR back for human review/merge.

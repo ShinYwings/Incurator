@@ -243,8 +243,12 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
   sidebar history. Clicking outside an open popover only clears the floating
   trigger button; it does not close existing popovers. Each open popover owns
   its cancellation signal, so closing one does not stop another popover or the
-  chat sidebar. Non-streaming CLI queries preserve the selected per-call model
-  and the same GUI-safe CLI search path as streaming queries.
+  chat sidebar, and it does not replace the sidebar's own Stop target. If a
+  popover is closed while PDF context is still being prepared, no provider
+  process or HTTP request starts afterward. Provider-specific error messages,
+  including Ollama reachability errors, do not replace normal cancellation.
+  Non-streaming CLI queries preserve the selected per-call model and the same
+  GUI-safe CLI search path as streaming queries.
 
 The passage you selected is sent as the primary context together with your
 question and the current page/outline as background, using the currently
@@ -788,7 +792,9 @@ The function names shown to a model are sanitized transport identifiers. The
 plugin keeps an explicit map back to each server's original tool name, including
 when punctuation or embedded separators would otherwise produce the same
 sanitized name. Restarting or stopping a server rejects its in-flight requests;
-a stale exit from the old process cannot mark the restarted server offline.
+a stale exit from the old process cannot mark the restarted server offline, and
+late stdout bytes from that process cannot enter the restarted server's fresh
+JSON framing buffer.
 
 As of **2026-06-05**, that tool-calling exchange follows the **OpenAI-compatible
 chat-completions convention** (`tools`, `tool_calls`, `role: "tool"`, and an

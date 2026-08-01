@@ -7,14 +7,18 @@ All notable changes to Incurator are documented here.
 - **Independent Provider Cancellation And CLI Fidelity**
   Overlapping sidebar and Quick Query requests now own independent cancellation
   signals, so closing one popover cannot stop another request and foreground
-  cancellation returns to an older still-active request. Streaming and
-  non-streaming CLI children bind to the correct request; non-streaming calls
-  also preserve their per-call model and GUI-safe PATH/temp environment.
+  cancellation returns to an older still-active sidebar request. Caller-owned
+  popovers never replace the sidebar Stop target; cancellation during context
+  preparation launches no provider transport, and Ollama preserves normal
+  `AbortError` semantics. Streaming and non-streaming CLI children bind to the
+  correct request; non-streaming calls also preserve their per-call model and
+  GUI-safe PATH/temp environment.
 - **Collision-Safe MCP Lifetimes**
   Sanitized model-facing MCP tool names now dispatch through an explicit unique
   route map instead of lossy reverse parsing. Shutdown rejects pending JSON-RPC
   work, clears request timers, waits through bounded TERM/KILL escalation, and
-  ignores late exit events from a replaced server generation.
+  ignores late exit and stdout events from a replaced server generation. Each
+  restarted generation begins with a fresh JSON framing buffer.
 - **Bounded Plugin Backend Commands**
   The vault-local backend runner now applies separate normal and long-operation
   timeout/output policies. Hung or overproducing subprocesses fail visibly and
