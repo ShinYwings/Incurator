@@ -81,13 +81,21 @@ tests.
   collision, pending shutdown, missing forced kill, stale restart exit, and the
   absent backend-boundary module. The remaining 67 focused tests passed.
 - Green phase: `npx tsc --noEmit` plus 107 focused provider/MCP/backend/Quick
-  Query tests passed; the expanded focused set passes 99/99 after cancellation
-  shutdown hardening.
+  Query tests passed; the latest focused lifecycle set passes 100/100 after
+  cancellation shutdown hardening.
 - Full plugin validation from `plugin/`: 769/769 Vitest tests passed and the
   production bundle built. A root-cwd Vitest invocation was discarded because
   `pluginCompatibility.test.ts` intentionally resolves manifests from the
   plugin working directory; the canonical plugin-cwd invocation is green.
-- Full repository gates, release metadata, delivery, and CI: pending.
+- Full repository gates: backend 1386 passed / 6 skipped / 4 xfailed, Ruff
+  passed, mypy passed, plugin 769/769 passed, TypeScript passed, production
+  plugin build passed, and post-bump spec/version sync passed 10/10.
+- Testbed/Reference Mode: not run for P7. These defects are device-local
+  provider/process lifetime boundaries with deterministic fake-process tests;
+  the active scenario was not identified, and the approved P7 boundary forbids
+  mutating the existing testbed or production `second_brain` for these proofs.
+- Implementation commit: `033a4fd` (`fix(plugin): harden provider and process
+  lifetimes`). Release commit, delivery, and CI: pending.
 
 ## P8 Findings
 

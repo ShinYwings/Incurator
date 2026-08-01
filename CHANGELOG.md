@@ -2,6 +2,27 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.40.1] - 2026-08-01
+### Fixed
+- **Independent Provider Cancellation And CLI Fidelity**
+  Overlapping sidebar and Quick Query requests now own independent cancellation
+  signals, so closing one popover cannot stop another request and foreground
+  cancellation returns to an older still-active request. Streaming and
+  non-streaming CLI children bind to the correct request; non-streaming calls
+  also preserve their per-call model and GUI-safe PATH/temp environment.
+- **Collision-Safe MCP Lifetimes**
+  Sanitized model-facing MCP tool names now dispatch through an explicit unique
+  route map instead of lossy reverse parsing. Shutdown rejects pending JSON-RPC
+  work, clears request timers, waits through bounded TERM/KILL escalation, and
+  ignores late exit events from a replaced server generation.
+- **Bounded Plugin Backend Commands**
+  The vault-local backend runner now applies separate normal and long-operation
+  timeout/output policies. Hung or overproducing subprocesses fail visibly and
+  settle once, while pipeline, import, model, and job commands retain larger
+  limits suitable for legitimate long work.
+
+---
+
 ## [0.40.0] - 2026-08-01
 ### Changed
 - **Obsidian 1.1.0 Minimum**

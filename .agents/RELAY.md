@@ -35,9 +35,11 @@ dispatch collision-free, settle shutdown requests, and bound backend processes.
   preservation, collision-free MCP dispatch, settled shutdown, and 2-minute /
   60-minute backend command classes with 16 MiB / 64 MiB output limits.
 - Red phase reproduced 8 targeted failures. The root-cause implementation now
-  passes TypeScript, 107 focused lifecycle tests, the expanded 99-test focused
+  passes TypeScript, 107 focused lifecycle tests, the latest 100-test focused
   set, all 769 plugin tests, and a production plugin build.
-- Full backend/local release gates and v0.40.1 metadata are next.
+- Full backend gates pass (1386 passed / 6 skipped / 4 xfailed, Ruff, mypy), as
+  do post-bump spec/version checks (10/10). Implementation commit: `033a4fd`.
+- v0.40.1 manifests and changelog are ready for the final release commit.
 
 ## Critical Context / Blockers
 
@@ -48,7 +50,6 @@ dispatch collision-free, settle shutdown requests, and bound backend processes.
 
 ## Immediate Next Action
 
-1. Run the full backend release gates and inspect the complete diff.
-2. Bump all manifests to v0.40.1, update CHANGELOG/roadmap/evidence, and rerun
-   version/spec/plugin gates.
-3. Commit, push, open the draft PR, and wait for latest-head GitHub CI.
+1. Create the required `chore(release): v0.40.1` commit.
+2. Push, open the draft PR, and wait for latest-head GitHub CI.
+3. Update RELAY/evidence with delivery state without claiming P7 merged.
