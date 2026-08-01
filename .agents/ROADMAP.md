@@ -8,15 +8,7 @@ belong in Git history, not the active workspace. New raw reports enter through
 
 ## Active Queue
 
-1. **v0.40.0 PR #104 durable-state review follow-up**
-   - Close the stale project-config merge, peer-arrival JSON race, and atomic
-     replacement permission regression before merge.
-   - The race-free plugin path requires Obsidian's `DataAdapter.process()` API;
-     align the declared minimum app version and preserve the previous release
-     as the fallback in `versions.json`.
-   - Plan: `.agents/plans/03_v0400_persistence_review_fixes.md`
-
-2. **v0.39.x Stability Regression Audit — P7 through P10**
+1. **v0.39.x Stability Regression Audit — P7 through P10**
    - P7: provider, MCP, cancellation, shutdown, timeout, and output bounds.
    - P8: vector degradation, provider cardinality, failover attribution, and
      prompt-version ordering.
@@ -24,22 +16,22 @@ belong in Git history, not the active workspace. New raw reports enter through
    - P10: final validation and workflow closure.
    - Plan: `.agents/plans/02_v032_regression_audit.md`
 
-3. **System Stability Overhaul — remaining umbrella scope**
+2. **System Stability Overhaul — remaining umbrella scope**
    - Prompt v2 consistency harness and normalization.
    - Remaining safe god-file decomposition and broad-exception hardening.
    - Measured RAG/DAG performance work and existing-surface UX refinements.
    - Plan: `.agents/plans/01_system_stability_overhaul.md`
 
-4. **Chat Session Context Compaction**
+3. **Chat Session Context Compaction**
    - Draft: `.agents/drafts/chat_context_compaction.md`
 
-5. **Vault Storage Governance & Quota Visibility**
+4. **Vault Storage Governance & Quota Visibility**
    - Draft: `.agents/drafts/vault_storage_governance.md`
 
-6. **Native PDF Annotation & Asset System**
+5. **Native PDF Annotation & Asset System**
    - Draft: `.agents/drafts/pdf_annotation_system.md`
 
-7. **Web Search Integration**
+6. **Web Search Integration**
    - No current plan. Re-plan from current provider, privacy, and cost
      constraints before implementation.
 

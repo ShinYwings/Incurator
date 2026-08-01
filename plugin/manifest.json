@@ -1,8 +1,8 @@
 {
   "id": "incurator-obsidian-agent",
   "name": "Incurator Obsidian Agent",
-  "version": "0.39.3",
-  "minAppVersion": "1.0.0",
+  "version": "0.40.0",
+  "minAppVersion": "1.1.0",
   "description": "Cursor/AskGemini-like AI Agent with inline edit, highlighted selection, line referencing, PDF context, and local Incurator backend integration.",
   "author": "GIShin",
   "authorUrl": "",
