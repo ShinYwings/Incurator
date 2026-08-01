@@ -964,9 +964,15 @@ For DeepSeek, `--api-key-env` must be an environment variable name (for example
 `DEEPSEEK_API_KEY`), not the raw `sk-...` key value.
 Passing `--api-key sk-...` stores the key in the backend's encrypted local
 secret store outside the shared vault and writes only a secret reference into
-config.
+config. Secret key/store files are created and retained with private `0600`
+permissions.
 
-The choice is stored as `llm.primary_effort` / `llm.fallback_effort` in `.curator/settings.yml`; leaving it empty uses each CLI's default effort.
+The choice is stored as `llm.primary_effort` / `llm.fallback_effort` in the
+machine-local `.cache/config/config.yml`; leaving it empty uses each CLI's
+default effort. Config updates merge the mapping freshly read under the target
+lock, so an unrelated peer or process key is not lost by a stale full save.
+Existing ordinary config permissions are preserved, while new ordinary config
+files follow the process's normal umask.
 
 CLI-backed providers (`antigravity-cli`, `claude-code`, `codex-cli`) use the
 account currently logged into that CLI on the machine running the backend.

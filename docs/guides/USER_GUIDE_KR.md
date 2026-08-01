@@ -922,9 +922,15 @@ wiki config provider --primary deepseek-api --model deepseek-v4-pro --api-key-en
 
 DeepSeek에서 `--api-key-env`에는 실제 `sk-...` 키 값이 아니라 환경변수 이름
 (`DEEPSEEK_API_KEY` 같은 값)을 넣어야 합니다.
-`--api-key sk-...`를 넘기면 키는 shared vault 밖 backend encrypted local secret store에 저장되고, config에는 secret reference만 기록됩니다.
+`--api-key sk-...`를 넘기면 키는 shared vault 밖 backend encrypted local secret store에
+저장되고, config에는 secret reference만 기록됩니다. Secret key/store file은
+처음부터 private `0600` 권한으로 생성·유지됩니다.
 
-선택한 강도는 `.curator/settings.yml` 의 `llm.primary_effort` / `llm.fallback_effort` 에 저장되며, 비워 두면 각 CLI의 기본 강도를 사용합니다.
+선택한 강도는 기기 로컬 `.cache/config/config.yml`의 `llm.primary_effort` /
+`llm.fallback_effort`에 저장되며, 비워 두면 각 CLI의 기본 강도를 사용합니다.
+Config update는 target lock 안에서 새로 읽은 mapping에 merge하므로 stale full save가
+관계없는 peer/process key를 지우지 않습니다. 기존 일반 config 권한은 보존되고,
+새 일반 config file은 process의 정상 umask를 따릅니다.
 
 CLI 기반 provider(`antigravity-cli`, `claude-code`, `codex-cli`)는 backend가 실행되는 머신에서 해당 CLI에 현재 로그인된 계정을 사용합니다. 다른 계정을 쓰려면 provider CLI 자체(`agy`, `claude`, `codex login`)에서 계정을 전환하세요. DeepSeek는 다릅니다. `DEEPSEEK_API_KEY`, 암호화된 로컬 `llm.deepseek-api.api_key_secret`, 또는 legacy plaintext `llm.deepseek-api.api_key`의 API 키를 사용하므로 계정 선택은 브라우저 로그인 세션이 아니라 키로 결정됩니다. 새로 저장하는 키는 vault sync로 유출되지 않도록 encrypted local secret path를 사용해야 합니다.
 

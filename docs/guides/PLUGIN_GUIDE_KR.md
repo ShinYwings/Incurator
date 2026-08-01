@@ -24,6 +24,11 @@ wiki init /path/to/vault
 
 Obsidian → **설정 > 커뮤니티 플러그인 > 설치된 플러그인**에서 `AI Agent`를 활성화하세요.
 
+Incurator v0.40.0 이상은 동기화된 session/profile commit에 Obsidian의
+atomic adapter processing API를 사용하므로 Obsidian 1.1.0 이상이 필요합니다.
+Obsidian 1.0.x에서는 `versions.json`을 통해 호환되는 Incurator v0.39.2를
+계속 사용합니다.
+
 > **참고:** 수동으로 플러그인만 별도 빌드해야 하는 경우, `plugin/` 폴더에서 `npm install` 및 `npm run build`를 실행하세요.
 
 ---
@@ -943,8 +948,9 @@ stale Collection projection 파일이 아니라 serving DB record에서 계산�
 기기의 repo-local `.cache/config/config.yml`에서만 읽습니다. synced
 `.curator/settings.yml`에 해당 block이 남아 있으면 backend가 무시하므로
 Linux/macOS 경로가 서로를 덮어쓰지 않습니다.
-Zotero profile 저장은 직렬화되며 매 write 직전에 최신 파일을 다시 읽고
-병합하므로 stale 기기의 무관한 설정 저장이 peer-only profile을 지우지 않습니다.
+Zotero profile 저장은 직렬화되며 atomic commit 경계에서 제공된 canonical
+text를 병합하므로 stale 기기의 무관한 설정 저장이 peer-only profile을
+지우지 않습니다.
 부분적으로 손상된 decoded payload에 `profiles` 또는 `recentItems`가 없으면,
 merge는 crash하지 않고 해당 property를 빈 배열로 취급합니다.
 
@@ -984,15 +990,21 @@ merge는 crash하지 않고 해당 property를 빈 배열로 취급합니다.
 
 v0.2.1에서는 `sessions.json` 저장 시 디스크의 최신 파일을 다시 읽고 세션 id 단위로 병합합니다. 따라서 Linux와 macOS에서 서로 다른 채팅 세션을 만들면 두 세션이 함께 보존됩니다. 삭제된 세션은 `deletedSessionIds` tombstone에 남아 Syncthing 지연으로 오래된 파일이 도착해도 되살아나지 않습니다. 단, 같은 세션을 양쪽에서 동시에 편집한 경우에는 더 최신 `updatedAt`을 가진 세션이 이깁니다.
 
-v0.39.3부터 session load는 canonical file이 실제로 없는 경우와 corrupt 또는
+v0.40.0부터 session load는 canonical file이 실제로 없는 경우와 corrupt 또는
 unreadable 상태를 구분합니다. Legacy/default migration은
 `.curator/sessions.json`이 missing일 때만 허용됩니다. 파일이 존재하지만 parse하거나
 읽을 수 없으면 원본 byte를 그대로 보존하고, 현재 plugin 실행 동안 session store를
 read-only로 유지하며, 파일을 repair/restore한 뒤 Obsidian을 reload하라는 notice를
 표시합니다. Load 이후 save 전에 파일이 corrupt해진 경우에도 덮어쓰지 않고 save를
-중단합니다. 정상 session과 Zotero profile save는 직렬화되고, 최신 valid disk state를
-merge한 다음 sibling temp file을 써서 atomic rename하므로 sync peer가 일부만 기록된
-JSON을 보지 않습니다.
+중단합니다. 기존의 정상 session과 Zotero profile file은 직렬화된 save에서
+Obsidian의 atomic process callback이 제공한 canonical text를 parse·merge하므로,
+commit 직전에 도착한 peer update나 삭제 tombstone도 보존됩니다. Commit이
+성공한 뒤에만 in-memory state를 갱신합니다. 일시적인 process 실패는 해당
+save만 실패시키며 정상 data를 corrupt로 잘못 표시하지 않습니다. 첫 생성은
+sibling temp file과 rename을 사용할 수 있고, temp write/rename 실패 시 sibling을
+정리하여 일부 JSON을 게시하지 않습니다. Obsidian portable adapter에는
+동시 첫 생성을 위한 create-if-absent 보장이 없으므로 해당 경우까지 conflict-free로
+보장하지는 않습니다.
 
 세션 동기화가 PDF/Zotero의 절대경로까지 portable하게 만드는 것은 아닙니다. 채팅
 메시지에 붙은 context는 Zotero attachment key, file hash, vault-relative path,
@@ -1090,9 +1102,10 @@ vault 안의 `.curator/zotero_profiles.json`에 저장됩니다 — `sessions.js
 저장되었는데, 이 파일은 보통 동기화에서 제외되므로 기기마다 다른 profile
 목록이 보였습니다.) 업그레이드 후 첫 로드 시 플러그인이 기존 profile을
 `data.json`에서 자동으로, 비파괴적으로 마이그레이션합니다. profile에는 vault
-상대 경로만 들어 있으므로 Linux와 macOS 간에 안전하게 공유됩니다. 동시 편집은
-last-write-wins로 해소됩니다 — profile은 드물게 바뀌므로 별도의 병합 장치가
-필요 없습니다.
+상대 경로만 들어 있으므로 Linux와 macOS 간에 안전하게 공유됩니다. 직렬화된
+save는 canonical commit-time value의 peer-only profile, 최근 항목 key, 삭제 tombstone을
+병합합니다. 같은 이름의 동시 편집은 저장된 profile timestamp에 따라
+last-write-wins로 해소됩니다.
 
 `.curator/zotero_profiles.json`이 손상된 경우(잘못된 JSON 또는 알아볼 수 없는
 구조 — 예: 동기화 중단이나 잘못된 수동 편집), 플러그인은 파일을 **덮어쓰지

@@ -53,7 +53,9 @@ testbed/
 
 > **Note**: `sessions.json` may be synchronized because the plugin merges by
 > session id before saving, records delete tombstones in `deletedSessionIds`,
-> and replaces valid writes atomically. A corrupt or unreadable canonical file
+> and processes an existing canonical file atomically from its commit-time
+> contents. Initial creation may use a temporary sibling; interrupted temp
+> writes are cleaned without publishing partial JSON. A corrupt or unreadable canonical file
 > is preserved and blocks ordinary saves; it is never treated as missing or
 > overwritten by defaults. Keep `data.json` local if settings contain
 > per-device paths such as MCP commands, backend executable paths, or Zotero

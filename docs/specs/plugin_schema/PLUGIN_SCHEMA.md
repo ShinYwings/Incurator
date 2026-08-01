@@ -1,6 +1,13 @@
-# Incurator Plugin Schema & API Contract (v0.39.0)
+# Incurator Plugin Schema & API Contract (v0.40.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
+
+> **v0.40.0 note (Commit-Boundary Persistence):** existing synced session and
+> Zotero-profile files are parsed and merged inside Obsidian's atomic
+> `DataAdapter.process()` callback. This API requires Obsidian 1.1.0+, so the
+> plugin manifest raises `minAppVersion` to `1.1.0`; `versions.json` keeps
+> v0.39.2 as the compatible fallback for Obsidian 1.0.x. Persisted JSON shapes
+> are unchanged.
 
 > **v0.39.0 note (Authored-Note Topology):** no plugin settings or wire shape
 > change. Existing graph/explore surfaces consume only backend-authoritative
@@ -489,8 +496,8 @@ Rules:
   - On plugin load (after settings and session load), the plugin reads the
     file and mirrors it into `settings.zoteroProfiles` /
     `settings.recentZoteroItems` so existing call sites are unchanged.
-  - **Read and parse are distinct failure modes.** A missing/unreadable file
-    triggers legacy migration; a file that exists but contains invalid JSON
+  - **Read and parse are distinct failure modes.** Only a missing file triggers
+    legacy migration. An unreadable file, a file that contains invalid JSON
     (corruption, truncation) **or a structurally unrecognizable payload** (not
     an object carrying both `profiles` and `recentItems` arrays — the exact
     shape the plugin writes) MUST NOT — post-migration the legacy fields are
@@ -525,11 +532,21 @@ Rules:
   - Writes go through `saveZoteroProfiles()` (invoked from `saveSettings()`),
     guarded so a write can never happen before the initial load (which would
     wipe the synced file with empty in-memory state).
-  - Immediately before a serialized write, the plugin re-reads and merges the
-    synced file. Local same-name profiles win while peer-only profiles and
-    recent keys survive. The merge boundary normalizes both operands, so a
-    partially damaged runtime payload with missing `profiles` or `recentItems`
-    treats that property as an empty array instead of throwing.
+  - For an existing canonical file, a serialized write parses, validates,
+    merges, and serializes the exact current text supplied to the synchronous
+    `DataAdapter.process()` callback. Local same-name profiles win while
+    peer-only profiles, recent keys, and timestamped deletion tombstones
+    survive. The merge boundary normalizes both operands, so a partially
+    damaged runtime payload with missing `profiles` or `recentItems` treats
+    that property as an empty array instead of throwing. The plugin installs
+    in-memory state only from the committed string returned by `process()`.
+    Typed structural corruption blocks writes without changing canonical
+    bytes; a generic process failure rejects that save but does not permanently
+    misclassify otherwise valid data as corrupt.
+  - Initial creation when the canonical file is genuinely missing may use a
+    sibling temporary file and rename, with cleanup after partial temp-write or
+    rename failure. The portable adapter exposes no create-if-absent/CAS
+    contract, so simultaneous first creation is not claimed as conflict-free.
     `ZoteroImportProfile` contains only vault-relative paths, so the file is
     portable across Linux/macOS.
 - Zotero-managed PDFs registered from the sidechat/purple-pin flow use
@@ -743,10 +760,11 @@ Stored in a separate `sessions.json` file. It must never be merged into
 `data.json`.
 
 The implementation must tolerate `sessions.json` being synchronized between
-devices. Before writing, it should read the current on-disk file and merge
-sessions by `ChatSession.id`, keeping the session copy with the newest
-`updatedAt` timestamp. This prevents a Linux save from deleting a distinct macOS
-session, or vice versa, after Syncthing has delivered remote changes.
+devices. For an existing file, it parses and merges the exact current text
+supplied inside Obsidian's atomic `DataAdapter.process()` callback. Sessions are
+merged by `ChatSession.id`, keeping the copy with the newest `updatedAt`
+timestamp. This prevents a Linux save from deleting a distinct macOS session,
+or vice versa, when a sync peer updates the canonical file near the commit.
 All read/merge/write operations are serialized in one process so overlapping
 save requests cannot commit from the same stale disk snapshot. Backend
 `wiki reset` must not delete this shared durable file.
@@ -755,9 +773,14 @@ Canonical session reads MUST distinguish `missing`, `valid`, `corrupt`, and
 `unreadable`. Only `missing` may enter legacy/default migration. `corrupt` or
 `unreadable` state MUST preserve the existing file, surface a recovery notice,
 and block ordinary writes for that plugin run; the same fail-closed rule applies
-if invalid state appears between load and save. Valid writes MUST use a sibling
-temporary file plus atomic rename after the serialized read/merge step. A failed
-rename MUST leave the previous target intact and remove the temporary file.
+if invalid state appears between load and save. Existing valid writes MUST use
+the synchronous atomic process callback for strict parse, merge, sanitization,
+and serialization, then install only the returned committed text. A generic
+process failure rejects the current save without reclassifying valid bytes as
+corrupt. Initial creation may use a sibling temporary file plus rename; a failed
+temp write or rename MUST leave any previous target intact and remove the
+temporary file. The adapter has no portable simultaneous create-if-absent/CAS
+guarantee, so that first-create limitation is explicit.
 
 ```typescript
 interface SessionData {
@@ -807,9 +830,9 @@ Rules:
   `backendStatus` fields must not be persisted as durable session identity.
 
 Zotero profile storage follows the same typed-read, fail-closed, serialized,
-atomic read/merge/write rule. Profile deletion records a timestamped tombstone
-keyed by profile name; a peer-only stale profile cannot be unioned back after
-deletion.
+commit-time atomic process rule for an existing file. Profile deletion records
+a timestamped tombstone keyed by profile name; a peer-only stale profile cannot
+be unioned back after deletion.
 
 ### 2.3 `MCPServerConfig`
 
