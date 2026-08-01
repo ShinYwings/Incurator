@@ -15,40 +15,36 @@ filesystem access to external Zotero/iCloud PDFs.
 
 ## Analysis & Reasoning
 
-- The running Obsidian plugin is v0.39.1 and its bundle matches disk.
-- The v0.36.4 permission merge works: `$read_file$()` is inserted before
-  launch and removed by `agy` 1.1.9 on exit.
-- The failing prompt contains page 5 through equation (9), only header-level
-  page 6 evidence, and an external PDF path. `agy` receives only the vault via
-  `--add-dir`, so its attempt to find equation (10) with native `read_file` is
-  correctly denied.
-- The root fix is to resolve references in the latest user message, fetch a
-  bounded missing page through the existing read-only PDF context API, and
-  inject it as `<resolved_cross_references>` before generic PDF context.
-- Do not widen `--add-dir`, add command permissions, or use
-  `--dangerously-skip-permissions`.
+- The real page-6 PDF extraction omits the equation image but contains an exact
+  `Eq. (10)` prose anchor and the surrounding explanation needed to correct the
+  answer.
+- The root fix recognizes latest-user `수식 (10)` / `Eq. (10)` pointers,
+  refreshes a capped next-first adjacent page through the existing read-only
+  PDF API, and injects `<resolved_cross_references>` before generic PDF context.
+- External Zotero/iCloud paths remain outside provider filesystem roots; no
+  command permission, trust flag, or broad `--add-dir` was added.
 
 ## Progress Status
 
-- Branch created from merged v0.39.1 anchor `bc61fab`.
-- Planning commit: `85c8f1a`.
-- Diagnosis, plan, and rollback evidence are complete and approved.
-- No application code has been written for v0.39.2.
-- Provider quota is intentionally preserved until local tests pass.
+- Docs, TDD regression, implementation, and integration source contract are
+  complete.
+- Focused plugin tests: 71 passed. Full plugin tests: 740 passed. TypeScript and
+  production build passed.
+- Backend Ruff/MyPy passed; pytest: 1373 passed, 6 skipped, 4 expected xfails.
+- Disposable PDF smoke passed without mutating production or active testbed.
+- One isolated live Antigravity replay succeeded with no native-tool denial.
 
 ## Critical Context / Blockers
 
-- No design or approval blocker remains.
-- Do not repeat the live-provider diagnosis.
+- No blocker remains.
+- Do not repeat the live-provider replay; the one permitted call is complete.
 - Do not mutate production `second_brain` or an active testbed.
 - v0.39.x stability work remains queued behind this hotfix.
 
 ## Immediate Next Action
 
-1. Update the plugin/system specs and English guide, then the Korean guide.
-2. Add a failing current-page-(9)/next-page-(10) regression test.
-3. Integrate latest-user reference resolution into Sidechat PDF context using
-   `getPdfContext(pageNum, radius=0)` for bounded missing-page fetches.
-4. Run focused Vitest, full plugin tests, TypeScript, and production build.
-5. Only then replay the external PDF once, bump all manifests to v0.39.2,
-   update `CHANGELOG.md`, commit, push, and open the hotfix PR.
+1. Commit the validated implementation and evidence.
+2. Bump all manifests to v0.39.2 and update `CHANGELOG.md`.
+3. Remove the completed roadmap item and transient v0.39.2 plan artifacts.
+4. Run version/spec consistency and final diff checks.
+5. Create `chore(release): v0.39.2`, push, and open the hotfix PR.

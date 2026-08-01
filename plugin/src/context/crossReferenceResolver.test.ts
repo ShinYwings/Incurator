@@ -233,6 +233,24 @@ describe("resolveReferences", () => {
     expect(equation?.snippet).toContain("(3.5)");
   });
 
+  it("indexes single-number display equations without treating citations as equations", () => {
+    const captionIndex = buildCaptionIndex([
+      { pageNum: 6, text: "L = -\\sum_i y_i \\log p_i \\quad (10)" },
+      { pageNum: 7, text: "(2020) Smith and Jones. References." },
+    ]);
+
+    expect(captionIndex).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "equation", number: "10", pageNum: 6 }),
+      ])
+    );
+    expect(captionIndex).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "equation", number: "2020", pageNum: 7 }),
+      ])
+    );
+  });
+
   it("marks references it cannot resolve as unresolved with low confidence", () => {
     const refs = extractReferences("see section Z9.9");
     const resolved = resolveReferences(refs, makeCtx());

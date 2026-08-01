@@ -44,3 +44,23 @@ Date: 2026-07-31
 - The next agent should not repeat the live provider reproduction before coding.
   Start with docs-first contract edits and the failing plugin test, using the
   captured live evidence above as the baseline.
+
+## Post-Fix Evidence — 2026-08-01
+
+- The regression now mirrors the real extraction gap: page 5 contains equation
+  (9), the loaded page-6 entry is header-only, and the refreshed page-6 body has
+  an explicit `Eq. (10)` prose anchor while the equation image is omitted.
+- The async resolver recognizes `수식 (10)`, refreshes page 6 exactly once
+  through `getPdfContext(pageNum=6, radius=0, maxPages=1)`, and emits page 6 in
+  `<resolved_cross_references>` before `<pdf_window>`.
+- Focused plugin validation: 71 tests passed; TypeScript passed.
+- Full plugin validation: 740 tests passed; production build passed.
+- Full backend validation: Ruff passed, MyPy passed, and pytest reported 1373
+  passed, 6 skipped, and 4 expected xfails.
+- A disposable copy of the active testbed returned exactly the requested page
+  for read-only untracked-PDF context with `radius=0`; production `second_brain`
+  and the active `testbed/` were not mutated.
+- The single isolated live Antigravity replay used the real Zotero attachment
+  identity and resolved page-5/page-6 text. It completed successfully in one
+  provider turn with a substantive Korean correction and no `read_file`,
+  `command`, permission, or filesystem-access denial.

@@ -453,6 +453,16 @@ PDF context는 다음 순서로 조립됩니다.
 4. backend PDF context를 사용하는 경우에만, `pdfRagEnabled=true`이고 source가
    tracked 상태일 때 backend 전체 PDF RAG.
 
+PDF 중심 turn에서 Sidechat은 선택하거나 crop한 텍스트 안의 참조뿐 아니라 최신
+질문에 명시된 참조도 따라갑니다. 예를 들어 현재 보이는 페이지가 수식 (9)에서
+끝나는데 사용자가 `Eq. (10)` 또는 `수식 (10)`을 물으면, 먼저 이미 확보한 page
+window를 확인합니다. 정확한 label이 없으면 read-only PDF context service를 통해
+인접 페이지를 한 페이지씩 작은 범위로 요청하고(다음 페이지 우선, `radius=0`),
+처음 정확히 일치하는 label에서 중단합니다. 일치한 페이지는 일반 PDF window보다
+앞선 `<resolved_cross_references>`로 전달됩니다. 외부 Zotero/iCloud PDF는 provider의
+native filesystem root 밖에 그대로 두며, provider에는 직접 file access가 아니라
+해결된 텍스트만 제공합니다.
+
 content hash나 등록된 source identity가 있으면 sidechat과 quick-query popover는
 같은 backend PDF page cache를 공유합니다:
 `.cache/pdf_pages/<content_hash>/<page>.txt`. `04_Resources/` 아래의 Reference Mode

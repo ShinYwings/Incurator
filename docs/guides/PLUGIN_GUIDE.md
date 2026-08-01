@@ -517,6 +517,17 @@ PDF context is assembled in this order:
 4. Optional backend whole-PDF RAG only when backend PDF context is being used,
    `pdfRagEnabled=true`, and the source is tracked.
 
+For a PDF-focused turn, Sidechat also follows an explicit reference in the
+latest question, not only one inside selected/cropped text. For example, if the
+visible page ends at equation (9) and the user asks about `Eq. (10)` or
+`수식 (10)`, Sidechat checks the known page window first. If the exact label is
+missing, it requests a small bounded adjacent-page set one page at a time through
+the read-only PDF context service (next page first, `radius=0`) and stops at the
+first exact match. The matching page is sent as `<resolved_cross_references>`
+before the normal PDF window. External Zotero/iCloud PDFs stay outside the
+provider's native filesystem roots; the provider receives the resolved text,
+not direct file access.
+
 Sidechat and quick-query popovers share the same backend PDF page cache when a
 content hash or registered source identity is available:
 `.cache/pdf_pages/<content_hash>/<page>.txt`. Reference Mode stubs under
