@@ -11,8 +11,7 @@ belong in Git history, not the active workspace. New raw reports enter through
 1. **v0.40.x Stability Regression Audit — P7 through P10**
    - P7: v0.40.1 provider/MCP/process lifetime patch merged in PR #106.
    - P8: v0.40.2 vector degradation, provider cardinality, failover
-     attribution, and prompt-version ordering patch is green locally and in
-     GitHub CI on draft PR #107; awaiting human review/merge.
+     attribution, prompt-version ordering, and RF5-RF7 follow-up merged in PR #107.
    - P9: two dry passes across the v0.32.0–v0.39.x release chain.
    - P10: final validation and workflow closure.
    - Plan: `.agents/plans/02_v032_regression_audit.md`

@@ -1,47 +1,27 @@
-# RELAY — ACTIVE
+# RELAY — IDLE
 
 ## Goal
 
-Ship v0.40.2 Stability Regression Audit P8: explicit retrieval degradation,
-exact finite provider output validation, successful-provider prompt trace
-attribution, and numeric prompt-version ordering.
+None (System IDLE).
 
 ## Plan Reference
 
-- `.agents/plans/02_v032_regression_audit.md` — approved P8 phase.
-- `.agents/plans/C_retrieval_provider_analysis.md` — locked design boundary.
-- `.agents/plans/02_v032_regression_evidence.md` — active evidence ledger.
+- None
 
 ## Analysis And Reasoning
 
-- Branch `release/v0.40.2` starts from clean relay-reset head `710817c`.
-- This is a patch: no schema, command, setting, or ranking-policy change.
-- The consumed D2 holdout is lexical-only with providers/reranking disabled;
-  P8 changes provider-present branches and will re-arm only the affected hashes.
-- The unrelated existing testbed and production vault must not be mutated;
-  deterministic temporary DB/provider tests are the authoritative P8 proof.
+- Milestone v0.40.2 (Stability Regression Audit P8 & RF5-RF7 review follow-up) shipped and merged to master.
+- PR #107 merged cleanly. Workspace is synchronized on master.
 
 ## Progress Status
 
-- Docs/specs, failing tests, implementation, and v0.40.2 release metadata are
-  complete.
-- Local gates are green: backend 1,401 passed / 6 skipped / 4 xfailed; plugin
-  778 passed; Ruff, mypy, TypeScript, production build, docs/version consistency,
-  and frozen-holdout fingerprints passed.
-- Implementation commit: `a9792e3`.
-- Release commit: `1760397`; draft PR #107 is open against `master`.
-- GitHub CI passed on delivery head `de7a541`: both backend jobs, both plugin
-  jobs, and push-event version consistency are green; the duplicate version job
-  skipped as designed.
+- Shipped v0.40.2.
+- System is idle awaiting new task/report triage.
 
 ## Critical Context / Blockers
 
-- `D2_HOLDOUT_RESULT.yml` has already consumed all three permitted runs; never
-  rerun the holdout.
-- `backend/src/curator/retrieval/engine.py` and `embedding.py` are fingerprinted
-  and require an explicit non-impact re-arm after their final edits.
+- None.
 
 ## Immediate Next Action
 
-Human review/merge of draft PR #107. After merge, fast-forward local `master`
-and apply the documented IDLE relay-reset procedure before starting P9.
+Wait for user task or new inbox triage in USER_REPORT.md.
