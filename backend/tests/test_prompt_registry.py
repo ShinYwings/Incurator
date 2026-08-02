@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from curator import prompting
@@ -78,3 +80,24 @@ def test_list_filters_by_family() -> None:
         "curator.query_local_answer",
         "curator.query_global_reduce",
     }
+
+
+def test_prompt_versions_use_numeric_latest_and_list_order() -> None:
+    reg = PromptRegistry()
+    base = prompting.REGISTRY.get("curator.source_map")
+    for version in ("v9", "v10", "v2"):
+        reg.register(replace(base, prompt_id="curator.version_test", version=version))
+
+    assert reg.get("curator.version_test").version == "v10"
+    assert [contract.version for contract in reg.list()] == ["v2", "v9", "v10"]
+
+
+@pytest.mark.parametrize("version", ["1", "v", "v1beta", "v1.", "v1..2"])
+def test_prompt_registry_rejects_malformed_versions(version: str) -> None:
+    reg = PromptRegistry()
+    base = prompting.REGISTRY.get("curator.source_map")
+
+    with pytest.raises(ValueError, match="malformed prompt version"):
+        reg.register(replace(base, prompt_id="curator.version_test", version=version))
+
+    assert reg.ids() == []

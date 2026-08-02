@@ -6,6 +6,7 @@ rerank reordering, graceful degradation, and durable QTR- trace rows.
 
 from __future__ import annotations
 
+import math
 import tempfile
 from pathlib import Path
 
@@ -85,6 +86,57 @@ def test_engine_degrades_to_fts_only_without_embedder(db_path: Path):
     assert result.hits and result.hits[0].record_id == "ATM-1"
 
 
+@pytest.mark.parametrize("mode", ["hybrid", "vec"])
+def test_engine_traces_runtime_query_embedding_failure(
+    db_path: Path, mode: str
+) -> None:
+    _seed(db_path)
+
+    class _BrokenQueryEmbedder(_FakeEmbedder):
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def embed_query(self, texts):
+            self.calls += 1
+            raise RuntimeError("query embedder unavailable")
+
+    embedder = _BrokenQueryEmbedder()
+    engine = HybridEngine(db_path, embedder=embedder)
+    result = engine.search("residual", mode=mode, rerank=False, persist=False)
+
+    assert result.fallback_mode == "lex"
+    assert any(w.startswith("vector_failed:") for w in result.warnings)
+    assert result.retrieval_trace["fallback_mode"] == "lex"
+    assert "vec_raw" not in result.retrieval_trace["lists"]
+    assert embedder.calls == 1
+    if mode == "hybrid":
+        assert result.hits and result.hits[0].record_id == "ATM-1"
+    else:
+        assert result.hits == []
+
+
+@pytest.mark.parametrize("mode", ["hybrid", "vec"])
+def test_engine_traces_query_index_dimension_mismatch(
+    db_path: Path, mode: str
+) -> None:
+    _seed(db_path)
+
+    class _WrongDimQueryEmbedder(_FakeEmbedder):
+        def embed_query(self, texts):
+            return [[1.0, 0.0] for _ in texts]
+
+    engine = HybridEngine(db_path, embedder=_WrongDimQueryEmbedder())
+    result = engine.search("residual", mode=mode, rerank=False, persist=False)
+
+    assert result.fallback_mode == "lex"
+    assert any(w.startswith("vector_failed:") for w in result.warnings)
+    assert "vec_raw" not in result.retrieval_trace["lists"]
+    if mode == "hybrid":
+        assert result.hits and result.hits[0].record_id == "ATM-1"
+    else:
+        assert result.hits == []
+
+
 def test_engine_reranker_reorders_and_clears_fallback(db_path: Path):
     _seed(db_path)
 
@@ -123,6 +175,40 @@ def test_engine_reranker_failure_degrades(db_path: Path):
     assert result.fallback_mode == "no_rerank"
     assert any("reranker_failed" in w for w in result.warnings)
     assert result.hits
+
+
+@pytest.mark.parametrize(
+    "scores",
+    [
+        [0.1],
+        [0.1, 0.2, 0.3],
+        [0.1, float("nan")],
+    ],
+    ids=["short", "long", "non-finite"],
+)
+def test_engine_rejects_invalid_reranker_output(
+    db_path: Path, scores: list[float]
+) -> None:
+    _seed(db_path)
+
+    class _InvalidReranker:
+        provider = "test"
+        model = "invalid"
+        fingerprint = "test::invalid"
+
+        def score(self, query, passages):
+            return scores
+
+    engine = HybridEngine(
+        db_path, embedder=_FakeEmbedder(), reranker=_InvalidReranker()
+    )
+    result = engine.search("deep learning", limit=5, persist=False)
+
+    assert result.fallback_mode == "no_rerank"
+    assert any(w.startswith("reranker_failed:") for w in result.warnings)
+    assert len(result.hits) == 2
+    assert all(math.isfinite(hit.score) for hit in result.hits)
+    assert all(hit.rerank_score == 0.0 for hit in result.hits)
 
 
 def test_engine_no_persist(db_path: Path):

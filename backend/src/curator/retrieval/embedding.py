@@ -15,8 +15,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -87,13 +90,59 @@ def _input_hash(text: str) -> str:
 def pack_vector(vec: list[float] | np.ndarray) -> tuple[bytes, int]:
     """L2-normalize and pack a vector to little-endian float32 bytes."""
     arr = np.asarray(vec, dtype=np.float32)
-    norm = float(np.linalg.norm(arr)) or 1.0
+    if arr.ndim != 1 or arr.size == 0 or not np.isfinite(arr).all():
+        raise ValueError("embedding vector must be a non-empty finite numeric sequence")
+    norm = float(np.linalg.norm(arr))
+    if not math.isfinite(norm):
+        raise ValueError("embedding vector norm must be finite")
+    norm = norm or 1.0
     arr = (arr / norm).astype("<f4")
     return arr.tobytes(), arr.shape[0]
 
 
 def unpack_vector(blob: bytes, dim: int) -> np.ndarray:
     return np.frombuffer(blob, dtype="<f4", count=dim)
+
+
+def _validate_embedding_output(
+    vectors: Iterable[Iterable[Any]],
+    *,
+    expected: int,
+    expected_dim: int | None = None,
+) -> tuple[list[list[float]], int]:
+    """Return finite numeric vectors with exact request cardinality."""
+    try:
+        rows = list(vectors)
+    except TypeError as exc:
+        raise ValueError("embedding provider returned non-iterable output") from exc
+    if len(rows) != expected:
+        raise ValueError(
+            f"embedding provider returned {len(rows)} vectors for {expected} inputs"
+        )
+
+    validated: list[list[float]] = []
+    dim = expected_dim
+    for index, row in enumerate(rows):
+        if isinstance(row, (str, bytes)):
+            raise ValueError(f"embedding vector {index} is not a numeric sequence")
+        try:
+            values = [float(value) for value in row]
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"embedding vector {index} contains non-numeric values") from exc
+        if not values:
+            raise ValueError(f"embedding vector {index} is empty")
+        if not all(math.isfinite(value) for value in values):
+            raise ValueError(f"embedding vector {index} contains non-finite values")
+        if dim is None:
+            dim = len(values)
+        elif len(values) != dim:
+            raise ValueError(
+                f"embedding vector {index} dimension {len(values)} does not match expected dimension {dim}"
+            )
+        validated.append(values)
+    if dim is None:
+        raise ValueError("embedding provider returned no vectors")
+    return validated, dim
 
 
 def _chunk_config(search_config: dict) -> dict:
@@ -191,6 +240,8 @@ def embed_corpus(
         row["chunk_id"]: row
         for row in db.get_search_embeddings(db_path, embedder.provider, embedder.model)
     }
+    existing_dims = {int(row["dim"]) for row in existing.values()}
+    expected_dim = next(iter(existing_dims)) if len(existing_dims) == 1 else None
 
     pending: list[dict] = []
     with db.connect(db_path) as conn:
@@ -209,16 +260,28 @@ def embed_corpus(
     embedded = 0
     failures = 0
     warning = ""
+    if len(existing_dims) > 1:
+        failures = len(pending)
+        warning = (
+            "embedding failed: existing embeddings have mixed dimensions; "
+            "run `wiki reindex --embed` after clearing stale provider rows"
+        )
+        pending = []
     for start in range(0, len(pending), batch_size):
         batch = pending[start : start + batch_size]
         try:
-            vectors = embedder.embed([r["text"] for r in batch])
+            vectors, batch_dim = _validate_embedding_output(
+                embedder.embed([r["text"] for r in batch]),
+                expected=len(batch),
+                expected_dim=expected_dim,
+            )
+            expected_dim = batch_dim
+            packed_vectors = [pack_vector(vector) for vector in vectors]
         except Exception as exc:  # transport / model failure → degrade
             failures += len(batch)
             warning = f"embedding failed: {exc}"
             continue
-        for row, vec in zip(batch, vectors):
-            blob, dim = pack_vector(vec)
+        for row, (blob, dim) in zip(batch, packed_vectors):
             dep = (json.loads(row.get("provenance_json") or "{}") or {}).get("dependency_hash", "")
             db.upsert_search_embedding(
                 db_path,

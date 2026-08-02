@@ -224,8 +224,11 @@ wiki mcp install
   missing/stale chunk embedding)를 수동으로 다시 빌드합니다.
 - **Degraded result**: lexical FTS5는 최신이지만 embedding, query expansion,
   reranking 중 일부를 사용할 수 없으면 `ok=true`, `degraded=true`를 반환합니다.
-  Query trace에는 `vector_unavailable`, `query_expander_unavailable`,
-  `reranker_unavailable` 같은 경고가 기록됩니다.
+  Query trace에는 `vector_unavailable`, 실행 중 `vector_failed`,
+  `query_expander_unavailable`, `reranker_failed` 같은 경고가 기록됩니다.
+  Provider embedding/reranker 결과는 요청 수와 정확히 일치하고 모든 값이 유한한
+  숫자여야 하며, 같은 provider/model의 ready embedding은 모두 하나의 dimension을
+  공유해야 합니다. 잘못된 embedding batch는 일부만 저장하지 않습니다.
 
 ### 3.4 문서 상태 및 On-demand 쿼리 (v0.2.1)
 

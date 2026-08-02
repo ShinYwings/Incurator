@@ -68,7 +68,16 @@ def test_vector_search_family_filter_and_empty(db_path: Path):
 
 def test_vector_search_dim_mismatch_returns_empty(db_path: Path):
     _embed_doc(db_path, "DOC-1", "ATM-1", [1.0, 0.0, 0.0])
-    assert vector.vector_search(db_path, [1.0, 0.0], provider="ollama", model="bge-m3") == []
+    with pytest.raises(vector.VectorCompatibilityError):
+        vector.vector_search(db_path, [1.0, 0.0], provider="ollama", model="bge-m3")
+
+
+def test_vector_search_mixed_index_dimensions_raise(db_path: Path):
+    _embed_doc(db_path, "DOC-1", "ATM-1", [1.0, 0.0])
+    _embed_doc(db_path, "DOC-2", "ATM-2", [1.0, 0.0, 0.0])
+
+    with pytest.raises(vector.VectorCompatibilityError):
+        vector.vector_search(db_path, [1.0, 0.0], provider="ollama", model="bge-m3")
 
 
 # --- typed expansion --------------------------------------------------------

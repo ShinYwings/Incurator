@@ -14,11 +14,13 @@ engine is fully testable with a mock; the concrete GGUF reranker plugs into
 from __future__ import annotations
 
 import hashlib
+import math
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from .. import db
+from . import embedding as embedding_mod
 from . import expansion as expansion_mod
 from . import fusion, lexical, vector
 from .providers import Embedder, Reranker
@@ -54,6 +56,14 @@ class EngineResult:
     trace_id: str = ""
     warnings: list[str] = field(default_factory=list)
     retrieval_trace: dict = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class _VectorOutcome:
+    doc_ids: list[str] = field(default_factory=list)
+    chunk_by_doc: dict[str, str] = field(default_factory=dict)
+    top_score: float | None = None
+    warning: str = ""
 
 
 def _minmax(values: list[float]) -> list[float]:
@@ -105,23 +115,31 @@ class HybridEngine:
 
     def _vector_list(
         self, text: str, families: set[str] | None
-    ) -> tuple[list[str], dict[str, str], float | None]:
-        """Return (doc_id rank list, doc_id → best chunk_id, top cosine)."""
+    ) -> _VectorOutcome:
+        """Return vector candidates or an explicit provider-failure warning."""
         if not self.embedder:
-            return [], {}, None
+            return _VectorOutcome(warning="vector_failed: no embedder configured")
         try:
             embed_query = getattr(self.embedder, "embed_query", None)
-            vecs = embed_query([text]) if callable(embed_query) else self.embedder.embed([text])
-        except Exception:
-            return [], {}, None
-        if not vecs:
-            return [], {}, None
-        hits = vector.vector_search(
-            self.db_path, vecs[0], provider=self.embedder.provider,
-            model=self.embedder.model, families=families, limit=_CANDIDATE_CAP,
-        )
+            raw = embed_query([text]) if callable(embed_query) else self.embedder.embed([text])
+            vecs, _ = embedding_mod._validate_embedding_output(raw, expected=1)
+        except Exception as exc:
+            return _VectorOutcome(
+                warning=f"vector_failed: {type(exc).__name__}: {exc}"
+            )
+        try:
+            hits = vector.vector_search(
+                self.db_path, vecs[0], provider=self.embedder.provider,
+                model=self.embedder.model, families=families, limit=_CANDIDATE_CAP,
+            )
+        except vector.VectorCompatibilityError as exc:
+            return _VectorOutcome(warning=f"vector_failed: {exc}")
         top_score = hits[0].score if hits else None
-        return [h.doc_id for h in hits], {h.doc_id: h.chunk_id for h in hits}, top_score
+        return _VectorOutcome(
+            doc_ids=[h.doc_id for h in hits],
+            chunk_by_doc={h.doc_id: h.chunk_id for h in hits},
+            top_score=top_score,
+        )
 
     # ------------------------------------------------------------------
     # rerank
@@ -152,14 +170,21 @@ class HybridEngine:
         passages = [self._best_chunk_text(h.doc_id, chunk_by_doc.get(h.doc_id)) for h in fused]
         try:
             raw = self.reranker.score(question, passages)
+            if len(raw) != len(passages):
+                raise ValueError(
+                    f"reranker returned {len(raw)} scores for {len(passages)} passages"
+                )
+            scores = [float(score) for score in raw]
+            if not all(math.isfinite(score) for score in scores):
+                raise ValueError("reranker returned non-finite scores")
         except Exception:
             ordered = [(h, h.score) for h in fused][:limit]
             return ordered, "no_rerank"
         rrf_norm = _minmax([h.score for h in fused])
         blended = []
-        for hit, ce, rn in zip(fused, raw, rrf_norm):
-            final = _RERANK_ALPHA * float(ce) + (1 - _RERANK_ALPHA) * rn
-            blended.append((hit, final, float(ce)))
+        for hit, ce, rn in zip(fused, scores, rrf_norm):
+            final = _RERANK_ALPHA * ce + (1 - _RERANK_ALPHA) * rn
+            blended.append((hit, final, ce))
         blended.sort(key=lambda x: x[1], reverse=True)
         return [(h, s) for h, s, _ in blended][:limit], ""
 
@@ -211,6 +236,7 @@ class HybridEngine:
         chunk_by_doc: dict[str, str] = {}
         lex_hit_count = 0
         top_vector_score: float | None = None
+        vector_failed = False
 
         if mode in ("hybrid", "lex"):
             lex_raw = lexical.lexical_search(self.db_path, question, families=families, limit=_CANDIDATE_CAP)
@@ -219,9 +245,16 @@ class HybridEngine:
 
         vectors_available = self._vectors_available()
         if mode in ("hybrid", "vec") and vectors_available:
-            docs, chunks, top_vector_score = self._vector_list(expanded.vec_texts[0], families)
-            ranked_lists["vec_raw"] = (fusion.DEFAULT_WEIGHTS["vec_raw"], docs)
-            chunk_by_doc.update(chunks)
+            outcome = self._vector_list(expanded.vec_texts[0], families)
+            if outcome.warning:
+                vector_failed = True
+                warnings.append(outcome.warning)
+            else:
+                top_vector_score = outcome.top_score
+                ranked_lists["vec_raw"] = (
+                    fusion.DEFAULT_WEIGHTS["vec_raw"], outcome.doc_ids
+                )
+                chunk_by_doc.update(outcome.chunk_by_doc)
 
         expansion_recovery_only = bool(self.config.get("expansion_recovery_only", True))
         vector_floor = float(self.config.get("expansion_vector_confidence_floor", 0.35))
@@ -253,18 +286,30 @@ class HybridEngine:
             lex_exp = lexical.lexical_search(self.db_path, exp_q, families=families, limit=_CANDIDATE_CAP)
             ranked_lists["lex_exp"] = (fusion.DEFAULT_WEIGHTS["lex_exp"], [h.doc_id for h in lex_exp])
 
-        if mode in ("hybrid", "vec") and vectors_available:
+        if mode in ("hybrid", "vec") and vectors_available and not vector_failed:
             for i, text in enumerate(expanded.vec_texts[1:], 1):
-                docs, chunks, _ = self._vector_list(text, families)
-                ranked_lists[f"vec_exp{i}"] = (fusion.DEFAULT_WEIGHTS["vec_exp"], docs)
-                chunk_by_doc.update(chunks)
-            if expanded.hyde_text:
-                docs, chunks, _ = self._vector_list(expanded.hyde_text, families)
-                ranked_lists["vec_hyde"] = (fusion.DEFAULT_WEIGHTS["vec_hyde"], docs)
-                chunk_by_doc.update(chunks)
+                outcome = self._vector_list(text, families)
+                if outcome.warning:
+                    vector_failed = True
+                    warnings.append(outcome.warning)
+                    break
+                ranked_lists[f"vec_exp{i}"] = (
+                    fusion.DEFAULT_WEIGHTS["vec_exp"], outcome.doc_ids
+                )
+                chunk_by_doc.update(outcome.chunk_by_doc)
+            if expanded.hyde_text and not vector_failed:
+                outcome = self._vector_list(expanded.hyde_text, families)
+                if outcome.warning:
+                    vector_failed = True
+                    warnings.append(outcome.warning)
+                else:
+                    ranked_lists["vec_hyde"] = (
+                        fusion.DEFAULT_WEIGHTS["vec_hyde"], outcome.doc_ids
+                    )
+                    chunk_by_doc.update(outcome.chunk_by_doc)
 
-        fallback_mode = "" if (vectors_available and mode != "lex") else "lex"
-        if fallback_mode == "lex" and mode != "lex":
+        fallback_mode = "" if (vectors_available and not vector_failed and mode != "lex") else "lex"
+        if fallback_mode == "lex" and mode != "lex" and not vector_failed:
             if self.has_embedder:
                 warnings.append("vector_unavailable: no embeddings indexed; run `wiki reindex --embed`")
             else:
@@ -274,9 +319,11 @@ class HybridEngine:
         fused = fusion.rrf_fuse(ranked_lists, candidate_cap=_CANDIDATE_CAP, fuse_cap=fuse_cap)
 
         do_rerank = rerank and mode == "hybrid"
+        rerank_failed = False
         if do_rerank:
             ranked, rr_mode = self._rerank(question, fused, chunk_by_doc, limit)
             if rr_mode == "no_rerank":
+                rerank_failed = True
                 fallback_mode = fallback_mode or "no_rerank"
                 if self.has_reranker:
                     warnings.append("reranker_failed: returned RRF order")
@@ -303,7 +350,7 @@ class HybridEngine:
                     family=data["record_type"],
                     chunk_id=chunk_by_doc.get(fused_hit.doc_id, ""),
                     rrf_score=fused_hit.score,
-                    rerank_score=final if not fallback_mode.startswith("no_rerank") and do_rerank else 0.0,
+                    rerank_score=final if do_rerank and not rerank_failed else 0.0,
                     source_span_ids=data["source_span_ids"],
                     contributions=fused_hit.contributions,
                 )

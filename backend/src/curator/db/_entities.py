@@ -2726,17 +2726,21 @@ def finish_prompt_run(
     validator_errors: list[str] | None = None,
     retry_count: int = 0,
     latency_ms: int | None = None,
+    model_provider: str | None = None,
+    model_name: str | None = None,
 ) -> None:
     with connect(db_path) as conn:
         conn.execute(
             """
             UPDATE prompt_runs
-               SET output_hash = ?, validator_status = ?, validator_errors = ?,
+               SET model_provider = COALESCE(?, model_provider),
+                   model_name = COALESCE(?, model_name),
+                   output_hash = ?, validator_status = ?, validator_errors = ?,
                    retry_count = ?, latency_ms = ?, finished_at = ?
              WHERE trace_id = ?
             """,
             (
-                output_hash, validator_status,
+                model_provider, model_name, output_hash, validator_status,
                 json.dumps(validator_errors or []), retry_count, latency_ms,
                 _now_iso(), trace_id,
             ),

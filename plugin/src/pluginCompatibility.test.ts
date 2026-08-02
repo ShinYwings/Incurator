@@ -1,9 +1,13 @@
 import { readFileSync } from "fs";
-import { resolve } from "path";
+import { dirname, resolve } from "path";
+import { fileURLToPath } from "url";
 import { describe, expect, it } from "vitest";
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pluginRoot = resolve(__dirname, "..");
+
 function readJson(path: string): Record<string, string> {
-  return JSON.parse(readFileSync(resolve(process.cwd(), path), "utf8")) as Record<
+  return JSON.parse(readFileSync(resolve(pluginRoot, path), "utf8")) as Record<
     string,
     string
   >;

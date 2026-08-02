@@ -314,9 +314,26 @@ Rules:
 - `fused[].contributions` must show each list, rank, weight, and numeric
   contribution used for the document.
 - `fallback_mode` is empty for full-quality search and set to a degraded mode
-  such as `lex` or `no_rerank` otherwise.
+  such as `lex` or `no_rerank` otherwise. A runtime query-embedding failure
+  sets it to `lex` in both hybrid and vector-only mode; vector-only mode does
+  not fabricate lexical candidates.
 - Warnings should use stable machine-readable prefixes such as
-  `vector_unavailable`, `query_expander_unavailable`, and `reranker_failed`.
+  `vector_unavailable`, `vector_failed`, `query_expander_unavailable`, and
+  `reranker_failed`.
+
+Provider output boundaries:
+
+- Each query text must produce exactly one non-empty finite numeric embedding.
+  An exception, wrong result count, empty vector, non-finite component, or
+  query/index dimension mismatch is a `vector_failed` degradation; later
+  vector-expansion calls for that query are skipped.
+- Each corpus-embedding batch must produce exactly one non-empty finite numeric
+  vector per requested chunk, and every accepted row for one provider/model must
+  share one dimension. Invalid batches persist no prefix and count every
+  requested chunk in that batch as failed.
+- Reranker output must contain exactly one finite numeric score per fused
+  candidate. Invalid output keeps the complete RRF order and records
+  `reranker_failed`.
 
 ## 9. Rebuild And Invalidation
 

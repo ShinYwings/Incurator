@@ -226,8 +226,11 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
   `search_chunks`, FTS5 rows, and missing/stale chunk embeddings).
 - **Degraded result**: Returns `ok=true` with `degraded=true` when lexical FTS5 is
   current but embeddings, query expansion, or reranking are unavailable. Query
-  traces record `vector_unavailable`, `query_expander_unavailable`, or
-  `reranker_unavailable` as appropriate.
+  traces record `vector_unavailable`, runtime `vector_failed`,
+  `query_expander_unavailable`, or `reranker_failed` as appropriate. Provider
+  embedding/reranker output must have exact request cardinality and finite
+  numeric values, and ready embeddings for one provider/model must share one
+  dimension; an invalid embedding batch is not partially persisted.
 
 ### 3.4 Document Status & On-demand Queries (v0.2.1)
 

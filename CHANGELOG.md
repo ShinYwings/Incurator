@@ -2,6 +2,26 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.40.2] - 2026-08-01
+### Fixed
+- **Explicit Retrieval Degradation**
+  Runtime query-embedding failures now set lexical fallback and emit a stable
+  `vector_failed` warning, including for vector-only queries without inventing
+  lexical hits. Invalid reranker output preserves the complete RRF candidate
+  order and reports `reranker_failed` instead of silently dropping candidates.
+- **Exact Finite Provider Results**
+  Corpus embedding batches and reranker responses must match request
+  cardinality exactly and contain only non-empty finite numeric results.
+  Invalid embedding batches persist nothing and count every requested chunk as
+  failed.
+- **Truthful Prompt Provenance And Versions**
+  Prompt traces now finalize provider/model attribution from the provider that
+  produced the final response after failover. Prompt versions are validated as
+  numeric `vN[.N...]` identifiers, so latest lookup and listing place `v10`
+  after `v9`.
+
+---
+
 ## [0.40.1] - 2026-08-01
 ### Fixed
 - **Independent Provider Cancellation And CLI Fidelity**

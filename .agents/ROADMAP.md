@@ -9,11 +9,10 @@ belong in Git history, not the active workspace. New raw reports enter through
 ## Active Queue
 
 1. **v0.40.x Stability Regression Audit — P7 through P10**
-   - P7: v0.40.1 provider/MCP/process lifetime patch is in draft PR #106,
-     with its four-finding cancellation/restart review follow-up implemented
-     and green locally and in GitHub CI; awaiting human review/merge.
-   - P8: vector degradation, provider cardinality, failover attribution, and
-     prompt-version ordering.
+   - P7: v0.40.1 provider/MCP/process lifetime patch merged in PR #106.
+   - P8: v0.40.2 vector degradation, provider cardinality, failover
+     attribution, and prompt-version ordering patch is green locally and in
+     GitHub CI on draft PR #107; awaiting human review/merge.
    - P9: two dry passes across the v0.32.0–v0.39.x release chain.
    - P10: final validation and workflow closure.
    - Plan: `.agents/plans/02_v032_regression_audit.md`

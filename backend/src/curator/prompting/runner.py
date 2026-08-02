@@ -18,7 +18,12 @@ from pydantic import BaseModel, ValidationError
 
 from .contracts import ChatMessage, PromptContract, ValidationResult
 from .render import render_prompt
-from .trace import finish_prompt_run, start_prompt_run
+from .trace import (
+    finish_prompt_run,
+    model_name as trace_model_name,
+    provider_name as trace_provider_name,
+    start_prompt_run,
+)
 from .validators import run_validators
 
 __all__ = ["PromptRunResult", "run_prompt", "extract_json"]
@@ -105,6 +110,33 @@ def _validate(
     return run_validators(_validator_names(contract), raw, parsed, ctx)
 
 
+def _chat_with_attribution(
+    client: Any,
+    messages: list[ChatMessage],
+    *,
+    json_mode: bool,
+    temperature: float,
+) -> tuple[str, str | None, str | None]:
+    chat_with_provider = getattr(client, "chat_with_provider", None)
+    if callable(chat_with_provider):
+        result = chat_with_provider(
+            messages,
+            json_mode=json_mode,
+            temperature=temperature,
+        )
+        provider = getattr(result, "provider", None)
+        return (
+            str(getattr(result, "content")),
+            trace_provider_name(provider),
+            trace_model_name(provider),
+        )
+    return (
+        client.chat(messages, json_mode=json_mode, temperature=temperature),
+        trace_provider_name(client),
+        trace_model_name(client),
+    )
+
+
 def _repair_message(result_raw: str, errors: list[str]) -> list[ChatMessage]:
     issues = "\n".join(f"- {e}" for e in errors)
     return [
@@ -149,9 +181,12 @@ def run_prompt(
 
     started = time.monotonic()
     raw = ""
+    model_provider: str | None = None
+    model_name: str | None = None
     retry_count = 0
     try:
-        raw = client.chat(
+        raw, model_provider, model_name = _chat_with_attribution(
+            client,
             rendered.messages,
             json_mode=contract.supports_json_mode,
             temperature=contract.temperature,
@@ -162,7 +197,8 @@ def run_prompt(
         if not validation.ok and contract.retry_policy == "json_repair_once":
             retry_count = 1
             repair_messages = [*rendered.messages, *_repair_message(raw, validation.errors)]
-            raw2 = client.chat(
+            raw2, repair_provider, repair_model = _chat_with_attribution(
+                client,
                 repair_messages,
                 json_mode=contract.supports_json_mode,
                 temperature=contract.temperature,
@@ -171,6 +207,7 @@ def run_prompt(
             validation2 = _validate(contract, raw2, parsed2, vctx)
             # Keep the repair attempt; it is the model's best/last word.
             raw, parsed, validation = raw2, parsed2, validation2
+            model_provider, model_name = repair_provider, repair_model
     except Exception as exc:
         latency_ms = int((time.monotonic() - started) * 1000)
         try:
@@ -181,6 +218,8 @@ def run_prompt(
                 validation=ValidationResult.failed(f"{type(exc).__name__}: {exc}"),
                 retry_count=retry_count,
                 latency_ms=latency_ms,
+                model_provider=model_provider,
+                model_name_value=model_name,
             )
         except Exception:
             pass  # DB write failure must not mask the original provider error
@@ -194,6 +233,8 @@ def run_prompt(
         validation=validation,
         retry_count=retry_count,
         latency_ms=latency_ms,
+        model_provider=model_provider,
+        model_name_value=model_name,
     )
     return PromptRunResult(
         trace_id=trace_id,

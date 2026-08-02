@@ -1,7 +1,7 @@
 # v0.32.0+ Stability Regression Audit — Active Evidence Ledger
 
 Updated: 2026-08-01
-Rollback anchor for P7: merged v0.40.0 relay-reset head `57665c7`.
+Rollback anchor for P8: clean merged v0.40.1 relay-reset head `710817c`.
 
 ## Completed Boundary
 
@@ -147,6 +147,77 @@ tests.
 
 Required proof: lexical fallback, vector-only failure, short/long/NaN provider
 outputs, failover trace attribution, and v9/v10 ordering tests.
+
+### P8 Baseline — v0.40.2
+
+- Branch/base: `release/v0.40.2` from clean merged relay-reset head `710817c`.
+- Target: patch v0.40.2; no schema, command, setting, or ranking-policy change.
+- Confirmed code boundaries: `HybridEngine._vector_list` turns every query
+  embedding exception or empty response into an untraced empty vector list;
+  `_rerank` and `embed_corpus` accept provider prefixes through `zip` and do
+  not reject non-finite scores/vectors; `run_prompt` records provider/model only
+  before `FailoverClient` selects a successful provider; `PromptRegistry`
+  compares versions lexicographically.
+- Frozen D2 boundary: `D2_HOLDOUT_RESULT.yml` is consumed (`run_count: 3`) and
+  pins `retrieval/engine.py` plus `retrieval/embedding.py`. Its accepted Q06
+  configuration is DB-native lexical FTS5/BM25 with `rerank: false`,
+  `providers: none`, and no model judges. P8 changes only provider-present
+  vector/reranker branches, so the accepted ranking inputs and metric are
+  unaffected. Re-arm the two fingerprints after implementation; do not rerun
+  the holdout.
+- Testbed/Reference Mode boundary: the existing testbed resembles the historical
+  `complex_math_backprop` scenario and includes retired EXH-era assertions. P8
+  uses temporary current-schema databases and deterministic fake providers;
+  do not reinitialize or mutate that unrelated testbed or production vault.
+
+### P8 Validation — v0.40.2
+
+- Red phase: 15 failures across engine, embedding, prompt registry, and prompt
+  trace tests reproduced silent hybrid/vec-only embedding failure, short/long/
+  NaN reranker and corpus-embedding output, stale failover attribution,
+  lexicographic v9/v10 lookup, and acceptance of malformed versions. The other
+  32 focused tests passed.
+- Green phase: the focused engine, embedding, prompt registry, prompt trace, and
+  DB schema set passed 63/63. Invalid embedding batches persist no prefix;
+  invalid reranker results keep both seeded RRF candidates; successful failover
+  traces name `claude-code` and its fallback model.
+- Full local gates: backend pytest passed 1,401 with 6 skipped and 4 expected
+  failures; Ruff passed; mypy passed across 127 source files; plugin Vitest
+  passed 778/778 across 73 files; TypeScript passed; and the production plugin
+  bundle built. The full backend run also passed the D2 fingerprint, docs parity,
+  and v0.40.2 version/spec consistency tests.
+- Frozen holdout: re-armed `retrieval/engine.py`, `retrieval/embedding.py`, and
+  `db/_entities.py` hashes with the lexical-only Q06 non-impact proof. The
+  consumed holdout was not rerun and no new evaluation result is claimed.
+- Testbed/Reference Mode: not run. The active scenario was not identified and
+  the existing testbed is an unrelated historical backprop/EXH-era fixture;
+  P8's provider boundaries are fully exercised with current-schema temporary
+  DBs and deterministic fake providers. No production or testbed path/config
+  was read, written, or overridden.
+- Implementation commit: `a9792e3` (`fix(core): enforce retrieval and prompt
+  integrity`); release commit: `1760397` (`chore(release): v0.40.2`).
+- Delivery: draft PR #107,
+  `https://github.com/ShinYwings/Incurator/pull/107`. GitHub CI passed on
+  delivery head `de7a541`: both backend jobs and both plugin jobs were green,
+  push-event version consistency was green, and the duplicate PR-event version
+  job correctly skipped.
+
+### P8 Review Follow-Up Baseline — PR #107 head `a423a38`
+
+- RF5 reproduced: an exact two-row embedding response with dimensions 2 and 3
+  returns `embedded=2`, `failures=0`, persists both dimensions under one
+  provider/model, and makes the next vector search fail while reshaping five
+  floats as two two-dimensional rows.
+- RF6 reproduced: a two-dimensional query against a ready three-dimensional
+  corpus returns an empty `vec_raw` with `fallback_mode=""` and no warning.
+- RF7 reproduced: fallback `ClaudeCodeClient` produces the valid response, then
+  a primary probe succeeds during delayed validation; the completed PTR records
+  `ollama` / `primary-model` with `active_idx=0`.
+- Rollback anchor: pushed clean PR head `a423a38`. The worktree was clean before
+  these review-plan artifacts; no application code has been changed.
+- Validation boundary: reproductions used temporary current-schema SQLite DBs
+  and deterministic fake providers. The active testbed, production vault, and
+  consumed D2 holdout were not read or mutated.
 
 ## Validation Record Template
 
