@@ -227,7 +227,8 @@ wiki mcp install
   Query trace에는 `vector_unavailable`, 실행 중 `vector_failed`,
   `query_expander_unavailable`, `reranker_failed` 같은 경고가 기록됩니다.
   Provider embedding/reranker 결과는 요청 수와 정확히 일치하고 모든 값이 유한한
-  숫자여야 하며, 잘못된 embedding batch는 일부만 저장하지 않습니다.
+  숫자여야 하며, 같은 provider/model의 ready embedding은 모두 하나의 dimension을
+  공유해야 합니다. 잘못된 embedding batch는 일부만 저장하지 않습니다.
 
 ### 3.4 문서 상태 및 On-demand 쿼리 (v0.2.1)
 

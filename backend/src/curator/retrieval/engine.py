@@ -122,15 +122,18 @@ class HybridEngine:
         try:
             embed_query = getattr(self.embedder, "embed_query", None)
             raw = embed_query([text]) if callable(embed_query) else self.embedder.embed([text])
-            vecs = embedding_mod._validate_embedding_output(raw, expected=1)
+            vecs, _ = embedding_mod._validate_embedding_output(raw, expected=1)
         except Exception as exc:
             return _VectorOutcome(
                 warning=f"vector_failed: {type(exc).__name__}: {exc}"
             )
-        hits = vector.vector_search(
-            self.db_path, vecs[0], provider=self.embedder.provider,
-            model=self.embedder.model, families=families, limit=_CANDIDATE_CAP,
-        )
+        try:
+            hits = vector.vector_search(
+                self.db_path, vecs[0], provider=self.embedder.provider,
+                model=self.embedder.model, families=families, limit=_CANDIDATE_CAP,
+            )
+        except vector.VectorCompatibilityError as exc:
+            return _VectorOutcome(warning=f"vector_failed: {exc}")
         top_score = hits[0].score if hits else None
         return _VectorOutcome(
             doc_ids=[h.doc_id for h in hits],

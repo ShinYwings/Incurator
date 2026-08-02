@@ -116,3 +116,60 @@ shutdown():
     terminate_process_with_deadline()
     clear_runtime_state()
 ```
+
+## 6. PR #107 Review Follow-Up Analysis
+
+### Current Code Reality
+
+- `_validate_embedding_output` checks outer count, non-empty rows, numeric
+  conversion, and finiteness, but does not enforce one vector dimension. Exact
+  mixed-dimension batches are persisted as healthy.
+- `vector_search` assumes every stored row shares the first row's dimension and
+  returns an untyped empty list for query/index mismatch. The engine therefore
+  cannot distinguish a legitimate empty result from vector incompatibility.
+- Prompt finalization reads `FailoverClient.active_provider` and `.model` after
+  parsing/validation. The background probe may change both after the response,
+  and the two fields are read in separate mutable-state accesses.
+
+### Alternatives And Trade-Offs
+
+#### Catch every vector-search exception
+
+Small, but it would misclassify DB corruption and programming defects as safe
+provider degradation. Rejected.
+
+#### Store only the active provider after validation
+
+Retains the race and can produce provider/model pairs from different active
+generations. Rejected.
+
+#### Uniform dimensions plus typed compatibility errors and response snapshots
+
+Validate one corpus dimension before writes, raise/catch only a dedicated
+vector compatibility error, and carry provider/model from the exact successful
+chat branch. This is the smallest root-cause fix and preserves existing schema
+and public surfaces. Selected.
+
+### Implementation Pseudocode
+
+```text
+validate_embedding_output(rows, expected_count, expected_dim?):
+    validate exact outer count and finite numeric rows
+    dim = expected_dim or len(rows[0])
+    require every row length == dim
+    return rows, dim
+
+vector_search(query):
+    require one stored dimension and query dimension == stored dimension
+    otherwise raise VectorCompatibilityError
+
+chat_with_attribution(...):
+    response, provider = failover_success_branch()
+    return response, provider_key(provider), provider.model
+
+run_prompt():
+    raw, attribution = chat_with_attribution(...)
+    if repair succeeds:
+        raw, attribution = repaired_raw, repair_attribution
+    finish_prompt_run(..., attribution)
+```

@@ -108,7 +108,8 @@ def _validate_embedding_output(
     vectors: Iterable[Iterable[Any]],
     *,
     expected: int,
-) -> list[list[float]]:
+    expected_dim: int | None = None,
+) -> tuple[list[list[float]], int]:
     """Return finite numeric vectors with exact request cardinality."""
     try:
         rows = list(vectors)
@@ -120,6 +121,7 @@ def _validate_embedding_output(
         )
 
     validated: list[list[float]] = []
+    dim = expected_dim
     for index, row in enumerate(rows):
         if isinstance(row, (str, bytes)):
             raise ValueError(f"embedding vector {index} is not a numeric sequence")
@@ -131,8 +133,16 @@ def _validate_embedding_output(
             raise ValueError(f"embedding vector {index} is empty")
         if not all(math.isfinite(value) for value in values):
             raise ValueError(f"embedding vector {index} contains non-finite values")
+        if dim is None:
+            dim = len(values)
+        elif len(values) != dim:
+            raise ValueError(
+                f"embedding vector {index} dimension {len(values)} does not match expected dimension {dim}"
+            )
         validated.append(values)
-    return validated
+    if dim is None:
+        raise ValueError("embedding provider returned no vectors")
+    return validated, dim
 
 
 def _chunk_config(search_config: dict) -> dict:
@@ -230,6 +240,8 @@ def embed_corpus(
         row["chunk_id"]: row
         for row in db.get_search_embeddings(db_path, embedder.provider, embedder.model)
     }
+    existing_dims = {int(row["dim"]) for row in existing.values()}
+    expected_dim = next(iter(existing_dims)) if len(existing_dims) == 1 else None
 
     pending: list[dict] = []
     with db.connect(db_path) as conn:
@@ -248,13 +260,22 @@ def embed_corpus(
     embedded = 0
     failures = 0
     warning = ""
+    if len(existing_dims) > 1:
+        failures = len(pending)
+        warning = (
+            "embedding failed: existing embeddings have mixed dimensions; "
+            "run `wiki reindex --embed` after clearing stale provider rows"
+        )
+        pending = []
     for start in range(0, len(pending), batch_size):
         batch = pending[start : start + batch_size]
         try:
-            vectors = _validate_embedding_output(
+            vectors, batch_dim = _validate_embedding_output(
                 embedder.embed([r["text"] for r in batch]),
                 expected=len(batch),
+                expected_dim=expected_dim,
             )
+            expected_dim = batch_dim
             packed_vectors = [pack_vector(vector) for vector in vectors]
         except Exception as exc:  # transport / model failure → degrade
             failures += len(batch)

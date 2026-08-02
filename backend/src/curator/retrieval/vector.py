@@ -16,7 +16,11 @@ import numpy as np
 
 from .. import db
 
-__all__ = ["VectorHit", "vector_search"]
+__all__ = ["VectorCompatibilityError", "VectorHit", "vector_search"]
+
+
+class VectorCompatibilityError(ValueError):
+    """Vector index/query dimensions are incompatible for cosine search."""
 
 
 @dataclass(frozen=True)
@@ -54,9 +58,21 @@ def vector_search(
     if not rows:
         return []
 
-    dim = int(rows[0]["dim"])
+    dims = {int(row["dim"]) for row in rows}
+    if len(dims) != 1:
+        raise VectorCompatibilityError(
+            f"search embeddings have mixed dimensions: {sorted(dims)}"
+        )
+    dim = next(iter(dims))
     if dim != q.shape[0]:
-        return []  # model/dim mismatch → caller degrades to FTS5-only
+        raise VectorCompatibilityError(
+            f"query dimension {q.shape[0]} does not match index dimension {dim}"
+        )
+    for row in rows:
+        if len(row["vector"]) != dim * 4:
+            raise VectorCompatibilityError(
+                f"embedding blob for {row['chunk_id']} does not match dimension {dim}"
+            )
 
     mat = np.frombuffer(b"".join(r["vector"] for r in rows), dtype="<f4").reshape(len(rows), dim)
     sims = mat @ q  # all normalized → cosine

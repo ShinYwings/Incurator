@@ -1083,27 +1083,29 @@ Search has internal stages:
 If embeddings are missing or stale, Incurator must not treat search as failed.
 It degrades to FTS5-only retrieval with `vector_unavailable` in the query trace
 and runtime status. If a configured query embedder raises or returns the wrong
-cardinality, an empty vector, or a non-finite component, hybrid retrieval keeps
-its lexical candidates and records `fallback_mode=lex` plus `vector_failed`.
-Vector-only mode records the same degradation but returns no invented lexical
-candidates. Later vector expansions are skipped after that failure. If the
-configured query expander is unavailable, deterministic expansion still runs
-and `query_expander_unavailable` is recorded. If the configured reranker is
-unavailable or does not return exactly one finite numeric score per fused
-candidate for `local` or `global` routes, retrieval proceeds with the complete
-RRF order and `reranker_failed` is recorded. These are degraded modes, not the
-parity target.
+cardinality, an empty vector, a non-finite component, or a dimension that is
+incompatible with the ready index, hybrid retrieval keeps its lexical candidates
+and records `fallback_mode=lex` plus `vector_failed`. Vector-only mode records
+the same degradation but returns no invented lexical candidates. Later vector
+expansions are skipped after that failure. If the configured query expander is
+unavailable, deterministic expansion still runs and `query_expander_unavailable`
+is recorded. If the configured reranker is unavailable or does not return
+exactly one finite numeric score per fused candidate for `local` or `global`
+routes, retrieval proceeds with the complete RRF order and `reranker_failed` is
+recorded. These are degraded modes, not the parity target.
 
 `wiki reindex` rebuilds DB-native search state: `search_documents`,
 `search_chunks`, FTS5 rows, and missing/stale chunk embeddings. Rebuilding the
 derived corpus MUST preserve ready embeddings for chunks that rematerialize with
 the same chunk id and input hash, so unchanged vaults do not pay a full
 re-embedding cost. Every requested chunk must receive exactly one non-empty
-finite numeric vector. A short, long, empty, non-numeric, or non-finite provider
-response invalidates the whole batch: no prefix is persisted and every requested
-chunk in that batch counts as failed. Reindex reports counts for FTS rows,
-chunks, embedded chunks, skipped unchanged chunks, failures, provider/model, and
-degraded state. It does not shell out to an external search binary.
+finite numeric vector, and all ready rows for one provider/model must share one
+dimension. A short, long, empty, non-numeric, non-finite, or mixed-dimension
+provider response invalidates the whole batch: no prefix is persisted and every
+requested chunk in that batch counts as failed. Reindex reports counts for FTS
+rows, chunks, embedded chunks, skipped unchanged chunks, failures,
+provider/model, and degraded state. It does not shell out to an external search
+binary.
 
 ## 13. Syncthing Device Registry
 
@@ -1420,11 +1422,12 @@ provisioning code.
   version/family/role, model provider/name, input/output hashes, validator status
   and errors, retry count, source ids/spans, `curate_spec_hash`, and the owning
   query trace id when applicable.
-- `model_provider` and `model_name` are finalized from the provider that
-  produced the final response. A successful fallback therefore replaces the
-  failed primary's start-time attribution. If every provider raises, the trace
-  remains attributed to its start-time provider and is closed as failed without
-  masking the original exception.
+- `model_provider` and `model_name` are finalized from an immutable
+  response-bound provider snapshot for the response whose output hash is stored.
+  A successful fallback therefore replaces the failed primary's start-time
+  attribution even if primary recovery occurs before validation finishes. If
+  every provider raises, the trace remains attributed to its start-time provider
+  and is closed as failed without masking the original exception.
 - A generated artifact (knowledge unit, entity, relation, report, synthesis node)
   must record the `PTR-` that produced it. An artifact that cannot name its prompt
   run is a defect.

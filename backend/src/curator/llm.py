@@ -32,6 +32,12 @@ import httpx
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class ChatProviderResult:
+    content: str
+    provider: object
+
+
 def _repo_cache_dir(*parts: str) -> Path:
     from . import config as cfg
 
@@ -1427,6 +1433,19 @@ class FailoverClient:
         json_mode: bool = False,
         temperature: float = 0.3,
     ) -> str:
+        return self.chat_with_provider(
+            messages,
+            json_mode=json_mode,
+            temperature=temperature,
+        ).content
+
+    def chat_with_provider(
+        self,
+        messages: list[ChatMessage],
+        *,
+        json_mode: bool = False,
+        temperature: float = 0.3,
+    ) -> ChatProviderResult:
         start = self.active_idx
         last_err: Exception | None = None
         attempts: list[str] = []
@@ -1447,7 +1466,7 @@ class FailoverClient:
                         f"[dim yellow]incurator:[/dim yellow] failed over to "
                         f"{type(self.providers[idx]).__name__}{err_hint}"
                     )
-                return result
+                return ChatProviderResult(content=result, provider=provider)
             except self._failover_errors as e:
                 last_err = e
                 attempts.append(f"{type(provider).__name__}: {str(e)[:200]}")

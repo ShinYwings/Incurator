@@ -1042,8 +1042,10 @@ Rules:
   `ok` (passed first try), `repaired` (passed after a JSON-repair retry),
   `failed` (no valid output). Failed runs must not silently write artifacts.
 - `model_provider` and `model_name` are initialized when the row opens and
-  finalized from the provider/model that produced the final response. A
-  successful failover must not leave the row attributed to the failed primary.
+  finalized from an immutable provider/model snapshot bound to the response
+  whose output hash is stored. A successful failover must not leave the row
+  attributed to the failed primary, even if the primary recovers before
+  validation finishes.
 - If the provider call or JSON-repair call raises after the row is opened, the
   row must be closed as `validator_status='failed'`, with the exception
   class/message recorded in `validator_errors`, so production failures do not

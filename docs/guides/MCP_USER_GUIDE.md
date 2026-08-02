@@ -229,7 +229,8 @@ You can also specify a client: `wiki mcp install claude` or `wiki mcp install an
   traces record `vector_unavailable`, runtime `vector_failed`,
   `query_expander_unavailable`, or `reranker_failed` as appropriate. Provider
   embedding/reranker output must have exact request cardinality and finite
-  numeric values; an invalid embedding batch is not partially persisted.
+  numeric values, and ready embeddings for one provider/model must share one
+  dimension; an invalid embedding batch is not partially persisted.
 
 ### 3.4 Document Status & On-demand Queries (v0.2.1)
 

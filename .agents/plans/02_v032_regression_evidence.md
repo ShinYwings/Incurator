@@ -202,6 +202,23 @@ outputs, failover trace attribution, and v9/v10 ordering tests.
   push-event version consistency was green, and the duplicate PR-event version
   job correctly skipped.
 
+### P8 Review Follow-Up Baseline — PR #107 head `a423a38`
+
+- RF5 reproduced: an exact two-row embedding response with dimensions 2 and 3
+  returns `embedded=2`, `failures=0`, persists both dimensions under one
+  provider/model, and makes the next vector search fail while reshaping five
+  floats as two two-dimensional rows.
+- RF6 reproduced: a two-dimensional query against a ready three-dimensional
+  corpus returns an empty `vec_raw` with `fallback_mode=""` and no warning.
+- RF7 reproduced: fallback `ClaudeCodeClient` produces the valid response, then
+  a primary probe succeeds during delayed validation; the completed PTR records
+  `ollama` / `primary-model` with `active_idx=0`.
+- Rollback anchor: pushed clean PR head `a423a38`. The worktree was clean before
+  these review-plan artifacts; no application code has been changed.
+- Validation boundary: reproductions used temporary current-schema SQLite DBs
+  and deterministic fake providers. The active testbed, production vault, and
+  consumed D2 holdout were not read or mutated.
+
 ## Validation Record Template
 
 Each patch appends: branch and merge-base; failing tests; changed contracts;

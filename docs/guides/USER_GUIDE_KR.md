@@ -1006,7 +1006,7 @@ generated Collections를 제거하며 chat history는 삭제하지 않습니다.
 -   **Reranking (리랭킹)**: 검색 결과의 정밀도를 높이는 2차 검증 프로세스의 활성화 여부입니다. 고품질 답변이 필요하다면 `on` 상태여야 합니다.
 -   **Query expansion**: recovery-only Tier-2 expansion을 실행할 수 있는지 표시합니다. 사용할 수 없어도 deterministic lexical/vector expansion은 계속 실행되고 trace에 degraded stage가 기록됩니다.
 -   **Search readiness**: DB-native FTS5 준비 상태, embedded chunk 수, vector readiness, provider/model, degraded stage를 표시합니다.
--   **Search index degradation**: embedding, query expansion, reranking을 사용할 수 없더라도 lexical FTS5 search는 계속 작동합니다. Index가 없으면 `vector_unavailable`, query embedding 실행 중 오류나 잘못된 결과가 나오면 `vector_failed`가 기록됩니다. 잘못된 reranker 결과는 전체 RRF 순서를 유지하면서 `reranker_failed`를 기록합니다. Vector-only query는 lexical hit를 만들어 내지 않고 vector failure만 보고합니다. Corpus embedding과 reranking은 요청 수와 정확히 일치하는 유한 숫자 provider 결과만 허용합니다. provider/model 설정을 고친 뒤 `wiki reindex`로 chunk와 embedding을 다시 빌드하세요.
+-   **Search index degradation**: embedding, query expansion, reranking을 사용할 수 없더라도 lexical FTS5 search는 계속 작동합니다. Index가 없으면 `vector_unavailable`, query embedding 실행 중 오류, 잘못된 결과, 또는 query/index dimension 불일치가 있으면 `vector_failed`가 기록됩니다. 잘못된 reranker 결과는 전체 RRF 순서를 유지하면서 `reranker_failed`를 기록합니다. Vector-only query는 lexical hit를 만들어 내지 않고 vector failure만 보고합니다. Corpus embedding과 reranking은 요청 수와 정확히 일치하는 유한 숫자 provider 결과만 허용하며, 같은 provider/model의 ready embedding은 모두 하나의 dimension을 공유해야 합니다. provider/model 설정을 고친 뒤 `wiki reindex`로 chunk와 embedding을 다시 빌드하세요.
 
 #### 📂 지식 원천 현황 (Sources)
 원본 데이터가 지식화되는 '파이프라인의 입구'를 점검합니다.

@@ -324,11 +324,12 @@ Rules:
 Provider output boundaries:
 
 - Each query text must produce exactly one non-empty finite numeric embedding.
-  An exception, wrong result count, empty vector, or non-finite component is a
-  `vector_failed` degradation; later vector-expansion calls for that query are
-  skipped.
+  An exception, wrong result count, empty vector, non-finite component, or
+  query/index dimension mismatch is a `vector_failed` degradation; later
+  vector-expansion calls for that query are skipped.
 - Each corpus-embedding batch must produce exactly one non-empty finite numeric
-  vector per requested chunk. Invalid batches persist no prefix and count every
+  vector per requested chunk, and every accepted row for one provider/model must
+  share one dimension. Invalid batches persist no prefix and count every
   requested chunk in that batch as failed.
 - Reranker output must contain exactly one finite numeric score per fused
   candidate. Invalid output keeps the complete RRF order and records

@@ -150,6 +150,56 @@ def test_run_prompt_trace_attributes_successful_failover_provider(
     assert run["model_name"] == "fallback-model"
 
 
+def test_run_prompt_trace_uses_response_provider_after_primary_recovery(
+    db_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class OllamaClient:
+        model = "primary-model"
+
+        def chat(self, messages, *, json_mode=False, temperature=0.3) -> str:
+            raise LLMError("primary unavailable")
+
+    class ClaudeCodeClient:
+        model = "fallback-model"
+
+        def chat(self, messages, *, json_mode=False, temperature=0.3) -> str:
+            return _valid_ku_output()
+
+    import curator.prompting.runner as runner_mod
+
+    contract = prompting.REGISTRY.get("curator.knowledge_unit_extract")
+    client = FailoverClient(
+        [OllamaClient(), ClaudeCodeClient()], probe_interval=0
+    )
+    original_validate = runner_mod._validate
+
+    def _recover_primary_during_validation(*args, **kwargs):
+        with client._lock:
+            client._active_idx = 0
+        return original_validate(*args, **kwargs)
+
+    monkeypatch.setattr(runner_mod, "_validate", _recover_primary_during_validation)
+    input_obj = contract.input_model(
+        source_title="ResNet",
+        spans_block="SPAN-aaaa1111: Residual connections ...",
+        valid_span_ids_block="SPAN-aaaa1111",
+    )
+
+    result = prompting.run_prompt(
+        db_path,
+        client,
+        contract,
+        input_obj,
+        validation_context={"valid_span_ids": ["SPAN-aaaa1111"]},
+    )
+
+    run = db.get_prompt_run(db_path, result.trace_id)
+    assert run is not None
+    assert run["model_provider"] == "claude-code"
+    assert run["model_name"] == "fallback-model"
+
+
 def test_run_prompt_marks_failed_when_invented_span(db_path: Path) -> None:
     contract = prompting.REGISTRY.get("curator.knowledge_unit_extract")
     bad = json.dumps(

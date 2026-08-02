@@ -208,6 +208,54 @@ def test_embed_corpus_rejects_invalid_batch_atomically(
     assert db.get_search_embeddings(db_path, "ollama", "bge-m3") == []
 
 
+def test_embed_corpus_rejects_mixed_dimensions_atomically(db_path: Path) -> None:
+    first_doc = _doc(db_path, "ATM-1", "first", "alpha beta gamma delta.")
+    second_doc = _doc(db_path, "ATM-2", "second", "epsilon zeta eta theta.")
+    embedding.materialize_chunks(db_path)
+    total = len(db.list_search_chunks_for_doc(db_path, first_doc))
+    total += len(db.list_search_chunks_for_doc(db_path, second_doc))
+    assert total >= 2
+
+    class _MixedDim(_FakeEmbedder):
+        def embed(self, texts):
+            vectors = super().embed(texts)
+            vectors[-1] = [*vectors[-1], 1.0]
+            return vectors
+
+    result = embedding.embed_corpus(db_path, _MixedDim(), batch_size=total)
+
+    assert result.embedded == 0
+    assert result.failures == total
+    assert "dimension" in result.warning
+    assert db.get_search_embeddings(db_path, "ollama", "bge-m3") == []
+
+
+def test_embed_corpus_rejects_dimension_mismatch_with_existing_rows(
+    db_path: Path,
+) -> None:
+    doc = _doc(db_path, "ATM-1", "first", "alpha beta gamma delta.")
+    embedding.materialize_chunks(db_path)
+    first = embedding.embed_corpus(db_path, _FakeEmbedder())
+    assert first.embedded >= 1
+
+    with db.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE search_chunks SET input_hash = ? WHERE doc_id = ?",
+            ("changed-input", doc),
+        )
+
+    class _WrongDim(_FakeEmbedder):
+        def embed(self, texts):
+            return [[1.0, 0.0, 0.0, 0.0, 0.0] for _ in texts]
+
+    result = embedding.embed_corpus(db_path, _WrongDim())
+
+    assert result.embedded == 0
+    assert result.failures >= 1
+    assert "dimension" in result.warning
+    assert {row["dim"] for row in db.get_search_embeddings(db_path, "ollama", "bge-m3")} == {4}
+
+
 def test_build_embedder_factory():
     cfg = {"embedding": "ollama::bge-m3", "embedding_dim": 1024}
     em = providers.build_embedder(cfg, ollama_host="http://localhost:11434")

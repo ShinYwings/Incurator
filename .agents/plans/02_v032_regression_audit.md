@@ -130,6 +130,85 @@ and make versioned prompt selection deterministic beyond single digits.
    boundary; bump and release v0.40.2; push a draft PR; and verify latest-head
    CI.
 
+### P8 Review Follow-Up — Approved 2026-08-02
+
+Source: [PR #107 review findings](../USER_REPORT.md#-user-inbox), reproduced
+against head `a423a38` on 2026-08-01. The user's `fix them` instruction on
+2026-08-02 approves implementation of RF5-RF7 on the existing PR branch.
+
+#### 1. Objective
+
+Close the remaining dimensional-integrity and response-attribution gaps without
+changing schema, provider selection, ranking weights, or public command/config
+surfaces.
+
+#### 2. Explicit Non-Goals
+
+- Do not add a generic provider result wrapper across every LLM client.
+- Do not rebuild or mutate the unrelated active testbed or production vault.
+- Do not treat arbitrary SQLite/search corruption as provider degradation;
+  only typed vector compatibility failures degrade to lexical search.
+- Do not bump past v0.40.2 while the patch remains unreleased.
+
+#### 3. Strict Quality Conditions And Release Gates
+
+- Every accepted corpus-embedding run has one dimension across all rows and
+  batches; no mixed-dimension prefix is persisted.
+- A query/index dimension mismatch records `fallback_mode=lex` and
+  `vector_failed`, including vector-only mode.
+- Prompt traces bind provider and model to the exact response used as final
+  output, even if primary recovery or another request changes active state.
+- Focused tests, full backend/plugin gates, docs/version consistency, and the
+  re-armed frozen-holdout fingerprint test all pass.
+
+#### 4. Locked Design Decisions
+
+- RF5: `_validate_embedding_output` returns a validated dimension. `embed_corpus`
+  pins one run dimension from the first accepted batch or compatible ready
+  rows, rejects any later mismatch before writes, and validates every row in a
+  batch against that dimension.
+- RF6: vector search raises a typed compatibility error for query/index or
+  mixed-index dimension mismatch. `_vector_list` catches only that typed vector
+  compatibility failure and returns a stable `vector_failed` outcome; unrelated
+  DB/programming failures still surface.
+- RF7: failover chat returns response-bound provider/model metadata from the
+  same provider-local success path. `run_prompt` retains that immutable snapshot
+  for the original response and replaces it only when a repair response
+  succeeds. Trace finalization accepts explicit strings rather than rereading a
+  mutable client.
+
+#### 5. Scope Exclusions And Stop Conditions
+
+- **Exclusions**: schema migration, ranking changes, provider catalogue changes,
+  and general request-context refactors.
+- **Stop Conditions**: stop if response-bound provenance requires a public LLM
+  client contract change outside `FailoverClient`/prompt runner, or if repairing
+  pre-existing mixed-dimension rows requires destructive index mutation rather
+  than a normal reindex.
+
+#### 6. Evidence Ledger
+
+- Repository head and rollback anchor: `a423a38`; worktree was clean before
+  review planning.
+- RF5, RF6, and RF7 are reproduced with temporary current-schema DBs and fake
+  providers; no tracked data, testbed, or production path was touched.
+- D2 is consumed. Engine/embedding edits require another explicit lexical-Q06
+  non-impact re-arm; the holdout itself must not be rerun.
+
+#### 7. Execution Phases
+
+1. P0 Contract: clarify uniform embedding dimensions, typed vector compatibility
+   degradation, and response-bound prompt attribution in English/Korean guides
+   and static specs.
+2. P1 Red: add failing tests for mixed dimensions within/across batches,
+   query/index mismatch in hybrid and vec-only modes, background primary
+   recovery during validation, and provider/model atomicity.
+3. P2 Green: implement the three locked decisions; pass focused engine,
+   embedding, vector, prompt trace, failover, and DB tests plus Ruff/mypy.
+4. P3 Release proof: re-arm affected D2 hashes without rerunning Q06, run all
+   repository gates, update changelog/evidence/relay, commit to PR #107, push,
+   and verify latest-head CI.
+
 ## P9 — Final Release-Chain Dry Pass
 
 - Re-read every v0.32.0–v0.39.x release row against final code.
