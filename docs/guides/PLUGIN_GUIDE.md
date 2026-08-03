@@ -213,11 +213,29 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
   instead of browsing the parent directory.
 - **Tool-isolated (v0.19.0)**: The popover is hard-isolated from MCP tools — even
   if you have MCP servers (including Incurator) enabled for the chat sidebar, the
-  popover injects **zero** tools. It can never run a script, create a file, or
-  search outside the current selection and page. It answers only from the text
-  you selected plus the current page/outline. If you want full agent capabilities
-  (RAG over the knowledge base, file edits, MCP tools), use the chat sidebar
-  instead of the popover.
+  popover injects **zero** MCP tools. It can never run a script, create a file, or
+  reach the filesystem, your vault, or your Zotero library. If you want full agent
+  capabilities (RAG over the knowledge base, file edits, MCP tools), use the chat
+  sidebar instead of the popover.
+- **Page-turning without you (v0.41.0)**: the popover can now turn pages of the
+  PDF you already have open. The assistant always receives the document's table
+  of contents with page numbers, so it can reason "that result is in Appendix 4,
+  around page 617" — but until v0.41.0 it had no way to get there and could only
+  tell you to go look. It now has exactly one read-only ability: fetch a page of
+  the open PDF by number. That covers the cases automatic reference-following
+  cannot: a reference discovered only *after* reading the target page, a target
+  named in your question rather than in the text you selected, and prose
+  references like "as shown in the previous chapter" that carry no number. For
+  papers with no embedded table of contents, it can additionally search the
+  pages it has already seen, since it has no map to navigate by.
+
+  This does not widen the isolation above: the page reader is not an MCP tool
+  and cannot touch the filesystem, your vault, or Zotero. It is limited to the
+  PDF already open in front of you, refuses page numbers outside that document,
+  and stops after a bounded number of page fetches per question. If no PDF is
+  open, the ability is not offered at all. CLI providers (Antigravity `agy`,
+  Claude, Codex) do not get the page reader — they keep automatic
+  reference-following only.
 - **Sandboxed CLI providers (v0.23.0)**: when your provider is a CLI agent
   (Antigravity `agy`, Claude, or Codex), that agent has its own built-in tools the
   v0.19.0 MCP isolation doesn't govern. The plugin now contains them: the popover

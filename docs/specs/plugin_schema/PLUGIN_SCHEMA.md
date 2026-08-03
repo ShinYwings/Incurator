@@ -2037,25 +2037,37 @@ The popover is a read-only reading assistant. It MUST NOT be able to run scripts
 create files, or traverse the filesystem.
 
 - **Tool policy on the wire.** `LLMClient.streamChat(messages, onChunk, opts?)`
-  accepts an optional `{ toolPolicy: "auto" | "none" }`. The default is `"auto"`
-  (the chat sidebar's behavior, unchanged). The popover MUST call it with
-  `{ toolPolicy: "none" }`. The single decision helper `shouldInjectMcpTools(toolPolicy,
-  hasMcpManager, useCli)` governs injection: it returns `false` whenever
-  `toolPolicy === "none"`, when the provider routes through a CLI, or when no MCP
-  manager is present. When `toolPolicy === "none"` the request body carries **no**
-  `tools` array — `mcpManager.getAllTools()` is never invoked on that path. The
+  accepts an optional `{ toolPolicy }`. The default is `"auto"`
+  (the chat sidebar's behavior, unchanged). The single decision helper
+  `shouldInjectMcpTools(toolPolicy, hasMcpManager, useCli)` governs MCP
+  injection: it returns `false` whenever the policy is not `"auto"`, when the
+  provider routes through a CLI, or when no MCP manager is present. When MCP
+  injection is refused the request body carries **no** MCP entries and
+  `mcpManager.getAllTools()` is never invoked on that path. The
   non-streaming `complete()` path already injects no tools.
+  **v0.41.0 amendment**: the policy union is now
+  `"auto" | "none" | "local-only"`, and the popover moved from `"none"` to
+  `"local-only"`. `shouldInjectMcpTools` returns `false` for both `"none"` and
+  `"local-only"`, so the popover's zero-MCP guarantee is unchanged; the new
+  value additionally admits the plugin-executed local PDF reader defined in
+  §13.7. Every consumer of `ToolPolicy` MUST handle the union exhaustively
+  (a `never`-typed default), so adding a future value is a compile error
+  rather than a silent grant.
 - **Shared prompt registry (`src/context/promptRegistry.ts`).** Security-critical
   prompt blocks are defined once and consumed by both surfaces so they cannot
   drift:
   - `SurfaceProfile` = `{ surface: "sidechat" | "popover", toolPolicy, allowEdits }`,
     with exported `SIDECHAT_PROFILE` (`auto` / edits-on) and `POPOVER_PROFILE`
-    (`none` / edits-off).
+    (`local-only` since v0.41.0, previously `none` / edits-off).
   - `boundaryConstraints(profile)` — the canonical filesystem/tool boundary text.
     For `toolPolicy: "none"` it declares zero tools and zero filesystem access;
-    for `"auto"` it limits access to the allowed roots (vault, configured Zotero
-    folder, Zotero library). The popover's system prompt sources its boundary line
+    for `"local-only"` it declares zero MCP tools, zero filesystem access, and
+    the single read-only PDF page reader of §13.7; for `"auto"` it limits access
+    to the allowed roots (vault, configured Zotero folder, Zotero library). The
+    popover's system prompt sources its boundary line
     from this function — it MUST NOT re-declare a hardcoded duplicate.
+    This text is **documentation of** the boundary, not the enforcement of it:
+    per §13.7 the enforcement is behavioral and independently tested.
   - `buildRecencyAnchor(profile, { hasPrimarySelection })` — a `<critical_invariants>`
     block appended LAST in the payload (recency-effect position) that re-asserts:
     answer only about `<primary_focus_selection>` (deferring to the existing
@@ -2163,6 +2175,72 @@ the `find_mvg_text.py`-style exploit). This section governs the CLI path.
   set, and cannot modify the Zotero library at all.
 - External user-configured `mcpServers` are the user's own trust boundary and are
   NOT sandboxed by this mechanism (documented limitation).
+
+### 13.7 Local PDF Reader Tools (v0.41.0)
+
+§13.5 and §13.6 closed every path by which a reading surface could reach the
+filesystem, the vault, or a script. They also left the model unable to *act* on
+what it already knows: the document outline is injected into the prompt with
+page numbers (`formatOutline`, ≤80 entries), so the model can reason "that is in
+Appendix 4, around p.617" but has no way to obtain that page. Its only remaining
+move is to tell the user to navigate there, which defeats the purpose of the
+reading assistant. §13.7 supplies the missing actuator without reopening any
+boundary closed by §13.5/§13.6.
+
+- **Relationship to deterministic resolution.** These tools are a *fallback*,
+  never the primary path. The v0.40.3 deterministic resolver — printed→physical
+  page mapping, outline-bounded range fetch, caption/definition index, BM25 over
+  seen pages, adjacent-equation probing, fail-closed verification — runs first
+  and unchanged. The tools exist for the four cases it structurally cannot
+  cover: multi-hop chains discovered only after a page is read; targets named in
+  the question rather than the selection (the popover resolves the selection
+  before the question is known); the fail-closed residue that v0.40.3
+  deliberately produces instead of wrong context; and unnumbered/prose
+  references that no pattern in the closed regex table matches.
+
+- **Closed tool set.** Exactly two names may ever be exposed:
+  `fetch_pdf_page(page_number)` and `search_pdf_anchor(query)`. They are
+  plugin-executed local tools, NOT MCP tools: they are never registered with an
+  MCP server, never routed through `mcpManager`, and never reach the filesystem,
+  the vault, the Zotero library, or a shell. Execution wraps only the existing
+  page-fetch and document-index accessors, scoped to the PDF the user already
+  has open.
+
+- **Emission preconditions (fail closed).** Local tools are emitted only when
+  the captured request context reports an active PDF, a known positive page
+  count, and a stable document identity. If any is missing, no local tool is
+  emitted at all — an unbounded or unscoped fetch tool is strictly worse than no
+  tool. A markdown-only turn therefore never sees a PDF tool.
+
+- **`search_pdf_anchor` is conditional, not general.** It is emitted only for a
+  document *proven* to have no embedded outline (common for papers), where the
+  model has no map and cannot know which page to request. A document whose
+  outline is merely not yet parsed counts as having an outline, so the tool is
+  withheld. It MUST NOT be presented as a general search surface: BM25, the
+  caption index, and outline resolution already run deterministically.
+
+- **Typed failures, never thrown turns.** Out-of-range page numbers,
+  unparseable arguments, an exhausted fetch budget, and a mid-request document
+  identity change each produce a typed `role: "tool"` error message that the
+  model can answer around. No local tool failure may abort the turn, and a
+  document identity change MUST NOT be resolved against the new document.
+
+- **Budgets.** Rounds remain bounded by the existing tool-loop recursion limit,
+  which continues to drop tools on the final turn to force an answer. A separate
+  per-request page-fetch budget caps the total pages fetched across all rounds;
+  exhaustion is a typed error, not silence.
+
+- **CLI providers are excluded.** Providers routed through a CLI agent
+  (Antigravity `agy`, Claude, Codex) receive neither MCP nor local tools; they
+  keep the deterministic path only. This preserves §13.6's sandbox contract
+  unchanged.
+
+- **Enforcement is behavioral, not textual.** The popover's zero-MCP guarantee
+  MUST be locked by tests asserting that MCP injection is refused for the
+  popover policy under every combination of MCP-manager presence and CLI
+  routing, and that a popover tool array contains only the two local names
+  above. Prompt wording (§13.5 `boundaryConstraints`) documents the boundary;
+  it does not enforce it.
 
 ---
 
