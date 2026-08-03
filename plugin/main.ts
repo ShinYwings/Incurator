@@ -30,6 +30,11 @@ import {
 import { AIAgentSettingTab } from "./src/settings";
 import { CLIAuthResolver } from "./src/auth/cliAuth";
 import { LLMClient } from "./src/agent/llmClient";
+import type {
+  LocalPdfToolContext,
+  LocalPdfToolRunner,
+  OutlineState,
+} from "./src/agent/llm/localPdfTools";
 import { MCPManager } from "./src/agent/mcpClient";
 import { IncuratorClient } from "./src/agent/incuratorClient";
 import { isIncomingPeerSnapshot, SyncScheduler } from "./src/agent/syncScheduler";
@@ -193,6 +198,7 @@ export default class ObsidianAIAgent extends Plugin {
       this.mcpManager,
       () => this.assertActivePluginBundle()
     );
+    this.llmClient.setLocalPdfToolRunner(this.buildLocalPdfToolRunner());
     this.incuratorClient = new IncuratorClient(
       this.settings,
       this.manifest.version,
@@ -1792,6 +1798,47 @@ export default class ObsidianAIAgent extends Plugin {
   getActivePdfDocumentId(): string | undefined {
     const pdfView = this.app.workspace.getActiveViewOfType(ExternalPdfView);
     return pdfView?.getDocumentId();
+  }
+
+  /**
+   * The read-only PDF page reader exposed to the model (v0.41.0, PLUGIN_SCHEMA
+   * §13.7). It wraps the existing page fetch and document index only — it can
+   * express nothing beyond "give me page N of the PDF already open" and "BM25
+   * over the pages of that PDF already read". No filesystem, vault, Zotero, or
+   * shell reach is possible through this interface.
+   */
+  private buildLocalPdfToolRunner(): LocalPdfToolRunner {
+    return {
+      describeContext: (): LocalPdfToolContext => {
+        const pdf = this.activeContext.pdfPage;
+        const documentId = this.getActivePdfDocumentId();
+        const hasActivePdf = Boolean(pdf) && Boolean(documentId);
+        // Outline absence is only *proven* once a document is loaded and its
+        // outline array exists but is empty. An undefined outline may simply be
+        // unparsed, so it counts as present and withholds anchor search.
+        const outlineState: OutlineState = !hasActivePdf
+          ? "unknown"
+          : pdf?.outline === undefined
+            ? "unknown"
+            : pdf.outline.length === 0
+              ? "absent"
+              : "present";
+        return {
+          hasActivePdf,
+          pageCount: pdf?.pageCount,
+          currentPage: pdf?.pageNum,
+          documentId,
+          outlineState,
+        };
+      },
+      fetchPage: (pageNum: number) => this.fetchActivePdfPage(pageNum),
+      searchAnchor: async (query: string, topK: number) => {
+        const index = this.getActivePdfDocumentIndex();
+        const documentId = this.getActivePdfDocumentId();
+        if (!index || !documentId) return [];
+        return index.search(documentId, query, { topK });
+      },
+    };
   }
 
   private toAbsolutePath(vaultRelPath: string | undefined): string | undefined {

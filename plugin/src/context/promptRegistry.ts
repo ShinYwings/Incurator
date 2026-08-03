@@ -12,14 +12,27 @@
  * and the LLM client (`agent/llmClient.ts`) can consume it without cycles.
  */
 
-/** Whether MCP tools may be injected for a given call. */
-export type ToolPolicy = "auto" | "none";
+/**
+ * Which tool families may be injected for a given call.
+ *
+ * - "auto"       => MCP tools and local tools (chat sidebar).
+ * - "local-only" => NO MCP tools, but the plugin-executed local PDF reader is
+ *                   allowed (Quick Query popover, v0.41.0). The zero-MCP
+ *                   guarantee of v0.19.0 is unchanged; only the plugin's own
+ *                   bounded, read-only page reader is added.
+ * - "none"       => no tools of any family. Retained as the hard-off value.
+ *
+ * Consumers MUST handle this union exhaustively (a `never`-typed default), so
+ * that adding a value is a compile error rather than a silent grant.
+ */
+export type ToolPolicy = "auto" | "none" | "local-only";
 
 export interface SurfaceProfile {
   surface: "sidechat" | "popover";
   /**
-   * "none" => no MCP tools are injected and the prompt forbids any filesystem
-   * or script access (used by ephemeral surfaces such as the popover).
+   * "none" => no tools at all; "local-only" => local PDF reader only, still no
+   * MCP tools and no filesystem or script access (used by ephemeral surfaces
+   * such as the popover).
    */
   toolPolicy: ToolPolicy;
   /** Whether `ai-agent-edit` proposals are permitted on this surface. */
@@ -36,7 +49,7 @@ export const SIDECHAT_PROFILE: SurfaceProfile = {
 /** Quick Query popover: ephemeral, read-only, zero side effects. */
 export const POPOVER_PROFILE: SurfaceProfile = {
   surface: "popover",
-  toolPolicy: "none",
+  toolPolicy: "local-only",
   allowEdits: false,
 };
 
@@ -45,20 +58,35 @@ export const POPOVER_PROFILE: SurfaceProfile = {
  * their boundary wording here, so a fix lands on both by construction.
  */
 export function boundaryConstraints(profile: SurfaceProfile): string {
-  if (profile.toolPolicy === "none") {
-    return (
-      "You have NO tools and NO filesystem access. Never list, browse, create, " +
-      "or execute files, scripts, or shell commands, and never invent folder, " +
-      "file, or directory names. Answer only from the context provided in this " +
-      "request."
-    );
+  switch (profile.toolPolicy) {
+    case "none":
+      return (
+        "You have NO tools and NO filesystem access. Never list, browse, create, " +
+        "or execute files, scripts, or shell commands, and never invent folder, " +
+        "file, or directory names. Answer only from the context provided in this " +
+        "request."
+      );
+    case "local-only":
+      return (
+        "You have NO filesystem access and NO MCP tools. Never list, browse, " +
+        "create, or execute files, scripts, or shell commands, and never invent " +
+        "folder, file, or directory names. Your ONLY tool is a read-only reader " +
+        "for the PDF the user already has open: you may fetch a page of that " +
+        "document by number to follow a reference instead of telling the user to " +
+        "navigate there. Answer from the provided context plus any page you fetch."
+      );
+    case "auto":
+      return (
+        "Any tool, file, or command access must stay within the allowed roots: the " +
+        "vault, the configured Zotero folder, and the Zotero library. Never " +
+        "traverse, read, or create files outside those roots, and never run ad-hoc " +
+        "scripts to reach them."
+      );
+    default: {
+      const exhaustive: never = profile.toolPolicy;
+      return exhaustive;
+    }
   }
-  return (
-    "Any tool, file, or command access must stay within the allowed roots: the " +
-    "vault, the configured Zotero folder, and the Zotero library. Never " +
-    "traverse, read, or create files outside those roots, and never run ad-hoc " +
-    "scripts to reach them."
-  );
 }
 
 export interface RecencyAnchorOptions {
