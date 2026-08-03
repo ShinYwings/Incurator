@@ -285,6 +285,153 @@ describe("resolveSelectionReferencesAsync", () => {
     expect(fetchedPages).toEqual(expect.arrayContaining([10, 20]));
   });
 
+  it("resolves the v0.40.3 report case: printed p581 maps via window headers, never fetching physical 581", async () => {
+    // Reproduces the exact user failure: physical 276 shows printed 258
+    // (offset +18). Printed 581 lives at physical 599; physical 581 is
+    // Appendix A1 (tensor notation) and must never be fetched or injected.
+    const fetch = vi.fn().mockImplementation(async (pn: number) => {
+      if (pn === 599) {
+        return "581\nA4.1 Skew-symmetric matrices\nResult A4.1. A general 3 x 3 skew-symmetric matrix S may be written as S = kUZU^T where U is orthogonal.";
+      }
+      if (pn === 581) {
+        return "563 A1 Tensor notation\nEinstein summation and index apparatus.";
+      }
+      return undefined;
+    });
+
+    const block = await resolveSelectionReferencesBlockAsync(
+      "From Result A4.1-(p581), which gives a block decomposition of a general skew-symmetric matrix",
+      {
+        windowPages: [
+          page(274, "256 9 Epipolar Geometry and the Fundamental Matrix\nfundamental and essential matrices"),
+          page(275, "9.6 Extraction of cameras from the essential matrix 257\nproperties of the essential matrix"),
+          page(276, "258 9 Epipolar Geometry and the Fundamental Matrix\nProof. From Result A4.1-(p581), which gives a block decomposition."),
+        ],
+        pageNum: 276,
+        pageCount: 673,
+        outline: [],
+      },
+      fetch
+    );
+
+    expect(fetch.mock.calls.map(([pn]) => pn)).toEqual([599]);
+    expect(block).toContain('target_page="599"');
+    expect(block).toContain("skew-symmetric matrix S may be written");
+    expect(block).not.toContain("Tensor notation");
+  });
+
+  it("recovers via identity probe + header repair when the window has no printed headers", async () => {
+    const fetch = vi.fn().mockImplementation(async (pn: number) => {
+      if (pn === 581) {
+        return "563 A1 Tensor notation\nEinstein summation and index apparatus.";
+      }
+      if (pn === 599) {
+        return "581\nA4.1 Skew-symmetric matrices\nResult A4.1. A general skew-symmetric matrix S may be written as S = kUZU^T.";
+      }
+      return undefined;
+    });
+
+    const block = await resolveSelectionReferencesBlockAsync(
+      "From Result A4.1-(p581), which gives a block decomposition",
+      {
+        windowPages: [
+          page(276, "Proof without any printed header on this text layer.\nFrom Result A4.1-(p581), which gives a block decomposition of S"),
+        ],
+        pageNum: 276,
+        pageCount: 673,
+        outline: [],
+      },
+      fetch
+    );
+
+    // Round 1 probes the identity guess (581); its header (563) contradicts,
+    // yielding the +18 repair target 599, which verifies by its own header.
+    expect(fetch.mock.calls.map(([pn]) => pn)).toEqual([581, 599]);
+    expect(block).toContain('target_page="599"');
+    expect(block).toContain("skew-symmetric matrix S may be written");
+    expect(block).not.toContain("Tensor notation");
+  });
+
+  it("fails closed instead of injecting a contradicted identity page", async () => {
+    const fetch = vi.fn().mockImplementation(async (pn: number) => {
+      if (pn === 581) {
+        return "563 A1 Tensor notation\nEinstein summation and index apparatus.";
+      }
+      return undefined;
+    });
+
+    const block = await resolveSelectionReferencesBlockAsync(
+      "see p581 for the decomposition",
+      {
+        windowPages: [page(276, "Prose without printed headers.")],
+        pageNum: 276,
+        pageCount: 673,
+        outline: [],
+      },
+      fetch
+    );
+
+    expect(block).not.toContain('target_page="581"');
+    expect(block).not.toContain("Tensor notation");
+  });
+
+  it("resolves a bare theorem anchor through the aliased appendix outline range", async () => {
+    const fetch = vi.fn().mockImplementation(async (pn: number) => {
+      if (pn === 619) {
+        return "585 A4.1 Skew-symmetric matrices\nResult A4.1. A general skew-symmetric matrix may be written as S = kUZU^T.";
+      }
+      return undefined;
+    });
+
+    const block = await resolveSelectionReferencesBlockAsync(
+      "Result A4.1",
+      {
+        windowPages: [page(527, "As shown, Result A4.1 gives the decomposition.")],
+        pageNum: 527,
+        pageCount: 660,
+        outline: [
+          { title: "4 Estimation", pageNum: 130, level: 0 },
+          { title: "Appendix 4 Matrix Properties and Decompositions", pageNum: 617, level: 0 },
+          { title: "Appendix 5 Least-squares Minimization", pageNum: 630, level: 0 },
+        ],
+      },
+      fetch
+    );
+
+    const fetchedPages = fetch.mock.calls.map(([pn]) => pn);
+    expect(fetchedPages).toContain(619);
+    expect(fetchedPages).not.toContain(623);
+    expect(block).toContain('target_page="619"');
+    expect(block).toContain("skew-symmetric matrix may be written");
+  });
+
+  it("does not spawn repair fetches from a consumed-but-confirmed identity page", async () => {
+    // Hint transfer marks a page ref "unresolved" when a nearby theorem ref
+    // consumes its target (dedup) — that is NOT a contradiction. A page whose
+    // own header confirms the locator (380) must not turn incidental digits
+    // ("See note 12") into repair fetches (380 + (380-12) = 748).
+    const fetch = vi.fn().mockImplementation(async (pn: number) => {
+      if (pn === 380) {
+        return "380 The chapter continues with unrelated prose\nSee note 12";
+      }
+      return `page ${pn} content`;
+    });
+
+    const block = await resolveSelectionReferencesBlockAsync(
+      "see Corollary 9.1 (p380)",
+      {
+        windowPages: [page(50, "reading page without printed headers")],
+        pageNum: 50,
+        pageCount: 800,
+        outline: [],
+      },
+      fetch
+    );
+
+    expect(fetch.mock.calls.map(([pn]) => pn)).toEqual([380]);
+    expect(block).toContain('target_page="380"');
+  });
+
   it("returns empty array when selectedText has no references", async () => {
     const fetch = vi.fn();
     const result = await resolveSelectionReferencesAsync("plain text", { windowPages: [] }, fetch);

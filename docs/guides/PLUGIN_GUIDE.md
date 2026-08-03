@@ -182,14 +182,29 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
   page's heading can be resolved without letting the full document overpower the
   selection.
 - **Reference following**: If the selected text is itself a pointer such as
-  "see Section A4.2 (p580)", "Figure 19.1", or "(19.11)", the plugin first tries
-  to resolve the referenced target from the PDF outline/window text/search hits
-  and sends that target as `<resolved_cross_references>` before the generic page
-  background. When the pointer includes an explicit page locator such as
-  `Section 11.1.2, p281`, or a bare numbered object such as `(3.5)`, the open
-  Incurator PDF viewer first uses the PDF ToC to fetch the smallest matching
-  section range through PDF.js, then falls back to a capped chapter range only
-  when the ToC has no exact section.
+  "see Section A4.2 (p580)", "Figure 19.1", "Result A4.1", or "(19.11)", the
+  plugin first tries to resolve the referenced target from the PDF
+  outline/window text/search hits and sends that target as
+  `<resolved_cross_references>` before the generic page background. When the
+  pointer includes an explicit page locator such as `Section 11.1.2, p281`, or
+  a bare numbered object such as `(3.5)`, the open Incurator PDF viewer first
+  uses the PDF ToC to fetch the smallest matching section range through
+  PDF.js, then falls back to a capped chapter range only when the ToC has no
+  exact section. Theorem-style pointers accept appendix-lettered numbering
+  (`Result A4.1`, `Corollary B2.3`), and `Appendix 4` ToC titles answer to
+  `A4`-style numbers so appendix anchors resolve too.
+- **Printed vs physical page numbers (v0.40.3)**: book PDFs usually have front
+  matter, so printed page 581 is *not* PDF page 581. A `p581`-style locator is
+  mapped through, in order: the PDF's own page labels; a front-matter offset
+  inferred from the printed header/footer numbers of pages the reader has
+  already seen (accepted only when at least two pages agree by clear
+  majority); a scan of known pages whose printed header matches; and finally
+  the literal page number — which is kept only until the fetched page's own
+  header disproves it. A page whose header names a different printed number is
+  never injected as the resolved target: Ask AI prefers saying the target
+  could not be located over confidently quoting the wrong page. When the
+  literal guess is disproven, its header still reveals the document's true
+  offset, and one bounded repair fetch retrieves the correct physical page.
 - **In-document positions, not folders**: Positional phrases like "문서 위쪽",
   "앞부분", "top of the document", or "end of the page" are treated as positions
   **within the current document's content/outline**, never as the file system.
@@ -543,7 +558,11 @@ document identity. Merely visible, pinned-background, or prompt-included PDF
 tabs cannot claim a reference from a Markdown-focused question. The matching
 page is sent as `<resolved_cross_references>` before the normal PDF window.
 External Zotero/iCloud PDFs stay outside the provider's native filesystem roots;
-the provider receives the resolved text, not direct file access.
+the provider receives the resolved text, not direct file access. Sidechat uses
+the same cross-reference resolver as the Ask AI popover, so the v0.40.3
+printed-vs-physical page mapping (label map → inferred front-matter offset →
+printed-header scan → verified literal guess, always failing closed on a
+contradicted page) applies to Sidechat pointer resolution identically.
 
 Sidechat and quick-query popovers share the same backend PDF page cache when a
 content hash or registered source identity is available:

@@ -2,6 +2,24 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.40.3] - 2026-08-03
+### Fixed
+- **Correct Target Pages For PDF Cross-References**
+  Ask AI / Sidechat pointer resolution no longer injects the wrong physical
+  page for printed-page locators in books with front matter (e.g. selecting
+  `From Result A4.1-(p581)` used to inject Appendix A1 tensor-notation text
+  from physical page 581 instead of Result A4.1 on printed page 581). Printed
+  pages now map through PDF page labels, a consensus front-matter offset
+  inferred from printed header/footer numbers, and a printed-header scan; the
+  literal identity guess survives only until the fetched page's own header
+  disproves it, in which case resolution fails closed and a single bounded
+  repair fetch retrieves the correct page. Theorem-family references accept
+  appendix-lettered numbers (`Result A4.1`, `Corollary B2.3`), their
+  definition lines join the caption index, and `Appendix 4`-style ToC titles
+  answer to `A4`-style anchors for outline-range expansion.
+
+---
+
 ## [0.40.2] - 2026-08-01
 ### Fixed
 - **Explicit Retrieval Degradation**

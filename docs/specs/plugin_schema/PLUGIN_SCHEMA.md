@@ -1257,6 +1257,32 @@ Rules:
   permissions. Pointer resolution failures must not silently turn the current
   page into the answer target; the prompt must tell the provider when the
   referenced target could not be located.
+- Theorem-family pointers (`Theorem`, `Lemma`, `Corollary`, `Proposition`,
+  `Definition`, `Result`, `Claim`, `Conjecture`) accept letter-prefixed
+  appendix numbering (e.g. `Result A4.1`), and their line-anchored definition
+  sites (a line beginning `Result A4.1. …`) participate in the caption/
+  definition index exactly like figure and equation captions. Outline titles
+  of the form `Appendix 4 …` additionally answer to the aliased number `A4`
+  so appendix-numbered anchors can locate their owning outline range; the
+  alias is additive and never shadows the plain chapter entry in document
+  order.
+- Explicit printed-page locators (`p581`, `p. 581`, `page 581`) resolve to a
+  physical PDF page through an ordered evidence chain: (1) PDF `pageLabels`
+  when present; (2) a front-matter offset inferred from printed header/footer
+  numbers visible in already-known page texts — the modal `physical − printed`
+  delta is accepted only with at least two supporting pages and a strict
+  majority of candidate-bearing pages, ties failing closed; (3) a direct scan
+  of known page texts for a page whose extracted printed header equals the
+  requested number; (4) an identity guess (physical = printed) that is kept
+  only while unverified — the moment the identity page's own extracted header
+  names a different printed number, the locator flips to unresolved instead.
+  A contradicted identity page must never be serialized into
+  `<resolved_cross_references>` (fail closed: no context is always preferred
+  to wrong-page context). During async resolution the plugin may run a small
+  bounded number of fetch rounds (≤3): a contradicted identity page yields a
+  header-derived repair candidate (`printed + observed delta`) that the next
+  round fetches and accepts only through the printed-header scan, and headers
+  on fetched pages feed back into offset inference so resolution converges.
 - Attached PDF/image snips must be sent to vision-capable models as image parts.
   For non-vision models, the prompt must explicitly state that image details are
   unavailable instead of silently dropping the crop. A primary-focus reference
