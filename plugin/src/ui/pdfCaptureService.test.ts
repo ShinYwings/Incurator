@@ -60,6 +60,34 @@ describe("PdfCaptureService", () => {
     expect(out?.text).toContain("alpha beta");
   });
 
+  it("propagates outlineResolved so an unparsed outline is not read as 'no ToC'", () => {
+    // An empty outline is ambiguous: the viewer resets it to [] on load and
+    // fills it from an async parse. v0.41.0 local tools must be able to tell
+    // "genuinely no ToC" from "not parsed yet", so the flag has to survive
+    // capture rather than being inferred from the array's length.
+    const service = new PdfCaptureService();
+    const base = {
+      captureMode: "text" as const,
+      pagesEl: fakePagesEl({ querySelector: () => null }),
+      currentPage: 1,
+      totalPages: 3,
+      pageTextCache: new Map([
+        [1, { pageNum: 1, text: "body", textQuality: goodQuality }],
+      ]),
+      documentId: "doc-1",
+      documentName: "Paper",
+      getSelectionText: () => null,
+      searchIndex: { search: () => [] },
+    };
+
+    const unparsed = service.capture({ ...base, outline: [], outlineResolved: false });
+    expect(unparsed?.outline).toEqual([]);
+    expect(unparsed?.outlineResolved).toBe(false);
+
+    const resolvedEmpty = service.capture({ ...base, outline: [], outlineResolved: true });
+    expect(resolvedEmpty?.outlineResolved).toBe(true);
+  });
+
   it("returns null when the target page element is not available", () => {
     const service = new PdfCaptureService();
     const out = service.capture({

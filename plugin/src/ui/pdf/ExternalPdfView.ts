@@ -139,6 +139,9 @@ export class ExternalPdfView extends ItemView {
   private zoteroPathCache = new ZoteroPathCache({ fileExists: (p) => existsSync(p) });
   private pageTextCache = new Map<number, PdfWindowPage>();
   private currentOutlineItems: ContextPdfOutlineItem[] = [];
+  /** False until `getOutline()` has answered for the current document, so an
+   *  empty `currentOutlineItems` can be told apart from an unparsed one. */
+  private outlineResolved = false;
   private pageLabels: string[] | null = null;
   private indexBuildToken = 0;
 
@@ -520,6 +523,7 @@ export class ExternalPdfView extends ItemView {
       pageLabels: this.pageLabels ?? undefined,
       pageTextCache: this.pageTextCache,
       outline: this.currentOutlineItems,
+      outlineResolved: this.outlineResolved,
       documentId: this.docId,
       documentName: this.getDisplayText(),
       filePath: resolveCachedExternalPdfPath(this.docId, this.docState?.path),
@@ -808,6 +812,7 @@ export class ExternalPdfView extends ItemView {
     this.pageBaseDims = [];
     this.pageTextCache.clear();
     this.currentOutlineItems = [];
+    this.outlineResolved = false;
     this.documentIndex.removeDocument(this.docId);
     this.renderedZoom = this.zoom;
 
@@ -1441,16 +1446,24 @@ export class ExternalPdfView extends ItemView {
   // ── TOC ───────────────────────────────────────────────────────
 
   private async renderToc(pdf: PdfDocument): Promise<void> {
-    if (!this.tocPanelEl) return;
-    this.tocPanelEl.empty();
+    // Outline resolution runs regardless of the panel: `currentOutlineItems`
+    // also feeds LLM context, and consumers must be able to tell "this document
+    // genuinely has no ToC" from "the ToC has not been parsed yet". Both states
+    // are an empty array, so `outlineResolved` is the discriminator.
     const outline = await pdf.getOutline();
     if (!outline || outline.length === 0) {
       this.currentOutlineItems = [];
+      this.outlineResolved = true;
+      if (!this.tocPanelEl) return;
+      this.tocPanelEl.empty();
       this.tocPanelEl.createDiv({ cls: "ai-agent-pdf-toc-empty", text: "No table of contents" });
       return;
     }
     const tree = await this.buildTocTree(pdf, outline);
     this.currentOutlineItems = flattenTocTree(tree);
+    this.outlineResolved = true;
+    if (!this.tocPanelEl) return;
+    this.tocPanelEl.empty();
     for (const node of tree) {
       this.renderTocNode(this.tocPanelEl, node, 0);
     }

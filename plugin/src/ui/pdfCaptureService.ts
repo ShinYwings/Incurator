@@ -29,6 +29,8 @@ export interface PdfCaptureServiceInput {
   pageLabels?: string[];
   pageTextCache: ReadonlyMap<number, PdfWindowPage>;
   outline: PdfOutlineItem[];
+  /** Whether the outline has actually been resolved for this document. */
+  outlineResolved?: boolean;
   documentId: string;
   documentName: string;
   filePath?: string;
@@ -101,6 +103,7 @@ export class PdfCaptureService {
       imageBase64,
       windowPages,
       outline: input.outline,
+      outlineResolved: input.outlineResolved,
       textQuality,
       ragHits,
       isScannedLike: textQuality.isScannedLike,

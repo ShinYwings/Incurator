@@ -1813,16 +1813,17 @@ export default class ObsidianAIAgent extends Plugin {
         const pdf = this.activeContext.pdfPage;
         const documentId = this.getActivePdfDocumentId();
         const hasActivePdf = Boolean(pdf) && Boolean(documentId);
-        // Outline absence is only *proven* once a document is loaded and its
-        // outline array exists but is empty. An undefined outline may simply be
-        // unparsed, so it counts as present and withholds anchor search.
+        // An empty outline array is ambiguous — the viewer resets it to [] on
+        // load and fills it from an async parse — so absence is only *proven*
+        // once `outlineResolved` says the lookup finished. Anything else counts
+        // as unknown and withholds anchor search.
         const outlineState: OutlineState = !hasActivePdf
           ? "unknown"
-          : pdf?.outline === undefined
+          : !pdf?.outlineResolved
             ? "unknown"
-            : pdf.outline.length === 0
-              ? "absent"
-              : "present";
+            : pdf.outline && pdf.outline.length > 0
+              ? "present"
+              : "absent";
         return {
           hasActivePdf,
           pageCount: pdf?.pageCount,

@@ -397,6 +397,13 @@ export interface PdfPageContext {
   selectedImageBase64?: string;
   windowPages?: PdfWindowPage[];
   outline?: PdfOutlineItem[];
+  /**
+   * Whether `outline` reflects a completed outline lookup. An empty `outline`
+   * is ambiguous on its own — the document may genuinely have no ToC, or the
+   * async parse may not have finished — so consumers that must fail closed
+   * (v0.41.0 local PDF tools) use this discriminator.
+   */
+  outlineResolved?: boolean;
   textQuality?: PdfTextQuality;
   ragHits?: PdfRagHit[];
   isScannedLike?: boolean;
