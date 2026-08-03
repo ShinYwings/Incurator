@@ -405,6 +405,33 @@ describe("resolveSelectionReferencesAsync", () => {
     expect(block).toContain("skew-symmetric matrix may be written");
   });
 
+  it("does not spawn repair fetches from a consumed-but-confirmed identity page", async () => {
+    // Hint transfer marks a page ref "unresolved" when a nearby theorem ref
+    // consumes its target (dedup) — that is NOT a contradiction. A page whose
+    // own header confirms the locator (380) must not turn incidental digits
+    // ("See note 12") into repair fetches (380 + (380-12) = 748).
+    const fetch = vi.fn().mockImplementation(async (pn: number) => {
+      if (pn === 380) {
+        return "380 The chapter continues with unrelated prose\nSee note 12";
+      }
+      return `page ${pn} content`;
+    });
+
+    const block = await resolveSelectionReferencesBlockAsync(
+      "see Corollary 9.1 (p380)",
+      {
+        windowPages: [page(50, "reading page without printed headers")],
+        pageNum: 50,
+        pageCount: 800,
+        outline: [],
+      },
+      fetch
+    );
+
+    expect(fetch.mock.calls.map(([pn]) => pn)).toEqual([380]);
+    expect(block).toContain('target_page="380"');
+  });
+
   it("returns empty array when selectedText has no references", async () => {
     const fetch = vi.fn();
     const result = await resolveSelectionReferencesAsync("plain text", { windowPages: [] }, fetch);

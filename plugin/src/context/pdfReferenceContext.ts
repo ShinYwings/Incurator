@@ -240,7 +240,8 @@ export function resolveSelectionReferencesBlock(
  * it fetches that page via {@link fetchPageText}, upserts it into the index,
  * and re-resolves so the LLM gets the actual equation/section content.
  *
- * Two-pass approach keeps all resolvers synchronous; only the outer wrapper is async.
+ * Bounded multi-pass approach (direct-fetch rounds are capped) that keeps all
+ * resolvers synchronous; only the outer wrapper is async.
  */
 export async function resolveSelectionReferencesAsync(
   selectedText: string,
@@ -336,7 +337,13 @@ export async function resolveSelectionReferencesAsync(
         const printed = r.query.printedPage;
         const identityText = pageTextMap.get(printed);
         if (!identityText) continue;
-        for (const header of printedHeaderCandidates(identityText)) {
+        const headers = printedHeaderCandidates(identityText);
+        // Repair only a *contradicted* identity guess. Hint transfer also
+        // marks consumed-but-valid page refs "unresolved"; a page whose own
+        // header confirms the locator must not spawn repairs from incidental
+        // digits on that page.
+        if (headers.length === 0 || headers.includes(printed)) continue;
+        for (const header of headers) {
           const repair = printed + (printed - header);
           if (repair !== printed && withinDocument(repair) && !pageTextMap.has(repair)) {
             wanted.add(repair);
