@@ -22,10 +22,11 @@ None (System IDLE).
 
 - Shipped v0.41.0.
 - System is idle awaiting new task/report triage.
-- Next agreed step (user-approved sequence): a deep system-defect audit —
-  documented-scenario conformance plus the regression audit's P9 release-chain
-  dry pass, run as one sweep — whose findings feed `USER_REPORT.md` and then
-  ROADMAP items 1-2. No plan authored yet.
+- Agreed next step is a deep system-defect audit (documented-scenario
+  conformance plus the regression audit's P9 release-chain dry pass, run as one
+  sweep) feeding `USER_REPORT.md` and then ROADMAP items 1-2 — but the user has
+  explicitly put it ON HOLD. Do NOT start it without a new instruction. No plan
+  authored yet.
 
 ## Critical Context / Blockers
 
