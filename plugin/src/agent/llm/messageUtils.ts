@@ -6,14 +6,74 @@ import type {
   StreamChunk,
 } from "../../types";
 
+/**
+ * MCP tool injection. Exhaustive over {@link ToolPolicy} so a future policy
+ * value is a compile error rather than a silent grant. "local-only" (the
+ * popover since v0.41.0) refuses MCP exactly like "none" — its zero-MCP
+ * guarantee is unchanged; see PLUGIN_SCHEMA §13.5/§13.7.
+ */
 export function shouldInjectMcpTools(
   toolPolicy: ToolPolicy,
   hasMcpManager: boolean,
   useCli: boolean
 ): boolean {
-  if (toolPolicy === "none") return false;
-  if (useCli) return false;
-  return hasMcpManager;
+  switch (toolPolicy) {
+    case "none":
+    case "local-only":
+      return false;
+    case "auto":
+      if (useCli) return false;
+      return hasMcpManager;
+    default: {
+      const exhaustive: never = toolPolicy;
+      return exhaustive;
+    }
+  }
+}
+
+/**
+ * Whether a surface is EPHEMERAL for CLI-sandbox purposes: read-only, no
+ * filesystem roots, no native CLI tools. Both tool-free (`"none"`) and
+ * local-tools-only (`"local-only"`) surfaces qualify — the local PDF reader is
+ * plugin-executed and grants the CLI agent nothing, so it must not relax the
+ * v0.23.0 sandbox. Exhaustive so a new policy value cannot silently fail open.
+ */
+export function isEphemeralToolPolicy(toolPolicy: ToolPolicy): boolean {
+  switch (toolPolicy) {
+    case "none":
+    case "local-only":
+      return true;
+    case "auto":
+      return false;
+    default: {
+      const exhaustive: never = toolPolicy;
+      return exhaustive;
+    }
+  }
+}
+
+/**
+ * Local (plugin-executed) tool injection — currently the read-only PDF page
+ * reader. CLI providers are excluded by a locked decision so the v0.23.0
+ * sandbox contract stays untouched.
+ */
+export function shouldInjectLocalTools(
+  toolPolicy: ToolPolicy,
+  hasLocalRunner: boolean,
+  useCli: boolean
+): boolean {
+  switch (toolPolicy) {
+    case "none":
+      return false;
+    case "auto":
+    case "local-only":
+      if (useCli) return false;
+      return hasLocalRunner;
+    default: {
+      const exhaustive: never = toolPolicy;
+      return exhaustive;
+    }
+  }
 }
 
 function messageHasContent(content: string | LLMContentPart[]): boolean {

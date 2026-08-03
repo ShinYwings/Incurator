@@ -17,6 +17,16 @@ import { buildSandboxPlan } from "../sandboxWrapper";
 import { promisify, TextDecoder } from "util";
 import { expandPath } from "../../utils/deviceRegistry";
 import type { MCPManager } from "../mcpClient";
+import {
+  buildLocalPdfTools,
+  formatAnchorHits,
+  isLocalPdfToolName,
+  parseLocalPdfToolCall,
+  LOCAL_PDF_FETCH_BUDGET,
+  LOCAL_PDF_SEARCH_TOP_K,
+  type LocalPdfToolContext,
+  type LocalPdfToolRunner,
+} from "./localPdfTools";
 import { buildGuiCliSearchPaths, type CLICredential, type CLIAuthResolver } from "../../auth/cliAuth";
 import type {
   LLMProvider,
@@ -36,7 +46,9 @@ import {
   isQuotaErrorMessage,
   mapOpenAIFinishReason,
   normalizeOpenAIContent,
+  isEphemeralToolPolicy,
   sanitizeOpenAIMessages,
+  shouldInjectLocalTools,
   shouldInjectMcpTools,
 } from "./messageUtils";
 
@@ -595,6 +607,8 @@ export class LLMClient {
   private persistSettings?: () => Promise<void>;
   private mcpManager?: MCPManager;
   private beforeProviderLaunch?: () => void | Promise<void>;
+  /** Plugin-executed read-only PDF reader (v0.41.0). Never an MCP tool. */
+  private localPdfToolRunner?: LocalPdfToolRunner;
 
   constructor(
     settings: PluginSettings,
@@ -612,6 +626,70 @@ export class LLMClient {
     this.beforeProviderLaunch = beforeProviderLaunch;
     // Best-effort startup sweep of crash-leftover chat image temp dirs (v0.28.0).
     this.sweepStaleChatImages();
+  }
+
+  /** Install the read-only PDF page reader (v0.41.0). See PLUGIN_SCHEMA §13.7. */
+  setLocalPdfToolRunner(runner: LocalPdfToolRunner | undefined): void {
+    this.localPdfToolRunner = runner;
+  }
+
+  /**
+   * Execute one local PDF tool call. Every failure mode — unavailable runner,
+   * bad arguments, out-of-range page, exhausted budget, or a document swapped
+   * mid-request — becomes a typed tool message the model can answer around.
+   * A changed document identity must NEVER be resolved against the new
+   * document, so it fails rather than silently reading a different PDF.
+   */
+  private async runLocalPdfTool(
+    name: string,
+    rawArgs: string,
+    runner: LocalPdfToolRunner | undefined,
+    captured: LocalPdfToolContext | undefined,
+    budget: number,
+  ): Promise<{ content: string; pagesFetched: number }> {
+    if (!runner || !captured) {
+      return { content: "Error: the PDF page reader is not available.", pagesFetched: 0 };
+    }
+    if (runner.describeContext().documentId !== captured.documentId) {
+      return {
+        content:
+          "Error: the open document changed during this request; the page " +
+          "reader is no longer valid. Answer from the context you already have.",
+        pagesFetched: 0,
+      };
+    }
+
+    const parsed = parseLocalPdfToolCall(name, rawArgs, captured);
+    if (parsed.kind === "error") {
+      return { content: `Error (${parsed.code}): ${parsed.message}`, pagesFetched: 0 };
+    }
+
+    try {
+      if (parsed.kind === "fetch_page") {
+        if (budget <= 0) {
+          return {
+            content:
+              "Error (budget_exhausted): no further page reads are available " +
+              "for this question. Answer from the pages you already have.",
+            pagesFetched: 0,
+          };
+        }
+        const text = await runner.fetchPage(parsed.pageNum);
+        if (!text?.trim()) {
+          return {
+            content: `Error (not_found): page ${parsed.pageNum} has no extractable text.`,
+            pagesFetched: 1,
+          };
+        }
+        return { content: `Page ${parsed.pageNum}:\n${text.trim()}`, pagesFetched: 1 };
+      }
+
+      const hits = await runner.searchAnchor(parsed.query, LOCAL_PDF_SEARCH_TOP_K);
+      return { content: formatAnchorHits(hits), pagesFetched: 0 };
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      return { content: `Error: PDF reader failed: ${detail}`, pagesFetched: 0 };
+    }
   }
 
   updateSettings(settings: PluginSettings): void {
@@ -803,13 +881,23 @@ export class LLMClient {
     // loop below (no state drift if this.mcpManager is swapped mid-flight) and so
     // TypeScript narrows it to non-null after the early return — no `!` needed.
     const mcpManager = this.mcpManager;
-    // Single decision point for tool injection. `toolPolicy: "none"` (ephemeral
-    // surfaces such as the Quick Query popover) funnels into the SAME no-tools
-    // single-turn path as CLI providers and the no-mcpManager case, so the two
-    // tool-free paths can never diverge. The explicit `!mcpManager` lets
-    // TypeScript narrow it to non-null below without a `!` assertion.
-    const injectTools = shouldInjectMcpTools(toolPolicy, Boolean(mcpManager), this.shouldUseCli(messages));
-    if (!injectTools || !mcpManager) {
+    const useCli = this.shouldUseCli(messages);
+    // Single decision point PER TOOL FAMILY. `toolPolicy: "none"` funnels into
+    // the SAME no-tools single-turn path as CLI providers and the no-manager
+    // case, so the tool-free paths can never diverge. `"local-only"` (the Quick
+    // Query popover since v0.41.0) refuses MCP identically but may still carry
+    // the plugin-executed PDF reader — see PLUGIN_SCHEMA §13.7.
+    const injectTools = shouldInjectMcpTools(toolPolicy, Boolean(mcpManager), useCli);
+    // Capture the runner AND its resolved context once per request, mirroring
+    // the mcpManager capture above: every round must resolve against the same
+    // document identity even if the active PDF changes mid-flight.
+    const localRunner = this.localPdfToolRunner;
+    const injectLocal = shouldInjectLocalTools(toolPolicy, Boolean(localRunner), useCli);
+    const localContext: LocalPdfToolContext | undefined =
+      injectLocal && localRunner ? localRunner.describeContext() : undefined;
+    const localTools = localContext ? buildLocalPdfTools(localContext) : [];
+
+    if ((!injectTools || !mcpManager) && localTools.length === 0) {
       const { text } = await this._streamChatSingleTurn(
         messages,
         onChunk,
@@ -820,8 +908,9 @@ export class LLMClient {
       return text;
     }
 
-    const rawTools = mcpManager.getAllTools();
+    const rawTools = injectTools && mcpManager ? mcpManager.getAllTools() : [];
     const { tools, routes } = buildMcpToolExposure(rawTools);
+    let localFetchBudget = LOCAL_PDF_FETCH_BUDGET;
 
     let currentMessages = [...messages];
     let fullFinalText = "";
@@ -832,7 +921,8 @@ export class LLMClient {
       iteration++;
       const isLastTurn = iteration === MAX_RECURSION;
       // Don't pass tools if it's the last turn to force a final answer
-      const activeTools = isLastTurn ? undefined : (tools.length > 0 ? tools : undefined);
+      const exposed = [...tools, ...localTools];
+      const activeTools = isLastTurn ? undefined : (exposed.length > 0 ? exposed : undefined);
 
       const { text, tool_calls } = await this._streamChatSingleTurn(
         currentMessages,
@@ -858,9 +948,32 @@ export class LLMClient {
       for (const tc of tool_calls) {
         onChunk({ text: `\n> Running tool: ${tc.function.name}...\n`, done: false, eventType: "status" });
         try {
+          // Local (plugin-executed) tools are routed before MCP so a local name
+          // can never reach mcpManager, and so their failures stay typed
+          // messages the model can answer around instead of thrown turns.
+          if (isLocalPdfToolName(tc.function.name)) {
+            const budget = localFetchBudget;
+            const outcome = await this.runLocalPdfTool(
+              tc.function.name,
+              tc.function.arguments || "{}",
+              localRunner,
+              localContext,
+              budget,
+            );
+            localFetchBudget -= outcome.pagesFetched;
+            currentMessages.push({
+              role: "tool",
+              tool_call_id: tc.id,
+              name: tc.function.name,
+              content: outcome.content,
+            });
+            continue;
+          }
+
           const route = routes.get(tc.function.name);
           if (!route) throw new Error(`Unknown MCP tool: ${tc.function.name}`);
-          
+          if (!mcpManager) throw new Error(`No MCP manager for tool: ${tc.function.name}`);
+
           let args = {};
           try {
             args = JSON.parse(tc.function.arguments || "{}");
@@ -2050,9 +2163,12 @@ export class LLMClient {
     const model = modelOverride?.trim() || this.settings.model;
     const p = provider ?? this.settings.provider;
     // FAIL-OPEN GUARD: toolPolicy defaults to "auto" (full tools). Any EPHEMERAL surface
-    // (popover, inline preview, …) MUST pass toolPolicy:"none" — a call site that omits
-    // it silently gets the full tool surface. New read-only surfaces: pass "none".
-    const ephemeral = toolPolicy === "none"; // popover / read-only surface
+    // (popover, inline preview, …) MUST pass a non-"auto" toolPolicy — a call site that
+    // omits it silently gets the full tool surface. The predicate is exhaustive over
+    // ToolPolicy (v0.41.0) so a newly added value is a compile error here rather than a
+    // silent grant: "local-only" is ephemeral too, because the local PDF reader is
+    // plugin-executed and hands the CLI agent no native tools or filesystem roots.
+    const ephemeral = isEphemeralToolPolicy(toolPolicy); // popover / read-only surface
     // Only resolve allowed roots when they'll actually be used (non-ephemeral); the
     // tool-free popover path discards --add-dir, so skip the realpath I/O there.
     // v0.28.0: an image-bearing turn (image parts written by contentToCliText this

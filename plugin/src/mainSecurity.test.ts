@@ -137,10 +137,11 @@ describe("G17-8: device registry writes use one async helper", () => {
 describe("Quick Query PDF reference fetch", () => {
   it("uses backend PDF context before falling back to PDF.js viewer fetch", () => {
     const src = mainSource();
-    const methodStart = src.indexOf("async fetchActivePdfPage(pageNum: number)");
+    const methodStart = src.indexOf("async fetchActivePdfPage(");
     const methodEnd = src.indexOf("  /** Return the full document BM25 index", methodStart);
     const body = src.slice(methodStart, methodEnd);
 
+    expect(methodStart).toBeGreaterThanOrEqual(0);
     expect(body).toContain("this.incuratorClient.getPdfContext({");
     expect(body).toContain("filePath: pdf.filePath");
     expect(body).toContain("fileHash: pdf.fileHash");
@@ -151,11 +152,31 @@ describe("Quick Query PDF reference fetch", () => {
     expect(body).toContain("} catch (err) {");
     expect(body).toContain("falling back to PDF.js viewer");
     expect(body.indexOf("this.incuratorClient.getPdfContext({")).toBeLessThan(
-      body.indexOf("pdfView.fetchPage(pageNum)")
+      body.indexOf("pinnedView.fetchPage(pageNum)")
     );
     expect(body.indexOf("} catch (err) {")).toBeLessThan(
-      body.indexOf("pdfView.fetchPage(pageNum)")
+      body.indexOf("pinnedView.fetchPage(pageNum)")
     );
+  });
+
+  it("pins the viewer and document identity before any await (v0.41.0)", () => {
+    // The viewer fallback must not re-resolve the active view after the backend
+    // round-trip: a tab switch during that await would read a page out of the
+    // swapped document using bounds validated against the original one.
+    const src = mainSource();
+    const methodStart = src.indexOf("async fetchActivePdfPage(");
+    const methodEnd = src.indexOf("  /** Return the full document BM25 index", methodStart);
+    const body = src.slice(methodStart, methodEnd);
+
+    // The single active-view lookup happens before the backend call.
+    expect(body.indexOf("getActiveViewOfType(ExternalPdfView)")).toBeLessThan(
+      body.indexOf("this.incuratorClient.getPdfContext({")
+    );
+    // Exactly one lookup — no post-await re-resolution.
+    expect(body.split("getActiveViewOfType(ExternalPdfView)").length - 1).toBe(1);
+    // Caller-supplied identity and post-await identity are both enforced.
+    expect(body).toContain("expectedDocumentId !== undefined && pinnedDocumentId !== expectedDocumentId");
+    expect(body).toContain("pinnedView.getDocumentId() !== pinnedDocumentId");
   });
 });
 

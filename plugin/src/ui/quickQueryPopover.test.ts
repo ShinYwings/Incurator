@@ -7,6 +7,11 @@ import {
   computeFloatingPosition,
   stripThinkingForDisplay,
 } from "./quickQueryPopover";
+import { POPOVER_PROFILE } from "../context/promptRegistry";
+import {
+  isEphemeralToolPolicy,
+  shouldInjectMcpTools,
+} from "../agent/llm/messageUtils";
 
 const dir = fileURLToPath(new URL(".", import.meta.url));
 const source = readFileSync(join(dir, "quickQueryPopover.ts"), "utf8");
@@ -32,14 +37,36 @@ describe("quick query: message building", () => {
     expect(String(messages[1].content)).not.toContain("<quick_query_followups>");
   });
 
-  it("isolates the popover from MCP tools by passing toolPolicy 'none' to streamChat (v0.19.0)", () => {
-    // Source-level guard: the popover's streaming call MUST opt out of tool
-    // injection so it can never run scripts or traverse the filesystem.
+  it("sources its tool policy from POPOVER_PROFILE rather than a literal (v0.19.0, v0.41.0)", () => {
+    // Source-level guard: the popover's calls MUST opt out of MCP tool
+    // injection so it can never run scripts or traverse the filesystem. Since
+    // v0.41.0 the policy comes from POPOVER_PROFILE so the profile and the wire
+    // call can never disagree — a hardcoded literal here silently shipped an
+    // inert local PDF reader while the system prompt advertised it.
     const callStart = source.indexOf("this.plugin.llmClient.streamChat(");
     expect(callStart).toBeGreaterThanOrEqual(0);
     const callBody = source.slice(callStart, source.indexOf("} else {", callStart));
-    expect(callBody).toContain('toolPolicy: "none"');
+    expect(callBody).toContain("toolPolicy: POPOVER_PROFILE.toolPolicy");
     expect(callBody).toContain("signal: requestController.signal");
+    // The non-streaming path must agree with the streaming one.
+    const completeStart = source.indexOf("this.plugin.llmClient.complete(");
+    expect(completeStart).toBeGreaterThanOrEqual(0);
+    const completeBody = source.slice(completeStart, completeStart + 400);
+    expect(completeBody).toContain("toolPolicy: POPOVER_PROFILE.toolPolicy");
+    // No literal tool policy may remain on either path.
+    expect(source).not.toContain('toolPolicy: "none"');
+  });
+
+  it("keeps the popover profile on a policy that refuses MCP tools", () => {
+    // Behavioral counterpart to the source guard above: whatever the profile
+    // says, MCP injection must be refused for the popover under every input.
+    for (const hasManager of [true, false]) {
+      for (const useCli of [true, false]) {
+        expect(shouldInjectMcpTools(POPOVER_PROFILE.toolPolicy, hasManager, useCli)).toBe(false);
+      }
+    }
+    // ...and the CLI sandbox must still treat that policy as ephemeral.
+    expect(isEphemeralToolPolicy(POPOVER_PROFILE.toolPolicy)).toBe(true);
   });
 });
 

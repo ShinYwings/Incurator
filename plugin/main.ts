@@ -30,6 +30,11 @@ import {
 import { AIAgentSettingTab } from "./src/settings";
 import { CLIAuthResolver } from "./src/auth/cliAuth";
 import { LLMClient } from "./src/agent/llmClient";
+import type {
+  LocalPdfToolContext,
+  LocalPdfToolRunner,
+  OutlineState,
+} from "./src/agent/llm/localPdfTools";
 import { MCPManager } from "./src/agent/mcpClient";
 import { IncuratorClient } from "./src/agent/incuratorClient";
 import { isIncomingPeerSnapshot, SyncScheduler } from "./src/agent/syncScheduler";
@@ -193,6 +198,7 @@ export default class ObsidianAIAgent extends Plugin {
       this.mcpManager,
       () => this.assertActivePluginBundle()
     );
+    this.llmClient.setLocalPdfToolRunner(this.buildLocalPdfToolRunner());
     this.incuratorClient = new IncuratorClient(
       this.settings,
       this.manifest.version,
@@ -1756,8 +1762,21 @@ export default class ObsidianAIAgent extends Plugin {
    *  Quick-query cross-reference resolution uses the backend first so Reference
    *  Mode identity, durable L1, and per-device PDF caches stay aligned with
    *  sidechat. The open PDF.js viewer remains the fallback. */
-  async fetchActivePdfPage(pageNum: number): Promise<string | undefined> {
+  async fetchActivePdfPage(
+    pageNum: number,
+    expectedDocumentId?: string
+  ): Promise<string | undefined> {
     const pdf = this.activeContext.pdfPage;
+    // Pin the viewer and its identity BEFORE any await. The viewer fallback
+    // below must never re-resolve to whatever document happens to be active
+    // after the backend round-trip: a tab switch during that await would
+    // otherwise read a page out of the wrong PDF, using bounds that were
+    // validated against the original one (PLUGIN_SCHEMA §13.7).
+    const pinnedView = this.app.workspace.getActiveViewOfType(ExternalPdfView);
+    const pinnedDocumentId = pinnedView?.getDocumentId();
+    if (expectedDocumentId !== undefined && pinnedDocumentId !== expectedDocumentId) {
+      return undefined;
+    }
     if (this.incuratorClient?.available && pdf) {
       try {
         const backendCtx = await this.incuratorClient.getPdfContext({
@@ -1776,9 +1795,11 @@ export default class ObsidianAIAgent extends Plugin {
       }
     }
 
-    const pdfView = this.app.workspace.getActiveViewOfType(ExternalPdfView);
-    if (!pdfView) return undefined;
-    const page = await pdfView.fetchPage(pageNum);
+    if (!pinnedView) return undefined;
+    // The same view instance is reused across documents (setState), so re-check
+    // identity rather than trusting the pinned reference alone.
+    if (pinnedView.getDocumentId() !== pinnedDocumentId) return undefined;
+    const page = await pinnedView.fetchPage(pageNum);
     return page?.text ?? undefined;
   }
 
@@ -1792,6 +1813,51 @@ export default class ObsidianAIAgent extends Plugin {
   getActivePdfDocumentId(): string | undefined {
     const pdfView = this.app.workspace.getActiveViewOfType(ExternalPdfView);
     return pdfView?.getDocumentId();
+  }
+
+  /**
+   * The read-only PDF page reader exposed to the model (v0.41.0, PLUGIN_SCHEMA
+   * §13.7). It wraps the existing page fetch and document index only — it can
+   * express nothing beyond "give me page N of the PDF already open" and "BM25
+   * over the pages of that PDF already read". No filesystem, vault, Zotero, or
+   * shell reach is possible through this interface.
+   */
+  private buildLocalPdfToolRunner(): LocalPdfToolRunner {
+    return {
+      describeContext: (): LocalPdfToolContext => {
+        const pdf = this.activeContext.pdfPage;
+        const documentId = this.getActivePdfDocumentId();
+        const hasActivePdf = Boolean(pdf) && Boolean(documentId);
+        // An empty outline array is ambiguous — the viewer resets it to [] on
+        // load and fills it from an async parse — so absence is only *proven*
+        // once `outlineResolved` says the lookup finished. Anything else counts
+        // as unknown and withholds anchor search.
+        const outlineState: OutlineState = !hasActivePdf
+          ? "unknown"
+          : !pdf?.outlineResolved
+            ? "unknown"
+            : pdf.outline && pdf.outline.length > 0
+              ? "present"
+              : "absent";
+        return {
+          hasActivePdf,
+          pageCount: pdf?.pageCount,
+          currentPage: pdf?.pageNum,
+          documentId,
+          outlineState,
+        };
+      },
+      // Identity is passed down so the fetch fails closed if the document
+      // changes mid-flight, rather than silently reading the swapped one.
+      fetchPage: (pageNum: number) =>
+        this.fetchActivePdfPage(pageNum, this.getActivePdfDocumentId()),
+      searchAnchor: async (query: string, topK: number) => {
+        const index = this.getActivePdfDocumentIndex();
+        const documentId = this.getActivePdfDocumentId();
+        if (!index || !documentId) return [];
+        return index.search(documentId, query, { topK });
+      },
+    };
   }
 
   private toAbsolutePath(vaultRelPath: string | undefined): string | undefined {

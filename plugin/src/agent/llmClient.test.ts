@@ -12,9 +12,12 @@ import {
   isQuotaErrorMessage,
   sanitizeOpenAIMessages,
   normalizeOpenAIContent,
+  isEphemeralToolPolicy,
   shouldInjectMcpTools,
+  shouldInjectLocalTools,
   mapOpenAIFinishReason,
 } from "./llm/messageUtils";
+import { POPOVER_PROFILE, type ToolPolicy } from "../context/promptRegistry";
 import {
   ADAPTERS,
   buildMcpToolExposure,
@@ -561,6 +564,84 @@ describe("shouldInjectMcpTools (popover tool isolation, v0.19.0)", () => {
     expect(shouldInjectMcpTools("auto", false, false)).toBe(false);
     // CLI providers route tools through the CLI, not the request body.
     expect(shouldInjectMcpTools("auto", true, true)).toBe(false);
+  });
+
+  it("never injects MCP tools for the popover's local-only policy (v0.41.0)", () => {
+    // Behavioral guarantee, not a prompt-string one: the popover keeps zero MCP
+    // tools under EVERY combination of manager presence and CLI routing.
+    for (const hasManager of [true, false]) {
+      for (const useCli of [true, false]) {
+        expect(shouldInjectMcpTools("local-only", hasManager, useCli)).toBe(false);
+      }
+    }
+  });
+
+  it("maps the popover profile policy to a refused MCP injection", () => {
+    for (const hasManager of [true, false]) {
+      for (const useCli of [true, false]) {
+        expect(shouldInjectMcpTools(POPOVER_PROFILE.toolPolicy, hasManager, useCli)).toBe(false);
+      }
+    }
+  });
+});
+
+describe("shouldInjectLocalTools (v0.41.0 local PDF reader)", () => {
+  it("injects local tools for the popover when a runner exists", () => {
+    expect(shouldInjectLocalTools("local-only", true, false)).toBe(true);
+  });
+
+  it("injects local tools for the sidechat auto path too", () => {
+    expect(shouldInjectLocalTools("auto", true, false)).toBe(true);
+  });
+
+  it("never injects local tools for a fully tool-free surface", () => {
+    expect(shouldInjectLocalTools("none", true, false)).toBe(false);
+  });
+
+  it("never injects local tools on CLI providers (locked decision)", () => {
+    expect(shouldInjectLocalTools("local-only", true, true)).toBe(false);
+    expect(shouldInjectLocalTools("auto", true, true)).toBe(false);
+  });
+
+  it("injects nothing without a runner", () => {
+    expect(shouldInjectLocalTools("local-only", false, false)).toBe(false);
+    expect(shouldInjectLocalTools("auto", false, false)).toBe(false);
+  });
+
+  it("resolves an explicit decision for every ToolPolicy value", () => {
+    const policies: ToolPolicy[] = ["auto", "none", "local-only"];
+    for (const policy of policies) {
+      expect(typeof shouldInjectMcpTools(policy, true, false)).toBe("boolean");
+      expect(typeof shouldInjectLocalTools(policy, true, false)).toBe("boolean");
+      expect(typeof isEphemeralToolPolicy(policy)).toBe("boolean");
+    }
+  });
+});
+
+describe("isEphemeralToolPolicy (CLI sandbox gate, v0.23.0 + v0.41.0)", () => {
+  it("treats local-only as ephemeral so the CLI sandbox is never relaxed", () => {
+    // The local PDF reader is plugin-executed and hands the CLI agent no native
+    // tools and no filesystem roots. Were "local-only" treated as non-ephemeral,
+    // buildCliCommand would attach --add-dir vault/Zotero roots, swap Claude's
+    // `--tools ""` for a disallowed-tools list, and give Codex workspace-write.
+    expect(isEphemeralToolPolicy("local-only")).toBe(true);
+    expect(isEphemeralToolPolicy("none")).toBe(true);
+    expect(isEphemeralToolPolicy("auto")).toBe(false);
+  });
+
+  it("keeps the popover profile ephemeral", () => {
+    expect(isEphemeralToolPolicy(POPOVER_PROFILE.toolPolicy)).toBe(true);
+  });
+
+  it("is the only thing buildCliCommand uses to decide ephemerality", () => {
+    // Regression guard for the fail-open this PR's review found: a raw
+    // `toolPolicy === "none"` comparison silently mishandles any third value.
+    const clientSource = readFileSync(
+      join(fileURLToPath(new URL(".", import.meta.url)), "llm/LLMClient.ts"),
+      "utf8"
+    );
+    expect(clientSource).toContain("const ephemeral = isEphemeralToolPolicy(toolPolicy)");
+    expect(clientSource).not.toContain('toolPolicy === "none"');
   });
 });
 

@@ -4,15 +4,24 @@ import {
   SIDECHAT_PROFILE,
   boundaryConstraints,
   buildRecencyAnchor,
+  type ToolPolicy,
 } from "./promptRegistry";
 
 describe("boundaryConstraints", () => {
-  it("forbids all tools and filesystem access for tool-isolated (popover) surfaces", () => {
+  it("forbids MCP tools and filesystem access for the popover surface", () => {
     const text = boundaryConstraints(POPOVER_PROFILE);
-    expect(text).toContain("NO tools and NO filesystem access");
+    expect(text).toContain("NO filesystem access and NO MCP tools");
     expect(text).toContain("Never list, browse, create, or execute files");
     expect(text).toContain("scripts, or shell commands");
     expect(text).toContain("never invent folder, file, or directory names");
+    // v0.41.0: the popover may fetch pages of the already-open PDF.
+    expect(text).toContain("PDF the user already has open");
+  });
+
+  it("still forbids every tool for a fully tool-free surface", () => {
+    const text = boundaryConstraints({ ...POPOVER_PROFILE, toolPolicy: "none" });
+    expect(text).toContain("NO tools and NO filesystem access");
+    expect(text).not.toContain("PDF the user already has open");
   });
 
   it("limits tool/file access to the allowed roots for the sidechat surface", () => {
@@ -24,6 +33,23 @@ describe("boundaryConstraints", () => {
     expect(text).toContain("never run ad-hoc");
     // The sidechat keeps its tools, so it must NOT claim zero tool access.
     expect(text).not.toContain("NO tools and NO filesystem access");
+  });
+
+  it("covers every ToolPolicy value with distinct boundary text", () => {
+    const policies: ToolPolicy[] = ["auto", "none", "local-only"];
+    const texts = policies.map((toolPolicy) =>
+      boundaryConstraints({ ...POPOVER_PROFILE, toolPolicy })
+    );
+    // No policy may fall through to another policy's wording.
+    expect(new Set(texts).size).toBe(policies.length);
+    for (const text of texts) expect(text.length).toBeGreaterThan(0);
+  });
+});
+
+describe("POPOVER_PROFILE tool policy", () => {
+  it("is local-only so the popover keeps zero MCP tools but gains the PDF reader", () => {
+    expect(POPOVER_PROFILE.toolPolicy).toBe("local-only");
+    expect(POPOVER_PROFILE.allowEdits).toBe(false);
   });
 });
 
