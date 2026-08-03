@@ -22,9 +22,15 @@ jobs:
           PY=$(grep '^version' backend/pyproject.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
           PKG=$(node -p "require('./plugin/package.json').version")
           MAN=$(node -p "require('./plugin/manifest.json').version")
-          echo "pyproject: $PY  package.json: $PKG  manifest.json: $MAN"
-          if [ "$PY" != "$PKG" ] || [ "$PKG" != "$MAN" ]; then
-            echo "❌ Version mismatch — bump all three files to the same version before merging."
+          # npm stores the version twice in a lockfile; `npm install` rewrites
+          # both from package.json, so a bump that skips the lockfile surfaces
+          # later as a surprise diff from any unrelated npm invocation.
+          LOCK=$(node -p "require('./plugin/package-lock.json').version")
+          LOCK_ROOT=$(node -p "require('./plugin/package-lock.json').packages[''].version")
+          echo "pyproject: $PY  package.json: $PKG  manifest.json: $MAN  package-lock.json: $LOCK/$LOCK_ROOT"
+          if [ "$PY" != "$PKG" ] || [ "$PKG" != "$MAN" ] || [ "$MAN" != "$LOCK" ] || [ "$LOCK" != "$LOCK_ROOT" ]; then
+            echo "❌ Version mismatch — bump all version files to the same version before merging."
+            echo "   Files: backend/pyproject.toml, plugin/package.json, plugin/manifest.json, plugin/package-lock.json"
             exit 1
           fi
           echo "✓ All versions agree: $PY"
