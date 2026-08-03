@@ -8,6 +8,15 @@ belong in Git history, not the active workspace. New raw reports enter through
 
 ## Active Queue
 
+0. **[HOTFIX] PDF Cross-Reference Resolution & Context Retrieval (v0.40.3, in progress)**
+   - RC1 theorem-family regex, RC2 printed→physical offset inference +
+     fail-closed explicit pages, RC3 caption-index theorem family + appendix
+     outline alias. Plugin-side only.
+   - Plan: `.agents/plans/03_pdf_crossref_hotfix.md` (arena:
+     `.agents/plans/hotfix_pdf_crossref_arena/`)
+   - Deferred follow-up (Minor, needs own plan): agentic PDF retrieval tools
+     for Ask AI/Sidechat (`fetch_pdf_page`, `search_pdf_anchor`).
+
 1. **v0.40.x Stability Regression Audit — P7 through P10**
    - P7: v0.40.1 provider/MCP/process lifetime patch merged in PR #106.
    - P8: v0.40.2 vector degradation, provider cardinality, failover
