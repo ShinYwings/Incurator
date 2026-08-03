@@ -175,13 +175,27 @@ LLM이 제안 생성 → Diff 표시 → Accept / Reject
   label, 현재 페이지 heading 같은 참조를 해석할 수 있으면서도 전체 문서가 선택 영역을
   압도하지 않습니다.
 - **참조 따라가기**: 선택한 텍스트 자체가 "see Section A4.2 (p580)",
-  "Figure 19.1", "(19.11)"처럼 다른 위치를 가리키는 pointer라면, 플러그인은 먼저
-  PDF outline/window 텍스트와 search hit에서 해당 target을 찾아
+  "Figure 19.1", "Result A4.1", "(19.11)"처럼 다른 위치를 가리키는 pointer라면,
+  플러그인은 먼저 PDF outline/window 텍스트와 search hit에서 해당 target을 찾아
   `<resolved_cross_references>`로 넣고, 그 뒤에 일반 페이지 배경을 보냅니다.
   pointer에 `Section 11.1.2, p281`처럼 명시적인 페이지 위치가 들어 있거나 `(3.5)`처럼
   번호만 있는 대상이면, 열린 Incurator PDF viewer는 먼저 PDF ToC에서 가장 작은 matching
   section range를 찾아 PDF.js로 읽고, ToC에 정확한 section이 없을 때만 제한된 chapter
-  range로 fallback합니다.
+  range로 fallback합니다. Theorem 계열 pointer는 부록식 문자-접두 번호
+  (`Result A4.1`, `Corollary B2.3`)를 인식하고, `Appendix 4` 형태의 ToC 제목은
+  `A4` 스타일 번호에도 응답하므로 부록 anchor도 해석됩니다.
+- **인쇄 페이지 번호 vs 물리 페이지 번호 (v0.40.3)**: 책 PDF에는 보통 앞부분
+  front matter가 있어서 인쇄된 581쪽이 PDF의 581번째 페이지가 *아닙니다*.
+  `p581` 같은 locator는 다음 순서로 매핑됩니다: PDF 자체의 page label; 독자가
+  이미 본 페이지들의 인쇄 머리글/바닥글 번호에서 추론한 front-matter offset
+  (두 페이지 이상이 명확한 다수결로 일치할 때만 채택); 인쇄 머리글이 일치하는
+  이미 알려진 페이지 스캔; 마지막으로 문자 그대로의 페이지 번호 — 이 추측은
+  가져온 페이지의 머리글이 그것을 반증하기 전까지만 유지됩니다. 머리글이 다른
+  인쇄 번호를 가리키는 페이지는 절대 resolved target으로 주입되지 않습니다:
+  Ask AI는 엉뚱한 페이지를 자신 있게 인용하는 것보다 target을 찾지 못했다고
+  말하는 쪽을 선택합니다. 문자 그대로의 추측이 반증되면 그 머리글이 문서의
+  실제 offset을 드러내므로, 제한된 repair fetch 한 번으로 올바른 물리 페이지를
+  가져옵니다.
 - **문서 내 위치이지 폴더가 아님**: "문서 위쪽", "앞부분", "top of the document",
   "end of the page" 같은 위치 표현은 파일 시스템이 아니라 **현재 문서의
   내용/outline 안에서의 위치**로 해석됩니다. 팝오버는 파일 시스템에 접근하지
@@ -477,7 +491,11 @@ PDF에 대해서만 실행됩니다. 단순히 보이거나 pinned background이
 PDF tab은 Markdown 중심 질문의 참조를 가져갈 수 없습니다. 일치한 페이지는 일반 PDF
 window보다 앞선 `<resolved_cross_references>`로 전달됩니다. 외부 Zotero/iCloud PDF는
 provider의 native filesystem root 밖에 그대로 두며, provider에는 직접 file access가
-아니라 해결된 텍스트만 제공합니다.
+아니라 해결된 텍스트만 제공합니다. Sidechat은 Ask AI 팝오버와 동일한
+cross-reference resolver를 사용하므로, v0.40.3의 인쇄-물리 페이지 매핑
+(label map → 추론된 front-matter offset → 인쇄 머리글 스캔 → 검증된 문자 그대로의
+추측, 반증된 페이지에서는 항상 fail-closed)이 Sidechat pointer 해석에도 동일하게
+적용됩니다.
 
 content hash나 등록된 source identity가 있으면 sidechat과 quick-query popover는
 같은 backend PDF page cache를 공유합니다:
