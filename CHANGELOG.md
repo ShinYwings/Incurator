@@ -2,6 +2,33 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.41.0] - 2026-08-03
+### Added
+- **Ask AI And Sidechat Can Turn PDF Pages**
+  The reading assistant already received the document outline with page
+  numbers, so it could reason "that result is in Appendix 4, around p.617" —
+  but it had no way to get there and could only tell you to navigate yourself.
+  It now has a read-only page reader for the PDF you already have open, used
+  as a fallback after automatic reference-following: it covers references
+  discovered only after reading the target page, targets named in your
+  question rather than the selected text, and prose references carrying no
+  number. Documents with no embedded table of contents additionally allow
+  searching the pages already read, since there is no map to navigate by.
+
+### Changed
+- **Popover Tool Boundary Stated Precisely**
+  The Quick Query popover's tool policy moved from "no tools at all" to
+  "no MCP tools, no filesystem, no scripts, plus the bounded PDF page reader".
+  The zero-MCP guarantee is unchanged and is now locked by behavioral tests
+  rather than by prompt wording. The reader refuses page numbers outside the
+  open document, stops after a bounded number of fetches per question, is not
+  offered at all when no PDF is open or the page count is unknown, and refuses
+  to read across a document swapped mid-request. CLI providers (Antigravity
+  `agy`, Claude, Codex) are excluded and keep the deterministic path, so the
+  v0.23.0 sandbox contract is untouched.
+
+---
+
 ## [0.40.3] - 2026-08-03
 ### Fixed
 - **Correct Target Pages For PDF Cross-References**

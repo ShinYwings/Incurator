@@ -35,16 +35,13 @@ belong in Git history, not the active workspace. New raw reports enter through
    - No current plan. Re-plan from current provider, privacy, and cost
      constraints before implementation.
 
-7. **Agentic PDF Retrieval Tools for Ask AI/Sidechat**
-   - Deferred from the v0.40.3 crossref hotfix (Minor scope, needs its own
-     Arena plan): equip Ask AI and Sidechat LLM loops with explicit PDF tools
-     (`fetch_pdf_page(page_number)`, `search_pdf_anchor(anchor_text)`) plus a
-     multi-hop recovery loop, so the model autonomously fetches a missed
-     cross-reference target instead of emitting a missing-context disclaimer,
-     and free-form sidechat questions ("What is Result A4.1 on page 581?")
-     trigger the same retrieval. Historical context: `git show` the deleted
-     `.agents/plans/03_pdf_crossref_hotfix.md` and
-     `.agents/plans/hotfix_pdf_crossref_arena/` on the v0.40.3 release branch.
+7. ~~**Agentic PDF Retrieval Tools for Ask AI/Sidechat**~~ — shipped in
+   v0.41.0 as a local (non-MCP) read-only page reader. Scope was narrowed
+   during planning: `fetch_pdf_page` is first class, `search_pdf_anchor` is
+   exposed only for documents proven outline-less, and CLI providers keep the
+   deterministic path. Historical context: `git show` the deleted
+   `.agents/plans/04_agentic_pdf_retrieval.md` and
+   `.agents/plans/agentic_pdf_retrieval_arena/`.
 
 ## Blocked / Icebox
 
