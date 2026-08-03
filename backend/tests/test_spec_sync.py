@@ -47,6 +47,19 @@ def _json_version(relpath: str) -> str:
     return data["version"]
 
 
+def _lockfile_versions(relpath: str) -> dict[str, str]:
+    # npm records the package version twice in a lockfile: at the top level and
+    # in the root entry of `packages`. `npm install` rewrites both from
+    # package.json, so a bump that edits only package.json leaves BOTH stale and
+    # the next unrelated npm invocation produces a surprise diff.
+    data = json.loads((REPO_ROOT / relpath).read_text(encoding="utf-8"))
+    versions = {relpath: data["version"]}
+    root_entry = data.get("packages", {}).get("")
+    if isinstance(root_entry, dict) and "version" in root_entry:
+        versions[f'{relpath} packages[""]'] = root_entry["version"]
+    return versions
+
+
 # Single source of truth: the build manifests. Resolved lazily (cached) so the
 # file I/O happens at test-run time, not at import/collection time — a missing or
 # unavailable manifest fails the specific test, never the whole collection phase.
@@ -58,6 +71,7 @@ def _build_manifest_versions() -> dict[str, str]:
         "backend/pyproject.toml": _pyproject_version(),
         "plugin/package.json": _json_version("plugin/package.json"),
         "plugin/manifest.json": _json_version("plugin/manifest.json"),
+        **_lockfile_versions("plugin/package-lock.json"),
     }
 
 
@@ -117,7 +131,11 @@ def test_pyproject_version_accepts_both_quote_styles() -> None:
 
 
 def test_build_manifests_agree_on_version() -> None:
-    # All three build manifests are the single source of truth and must agree.
+    # The build manifests are the single source of truth and must agree. The npm
+    # lockfile is included because it carries the version too: v0.40.3 and
+    # v0.41.0 both bumped package.json/manifest.json/pyproject.toml while
+    # leaving plugin/package-lock.json pinned at 0.40.2, and nothing caught it
+    # until an unrelated `npx` run rewrote the file.
     versions = _build_manifest_versions()
     active_version = versions["backend/pyproject.toml"]
     assert re.match(r"^\d+\.\d+\.\d+$", active_version), active_version
