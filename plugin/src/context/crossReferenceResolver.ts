@@ -82,6 +82,12 @@ export interface ResolveContext {
   pageOffset?: number;
   /** Explicit printed→pdf page map (from pdf.js pageLabels), preferred over pageOffset. */
   printedToPdf?: (printed: number) => number | undefined;
+  /**
+   * Scan of already-known page texts: returns the pdf page whose extracted
+   * printed header equals `printed`. Direct textual evidence — consulted after
+   * printedToPdf/pageOffset but before the unverified identity guess.
+   */
+  printedHeaderToPdf?: (printed: number) => number | undefined;
   /** Physical page count, used to accept explicit page locators as fetchable pages. */
   pageCount?: number;
 }
@@ -176,11 +182,11 @@ const PATTERNS: PatternSpec[] = [
     re: /(^|[\s,;:])\((\d+(?:\.\d+)+)\)/g,
     build: (m) => ({ label: `Equation ${m[2]}`, objectNumber: m[2] }),
   },
-  // Theorem 2 / Lemma 5.1 / Corollary 1 / Result 19.4
+  // Theorem 2 / Lemma 5.1 / Corollary 1 / Result 19.4 / Result A4.1
   {
     kind: "theorem",
-    re: /\b(?:theorems?|lemmas?|corollar(?:y|ies)|propositions?|prop|definitions?|results?|claims?|conjectures?)\.?\s*(\d+(?:\.\d+)*)/gi,
-    build: (m) => ({ label: m[0].trim(), objectNumber: m[1] }),
+    re: /\b(?:theorems?|lemmas?|corollar(?:y|ies)|propositions?|prop|definitions?|results?|claims?|conjectures?)\.?\s*([A-Z]?\d+(?:\.\d+)*)/gi,
+    build: (m) => ({ label: m[0].trim(), objectNumber: m[1].toUpperCase() }),
   },
 ];
 
@@ -217,10 +223,74 @@ export function extractReferences(selectedText: string): ReferenceQuery[] {
   return kept;
 }
 
+// ── Printed page headers / front-matter offset ────────────────────
+
+const HEADER_SCAN_LINES = 3;
+const LEADING_PAGE_NUMBER_RE = /^\s*(\d{1,4})(?![\d.])/;
+const TRAILING_PAGE_NUMBER_RE = /(?<![\d.])(\d{1,4})\s*$/;
+
+/**
+ * Extract candidate printed page numbers from a page's header/footer region
+ * (first and last few non-empty lines). Dotted section heads ("9.6 …") are
+ * rejected by the lookarounds; a page may yield several candidates (e.g. a
+ * chapter-opening number plus a folio) — consumers must apply consensus.
+ */
+export function printedHeaderCandidates(text: string): number[] {
+  if (!text) return [];
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const edges = [
+    ...lines.slice(0, HEADER_SCAN_LINES),
+    ...lines.slice(Math.max(lines.length - HEADER_SCAN_LINES, HEADER_SCAN_LINES)),
+  ];
+  const candidates = new Set<number>();
+  for (const line of edges) {
+    const leading = LEADING_PAGE_NUMBER_RE.exec(line);
+    if (leading) candidates.add(Number(leading[1]));
+    const trailing = TRAILING_PAGE_NUMBER_RE.exec(line);
+    if (trailing) candidates.add(Number(trailing[1]));
+  }
+  return Array.from(candidates);
+}
+
+/**
+ * Infer the front-matter offset (pdfIndex = printedPage + offset) from the
+ * printed numbers visible in known page texts. Consensus rule (Arena-locked):
+ * the modal delta must be supported by ≥ 2 distinct pages AND by a strict
+ * majority of the pages that yielded any candidate; ties fail closed.
+ */
+export function inferPrintedPageOffset(
+  pages: { pageNum: number; text: string }[]
+): number | undefined {
+  const support = new Map<number, number>();
+  let pagesWithCandidates = 0;
+  for (const page of pages) {
+    const candidates = printedHeaderCandidates(page.text);
+    if (candidates.length === 0) continue;
+    pagesWithCandidates++;
+    const deltas = new Set(candidates.map((printed) => page.pageNum - printed));
+    for (const delta of deltas) support.set(delta, (support.get(delta) ?? 0) + 1);
+  }
+  let best: number | undefined;
+  let bestCount = 0;
+  for (const [delta, count] of support) {
+    if (count > bestCount) {
+      best = delta;
+      bestCount = count;
+    }
+  }
+  if (best === undefined || bestCount < 2) return undefined;
+  // Strict majority also rules out ties (two deltas cannot both exceed half).
+  if (bestCount * 2 <= pagesWithCandidates) return undefined;
+  return best;
+}
+
 // ── Caption / definition index (sioyek-style) ─────────────────────
 
 const CAPTION_LINE_RE =
-  /^\s*(figures?|figs?|tables?|tbls?|equations?|eqs?|eqn|수식|theorems?|lemmas?|sections?)\.?\s+([A-Z]?\d+(?:\.\d+)*[a-z]?)\b/i;
+  /^\s*(figures?|figs?|tables?|tbls?|equations?|eqs?|eqn|수식|theorems?|lemmas?|sections?|results?|corollar(?:y|ies)|propositions?|prop|definitions?|claims?|conjectures?)\.?\s+([A-Z]?\d+(?:\.\d+)*[a-z]?)\b/i;
 const DISPLAY_EQUATION_LABEL_RE = /(^|[\s,;:])\(([A-Z]?\d+(?:\.\d+)*)\)(?=$|[\s,.;:])/gi;
 const DISPLAY_EQUATION_MATH_RE = /[=+\-*/^_{}]|\\[A-Za-z]+|[∑∫√≤≥≈≠]/u;
 
@@ -310,6 +380,19 @@ function parseOutlineNumber(title: string): string | undefined {
   return m ? m[1].toUpperCase() : undefined;
 }
 
+/**
+ * All numbers an outline title can answer to. "Appendix 4 …" additionally
+ * aliases to "A4" because books label appendix objects "Result A4.1" while
+ * the ToC entry keeps the bare digit. The alias is additive: a plain "4"
+ * lookup still finds Chapter 4 first in document order.
+ */
+export function outlineNumberCandidates(title: string): string[] {
+  const m = /^\s*(appendix\s+)?([A-Z]?\d+(?:\.\d+)*)/i.exec(title);
+  if (!m) return [];
+  const num = m[2].toUpperCase();
+  return m[1] && /^\d/.test(num) ? [num, `A${num}`] : [num];
+}
+
 function sectionComponents(num: string): string[] {
   return num.toUpperCase().split(".");
 }
@@ -320,7 +403,7 @@ function matchOutlineBySectionNumber(
   outline: PdfOutlineItem[]
 ): PdfOutlineItem | undefined {
   const want = sectionNumber.toUpperCase();
-  return outline.find((item) => parseOutlineNumber(item.title) === want);
+  return outline.find((item) => outlineNumberCandidates(item.title).includes(want));
 }
 
 /**
@@ -341,8 +424,10 @@ export function resolveObjectOwningSection(
   if (exact) return exact;
 
   const chapter = sectionComponents(objectNumber)[0];
-  const candidates = outline.filter(
-    (item) => sectionComponents(parseOutlineNumber(item.title) || "")[0] === chapter
+  const candidates = outline.filter((item) =>
+    outlineNumberCandidates(item.title).some(
+      (num) => sectionComponents(num)[0] === chapter
+    )
   );
   if (candidates.length === 0) return undefined;
 
@@ -408,13 +493,25 @@ function explicitPageTarget(ref: ReferenceQuery, ctx: ResolveContext): {
   confidence: number;
 } {
   if (typeof ref.printedPage !== "number") return { confidence: 0.2 };
-  const mapped =
-    ctx.printedToPdf?.(ref.printedPage) ??
-    (typeof ctx.pageOffset === "number" ? ref.printedPage + ctx.pageOffset : undefined);
-  if (typeof mapped === "number") {
-    return { pageNum: mapped, confidence: ctx.printedToPdf ? 0.9 : 0.75 };
+  const labeled = ctx.printedToPdf?.(ref.printedPage);
+  if (typeof labeled === "number") return { pageNum: labeled, confidence: 0.9 };
+  if (typeof ctx.pageOffset === "number") {
+    return { pageNum: ref.printedPage + ctx.pageOffset, confidence: 0.75 };
   }
+  // Direct textual evidence: a known page whose printed header matches.
+  const scanned = ctx.printedHeaderToPdf?.(ref.printedPage);
+  if (typeof scanned === "number") return { pageNum: scanned, confidence: 0.8 };
+  // Verified identity guess (printed = physical): kept only while the target
+  // page's own text does not contradict it. A page whose extracted header
+  // names a different printed number must never be injected as this locator.
   if (ref.printedPage > 0 && (typeof ctx.pageCount !== "number" || ref.printedPage <= ctx.pageCount)) {
+    const identityText = ctx.getPageText?.(ref.printedPage);
+    if (identityText) {
+      const printed = printedHeaderCandidates(identityText);
+      if (printed.length > 0 && !printed.includes(ref.printedPage)) {
+        return { confidence: 0.2 };
+      }
+    }
     return { pageNum: ref.printedPage, confidence: 0.65 };
   }
   return { confidence: 0.2 };

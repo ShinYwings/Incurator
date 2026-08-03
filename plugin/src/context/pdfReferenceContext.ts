@@ -12,6 +12,9 @@ import {
   buildCaptionIndex,
   buildResolvedReferencesBlock,
   extractReferences,
+  inferPrintedPageOffset,
+  outlineNumberCandidates,
+  printedHeaderCandidates,
   resolveReferences,
   type ReferenceQuery,
   type ResolveContext,
@@ -23,6 +26,7 @@ const EXACT_OUTLINE_RANGE_FETCH_LIMIT = 12;
 const CHAPTER_OUTLINE_RANGE_FETCH_LIMIT = 24;
 const OUTLINE_RANGE_FETCH_BATCH_SIZE = 6;
 const ADJACENT_EQUATION_PAGE_OFFSETS = [1, -1, 2, -2] as const;
+const DIRECT_FETCH_ROUND_LIMIT = 3;
 
 export interface PdfReferenceSource {
   outline?: PdfOutlineItem[];
@@ -46,9 +50,14 @@ function mapPrintedPageLabel(pageLabels: string[] | undefined, printed: number):
   return index >= 0 ? index + 1 : undefined;
 }
 
-function parseOutlineNumber(title: string): string | undefined {
-  const m = /^\s*(?:appendix\s+)?([A-Z]?\d+(?:\.\d+)*)/i.exec(title);
-  return m ? m[1].toUpperCase() : undefined;
+function findPageByPrintedHeader(
+  pageText: Map<number, string>,
+  printed: number
+): number | undefined {
+  for (const [pageNum, text] of pageText) {
+    if (printedHeaderCandidates(text).includes(printed)) return pageNum;
+  }
+  return undefined;
 }
 
 function outlineRangeForNumber(
@@ -58,7 +67,9 @@ function outlineRangeForNumber(
   maxPages: number
 ): { start: number; end: number } | null {
   const wanted = sectionNumber.toUpperCase();
-  const index = outline.findIndex((item) => parseOutlineNumber(item.title) === wanted);
+  const index = outline.findIndex((item) =>
+    outlineNumberCandidates(item.title).includes(wanted)
+  );
   const item = index >= 0 ? outline[index] : undefined;
   if (!item || typeof item.pageNum !== "number") return null;
 
@@ -208,6 +219,8 @@ export function resolveSelectionReferences(
       index.search(searchDocId, query, { topK }),
     getPageText: (pageNum) => pageText.get(pageNum),
     printedToPdf: (printed) => mapPrintedPageLabel(source.pageLabels, printed),
+    printedHeaderToPdf: (printed) => findPageByPrintedHeader(pageText, printed),
+    pageOffset: inferPrintedPageOffset(pages),
     pageCount: source.pageCount,
   };
   return resolveReferences(refs, ctx);
@@ -248,17 +261,22 @@ export async function resolveSelectionReferencesAsync(
   const index = source.searchIndex ?? new PdfDocumentIndexService();
   if (!source.searchIndex && pages.length) index.upsertDocument("selection", pages, outline);
 
-  const buildCtx = (): ResolveContext => ({
-    outline,
-    currentPage: source.pageNum ?? 1,
-    captionIndex: buildCaptionIndex(
-      Array.from(pageTextMap.entries()).map(([pageNum, text]) => ({ pageNum, text }))
-    ),
-    searchPages: (query, topK) => index.search(searchDocId, query, { topK }),
-    getPageText: (pageNum) => pageTextMap.get(pageNum),
-    printedToPdf: (printed) => mapPrintedPageLabel(source.pageLabels, printed),
-    pageCount: source.pageCount,
-  });
+  const buildCtx = (): ResolveContext => {
+    const knownPages = Array.from(pageTextMap.entries()).map(
+      ([pageNum, text]) => ({ pageNum, text })
+    );
+    return {
+      outline,
+      currentPage: source.pageNum ?? 1,
+      captionIndex: buildCaptionIndex(knownPages),
+      searchPages: (query, topK) => index.search(searchDocId, query, { topK }),
+      getPageText: (pageNum) => pageTextMap.get(pageNum),
+      printedToPdf: (printed) => mapPrintedPageLabel(source.pageLabels, printed),
+      printedHeaderToPdf: (printed) => findPageByPrintedHeader(pageTextMap, printed),
+      pageOffset: inferPrintedPageOffset(knownPages),
+      pageCount: source.pageCount,
+    };
+  };
 
   // Pass 1: sync resolve
   const pass1 = resolveReferences(refs, buildCtx());
@@ -285,20 +303,53 @@ export async function resolveSelectionReferencesAsync(
   };
 
   // Direct targets are cheap: fetch exactly the resolved missing page(s).
-  const directMissingPages = new Set<number>();
-  for (const r of pass1) {
-    if (
-      r.method !== "unresolved" &&
-      !isWeakCurrentPageHit(r, source.pageNum) &&
-      r.targetPage !== undefined &&
-      !pageTextMap.has(r.targetPage)
-    ) {
-      directMissingPages.add(r.targetPage);
-    }
-  }
+  // Bounded round loop because one fetch can *relocate* a target: a fetched
+  // identity-guess page whose printed header contradicts the locator flips to
+  // unresolved and contributes header-derived repair candidates
+  // (printed + observed delta), which the next round fetches and verifies via
+  // the printed-header scan. Headers on fetched pages also feed offset
+  // inference, so re-resolution converges instead of looping.
+  const withinDocument = (pageNum: number): boolean =>
+    pageNum > 0 &&
+    (typeof source.pageCount !== "number" ||
+      source.pageCount <= 0 ||
+      pageNum <= source.pageCount);
 
-  let changed = await fetchPages(orderedUniquePages(directMissingPages));
-  let latest = changed ? resolveReferences(refs, buildCtx()) : pass1;
+  let changed = false;
+  let latest = pass1;
+  for (let round = 0; round < DIRECT_FETCH_ROUND_LIMIT; round++) {
+    const wanted = new Set<number>();
+    for (const r of latest) {
+      if (
+        r.method !== "unresolved" &&
+        !isWeakCurrentPageHit(r, source.pageNum) &&
+        r.targetPage !== undefined &&
+        !pageTextMap.has(r.targetPage)
+      ) {
+        wanted.add(r.targetPage);
+      }
+      if (
+        r.query.kind === "page" &&
+        r.method === "unresolved" &&
+        typeof r.query.printedPage === "number"
+      ) {
+        const printed = r.query.printedPage;
+        const identityText = pageTextMap.get(printed);
+        if (!identityText) continue;
+        for (const header of printedHeaderCandidates(identityText)) {
+          const repair = printed + (printed - header);
+          if (repair !== printed && withinDocument(repair) && !pageTextMap.has(repair)) {
+            wanted.add(repair);
+          }
+        }
+      }
+    }
+    if (wanted.size === 0) break;
+    const roundChanged = await fetchPages(orderedUniquePages(wanted));
+    changed = changed || roundChanged;
+    if (!roundChanged) break;
+    latest = resolveReferences(refs, buildCtx());
+  }
 
   // Globally numbered equations commonly continue on the next physical page
   // without a useful ToC entry. Probe only a small next-first neighborhood,
