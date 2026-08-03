@@ -8,15 +8,6 @@ belong in Git history, not the active workspace. New raw reports enter through
 
 ## Active Queue
 
-0. **[HOTFIX] PDF Cross-Reference Resolution & Context Retrieval (v0.40.3, in progress)**
-   - RC1 theorem-family regex, RC2 printed→physical offset inference +
-     fail-closed explicit pages, RC3 caption-index theorem family + appendix
-     outline alias. Plugin-side only.
-   - Plan: `.agents/plans/03_pdf_crossref_hotfix.md` (arena:
-     `.agents/plans/hotfix_pdf_crossref_arena/`)
-   - Deferred follow-up (Minor, needs own plan): agentic PDF retrieval tools
-     for Ask AI/Sidechat (`fetch_pdf_page`, `search_pdf_anchor`).
-
 1. **v0.40.x Stability Regression Audit — P7 through P10**
    - P7: v0.40.1 provider/MCP/process lifetime patch merged in PR #106.
    - P8: v0.40.2 vector degradation, provider cardinality, failover
@@ -43,6 +34,17 @@ belong in Git history, not the active workspace. New raw reports enter through
 6. **Web Search Integration**
    - No current plan. Re-plan from current provider, privacy, and cost
      constraints before implementation.
+
+7. **Agentic PDF Retrieval Tools for Ask AI/Sidechat**
+   - Deferred from the v0.40.3 crossref hotfix (Minor scope, needs its own
+     Arena plan): equip Ask AI and Sidechat LLM loops with explicit PDF tools
+     (`fetch_pdf_page(page_number)`, `search_pdf_anchor(anchor_text)`) plus a
+     multi-hop recovery loop, so the model autonomously fetches a missed
+     cross-reference target instead of emitting a missing-context disclaimer,
+     and free-form sidechat questions ("What is Result A4.1 on page 581?")
+     trigger the same retrieval. Historical context: `git show` the deleted
+     `.agents/plans/03_pdf_crossref_hotfix.md` and
+     `.agents/plans/hotfix_pdf_crossref_arena/` on the v0.40.3 release branch.
 
 ## Blocked / Icebox
 

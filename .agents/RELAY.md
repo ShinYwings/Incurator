@@ -1,54 +1,45 @@
-# RELAY — HOTFIX DRAFT READY (REV 2, CODE-VERIFIED)
+# RELAY — v0.40.3 HOTFIX IMPLEMENTED, PR PENDING MERGE
 
 ## Goal
 
-[HOTFIX] PDF Cross-Reference Resolution & Ask AI Context Retrieval Fix
+[HOTFIX] PDF Cross-Reference Resolution & Ask AI Context Retrieval Fix (v0.40.3)
 
 ## Plan Reference
 
-- Draft: `.agents/drafts/hotfix_pdf_cross_reference_resolution.md` (Revision 2)
-- Target Branch: `hotfix/v0.40.3-pdf-crossref-resolution`
+- Plan set was implemented and deleted per workflow Step 11; recover via
+  `git show` on `.agents/plans/03_pdf_crossref_hotfix.md`,
+  `03_pdf_crossref_evidence.md`, and `hotfix_pdf_crossref_arena/` in this
+  branch's history.
+- Branch: `hotfix/v0.40.3-pdf-crossref-resolution`
 
 ## Analysis And Reasoning
 
-- User reported Ask AI failure on selection `"From Result A4.1-(p581)"` (physical
-  page 276, printed 258 ⇒ offset +18): injected context was Appendix A1.1 tensor
-  notation instead of Result A4.1.
-- Revision 1 of the draft (Gemini) was speculative and wrong on layer and
-  mechanism (blamed backend RAG / source_spans; resolution is entirely
-  plugin-side and deterministic). Claude re-derived the root causes from the
-  actual code and regex simulation:
-  - **RC1**: theorem/result pattern at `crossReferenceResolver.ts:182` captures
-    digits only — `Result A4.1` is never extracted.
-  - **RC2**: no `/PageLabels` + `ctx.pageOffset` never populated ⇒
-    `explicitPageTarget` identity fallback fetched **physical** 581
-    (= printed 563 = Appendix A1) instead of physical 599 (= printed 581), then
-    injected it as resolved (confidence 0.65) — poisoned context.
-  - **RC3**: `CAPTION_LINE_RE` lacks `results?|corollar…|propositions?|definitions?|claims?|conjectures?`,
-    so caption-index can never pin theorem-family definition lines.
-- Hotfix scope (patch): fix regexes, add printed→physical offset inference from
-  window-page headers, remove identity fallback (fail closed), post-fetch
-  verification. Agentic multi-hop tools (Rev 1 Phases 3–4) explicitly deferred
-  to a Minor release with its own Arena plan.
+- Root causes (code-verified): RC1 theorem-family regex rejected
+  letter-prefixed numbers (`Result A4.1`); RC2 printed→physical page mapping
+  silently degraded to identity (no pageLabels, `ctx.pageOffset` never
+  populated) and injected the wrong physical page as resolved; RC3 caption
+  index lacked theorem-family keywords and appendix outline aliasing.
+- Arena amendment 04: identity fallback NOT deleted (two pre-existing contract
+  tests depend on it) — replaced with *verified identity* + printed-header
+  scan + bounded ≤3-round repair fetching. All fail closed on contradiction.
 
 ## Progress Status
 
-- Draft Revision 2 authored with code-verified root causes, hotfix plan, TDD
-  test list, docs list, and deferred follow-up section.
-- ROADMAP Active Queue item #0 unchanged (still this hotfix).
-- No implementation code written yet; no branch created yet.
+- Implemented in `plugin/src/context/crossReferenceResolver.ts` and
+  `pdfReferenceContext.ts`; 17 new vitest specs incl. exact user repro
+  (physical 276 / printed 258 / p581 → physical 599, never 581).
+- Full plugin suite green (73 files / 797 tests). Backend ruff + mypy green.
+- Docs updated: `PLUGIN_SCHEMA.md`, `PLUGIN_GUIDE.md`, `PLUGIN_GUIDE_KR.md`.
+- Version 0.40.3 across all three manifests + CHANGELOG `### Fixed` entry.
+- Deferred agentic PDF retrieval tools recorded as ROADMAP item 7.
 
 ## Critical Context / Blockers
 
-- Version bump mandate applies (+0.0.1 → v0.40.3). `CHANGELOG.md` entry is
-  `### Fixed` only; no spec-title line change (same minor line).
-- All fixes are plugin-side (`crossReferenceResolver.ts`,
-  `pdfReferenceContext.ts`); tests via `npx vitest run -c ./plugin/vitest.config.ts`.
-- Do NOT re-route this through backend FTS/source_spans — Rev 1's approach,
-  invalidated by code trace.
+- None. Patch keeps the 0.40 minor line, so spec titles are untouched
+  (spec-sync test reads manifests directly).
 
 ## Immediate Next Action
 
-Executor must use draft Revision 2 as the Arena briefing, create
-`hotfix/v0.40.3-pdf-crossref-resolution`, synthesize the `PLAN_TEMPLATE.md`
-three-document set in `.agents/plans/`, and await user approval before coding.
+Human: review and merge the GitHub PR for
+`hotfix/v0.40.3-pdf-crossref-resolution`. After merge, the next agent session
+performs the IDLE relay cleanup on `master` per the Feed-Forward Exception.
