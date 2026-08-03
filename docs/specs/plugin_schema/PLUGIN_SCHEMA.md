@@ -2242,6 +2242,32 @@ boundary closed by §13.5/§13.6.
   above. Prompt wording (§13.5 `boundaryConstraints`) documents the boundary;
   it does not enforce it.
 
+- **One policy source per surface.** A surface MUST pass its `SurfaceProfile`'s
+  `toolPolicy` to `streamChat`/`complete` rather than repeating a literal, and
+  both its streaming and non-streaming paths MUST agree. A literal that drifts
+  from the profile is a silent failure in both directions: it can strand a
+  capability the system prompt advertises (the model is told it has a page
+  reader it was never given, and may fabricate having consulted a page), or it
+  can grant a surface more than its profile allows.
+
+- **Every `ToolPolicy` gate is exhaustive.** Three decisions key off
+  `ToolPolicy`: MCP injection, local-tool injection, and the CLI-sandbox
+  `ephemeral` flag of §13.6 (which governs `--add-dir` roots, Claude's
+  `--tools`/disallowed-tools, and Codex's `--sandbox` mode). All three MUST be
+  exhaustive over the union with a `never`-typed default, so a newly added
+  policy value is a compile error rather than a silent grant. `"local-only"`
+  is ephemeral for §13.6 purposes: the local reader is plugin-executed and
+  hands a CLI agent no native tools and no filesystem roots.
+
+- **Document identity is pinned across every await.** The active PDF view and
+  its document id MUST be resolved once, before any await, and re-verified
+  before use — the viewer fallback must never re-resolve whichever document
+  happens to be active after a backend round-trip, since page bounds were
+  validated against the original document. Likewise the outline state that
+  gates `search_pdf_anchor` MUST be written under the viewer's render-token
+  guard, so a resolution completing after the user navigated away cannot make
+  the gate prove the wrong thing for the current document.
+
 ---
 
 ## 14. LaTeX-preserving copy (chat sidebar + quick-query popover + note Reading View) (v0.5.4)

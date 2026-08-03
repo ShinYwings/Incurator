@@ -856,7 +856,7 @@ export class ExternalPdfView extends ItemView {
       this.totalPages = pdf.numPages;
       this.pageLabels = await this.loadPageLabels(pdf);
       this.updatePageCount();
-      await this.renderToc(pdf);
+      await this.renderToc(pdf, token);
       // Removed startDocumentTextIndex: Frontend should not perform full-document indexing. L1 extraction is handled by backend.
       container.onwheel = (e: WheelEvent) => this.handleWheelZoom(e);
 
@@ -1445,12 +1445,18 @@ export class ExternalPdfView extends ItemView {
 
   // ── TOC ───────────────────────────────────────────────────────
 
-  private async renderToc(pdf: PdfDocument): Promise<void> {
+  private async renderToc(pdf: PdfDocument, token: number): Promise<void> {
     // Outline resolution runs regardless of the panel: `currentOutlineItems`
     // also feeds LLM context, and consumers must be able to tell "this document
     // genuinely has no ToC" from "the ToC has not been parsed yet". Both states
     // are an empty array, so `outlineResolved` is the discriminator.
+    //
+    // Every write is render-token guarded like the rest of renderPdf's async
+    // steps: this state gates whether the v0.41.0 anchor-search tool is exposed,
+    // so a stale resolution for a document the user has already navigated away
+    // from must never overwrite the current document's state.
     const outline = await pdf.getOutline();
+    if (token !== this.renderToken) return;
     if (!outline || outline.length === 0) {
       this.currentOutlineItems = [];
       this.outlineResolved = true;
@@ -1460,6 +1466,7 @@ export class ExternalPdfView extends ItemView {
       return;
     }
     const tree = await this.buildTocTree(pdf, outline);
+    if (token !== this.renderToken) return;
     this.currentOutlineItems = flattenTocTree(tree);
     this.outlineResolved = true;
     if (!this.tocPanelEl) return;

@@ -32,6 +32,27 @@ export function shouldInjectMcpTools(
 }
 
 /**
+ * Whether a surface is EPHEMERAL for CLI-sandbox purposes: read-only, no
+ * filesystem roots, no native CLI tools. Both tool-free (`"none"`) and
+ * local-tools-only (`"local-only"`) surfaces qualify — the local PDF reader is
+ * plugin-executed and grants the CLI agent nothing, so it must not relax the
+ * v0.23.0 sandbox. Exhaustive so a new policy value cannot silently fail open.
+ */
+export function isEphemeralToolPolicy(toolPolicy: ToolPolicy): boolean {
+  switch (toolPolicy) {
+    case "none":
+    case "local-only":
+      return true;
+    case "auto":
+      return false;
+    default: {
+      const exhaustive: never = toolPolicy;
+      return exhaustive;
+    }
+  }
+}
+
+/**
  * Local (plugin-executed) tool injection — currently the read-only PDF page
  * reader. CLI providers are excluded by a locked decision so the v0.23.0
  * sandbox contract stays untouched.

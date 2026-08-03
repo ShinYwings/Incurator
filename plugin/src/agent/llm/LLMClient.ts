@@ -46,6 +46,7 @@ import {
   isQuotaErrorMessage,
   mapOpenAIFinishReason,
   normalizeOpenAIContent,
+  isEphemeralToolPolicy,
   sanitizeOpenAIMessages,
   shouldInjectLocalTools,
   shouldInjectMcpTools,
@@ -2162,9 +2163,12 @@ export class LLMClient {
     const model = modelOverride?.trim() || this.settings.model;
     const p = provider ?? this.settings.provider;
     // FAIL-OPEN GUARD: toolPolicy defaults to "auto" (full tools). Any EPHEMERAL surface
-    // (popover, inline preview, …) MUST pass toolPolicy:"none" — a call site that omits
-    // it silently gets the full tool surface. New read-only surfaces: pass "none".
-    const ephemeral = toolPolicy === "none"; // popover / read-only surface
+    // (popover, inline preview, …) MUST pass a non-"auto" toolPolicy — a call site that
+    // omits it silently gets the full tool surface. The predicate is exhaustive over
+    // ToolPolicy (v0.41.0) so a newly added value is a compile error here rather than a
+    // silent grant: "local-only" is ephemeral too, because the local PDF reader is
+    // plugin-executed and hands the CLI agent no native tools or filesystem roots.
+    const ephemeral = isEphemeralToolPolicy(toolPolicy); // popover / read-only surface
     // Only resolve allowed roots when they'll actually be used (non-ephemeral); the
     // tool-free popover path discards --add-dir, so skip the realpath I/O there.
     // v0.28.0: an image-bearing turn (image parts written by contentToCliText this

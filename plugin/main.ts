@@ -1762,8 +1762,21 @@ export default class ObsidianAIAgent extends Plugin {
    *  Quick-query cross-reference resolution uses the backend first so Reference
    *  Mode identity, durable L1, and per-device PDF caches stay aligned with
    *  sidechat. The open PDF.js viewer remains the fallback. */
-  async fetchActivePdfPage(pageNum: number): Promise<string | undefined> {
+  async fetchActivePdfPage(
+    pageNum: number,
+    expectedDocumentId?: string
+  ): Promise<string | undefined> {
     const pdf = this.activeContext.pdfPage;
+    // Pin the viewer and its identity BEFORE any await. The viewer fallback
+    // below must never re-resolve to whatever document happens to be active
+    // after the backend round-trip: a tab switch during that await would
+    // otherwise read a page out of the wrong PDF, using bounds that were
+    // validated against the original one (PLUGIN_SCHEMA §13.7).
+    const pinnedView = this.app.workspace.getActiveViewOfType(ExternalPdfView);
+    const pinnedDocumentId = pinnedView?.getDocumentId();
+    if (expectedDocumentId !== undefined && pinnedDocumentId !== expectedDocumentId) {
+      return undefined;
+    }
     if (this.incuratorClient?.available && pdf) {
       try {
         const backendCtx = await this.incuratorClient.getPdfContext({
@@ -1782,9 +1795,11 @@ export default class ObsidianAIAgent extends Plugin {
       }
     }
 
-    const pdfView = this.app.workspace.getActiveViewOfType(ExternalPdfView);
-    if (!pdfView) return undefined;
-    const page = await pdfView.fetchPage(pageNum);
+    if (!pinnedView) return undefined;
+    // The same view instance is reused across documents (setState), so re-check
+    // identity rather than trusting the pinned reference alone.
+    if (pinnedView.getDocumentId() !== pinnedDocumentId) return undefined;
+    const page = await pinnedView.fetchPage(pageNum);
     return page?.text ?? undefined;
   }
 
@@ -1832,7 +1847,10 @@ export default class ObsidianAIAgent extends Plugin {
           outlineState,
         };
       },
-      fetchPage: (pageNum: number) => this.fetchActivePdfPage(pageNum),
+      // Identity is passed down so the fetch fails closed if the document
+      // changes mid-flight, rather than silently reading the swapped one.
+      fetchPage: (pageNum: number) =>
+        this.fetchActivePdfPage(pageNum, this.getActivePdfDocumentId()),
       searchAnchor: async (query: string, topK: number) => {
         const index = this.getActivePdfDocumentIndex();
         const documentId = this.getActivePdfDocumentId();

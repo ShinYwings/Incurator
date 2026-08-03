@@ -12,6 +12,7 @@ import {
   stampMathSourceData,
 } from "../utils/textUtils";
 import { resolveSelectionReferencesBlockAsync } from "../context/pdfReferenceContext";
+import { POPOVER_PROFILE } from "../context/promptRegistry";
 
 /**
  * In-line Copilot — drag-to-select quick query popover.
@@ -514,12 +515,12 @@ export class QuickQueryPopover {
           // Tool isolation (v0.19.0): the popover is an ephemeral, read-only
           // reading assistant — never inject MCP tools, so it cannot run scripts
           // or traverse the filesystem.
-          { toolPolicy: "none", signal: requestController.signal }
+          { toolPolicy: POPOVER_PROFILE.toolPolicy, signal: requestController.signal }
         );
       } else {
         // Ephemeral popover: no tools / OS-sandboxed CLI (v0.23.0).
         raw = await this.plugin.llmClient.complete(messages, {
-          toolPolicy: "none",
+          toolPolicy: POPOVER_PROFILE.toolPolicy,
           signal: requestController.signal,
         });
       }
