@@ -46,13 +46,16 @@ to v0.40.3, PR opened.
   `(?<![\d.])(\d{1,4})\s*$`); modal delta needs ≥2 supporting pages AND strict
   majority of candidate-bearing pages; ties → `undefined`. Wired as
   `ctx.pageOffset` in both `pdfReferenceContext.ts` builders (async recomputes
-  from the growing `pageTextMap`). Identity fallback at
-  `crossReferenceResolver.ts:417-419` is **deleted** (sync-path no-op
-  equivalence proven in `03_defense_lead_architect.md` §1). Async-only
-  identity probe: on an unmapped explicit page ref, fetch physical=printed
-  once and let re-inference confirm or correct. Async-only mismatch filter:
-  drop explicit-page results whose fetched page shows a confidently-extracted
-  contradicting printed number; absent/garbled headers keep the resolution.
+  from the growing `pageTextMap`). **AMENDED — see
+  `hotfix_pdf_crossref_arena/04_amendment_verified_identity.md`**: the
+  identity fallback is NOT deleted (two existing contract tests depend on it;
+  defense §1's sync no-op claim was factually wrong). It becomes *verified
+  identity* — kept only while not contradicted by the identity page's own
+  extracted printed header — preceded by a new `printedHeaderToPdf` scan over
+  known page texts (confidence 0.8). The async direct-fetch pass becomes a
+  bounded ≤3-round loop; a contradicted identity page contributes
+  header-derived repair candidates (`P + (P − H)`) that are only accepted via
+  the header scan, never blindly.
 - **F3 (RC3)**: `CAPTION_LINE_RE` gains
   `results?|corollar(?:y|ies)|propositions?|prop|definitions?|claims?|conjectures?`
   (kind `"theorem"` via existing default). `outlineNumberCandidates(title)`
@@ -62,7 +65,8 @@ to v0.40.3, PR opened.
   precedence for bare `"4"` lookups.
 - Contracts preserved: `ResolveContext`, `ResolvedReference`, block XML shape,
   and all existing resolve methods/confidences are unchanged for currently
-  passing cases (except removal of the misleading identity path).
+  passing cases (the identity path survives, but contradicted identity pages
+  now fail closed instead of injecting wrong content).
 
 ## 5. Scope Exclusions & Stop Conditions
 
