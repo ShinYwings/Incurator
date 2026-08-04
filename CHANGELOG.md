@@ -2,6 +2,16 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.42.2] - 2026-08-04
+### Fixed
+- **Quick Query No Longer Crashes On PDF Text Containing Null Bytes**
+  Selecting text from certain PDFs and asking a question in the popover threw
+  `The argument 'args[11]' must be a string without null bytes`. PDF text
+  extraction can embed `\0` characters which are valid in JavaScript strings but
+  fatal when Node.js converts CLI arguments to C-strings for `execve`.
+  `messagesToCliPrompt` — the single funnel for all CLI provider prompts — now
+  strips null bytes before the string reaches `child_process.spawn()`.
+
 ## [0.42.1] - 2026-08-04
 ### Fixed
 - **Zotero Import Profile Edits No Longer Vanish After The First Keystroke**
