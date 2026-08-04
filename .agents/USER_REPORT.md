@@ -6,6 +6,68 @@ Agents must check this document and triage the received items into the `To-Do (Q
 
 ## 📝 User Inbox
 
+### 2026-08-04 — [perf] Quick Query popover answers and Convert-to-LaTeX are too slow
+
+User report: both the popover's answer latency and the right-click
+**Convert to LaTeX** action need speed work.
+
+NOT yet diagnosed — per the stability-overhaul rule that performance work is
+benchmark-first, this must start with measurement, not with a guess at the
+cause. Required before any change:
+
+1. Measure where the wall-clock actually goes on each path, separating
+   (a) context assembly in the plugin, (b) backend round-trip, and
+   (c) provider inference time. Provider time is the one Incurator cannot fix,
+   so it must be isolated before anything is optimized.
+2. Only then propose changes, and accept them only with a measured speedup and
+   no answer-quality regression.
+
+**First measurements taken 2026-08-04 10:45 (backend side only):**
+
+- One backend round-trip costs **~0.20 s** wall-clock, warm
+  (`wiki plugin version` 0.30/0.20/0.20 s; `wiki plugin pdf context` for a real
+  vault PDF 0.21/0.20 s). That floor is Python process startup + imports, paid
+  fresh on EVERY call — the plugin spawns a new `wiki` process per fetch.
+- The popover's pre-request reference resolution
+  (`plugin/src/context/pdfReferenceContext.ts`) issues **several SEQUENTIAL
+  rounds** of those calls before the provider is ever invoked:
+  `DIRECT_FETCH_ROUND_LIMIT = 3` rounds, then an adjacent-equation probe over
+  `ADJACENT_EQUATION_PAGE_OFFSETS = [1, -1, 2, -2]` that awaits **one page at a
+  time**, plus outline batches of 6. Within a round `fetchPages` does
+  parallelize via `Promise.all`, so the cost is per-ROUND, not per-page.
+- Worst case is therefore roughly 8–10 sequential round-trips ≈ **1.6–2.0 s of
+  pure subprocess overhead** before the model is asked anything.
+
+**Highest-leverage candidate fix (contract-preserving):** the adjacent-equation
+probe fetches pages `+1, -1, +2, -2` in four separate awaited calls, but the CLI
+already accepts `--page-num N --radius R --max-pages M` and could return that
+whole neighborhood in ONE call. The v0.39.2 contract requires *next-first
+ordering and stopping at the first exact label match* — that governs which match
+is ACCEPTED, not how many pages are fetched, so fetching the neighborhood once
+and then evaluating it in the documented order preserves the fail-closed
+semantics while collapsing 4 round-trips into 1.
+
+**Still unmeasured — do this before optimizing:** the provider's share of
+wall-clock. If inference dominates, the ~2 s of overhead above is a minority of
+the total and the ordering of work should change accordingly. This needs
+instrumentation in the running plugin (the backend timings above cannot show
+it). Convert-to-LaTeX was NOT timed because doing so spends provider quota;
+measure it deliberately.
+
+Known structural candidates to CONFIRM OR REFUTE by measurement (each is a
+hypothesis, not a finding):
+- The popover resolves PDF cross-references before the request
+  (`resolveSelectionReferencesBlockAsync`) and, since v0.41.0, runs with
+  `toolPolicy: "local-only"` so a tool round-trip can add a whole extra
+  provider turn.
+- Convert-to-LaTeX resolves through `latex_extract_model → vision_model →
+  main-if-vision`; when the resolved slot is the same CLI the chat already
+  uses, the work may be one provider invocation more than necessary.
+- CLI-backed providers pay process startup per call; check whether either path
+  makes more than one such call.
+
+
+
 ### 2026-08-04 — [HOTFIX] Post-v0.41.0: popover stuck "Thinking", sidechat send dead, purple pins gone
 
 User report: right after updating to v0.41.0, the Quick Query popover spins on
