@@ -2561,7 +2561,11 @@ export class LLMClient {
               : "User";
         return `${label}:\n${content}`;
       })
-      .join("\n\n---\n\n");
+      .join("\n\n---\n\n")
+      // PDF text extraction can embed null bytes (\0) which are valid in JS
+      // strings but fatal in C-strings passed to OS execve via spawn().
+      // Strip them here — the single funnel for all CLI prompts.
+      .replace(/\0/g, "");
   }
 
   private contentToCliText(content: string | LLMContentPart[]): string {

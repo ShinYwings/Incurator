@@ -1019,6 +1019,17 @@ describe("chat image channel (v0.28.0)", () => {
     expect(block).toContain("this._chatImageRunDir = null");
     expect(block).toContain("this._chatImagePaths = []");
   });
+
+  it("strips null bytes from the assembled CLI prompt (v0.42.2)", () => {
+    // PDF text extraction can embed \0 which is valid in JS strings but fatal
+    // in C-strings passed to OS execve via child_process.spawn(). The prompt
+    // assembler must strip them at the single CLI funnel point.
+    const start = source.indexOf("private messagesToCliPrompt(");
+    expect(start).toBeGreaterThanOrEqual(0);
+    const end = source.indexOf("private contentToCliText(", start);
+    const block = source.slice(start, end);
+    expect(block).toContain('.replace(/\\0/g, "")');
+  });
 });
 
 describe("output-token truncation detection (v0.24.0)", () => {
