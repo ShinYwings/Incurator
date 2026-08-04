@@ -106,6 +106,13 @@ export class IncuratorClient {
   public updateActionLabel = "Run Setup";
   // Repo root reported by the backend (null for non-editable site-packages installs).
   public repoPath: string | null = null;
+  /**
+   * The backend launcher that actually answered, shown in a version-mismatch
+   * message. Without it "expected X, got Y" cannot distinguish "this install is
+   * out of date" from "you are talking to a different install entirely" — the
+   * failure mode that hid a stale Anaconda editable install in the field.
+   */
+  public backendCommandLabel = "";
 
   constructor(
     private readonly settings: PluginSettings,
@@ -122,26 +129,50 @@ export class IncuratorClient {
     const result = await this.callBackendJson(["plugin", "version"]);
     if (result && typeof result === "object") {
       const record = result as Record<string, unknown>;
-      const version = record.version;
-      if (typeof version === "string") {
-        this.backendVersion = version;
-      }
+      // Build identity comes from the packaged build manifest on BOTH sides and
+      // nowhere else (SYSTEM_BEHAVIOR §11.2). Installed package metadata is
+      // never consulted: an editable install freezes it at whatever version
+      // `pip install -e` was first run at, so it can report an ancient version
+      // while executing current repository code — comparing it produced an
+      // "update needed" banner that re-running setup could never clear.
+      //
+      // The backend seeds `build.backend_version` unconditionally and only then
+      // overlays the manifest, so this field is always populated by any backend
+      // that reports `build` at all. There is deliberately no metadata fallback
+      // here; an absent value means the backend is too old to state its build
+      // identity, which is itself the thing to report.
+      const buildVersion = readString(record.build, "backend_version");
       const repoPath = record.repo_path;
       this.repoPath = typeof repoPath === "string" && repoPath ? repoPath : null;
+      const launcher = this.backendCommandLabel
+        ? ` from ${this.backendCommandLabel}`
+        : "";
 
-      const expectedBackendVersion = readString(localBuildManifest, "backend_version");
-      if (expectedBackendVersion) {
-        this.needsUpdate = this.backendVersion !== expectedBackendVersion;
-        this.updateMessage = this.needsUpdate
-          ? `Incurator backend version mismatch. Expected ${expectedBackendVersion}, got ${this.backendVersion}. Run setup to update this device.`
-          : "";
+      if (!buildVersion) {
+        this.backendVersion = "unknown";
+        this.needsUpdate = true;
+        this.updateMessage =
+          `Incurator backend did not report a build identity${launcher}. ` +
+          "Run setup to refresh this device.";
         this.updateActionLabel = "Run Setup";
         return;
       }
 
-      this.needsUpdate = this.backendVersion !== this.pluginVersion;
+      this.backendVersion = buildVersion;
+      const expectedBackendVersion = readString(localBuildManifest, "backend_version");
+      if (!expectedBackendVersion) {
+        // Our own bundle failed to state what it expects, so there is nothing
+        // to compare against. Claiming a mismatch here would be the same
+        // unclearable-banner bug in reverse.
+        this.needsUpdate = false;
+        this.updateMessage = "";
+        this.updateActionLabel = "Run Setup";
+        return;
+      }
+      this.needsUpdate = this.backendVersion !== expectedBackendVersion;
       this.updateMessage = this.needsUpdate
-        ? "Incurator build metadata is missing or legacy. Run setup to refresh this device."
+        ? `Incurator backend version mismatch. Expected ${expectedBackendVersion}, ` +
+          `got ${this.backendVersion}${launcher}. Run setup to update this device.`
         : "";
       this.updateActionLabel = "Run Setup";
     }

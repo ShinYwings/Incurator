@@ -44,6 +44,7 @@ import {
   EXTERNAL_PDF_VIEW_TYPE,
   type ExternalPdfState,
 } from "./src/ui/externalPdfView";
+import { asLoadedExternalPdfView } from "./src/ui/pdf/externalPdfLeaf";
 import {
   registerExternalPdfByPath,
   setExternalPdfRuntimePath,
@@ -494,8 +495,8 @@ export default class ObsidianAIAgent extends Plugin {
                   label: "Selected Text",
                   content: selectedText,
                 });
-              } else if (view.getViewType() === EXTERNAL_PDF_VIEW_TYPE) {
-                const pdfView = view as ExternalPdfView;
+              } else if (asLoadedExternalPdfView(view)) {
+                const pdfView = asLoadedExternalPdfView(view)!;
                 const pdfCtx = withVisionFallback(
                   pdfView.getActivePdfContext(this.settings.pdfCaptureMode),
                   this.settings.pdfCaptureMode,
@@ -532,9 +533,10 @@ export default class ObsidianAIAgent extends Plugin {
         if (!leaf) return false;
 
         const view = leaf.view;
-        if (view.getViewType() === EXTERNAL_PDF_VIEW_TYPE) {
+        const snipView = asLoadedExternalPdfView(view);
+        if (snipView) {
           if (!checking) {
-            const pdfView = view as ExternalPdfView;
+            const pdfView = snipView;
             pdfView.startSnippingMode(async (base64: string, pageNum: number, regionText: string) => {
               this.ensureChatOpen().then(() => {
                 const chatView = this.getChatView();
@@ -1147,6 +1149,11 @@ export default class ObsidianAIAgent extends Plugin {
 
   async ensureIncuratorBackend(): Promise<void> {
     const command = await this.resolveBackendCommand();
+    // Surface which launcher answered, so a version mismatch can say "you are
+    // talking to a different install" instead of only "expected X, got Y".
+    if (this.incuratorClient) {
+      this.incuratorClient.backendCommandLabel = command || "";
+    }
     await this.refreshAvailableModels();
     if (command) {
       await this.cacheBackendCommand(command);
@@ -1905,22 +1912,28 @@ export default class ObsidianAIAgent extends Plugin {
         this.activeContext.selectionEnd = to.line + 1;
       }
     } else if (viewType === EXTERNAL_PDF_VIEW_TYPE) {
-      // External PDF: use the view's own capture method directly
-      const extView = leaf.view as ExternalPdfView;
+      // External PDF: use the view's own capture method directly. A deferred
+      // (Obsidian >= 1.7.2) or stale tab matches the view type but exposes no
+      // methods, so it contributes identity only — capture is skipped rather
+      // than throwing this whole context build (which Send, the popover, and
+      // the context pins all depend on).
+      const extView = asLoadedExternalPdfView(leaf.view);
       this.activeContext = {
         viewType: "pdf",
         filePath: file?.path,
         absolutePath: this.toAbsolutePath(file?.path),
-        displayName: file?.basename || extView.getDisplayText(),
+        displayName: file?.basename || extView?.getDisplayText() || "External PDF",
         openTabs,
       };
       try {
-        const pdfCtx = withVisionFallback(
-          extView.getActivePdfContext(this.settings.pdfCaptureMode),
-          this.settings.pdfCaptureMode,
-          this.settings.pdfVisionFallback,
-          () => extView.getActivePdfContext("image")?.imageBase64
-        );
+        const pdfCtx = extView
+          ? withVisionFallback(
+              extView.getActivePdfContext(this.settings.pdfCaptureMode),
+              this.settings.pdfCaptureMode,
+              this.settings.pdfVisionFallback,
+              () => extView.getActivePdfContext("image")?.imageBase64
+            )
+          : undefined;
         if (pdfCtx) this.activeContext.pdfPage = pdfCtx;
       } catch (err) {
         logger.warn("Failed to capture external PDF context:", err);
@@ -2014,10 +2027,9 @@ export default class ObsidianAIAgent extends Plugin {
           selectedText = mdView.editor.getSelection() || undefined;
         }
       } else if (viewType === EXTERNAL_PDF_VIEW_TYPE) {
-        const extView =
-          leaf.view.getViewType() === EXTERNAL_PDF_VIEW_TYPE
-            ? leaf.view as ExternalPdfView
-            : null;
+        // A deferred (Obsidian >= 1.7.2) or stale tab answers the view type but
+        // has no methods, so fall back to its persisted state instead of casting.
+        const extView = asLoadedExternalPdfView(leaf.view);
         const extState = extView?.getState() ?? state as Partial<ExternalPdfState>;
         pageNum =
           typeof extState.currentPage === "number" ? extState.currentPage : undefined;
@@ -2129,12 +2141,17 @@ export default class ObsidianAIAgent extends Plugin {
 
   private getLeafFile(leaf: WorkspaceLeaf): { path: string; basename: string } | null {
     if (leaf.view.getViewType() === EXTERNAL_PDF_VIEW_TYPE) {
-      const extView = leaf.view as ExternalPdfView;
+      // Obsidian >= 1.7.2 restores tabs as deferred views: the type string
+      // matches while the placeholder carries none of this class's methods.
+      // Casting on the string alone threw out of here, and because this
+      // function feeds updateActiveContext() AND the open-tab inventory, one
+      // deferred PDF tab blanked the context pins and killed Send/popover.
+      const extView = asLoadedExternalPdfView(leaf.view);
       // getState() no longer includes path (v0.29.0 portable storage). Use
       // getRuntimePath() as the authoritative runtime path source.
-      const runtimePath = extView.getRuntimePath();
+      const runtimePath = extView?.getRuntimePath();
       if (runtimePath) {
-        return { path: runtimePath, basename: extView.getDisplayText() || "External PDF" };
+        return { path: runtimePath, basename: extView!.getDisplayText() || "External PDF" };
       }
       // Fall back to legacy state.path for transitional compatibility.
       const state = typeof (leaf.view as any).getState === "function" ? (leaf.view as any).getState() : null;

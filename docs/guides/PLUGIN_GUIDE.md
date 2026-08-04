@@ -1646,6 +1646,44 @@ then reload Obsidian (the flag is read once at plugin load). Set it back to `"0"
 (or remove it) and reload to silence verbose logs again. This is a developer
 affordance, not a plugin setting — it is per-device and never synced.
 
+## Troubleshooting
+
+### Chat, popover, and context pins all stop working at once
+
+If the purple context pins disappear, **Send** does nothing, and the Quick Query
+popover sits on "Thinking", open the developer console
+(**Ctrl/Cmd+Shift+I**) and look for a single underlying error — these three
+surfaces share one context-building path, so one exception takes all of them
+down together.
+
+`TypeError: getRuntimePath is not a function` was the v0.41.0 form of this and
+is fixed in v0.41.1. It came from restored (deferred) PDF tabs, so restarting
+Obsidian made it *more* likely rather than less. If you are still on v0.41.0,
+update; closing PDF tabs before restarting is a temporary workaround.
+
+### Which `wiki` the plugin actually runs
+
+The plugin runs the backend command configured in its settings. If that setting
+is the bare name `wiki`, it is resolved against the PATH of the Obsidian
+application process, which is **not** your shell's PATH — shell aliases and
+`.zshrc` exports do not apply. If another Incurator install exists on that PATH
+(for example an old `pip install -e` inside an Anaconda environment), the plugin
+may silently use it.
+
+Set the backend command to the absolute path of the launcher in this
+repository's runtime environment, for example
+`/path/to/Incurator/.venv/bin/wiki`. To confirm which install answers, compare:
+
+```bash
+wiki version
+/path/to/Incurator/.venv/bin/wiki version
+```
+
+An editable install keeps running current repository code while reporting the
+version recorded when it was first installed, so a stale version string does
+**not** mean stale behavior — but it does mean the plugin's version check cannot
+be trusted until the path is corrected.
+
 ## Related Docs
 
 - [Full Workflow](WORKFLOW_GUIDE.md) — How the entire system fits together

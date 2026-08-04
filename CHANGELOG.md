@@ -2,6 +2,76 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.42.0] - 2026-08-04
+### Added
+- **`setup.sh` Provisions The `wiki` Alias**
+  Setup previously provisioned no backend entry point, so users hand-rolled
+  one — and a hand-rolled alias carried between machines is how a macOS install
+  ended up pointing at a `/home/<user>/…` path that cannot exist there, silently
+  degrading `wiki` to an unrelated install found on PATH. Setup now writes an
+  alias whose target is derived from its own repository root. Re-running
+  REPLACES the previous Incurator block (including the legacy undelimited
+  form), so a wrong alias self-heals; other tools' blocks are preserved and the
+  rc file is replaced atomically with its mode intact. Both `~/.zshrc` and
+  `~/.bashrc` are handled, and a different `wiki` earlier on PATH is reported
+  with both paths rather than silently winning. Skip with
+  `INCURATOR_SKIP_ALIAS=1`.
+
+### Fixed
+- **Quick Query Popover Shows Elapsed Time Instead Of A Frozen Label**
+  Measurement first: a CLI-backed provider round-trip costs 8.2–12.2 s for a
+  one-word answer regardless of model or effort, while the CLI binary starts in
+  0.29 s and an Incurator backend round-trip is 0.20 s — the wait is the
+  provider service handshake, not inference and not Incurator overhead. Because
+  `agy --print` cannot stream, the popover's static "Thinking…" was
+  indistinguishable from a hang for the whole wait (an ambiguity that already
+  caused a real crash to be misread as slowness). The popover now ticks elapsed
+  seconds like the sidebar, stops on success, error, and teardown, and no longer
+  lets the streaming callback overwrite the live readout with static text. The
+  PDF reference-fetch path was deliberately left alone: it accounts for at most
+  ~0.6 s of a ~13 s action, and its existing tests prove the common case already
+  issues a single fetch.
+- **Backend Version Checks Read Build Identity, Not Package Metadata**
+  The plugin compared the backend's top-level `version` — installed package
+  metadata — against its own bundled build manifest. An editable install freezes
+  that metadata at the version it was first installed at while continuing to run
+  current repository code, so the two could never agree and the "Run Setup"
+  banner could never be cleared by running setup. Version checks now gate on
+  `build.backend_version`, falling back to the metadata version only when no
+  build manifest is present. Package metadata is now not consulted at all — not
+  as a gate and not as a fallback, since the backend seeds
+  `build.backend_version` unconditionally, so an absent value means the backend
+  is too old to state its identity and is reported as exactly that. A mismatch
+  message now also names the backend launcher that answered, so "this install is
+  out of date" is distinguishable from "you are talking to a different install
+  entirely".
+
+## [0.41.1] - 2026-08-04
+### Fixed
+- **Deferred PDF Tabs No Longer Disable Chat, Popover, And Context Pins**
+  Obsidian 1.7.2+ restores workspace tabs as *deferred* views whose `leaf.view`
+  reports the real view type while carrying none of the concrete view class's
+  methods. The plugin narrowed external-PDF leaves on that type string alone and
+  then called `getRuntimePath()`, throwing
+  `TypeError: getRuntimePath is not a function` out of the shared leaf resolver.
+  Because that resolver feeds both the active-context capture and the open-tab
+  inventory, a single restored PDF tab simultaneously blanked the purple context
+  pins, made sidechat Send do nothing, and left the Quick Query popover on
+  "Thinking" — and restarting Obsidian reproduced it, because a restart is what
+  creates deferred tabs. Every external-PDF narrowing now goes through a
+  capability-checked guard that also rejects stale instances left by an in-place
+  plugin update; a deferred tab degrades to its persisted state instead of
+  throwing, and is never force-loaded as a side effect of building context.
+- **PDF Pages No Longer Collide On Their Own Canvas**
+  Page canvases are reused across zoom, scroll, and document swaps, but the
+  PDF.js render task was fire-and-forget, so a re-render could start while the
+  previous one still owned the canvas — PDF.js then threw "Cannot use the same
+  canvas during multiple render() operations" and left the page blank. Renders
+  are now tracked per page and cancelled (and awaited) before the next render
+  claims the canvas, including on document swap, reload, and view close. The
+  existing render-token guard is unchanged; it stops work scheduled after a
+  bump but never a task already inside PDF.js.
+
 ## [0.41.0] - 2026-08-03
 ### Added
 - **Ask AI And Sidechat Can Turn PDF Pages**

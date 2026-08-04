@@ -58,6 +58,20 @@ Run the installation script to set up the environment and build the necessary co
 ./setup.sh
 ```
 
+Setup also provisions a `wiki` alias in your `~/.zshrc` and `~/.bashrc`, pointing
+at this repository's `.venv/bin/wiki`. Open a new shell (or `source` your rc
+file) afterwards to pick it up. Re-running setup rewrites that alias rather than
+adding a second one, so a stale or wrong alias is repaired automatically. Skip
+this step with `INCURATOR_SKIP_ALIAS=1 ./setup.sh` and call
+`<repo>/.venv/bin/wiki` directly instead.
+
+If setup warns that another `wiki` is earlier on your PATH, resolve it — the
+alias fixes interactive shells, but scripts and non-interactive shells resolve
+the bare name from PATH and would still get the other install. Note that an
+editable install (`pip install -e`) reports the version it was first installed
+at while running current code, so a stale version string there does **not** mean
+stale behavior.
+
 ### 2. Initialize a Vault
 Choose a directory to serve as your knowledge vault and initialize it:
 ```bash

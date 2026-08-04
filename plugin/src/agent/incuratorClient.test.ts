@@ -159,11 +159,14 @@ describe("IncuratorClient", () => {
   });
 
   it("does not request setup when backend_version matches local manifest", async () => {
+    // v0.42.0: identity is read from `build`, never from the top-level
+    // `version` (installed package metadata). Real backends always send both.
     const client = new IncuratorClient(settings(), "0.3.1", async () => ({
       ok: true,
       version: "0.3.2",
+      build: { backend_version: "0.3.2" },
     }));
-    
+
     const originalManifest = JSON.parse(JSON.stringify(localBuildManifest));
     (localBuildManifest as any).backend_version = "0.3.2";
 
@@ -171,7 +174,7 @@ describe("IncuratorClient", () => {
 
     expect(client.needsUpdate).toBe(false);
     expect(client.updateMessage).toBe("");
-    
+
     Object.assign(localBuildManifest, originalManifest);
   });
 
@@ -179,6 +182,7 @@ describe("IncuratorClient", () => {
     const client = new IncuratorClient(settings(), "0.3.1", async () => ({
       ok: true,
       version: "0.3.3",
+      build: { backend_version: "0.3.3" },
     }));
 
     const originalManifest = JSON.parse(JSON.stringify(localBuildManifest));
@@ -189,6 +193,45 @@ describe("IncuratorClient", () => {
     expect(client.needsUpdate).toBe(true);
     expect(client.updateMessage).toContain("backend version mismatch");
     expect(client.updateActionLabel).toBe("Run Setup");
+
+    Object.assign(localBuildManifest, originalManifest);
+  });
+
+  it("ignores stale package metadata when build identity is present", async () => {
+    // The field case: an editable install froze its metadata at 0.4.3 while
+    // executing current code, so gating on it produced an unclearable banner.
+    const client = new IncuratorClient(settings(), "0.3.1", async () => ({
+      ok: true,
+      version: "0.4.3",
+      build: { backend_version: "0.3.2" },
+    }));
+
+    const originalManifest = JSON.parse(JSON.stringify(localBuildManifest));
+    (localBuildManifest as any).backend_version = "0.3.2";
+
+    await client.checkBackendVersion();
+
+    expect(client.backendVersion).toBe("0.3.2");
+    expect(client.needsUpdate).toBe(false);
+    expect(client.updateMessage).toBe("");
+
+    Object.assign(localBuildManifest, originalManifest);
+  });
+
+  it("reports an absent build identity instead of falling back to metadata", async () => {
+    const client = new IncuratorClient(settings(), "0.3.1", async () => ({
+      ok: true,
+      version: "0.3.2",
+    }));
+
+    const originalManifest = JSON.parse(JSON.stringify(localBuildManifest));
+    (localBuildManifest as any).backend_version = "0.3.2";
+
+    await client.checkBackendVersion();
+
+    expect(client.backendVersion).toBe("unknown");
+    expect(client.needsUpdate).toBe(true);
+    expect(client.updateMessage).toContain("did not report a build identity");
 
     Object.assign(localBuildManifest, originalManifest);
   });

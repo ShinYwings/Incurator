@@ -42,8 +42,11 @@ describe("ExternalPdfView scroll performance", () => {
   });
 
   it("invalidates in-flight PDF renders as soon as the view closes", () => {
+    // v0.41.1: bumping the token stops work scheduled after it, but a task
+    // already inside PDF.js keeps owning its canvas, so close must also cancel
+    // the live render tasks before anything else runs.
     expect(source).toMatch(
-      /async onClose\(\): Promise<void> \{\s*this\.renderToken\+\+;\s*this\.clearTimers\(\);/
+      /async onClose\(\): Promise<void> \{\s*this\.renderToken\+\+;\s*this\.cancelAllPageRenders\(\);\s*this\.clearTimers\(\);/
     );
   });
 });

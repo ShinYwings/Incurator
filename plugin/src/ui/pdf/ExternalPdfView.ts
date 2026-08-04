@@ -44,7 +44,9 @@ import {
   zoteroConfigEpoch,
 } from "../../context/assetSource";
 
-export const EXTERNAL_PDF_VIEW_TYPE = "ai-agent-external-pdf";
+import { EXTERNAL_PDF_VIEW_TYPE } from "./externalPdfViewType";
+
+export { EXTERNAL_PDF_VIEW_TYPE };
 export const EXTERNAL_PDF_CONTEXT_EVENT = "ai-agent-external-pdf-context";
 
 export interface ExternalPdfState extends Record<string, unknown> {
@@ -90,12 +92,23 @@ interface PdfDocument {
   getPageLabels?: () => Promise<string[] | null>;
 }
 
+/**
+ * PDF.js refuses a second `render()` on a canvas that still has one in flight
+ * ("Cannot use the same canvas during multiple render() operations"). Because
+ * this view REUSES each page's canvas across zoom/scroll re-renders, the task
+ * has to be cancellable rather than fire-and-forget.
+ */
+interface PdfRenderTask {
+  promise: Promise<void>;
+  cancel: () => void;
+}
+
 interface PdfPage {
   getViewport: (options: { scale: number }) => { width: number; height: number; convertToViewportPoint(x: number, y: number): [number, number] };
   render: (options: {
     canvasContext: CanvasRenderingContext2D;
     viewport: { width: number; height: number };
-  }) => { promise: Promise<void> };
+  }) => PdfRenderTask;
   getTextContent: () => Promise<{ items: RawPdfTextItem[] }>;
 }
 
@@ -148,6 +161,9 @@ export class ExternalPdfView extends ItemView {
   // Lazy rendering state
   private renderedPages = new Set<number>();
   private renderingPages = new Set<number>();
+  /** In-flight PDF.js render task per page, so a re-render can cancel the
+   *  previous one instead of colliding on the reused canvas. */
+  private pageRenderTasks = new Map<number, PdfRenderTask>();
   private isLazyRendering = false;
   private lazyRenderDirty = false;
   private scrollFrame: number | null = null;
@@ -300,6 +316,7 @@ export class ExternalPdfView extends ItemView {
   reloadFromDisk(): void {
     this.cachedPdf = null;
     this.cachedPdfDocId = "";
+    this.cancelAllPageRenders();
     this.renderedPages.clear();
     this.renderingPages.clear();
     this.pageTextCache.clear();
@@ -475,6 +492,7 @@ export class ExternalPdfView extends ItemView {
 
   async onClose(): Promise<void> {
     this.renderToken++;
+    this.cancelAllPageRenders();
     this.clearTimers();
     if (this.styleObserver) {
       this.styleObserver.disconnect();
@@ -807,6 +825,10 @@ export class ExternalPdfView extends ItemView {
     doc: ExternalPdfDoc
   ): Promise<void> {
     const token = ++this.renderToken;
+    // Bumping the token stops future work, but tasks already inside PDF.js keep
+    // owning their canvases until cancelled — a swapped document would otherwise
+    // collide with the outgoing one's renders.
+    this.cancelAllPageRenders();
     this.renderedPages.clear();
     this.renderingPages.clear();
     this.pageBaseDims = [];
@@ -986,6 +1008,33 @@ export class ExternalPdfView extends ItemView {
     }
   }
 
+  /** Cancel any in-flight render for `pageNum` and wait for it to settle, so the
+   *  page's canvas is free before a new render claims it. A cancelled task
+   *  rejects with PDF.js's RenderingCancelledException — expected, not an error. */
+  private async cancelPageRender(pageNum: number): Promise<void> {
+    const previous = this.pageRenderTasks.get(pageNum);
+    if (!previous) return;
+    this.pageRenderTasks.delete(pageNum);
+    previous.cancel();
+    try {
+      await previous.promise;
+    } catch {
+      // Cancellation (or a failure we already surfaced) — the canvas is free either way.
+    }
+  }
+
+  /** Cancel every in-flight page render, e.g. when the document is swapped. */
+  private cancelAllPageRenders(): void {
+    for (const task of this.pageRenderTasks.values()) {
+      try {
+        task.cancel();
+      } catch {
+        // A task that already settled cannot be cancelled; nothing to free.
+      }
+    }
+    this.pageRenderTasks.clear();
+  }
+
   /** Renders (or re-renders) a single page's canvas inside an existing placeholder div. */
   private async renderPageCanvas(
     pageEl: HTMLElement,
@@ -1022,7 +1071,21 @@ export class ExternalPdfView extends ItemView {
     // Reset any leftover transform from previous render (prevents flipped pages on reuse)
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    await page.render({ canvasContext: ctx, viewport: hiResViewport }).promise;
+
+    // This page's canvas is reused, so a zoom/scroll re-render can arrive while
+    // the previous task still owns it. Cancel and drain the old task first —
+    // PDF.js otherwise throws "Cannot use the same canvas during multiple
+    // render() operations" and the page is left blank.
+    await this.cancelPageRender(pageNum);
+    const task = page.render({ canvasContext: ctx, viewport: hiResViewport });
+    this.pageRenderTasks.set(pageNum, task);
+    try {
+      await task.promise;
+    } finally {
+      if (this.pageRenderTasks.get(pageNum) === task) {
+        this.pageRenderTasks.delete(pageNum);
+      }
+    }
 
     // Text extraction and precise HTML text layer positioning. pdf.js text is
     // the source of truth; the DOM text layer is only a capture fallback.
