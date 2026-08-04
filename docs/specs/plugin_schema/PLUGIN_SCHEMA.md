@@ -279,6 +279,40 @@ settings fields, persisted DTOs, or backend command envelopes.
 - Optional child-process streams must be checked before writes. A missing MCP
   `args` array is normalized to an empty array during command preparation.
 
+#### 1.4.1 Leaf narrowing must not trust the view-type string (v0.41.1)
+
+Obsidian 1.7.2+ restores workspace tabs as **deferred** views. A deferred
+`leaf.view` answers `getViewType()` with the real registered type while being a
+placeholder that carries none of the concrete view class's methods. A matching
+view-type string is therefore **not** proof of class identity, and neither is it
+proof after an in-place plugin update, which can leave a live leaf holding an
+instance built from the previous bundle.
+
+- Narrowing a leaf to `ExternalPdfView` MUST go through a capability-checked
+  guard that verifies the methods the caller will actually invoke. A bare cast
+  guarded only by the view-type string is a defect.
+- A leaf that fails the guard degrades to the leaf's persisted state. It MUST
+  NOT throw, and it MUST NOT be force-loaded as a side effect of assembling
+  context — building context is a read-only observation of the workspace.
+- This is a shared-path invariant, not a per-surface one: the leaf resolver
+  feeds both active-context capture and the open-tab inventory, so one
+  unguarded cast takes down the context pins, sidechat Send, and the Quick
+  Query popover together.
+
+#### 1.4.2 Page canvases are exclusive to one render task (v0.41.1)
+
+External PDF page canvases are reused across zoom, scroll, and document swaps.
+PDF.js rejects a second `render()` on a canvas whose previous task is still
+in flight ("Cannot use the same canvas during multiple render() operations").
+
+- Each page's in-flight render task MUST be retained and cancelled, and its
+  promise awaited, before a new render claims that page's canvas.
+- Document swap, reload-from-disk, and view close MUST cancel every in-flight
+  page render. The render token alone is insufficient: it prevents work
+  scheduled after the bump but cannot release a canvas already owned by PDF.js.
+- A cancelled task rejects with PDF.js's cancellation exception. That rejection
+  is the expected outcome and MUST NOT be surfaced as a render failure.
+
 ## 2. Persisted Settings Schema
 
 > **Logging is not a setting.** Plugin logs go through a namespaced logger
