@@ -4,6 +4,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "=== Setting up Python Virtual Environment ==="
+# Capture PATH *before* prepending our own venv, so the alias step can still see
+# a competing `wiki` that would otherwise be masked by the line below.
+export INCURATOR_ORIGINAL_PATH="$PATH"
 export VIRTUAL_ENV="$ROOT_DIR/.venv"
 export PATH="$VIRTUAL_ENV/bin:$PATH"
 
@@ -74,6 +77,18 @@ if [ "${INCURATOR_SKIP_MODELS:-0}" != "1" ]; then
     fi
 else
     echo "ℹ️  INCURATOR_SKIP_MODELS=1 set — skipping model provisioning. Run later: wiki models ensure"
+fi
+
+echo ""
+echo "=== Provisioning the 'wiki' shell alias ==="
+# Idempotent: re-running replaces the previous Incurator block rather than
+# appending, so a wrong alias (e.g. one carried over from another machine)
+# self-heals here. Skip with INCURATOR_SKIP_ALIAS=1.
+if [ "${INCURATOR_SKIP_ALIAS:-0}" != "1" ]; then
+    bash "$ROOT_DIR/scripts/install/provision_wiki_alias.sh" "$ROOT_DIR" \
+        || echo "⚠️  Alias provisioning degraded — run the backend directly: $ROOT_DIR/.venv/bin/wiki"
+else
+    echo "ℹ️  INCURATOR_SKIP_ALIAS=1 set — skipping. Backend launcher: $ROOT_DIR/.venv/bin/wiki"
 fi
 
 echo ""

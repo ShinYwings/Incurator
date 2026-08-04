@@ -1149,6 +1149,11 @@ export default class ObsidianAIAgent extends Plugin {
 
   async ensureIncuratorBackend(): Promise<void> {
     const command = await this.resolveBackendCommand();
+    // Surface which launcher answered, so a version mismatch can say "you are
+    // talking to a different install" instead of only "expected X, got Y".
+    if (this.incuratorClient) {
+      this.incuratorClient.backendCommandLabel = command || "";
+    }
     await this.refreshAvailableModels();
     if (command) {
       await this.cacheBackendCommand(command);

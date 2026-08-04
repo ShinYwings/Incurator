@@ -106,6 +106,13 @@ export class IncuratorClient {
   public updateActionLabel = "Run Setup";
   // Repo root reported by the backend (null for non-editable site-packages installs).
   public repoPath: string | null = null;
+  /**
+   * The backend launcher that actually answered, shown in a version-mismatch
+   * message. Without it "expected X, got Y" cannot distinguish "this install is
+   * out of date" from "you are talking to a different install entirely" — the
+   * failure mode that hid a stale Anaconda editable install in the field.
+   */
+  public backendCommandLabel = "";
 
   constructor(
     private readonly settings: PluginSettings,
@@ -122,18 +129,36 @@ export class IncuratorClient {
     const result = await this.callBackendJson(["plugin", "version"]);
     if (result && typeof result === "object") {
       const record = result as Record<string, unknown>;
+      // `build.backend_version` comes from the packaged build manifest and is
+      // the authoritative build identity (SYSTEM_BEHAVIOR §11.2). The top-level
+      // `version` is installed *package metadata*, which an editable install
+      // freezes at whatever version `pip install -e` was first run at — so it
+      // can report an ancient version while executing current repo code.
+      // Comparing that metadata against our bundled manifest produced an
+      // "update needed" banner that re-running setup could never clear.
+      const buildVersion = readString(record.build, "backend_version");
       const version = record.version;
-      if (typeof version === "string") {
+      if (buildVersion) {
+        this.backendVersion = buildVersion;
+      } else if (typeof version === "string") {
         this.backendVersion = version;
       }
       const repoPath = record.repo_path;
       this.repoPath = typeof repoPath === "string" && repoPath ? repoPath : null;
+      // Keep the metadata version only to *explain* a divergence; never to gate on.
+      const metadataVersion = typeof version === "string" ? version : "";
+      const metadataNote =
+        buildVersion && metadataVersion && metadataVersion !== buildVersion
+          ? ` (that install reports package metadata ${metadataVersion}, which is stale metadata, not stale code.)`
+          : "";
 
       const expectedBackendVersion = readString(localBuildManifest, "backend_version");
       if (expectedBackendVersion) {
         this.needsUpdate = this.backendVersion !== expectedBackendVersion;
         this.updateMessage = this.needsUpdate
-          ? `Incurator backend version mismatch. Expected ${expectedBackendVersion}, got ${this.backendVersion}. Run setup to update this device.`
+          ? `Incurator backend version mismatch. Expected ${expectedBackendVersion}, got ${this.backendVersion}` +
+            `${this.backendCommandLabel ? ` from ${this.backendCommandLabel}` : ""}. ` +
+            `Run setup to update this device.${metadataNote}`
           : "";
         this.updateActionLabel = "Run Setup";
         return;

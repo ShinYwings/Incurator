@@ -64,6 +64,20 @@ executes CURRENT repo code — the `wiki plugin --help` surfaces are byte-identi
 and `wiki plugin source status` against the real vault returns correct data
 (35 sources). So only the reported VERSION is stale, not the behavior.
 
+**CORRECTION (2026-08-04 10:30) — the plugin was NOT calling the wrong binary.**
+Verified by reading the resolution chain rather than inferring it:
+`runBackendCommand` spawns only what `resolveBackendCommand()` returns;
+that function deliberately refuses the bare name (`return command && command
+!== "wiki" ? command : null`), `resolveWikiBinary()` checks only
+`<repo>/.venv/bin/wiki` and never searches PATH, and this machine's
+`devices.json` holds no cached launcher — so the repo hint resolves to
+`/Users/shin/shinywings/Incurator/.venv/bin/wiki`, which reports 0.41.0. That
+matches the user's own observation that the dashboard showed 0.41.0. The
+`0.4.3` was therefore TERMINAL-ONLY, produced by the broken shell alias. The
+earlier claim that the plugin used the anaconda install was an over-reach and
+is retracted; item 4 below was already implemented and is now pinned by
+regression tests instead of "fixed".
+
 **[P1] Genuine Incurator defect this exposes — inconsistent version payload.**
 `wiki plugin version` from that install returns a self-contradictory object:
 

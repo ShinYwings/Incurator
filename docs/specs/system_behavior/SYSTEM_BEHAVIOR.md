@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.41.0)
+# Incurator - System Behavior (v0.42.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -939,6 +939,44 @@ Rules:
   bundle before an AI provider starts. A mismatch is a reload-required state and
   fails before credential/provider startup; the plugin must not continue with
   stale in-memory code merely because the new manifest is present on disk.
+
+### 11.2.1 Backend Entry Point And Build Identity (v0.42.0)
+
+`setup.sh` provisions the `wiki` shell alias rather than leaving users to
+hand-roll one:
+
+- The alias target is derived from the setup script's own repository root and
+  points at `<repo>/.venv/bin/wiki`. A hardcoded or foreign-home path is a
+  defect — an alias written on one platform and carried to another (for example
+  a `/home/<user>/…` path on macOS) silently degrades `wiki` to whatever else is
+  on PATH.
+- Provisioning is idempotent and self-healing: re-running REPLACES the previous
+  Incurator block, including the legacy undelimited `# Added by Incurator`
+  form, instead of appending a duplicate. Unrelated blocks written by other
+  tools are preserved, and the rc file is replaced atomically with its mode
+  intact.
+- Both `~/.zshrc` and `~/.bashrc` are handled when present.
+- If a different `wiki` resolves earlier on the user's PATH, setup reports it
+  explicitly with both paths. It is scanned against the PATH captured BEFORE
+  setup prepends its own venv, which would otherwise mask the conflict.
+- `INCURATOR_SKIP_ALIAS=1` skips provisioning; the run still reports the
+  absolute launcher path.
+
+Build identity is read from the packaged build manifest, never from installed
+package metadata. `wiki plugin version` returns both, and they can legitimately
+disagree: an editable install freezes `importlib.metadata` at the version it was
+first installed at while continuing to execute current repository code. Clients
+comparing versions MUST gate on `build.backend_version` and may use the
+top-level `version` only to explain a divergence. A mismatch message MUST name
+the backend launcher that answered, so "this install is out of date" is
+distinguishable from "you are talking to a different install entirely".
+
+The plugin resolves its backend launcher explicitly and MUST NOT fall back to
+the bare name `wiki`: it would be resolved against the Obsidian process PATH,
+which is not the user's shell PATH, so an unrelated install can win silently.
+Resolution order is the configured command, then the device registry's cached
+launcher, then `<repo>/.venv/bin/wiki`; when none resolves, backend calls fail
+with an explicit unresolved-launcher error instead of spawning a bare name.
 
 ### 11.3 Agent Access Scenarios
 
