@@ -2,6 +2,34 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.42.0] - 2026-08-04
+### Added
+- **`setup.sh` Provisions The `wiki` Alias**
+  Setup previously provisioned no backend entry point, so users hand-rolled
+  one — and a hand-rolled alias carried between machines is how a macOS install
+  ended up pointing at a `/home/<user>/…` path that cannot exist there, silently
+  degrading `wiki` to an unrelated install found on PATH. Setup now writes an
+  alias whose target is derived from its own repository root. Re-running
+  REPLACES the previous Incurator block (including the legacy undelimited
+  form), so a wrong alias self-heals; other tools' blocks are preserved and the
+  rc file is replaced atomically with its mode intact. Both `~/.zshrc` and
+  `~/.bashrc` are handled, and a different `wiki` earlier on PATH is reported
+  with both paths rather than silently winning. Skip with
+  `INCURATOR_SKIP_ALIAS=1`.
+
+### Fixed
+- **Backend Version Checks Read Build Identity, Not Package Metadata**
+  The plugin compared the backend's top-level `version` — installed package
+  metadata — against its own bundled build manifest. An editable install freezes
+  that metadata at the version it was first installed at while continuing to run
+  current repository code, so the two could never agree and the "Run Setup"
+  banner could never be cleared by running setup. Version checks now gate on
+  `build.backend_version`, falling back to the metadata version only when no
+  build manifest is present. A mismatch message now also names the backend
+  launcher that answered, so "this install is out of date" is distinguishable
+  from "you are talking to a different install entirely", and an explained
+  metadata divergence is called out as stale metadata rather than stale code.
+
 ## [0.41.1] - 2026-08-04
 ### Fixed
 - **Deferred PDF Tabs No Longer Disable Chat, Popover, And Context Pins**
