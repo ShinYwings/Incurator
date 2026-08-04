@@ -2,6 +2,22 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.42.1] - 2026-08-04
+### Fixed
+- **Zotero Import Profile Edits No Longer Vanish After The First Keystroke**
+  Changing a profile's template path from `.../book_template.md` to
+  `.../paper_template.md` saved `.../boo_template.md` — the value after exactly
+  one backspace. `saveSettings()` → `saveZoteroProfiles()` ends by assigning
+  `settings.zoteroProfiles = store.profiles`, replacing the array and its
+  objects with ones re-read from the merged on-disk store, while the settings
+  editor had captured `settings.zoteroProfiles[index]` once at render time. The
+  first keystroke's save therefore detached that reference and every later
+  keystroke mutated an orphan nothing persists, so the edit looked applied in
+  the field and was silently lost. Each write now resolves the live profile
+  instead of a captured one. Because the editor has no Save button, fields also
+  commit on blur, so leaving a field is always a durable save rather than
+  relying on the last keystroke's in-flight write.
+
 ## [0.42.0] - 2026-08-04
 ### Added
 - **`setup.sh` Provisions The `wiki` Alias**
