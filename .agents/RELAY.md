@@ -73,7 +73,44 @@ correct and is now pinned by regression tests rather than "fixed".
   unmeasured and needs in-plugin instrumentation. Repo rule is benchmark-first,
   accept only on measured speedup with no quality regression.
 
+## Update (2026-08-04 10:55) — metadata removed, perf measured and closed
+
+Both follow-ups landed on the SAME branch per user instruction:
+
+1. **Package metadata is gone from version checking.** The user was right that
+   the contract is manifest-only. `commands/plugin.py:71` seeds
+   `build["backend_version"]` unconditionally before overlaying the manifest, so
+   `build.backend_version` is always present and the fallback I had left was
+   dead code that reintroduced the metadata dependency. The client now reads
+   `build.backend_version` only; an absent value reports "did not report a build
+   identity" rather than guessing, and an empty expectation in our own bundle
+   claims no mismatch. Two pre-existing tests encoded the old metadata behavior
+   and were updated to send real-shaped payloads; two new cases pin the field
+   scenario (stale 0.4.3 metadata alongside correct build identity).
+
+2. **Perf: measured, and the bottleneck is NOT Incurator.** `agy --print` costs
+   8.2–12.2 s for a one-word answer and is flat across model and effort, while
+   the CLI binary starts in 0.29 s, an Incurator backend round-trip is 0.20 s,
+   and a warm local Ollama round-trip is 0.26–0.32 s. So it is the Antigravity
+   service handshake. The PDF reference-fetch optimization was therefore
+   REJECTED: it is ≤0.6 s of a ~13 s action, and `pdfReferenceContext.test.ts:80`
+   proves the common case already issues one fetch, so batching would quadruple
+   backend work on the common path to help only the rare one. Neither slow path
+   makes a redundant provider call (CLI providers get no local tools;
+   Convert-to-LaTeX resolves straight to `vision_model`). Shipped instead:
+   elapsed-time feedback in the popover (PLUGIN_SCHEMA §1.4.3), because a frozen
+   "Thinking…" for 8–12 s is indistinguishable from a hang — the exact ambiguity
+   that made a real crash read as slowness earlier today. The remaining lever is
+   provider choice (~30× gap), not code.
+
+Gates after these changes: plugin Vitest 867/867 across 79 files, tsc clean,
+production build clean, Ruff clean, spec/version sync 10/10. Backend pytest was
+still running at write time.
+
 ## Immediate Next Action
 
-Await the PR #111 merge. Then instrument the popover and Convert-to-LaTeX paths
-to split plugin/backend/provider time, and only then propose the optimization.
+Push the metadata + perf work to PR #111 and verify CI. Then, per the user's
+sequencing, resume the Arena system-defect diagnosis
+(`.agents/plans/system_defect_audit_arena/`) — two prior runs died on provider
+usage limits, so restart it lean (targeted spec line ranges, tool-call budgets)
+and expect to author the consolidated ROADMAP 1+2 plan from its output.

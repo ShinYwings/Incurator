@@ -129,6 +129,13 @@ export class QuickQueryPopover {
   private childPopovers = new Set<QuickQueryPopover>();
   private onPopoverRemoved: ((popover: QuickQueryPopover) => void) | null = null;
   private requestAbortController: AbortController | null = null;
+  /** Ticks the elapsed-seconds readout while the provider is working. A
+   *  CLI-backed provider round-trip measures 8-12s even for a one-word answer
+   *  (the cost is the provider service handshake, not inference), and
+   *  `agy --print` cannot stream, so a static "Thinking…" is indistinguishable
+   *  from a hang for the whole wait. The sidebar already shows elapsed time;
+   *  this gives the popover the same signal. */
+  private thinkingTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(plugin: ObsidianAIAgent) {
     this.plugin = plugin;
@@ -461,10 +468,11 @@ export class QuickQueryPopover {
     const requestController = new AbortController();
     this.requestAbortController = requestController;
     answerEl.empty();
-    answerEl.createSpan({
+    const loadingEl = answerEl.createSpan({
       cls: "ai-agent-quick-query-loading",
       text: "⏳ Thinking…",
     });
+    this.startThinkingTimer(loadingEl);
 
     const activeContext = this.plugin.refreshActiveContext();
     // Async cross-page resolution: fetch any pages not yet in the window before
@@ -505,11 +513,16 @@ export class QuickQueryPopover {
             if (chunk.text) raw += chunk.text;
             if (!this.popoverEl) return;
             const display = stripThinkingForDisplay(raw);
+            // Until the first real text arrives keep the ticking readout rather
+            // than replacing it with a frozen label — a CLI provider delivers
+            // nothing at all until the whole answer is ready.
+            if (!display) return;
+            this.stopThinkingTimer();
             answerEl.empty();
             // Plain text during streaming; markdown render once finished.
             answerEl.createEl("div", {
               cls: "ai-agent-quick-query-stream",
-              text: display || "⏳ Thinking…",
+              text: display,
             });
           },
           // Tool isolation (v0.19.0): the popover is an ephemeral, read-only
@@ -526,6 +539,7 @@ export class QuickQueryPopover {
       }
     } catch (err: unknown) {
       this.isProcessing = false;
+      this.stopThinkingTimer();
       if (!this.popoverEl) return;
       answerEl.empty();
       answerEl.createSpan({
@@ -543,6 +557,7 @@ export class QuickQueryPopover {
     }
 
     this.isProcessing = false;
+    this.stopThinkingTimer();
     if (!this.popoverEl) return;
 
     const finalText = normalizeLatexDelimiters(stripThinkingForDisplay(raw));
@@ -584,8 +599,31 @@ export class QuickQueryPopover {
     inputRow.show();
   }
 
+  private startThinkingTimer(target: HTMLElement): void {
+    this.stopThinkingTimer();
+    const startedAt = Date.now();
+    const tick = () => {
+      if (!this.popoverEl) {
+        this.stopThinkingTimer();
+        return;
+      }
+      const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+      target.setText(elapsed > 0 ? `⏳ Thinking… (${elapsed}s)` : "⏳ Thinking…");
+    };
+    tick();
+    this.thinkingTimer = setInterval(tick, 1000);
+  }
+
+  private stopThinkingTimer(): void {
+    if (this.thinkingTimer !== null) {
+      clearInterval(this.thinkingTimer);
+      this.thinkingTimer = null;
+    }
+  }
+
   private removePopover(): void {
     const hadPopover = Boolean(this.popoverEl);
+    this.stopThinkingTimer();
     this.detachDragListeners();
     if (this.popoverKeyHandler) {
       this.activeDoc.removeEventListener("keydown", this.popoverKeyHandler, true);

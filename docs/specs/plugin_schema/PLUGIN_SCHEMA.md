@@ -299,6 +299,24 @@ instance built from the previous bundle.
   unguarded cast takes down the context pins, sidechat Send, and the Quick
   Query popover together.
 
+#### 1.4.3 Long provider waits must show progress (v0.42.0)
+
+A CLI-backed provider round-trip is dominated by the provider service
+handshake, not by inference: measured on a development machine, `agy --print`
+takes 8.2–12.2 s for a one-word answer regardless of model or effort, while the
+CLI binary itself starts in 0.29 s and an Incurator backend round-trip is
+0.20 s. `--print` also cannot stream — nothing arrives until the whole answer
+is ready.
+
+- Any surface that awaits a provider turn MUST show a progressing indicator
+  (elapsed seconds), not a static label. A frozen "Thinking…" is
+  indistinguishable from a hang for the entire wait, and that ambiguity has
+  already caused a real crash to be misread as slowness.
+- A streaming callback MUST NOT overwrite the progressing indicator with static
+  text while it has no content to show.
+- The indicator MUST stop on success, on error, and on surface teardown, and
+  MUST stop ticking once its surface is gone.
+
 #### 1.4.2 Page canvases are exclusive to one render task (v0.41.1)
 
 External PDF page canvases are reused across zoom, scroll, and document swaps.

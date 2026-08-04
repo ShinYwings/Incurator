@@ -22,7 +22,46 @@ cause. Required before any change:
 2. Only then propose changes, and accept them only with a measured speedup and
    no answer-quality regression.
 
-**First measurements taken 2026-08-04 10:45 (backend side only):**
+**RESOLVED / CLOSED 2026-08-04 10:55 — measured, and the bottleneck is not ours.**
+
+Full measurement on this machine:
+
+| Path | Wall clock |
+|---|---|
+| Ollama local model, warm | 0.26–0.32 s |
+| Incurator backend round-trip | 0.20 s |
+| `agy` CLI binary startup (`--version`) | 0.29 s |
+| **`agy --print` full call, one-word answer** | **8.2–12.2 s** |
+
+`gemini-3.1-pro` at effort `low` took 12.17 s and at effort `high` took 8.52 s;
+`gemini-3.6-flash` at `low` took 8.18 s. Latency is therefore **independent of
+model and effort** — for a two-token reply it cannot be inference. Since the CLI
+binary itself starts in 0.29 s, it is not process startup either. It is the
+Antigravity **service** handshake, which Incurator cannot shorten.
+
+Consequences, and what was and was NOT changed:
+
+- **PDF reference-fetch optimization: rejected.** Even the worst case (~8–10
+  sequential round-trips ≈ 2 s) is a minority of a ~13 s action, and the
+  existing tests at `pdfReferenceContext.test.ts:80` prove the common case
+  already issues exactly ONE fetch — batching would have made the *common* path
+  do 4× the backend work to speed up only the rare path. Correctness risk with
+  no meaningful payoff.
+- **Neither slow path makes a redundant provider call.** Verified:
+  `shouldInjectLocalTools` returns false for CLI providers, so the popover's
+  v0.41.0 `local-only` policy adds no tool round-trip for this user; and with
+  `latex_extract_model` empty, Convert-to-LaTeX resolves straight to
+  `vision_model` — one invocation.
+- **Shipped instead: perceived latency.** The popover now ticks elapsed seconds
+  (PLUGIN_SCHEMA §1.4.3). A frozen "Thinking…" for 8–12 s is indistinguishable
+  from a hang — that exact ambiguity made a real crash read as slowness earlier
+  in this session.
+- **Real remaining lever is provider choice, not code.** A warm local Ollama
+  round-trip is ~0.3 s against `agy`'s 8–12 s. If these surfaces need to feel
+  fast, point them at a local or direct-API provider; no amount of Incurator
+  optimization closes a 30× gap.
+
+**Original first measurements (backend side only):**
 
 - One backend round-trip costs **~0.20 s** wall-clock, warm
   (`wiki plugin version` 0.30/0.20/0.20 s; `wiki plugin pdf context` for a real

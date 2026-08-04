@@ -966,10 +966,16 @@ Build identity is read from the packaged build manifest, never from installed
 package metadata. `wiki plugin version` returns both, and they can legitimately
 disagree: an editable install freezes `importlib.metadata` at the version it was
 first installed at while continuing to execute current repository code. Clients
-comparing versions MUST gate on `build.backend_version` and may use the
-top-level `version` only to explain a divergence. A mismatch message MUST name
-the backend launcher that answered, so "this install is out of date" is
-distinguishable from "you are talking to a different install entirely".
+comparing versions MUST gate on `build.backend_version` and MUST NOT consult the
+top-level `version` at all — not as a gate and not as a fallback. The backend
+seeds `build.backend_version` unconditionally before overlaying the manifest, so
+the field is always populated by any backend that reports `build`; an absent
+value therefore means the backend is too old to state its identity, which is
+itself what must be reported rather than papered over with metadata. A mismatch
+message MUST name the backend launcher that answered, so "this install is out of
+date" is distinguishable from "you are talking to a different install entirely".
+When the client's own bundled manifest states no expectation, no mismatch is
+claimed.
 
 The plugin resolves its backend launcher explicitly and MUST NOT fall back to
 the bare name `wiki`: it would be resolved against the Obsidian process PATH,

@@ -22,29 +22,31 @@ describe("backend version identity", () => {
   it("gates on build.backend_version, not installed package metadata", () => {
     const src = clientSource();
     expect(src).toContain('readString(record.build, "backend_version")');
-    // The pre-v0.42.0 shape assigned the metadata version unconditionally,
-    // before any build-manifest value was consulted. That exact shape must be
-    // gone; the metadata version may now only inform the message.
-    expect(src).not.toMatch(
-      /const version = record\.version;\s*\n\s*if \(typeof version === "string"\) \{\s*\n\s*this\.backendVersion = version;/
-    );
   });
 
-  it("falls back to the metadata version only when no build manifest is present", () => {
+  it("never reads installed package metadata at all", () => {
     const src = clientSource();
-    expect(src).toContain("if (buildVersion) {");
-    expect(src).toContain('} else if (typeof version === "string") {');
+    // `record.version` is the metadata-derived field. The check must not touch
+    // it — not as a gate, and not as a fallback: the backend already seeds
+    // `build.backend_version` unconditionally, so a fallback here would only
+    // reintroduce the dependency this release removed.
+    expect(src).not.toContain("record.version");
+  });
+
+  it("reports an absent build identity instead of guessing one", () => {
+    const src = clientSource();
+    expect(src).toContain("did not report a build identity");
+  });
+
+  it("does not claim a mismatch when our own bundle states no expectation", () => {
+    const src = clientSource();
+    expect(src).toContain("if (!expectedBackendVersion) {");
   });
 
   it("names the backend launcher that actually answered", () => {
     const src = clientSource();
     expect(src).toContain("backendCommandLabel");
     expect(src).toContain("from ${this.backendCommandLabel}");
-  });
-
-  it("explains a metadata/build divergence instead of leaving it mysterious", () => {
-    const src = clientSource();
-    expect(src).toContain("stale metadata, not stale code");
   });
 
   it("populates the launcher label from the resolved command", () => {
