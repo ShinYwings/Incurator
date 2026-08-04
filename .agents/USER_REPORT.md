@@ -6,6 +6,41 @@ Agents must check this document and triage the received items into the `To-Do (Q
 
 ## 📝 User Inbox
 
+### 2026-08-04 — [HOTFIX v0.42.1] Zotero import profile edits lost after the first keystroke
+
+User report: edited a Zotero import profile's template path from
+`00_System/Templates/Zotero/book_template.md` to `paper_template.md`; it saved
+as `00_System/Templates/Zotero/boo_template.md`. There is no Save button, so the
+user simply left the field after editing.
+
+**Root cause (verified, reproduced by test).** `boo_template.md` is `book…`
+minus exactly one character — the value after a single backspace. Only the FIRST
+keystroke of an editing session was ever persisted:
+
+- `plugin/main.ts` `saveZoteroProfiles()` ends with
+  `this.settings.zoteroProfiles = store.profiles`, replacing the array AND its
+  objects with ones re-read from the merged on-disk store.
+- `plugin/src/settings.ts` `renderZoteroProfile()` captured
+  `const profile = this.plugin.settings.zoteroProfiles[index]` ONCE at render
+  time and every field setter mutated that captured object.
+- So the first keystroke's `saveSettings()` detached the captured reference;
+  every later keystroke mutated an orphan nothing persists. The field still
+  showed the typed text, so the loss was invisible until reopening settings.
+
+Why the user's other 14 profiles are undamaged: the import **wizard**
+(`zoteroWizardModal.ts:462`) writes `templatePath` in one shot when saving a
+profile, so wizard-created profiles were never affected. Only edits made in the
+settings tab were. Scanned `second_brain/.curator/zotero_profiles.json`: all 14
+profiles currently read `paper_template.md`, no corruption remains, so no data
+migration is needed.
+
+**Fix (shipped in v0.42.1):** every field write resolves the live profile by
+index at write time instead of using a captured reference, and — since the
+editor has no Save button — each field also commits on blur, so leaving a field
+is a durable save rather than relying on the last keystroke's in-flight write.
+Contract recorded in PLUGIN_SCHEMA §2.1.1; both plugin guides note the fix and
+tell users who edited profiles on an earlier version to re-check their values.
+
 ### 2026-08-04 — [perf] Quick Query popover answers and Convert-to-LaTeX are too slow
 
 User report: both the popover's answer latency and the right-click

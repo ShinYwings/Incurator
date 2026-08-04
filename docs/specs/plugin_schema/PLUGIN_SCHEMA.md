@@ -715,6 +715,17 @@ the top without manual re-selection. Sorting operates on a copy
 (`sortProfilesByRecency`); the persisted `zoteroProfiles` insertion order is not
 mutated by rendering.
 
+**Profile editing must write through to the live stored profile (v0.42.1).**
+Persisting profiles replaces `settings.zoteroProfiles` with objects re-read from
+the merged on-disk store, so any object reference captured when the editor was
+rendered is detached as soon as the first edit saves. A settings editor
+therefore MUST resolve the profile it mutates at write time (by index into the
+current `settings.zoteroProfiles`) rather than holding a captured reference;
+writing to a stale reference silently discards every edit after the first while
+still showing the typed value in the field. The profile editor exposes no Save
+button, so each field MUST also commit on blur — `onChange` alone leaves the
+final keystroke's write racing the store swap.
+
 Successful Zotero note imports MUST stamp the originating profile name into note
 frontmatter as `zotero_profile`. The reload command MUST prefer the matching
 profile by that stamp for template rendering and annotation asset localization,

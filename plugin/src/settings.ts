@@ -6,6 +6,7 @@ import {
   type MCPServerConfig,
   type ClaudeEffort,
   type CodexReasoningEffort,
+  type ZoteroImportProfile,
   DEFAULT_SETTINGS,
   getDefaultModel,
   getModelOption,
@@ -827,30 +828,57 @@ export class AIAgentSettingTab extends PluginSettingTab {
     // ── Expanded fields ───────────────────────────────────────────
     const body = details.createDiv({ attr: { style: "padding: 0 14px 10px;" } });
 
-    const field = (name: string, desc: string, get: () => string, set: (v: string) => void, wide = false) => {
+    // `saveSettings()` → `saveZoteroProfiles()` assigns
+    // `settings.zoteroProfiles = store.profiles`, i.e. objects re-read from the
+    // merged on-disk store. A profile reference captured at render time is
+    // therefore DETACHED the moment the first keystroke saves, and every later
+    // keystroke would mutate an orphan that nothing persists — the edit appears
+    // to stick in the UI and is silently lost. Resolve the live element on each
+    // write instead. The merge preserves local order (it appends remote-only
+    // profiles), so the index stays valid for the profile being edited.
+    const liveProfile = (): ZoteroImportProfile | undefined =>
+      this.plugin.settings.zoteroProfiles[index];
+
+    const field = (
+      name: string,
+      desc: string,
+      get: (p: ZoteroImportProfile) => string,
+      set: (p: ZoteroImportProfile, v: string) => void,
+      wide = false
+    ) => {
       const s = new Setting(body).setName(name);
       if (desc) s.setDesc(desc);
       s.addText(text => {
         if (wide) text.inputEl.style.width = "100%";
-        text.setValue(get()).onChange(async val => {
-          set(val);
+        const commit = async (val: string) => {
+          const target = liveProfile();
+          if (!target) return;
+          set(target, val);
           await this.plugin.saveSettings();
+        };
+        text.setValue(get(profile)).onChange(commit);
+        // There is no Save button: the user edits and leaves. `onChange` carries
+        // the FULL field value, so a lost save self-heals on the next keystroke —
+        // except for the last one, which has nothing after it. Commit on blur so
+        // leaving the field is always a durable save.
+        text.inputEl.addEventListener("blur", () => {
+          void commit(text.inputEl.value);
         });
       });
     };
 
-    field("Profile Name", "", () => profile.name, v => { profile.name = v; summaryLeft.setText(v || `Profile ${index + 1}`); }, true);
-    field("Template Path", "e.g. 00_System/Templates/Zotero/paper_template.md", () => profile.templatePath, v => profile.templatePath = v, true);
-    field("Bibliography Style", "CSL style name installed in Zotero", () => profile.bibliographyStyle || "", v => profile.bibliographyStyle = v, true);
+    field("Profile Name", "", p => p.name, (p, v) => { p.name = v; summaryLeft.setText(v || `Profile ${index + 1}`); }, true);
+    field("Template Path", "e.g. 00_System/Templates/Zotero/paper_template.md", p => p.templatePath, (p, v) => { p.templatePath = v; }, true);
+    field("Bibliography Style", "CSL style name installed in Zotero", p => p.bibliographyStyle || "", (p, v) => { p.bibliographyStyle = v; }, true);
 
     body.createEl("p", { text: "Output (Note)", attr: { style: "margin: 12px 0 2px; font-size: var(--font-ui-small); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;" } });
-    field("Base Folder", "e.g. 03_Notes/Papers", () => profile.outputFolder, v => profile.outputFolder = v, true);
-    field("Subfolder", "Supports {{citekey}}, {{title}}, etc.", () => profile.outputSubfolder || "", v => profile.outputSubfolder = v, true);
-    field("Filename", "Without .md. e.g. {{title}}", () => profile.outputFilename || "{{title}}", v => profile.outputFilename = v, true);
+    field("Base Folder", "e.g. 03_Notes/Papers", p => p.outputFolder, (p, v) => { p.outputFolder = v; }, true);
+    field("Subfolder", "Supports {{citekey}}, {{title}}, etc.", p => p.outputSubfolder || "", (p, v) => { p.outputSubfolder = v; }, true);
+    field("Filename", "Without .md. e.g. {{title}}", p => p.outputFilename || "{{title}}", (p, v) => { p.outputFilename = v; }, true);
 
     body.createEl("p", { text: "Assets (PDF Images)", attr: { style: "margin: 12px 0 2px; font-size: var(--font-ui-small); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;" } });
-    field("Base Folder", "e.g. 05_Assets", () => profile.assetFolder || "", v => profile.assetFolder = v, true);
-    field("Subfolder", "Supports {{citekey}}, {{title}}, etc.", () => profile.assetSubfolder || "", v => profile.assetSubfolder = v, true);
+    field("Base Folder", "e.g. 05_Assets", p => p.assetFolder || "", (p, v) => { p.assetFolder = v; }, true);
+    field("Subfolder", "Supports {{citekey}}, {{title}}, etc.", p => p.assetSubfolder || "", (p, v) => { p.assetSubfolder = v; }, true);
   }
 
   private renderMCPServer(containerEl: HTMLElement, index: number): void {

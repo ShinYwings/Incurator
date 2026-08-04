@@ -1305,6 +1305,13 @@ failures so repair logic stays in one UI path.
 
 Leaving the `Import Zotero Item` search box blank shows recently modified Zotero items ordered by `dateModified`. The Zotero directory setting may contain multiple comma-separated data directories; the plugin checks each path's `zotero.sqlite` in order.
 
+Editing a saved profile in **Settings → Zotero Import Profiles** has no Save
+button: fields save as you type and again when you leave the field, so changing
+a value and clicking away is enough. (Before v0.42.1 only the first typed
+character was actually persisted — a template path edited from
+`book_template.md` to `paper_template.md` could be stored as `boo_template.md`.
+If you edited a profile on an earlier version, re-check its values.)
+
 When the import wizard opens and saved profiles exist, the **most recently used
 profile is loaded automatically** and the Import Profile dropdown lists profiles
 most-recently-used first (v0.21.0), so the profile you are actively working with
