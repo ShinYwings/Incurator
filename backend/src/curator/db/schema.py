@@ -37,9 +37,11 @@ MERGE_DECISION_CODES = frozenset({"proposed", "accepted", "rejected", "reversed"
 # §21.6). There is DELIBERATELY no `duplicate_proposition`: a relation's identity
 # IS its canonical proposition, so re-assertion AGGREGATES support (§21.5) rather
 # than creating a duplicate row to quarantine. The support-side outcome is a total
-# partition by independent-source-lineage count (0 -> unsupported, exactly 1 ->
-# copied_source_only, >=2 -> active), plus the structural reasons self_loop,
-# contradiction, bridge_risk, and endpoint_unresolved.
+# partition by independent-source-lineage count (0 -> unsupported, >=1 -> active),
+# plus the structural reasons self_loop, contradiction, bridge_risk, and
+# endpoint_unresolved. `copied_source_only` is RETIRED as an outcome (v0.43.0, see
+# _RELATION_CORROBORATION_THRESHOLD) and kept only so historical rows remain
+# decodable and re-evaluable.
 QUARANTINE_REASON_CODES = frozenset(
     {
         "unsupported",
@@ -62,10 +64,43 @@ _QUARANTINE_REEVAL_TRIGGERS = {
     "bridge_risk": "topology_corroborated",
     "endpoint_unresolved": "endpoint_resolved",
 }
-# Corroboration threshold (§21.5/§27.2): a relation is `active` only with >=2
-# DISTINCT verified source lineages. Exactly 1 is a single uncorroborated source
-# (copied_source_only); 0 is unsupported.
-_RELATION_CORROBORATION_THRESHOLD = 2
+# Corroboration threshold (§21.5/§27.2): a relation is `active` with >=1 DISTINCT
+# verified source lineage; 0 is unsupported.
+#
+# This was 2 until v0.43.0, which made the graph unusable for the product's own
+# use case. `source_lineage_hash` ALREADY collapses copied/duplicated/forked
+# sources to one lineage, so the distinct-lineage count is by construction the
+# number of genuinely independent sources. Requiring two of them therefore did
+# not exclude fraud — it excluded any fact that only one paper states, which in a
+# personal research vault of distinct papers is nearly every fact. Measured on a
+# real 37-source vault: 717 of 722 relations quarantined as `copied_source_only`
+# (all with exactly 1 lineage), leaving 5 active relations, 6 community reports,
+# and 3 synthesis nodes — so L3/L4 reported `skipped` for 34 of 37 sources.
+#
+# That contradicts the stated philosophy (docs/philosophy/about.md): a Permanent
+# Note is "a SINGLE idea as an independent Atom", and the value is *linking* such
+# notes across distinct sources. Corroboration is a useful ranking signal, not an
+# admission gate. `copied_source_only` is retained in QUARANTINE_REASON_CODES for
+# historical rows and re-evaluation, but is no longer produced.
+#
+# WHY `copied_source_only` IS RETIRED OUTRIGHT rather than re-scoped to "several
+# support rows collapsing to one lineage": that shape is not evidence of fraud.
+# `source_lineage_hash` is source-file-grained (it is the source's content hash,
+# pipeline/compile.py), so "N rows, 1 lineage" is exactly what ordinary
+# restatement of the same claim within ONE paper produces. Flagging it would
+# quarantine legitimate single-paper repetition while catching nothing a
+# lineage-deduplicated count does not already handle. The row-count-inflation
+# attack the Arena actually mandated defending against ("0 copied-source rows
+# counted as independent support") is defeated by the lineage dedup itself, at
+# any threshold.
+#
+# Retiring it as an outcome is also what keeps the support-side partition TOTAL
+# and DISJOINT at >=1. Commit ba4b2a3 raised the threshold to 2 precisely because
+# a 1-lineage relation then satisfied both `active` and `copied_source_only`;
+# with only `unsupported` (0) and `active` (>=1) producible, that ambiguity
+# cannot recur. Do not reintroduce `copied_source_only` as a live outcome without
+# re-deriving that partition.
+_RELATION_CORROBORATION_THRESHOLD = 1
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (

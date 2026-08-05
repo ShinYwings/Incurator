@@ -1163,9 +1163,10 @@ def upsert_graph_relation_support(
     (SCHEMA §21.5). The PK ``(relation_id, knowledge_unit_id, support_hash)``
     dedups the SAME unit re-citing the SAME spans — so an idempotent recompile
     leaves the support count unchanged — while ``source_lineage_hash`` is the
-    INDEPENDENCE key: a relation reaches the ``active`` floor only with **≥2
-    DISTINCT** ``verified`` lineages (§27.2). Copied/forked sources share a
-    lineage and therefore count once. Returns the row's ``support_hash``. Pass
+    INDEPENDENCE key: a relation reaches the ``active`` floor with **≥1
+    DISTINCT** ``verified`` lineage (§27.2; only 0 is ``unsupported``).
+    Copied/forked sources share a lineage and therefore count once, which is why
+    one lineage means one genuine source rather than a duplicate. Returns the row's ``support_hash``. Pass
     ``conn`` to run inside the caller's atomic publish transaction (§27.8)."""
     if support_status not in SUPPORT_STATUSES:
         raise ValueError(f"invalid support_status: {support_status!r}")
@@ -1629,8 +1630,11 @@ def compile_relation_lifecycle(
     5. Edge-class proof: an authored relation is active only under its current
        authoritative source generation; extracted support corroboration counts
        DISTINCT ``verified`` source lineages (§21.5): ``0`` -> ``unsupported``;
-       exactly ``1`` -> ``copied_source_only``; ``>=2`` -> ``active``. There is
-       no ``duplicate_proposition`` outcome — re-assertion aggregates support.
+       ``>=1`` -> ``active``. There is no ``duplicate_proposition`` outcome —
+       re-assertion aggregates support — and since v0.43.0 no
+       ``copied_source_only`` outcome either: the lineage hash already collapses
+       copied sources, so a single lineage means one genuine source, which is a
+       normal Zettelkasten fact rather than something to exclude.
 
     Pass a precomputed ``bridge_risk_ids`` set (from one
     :func:`detect_bridge_risk_relations` pass) when compiling a whole generation so
@@ -1778,10 +1782,8 @@ def _classify_relation_lifecycle(
         "WHERE relation_id = ? AND support_status = 'verified'",
         (relation_id,),
     ).fetchone()[0]
-    if distinct_lineages == 0:
-        return "quarantined", "unsupported"
     if distinct_lineages < _RELATION_CORROBORATION_THRESHOLD:
-        return "quarantined", "copied_source_only"
+        return "quarantined", "unsupported"
     return "active", ""
 
 
@@ -2352,8 +2354,8 @@ def reconcile_source_change(
        (this source's removed spans) are marked ``stale`` — their source basis
        disappeared.
     2. :func:`rebuild_graph_generation` recompiles lifecycle, so a relation dropping
-       below the §21.5 corroboration floor (>=2 independent verified source
-       lineages) leaves the ``active`` set, the communities whose active
+       below the §21.5 corroboration floor (>=1 independent verified source
+       lineage) leaves the ``active`` set, the communities whose active
        membership/support changed retire, and dependent reports regenerate or
        retire.
 
@@ -2469,8 +2471,9 @@ def graph_audit(
     ``detail``. The enforced invariants:
 
     1. ``active_relation_insufficient_support`` — an ``active`` extracted
-       relation backed by fewer than 2 distinct ``verified`` source lineages
-       (below the §21.5 corroboration floor).
+       relation backed by zero distinct ``verified`` source lineages (below the
+       §21.5 corroboration floor, which is >=1 since v0.43.0). The check reads
+       ``_RELATION_CORROBORATION_THRESHOLD`` rather than a literal.
        ``active_authored_relation_stale_generation`` — an authored relation not
        owned by a current authoritative source generation (§27.3.1).
     2. ``reference_to_redirected_entity`` / ``endpoint_not_canonical`` — an

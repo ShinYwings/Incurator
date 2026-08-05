@@ -178,8 +178,9 @@ def persist_graph_data(
     row per asserting knowledge unit, keyed by the source's lineage (§27.2). A
     relation is mapped to its asserting unit by span intersection — never by a
     broad all-span fallback (SYSTEM_BEHAVIOR §27.2). One source contributes exactly one independent
-    lineage, so a relation reaches the ``active`` floor only once a SECOND
-    independent source corroborates the same proposition (§27.2 ≥2 lineages)."""
+    lineage, which is already enough to reach the ``active`` floor (§27.2:
+    >=1 lineage; only 0 is ``unsupported``). Further independent sources add
+    corroboration as a confidence signal rather than an admission gate."""
     name_to_id: dict[str, str] = {}
     relation_ids: list[str] = []
     for entity, trace_id in data.entities:

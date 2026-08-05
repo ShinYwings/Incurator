@@ -590,14 +590,19 @@ What this means in practice:
 - **Extracted support is counted honestly**: a relationship backed by ten
   copies of the same source counts as one independent confirmation, not ten.
   Re-running a build accumulates genuine support instead of overwriting it.
-- **Community reports need corroboration (≥2 independent sources)**: an
+- **One independent source is enough to build knowledge (v0.43.0)**: an
   extracted relationship becomes *active* — eligible to ground a community
-  report — only once **two genuinely independent sources** assert it. A claim found in just one
-  source (however many times it is re-stated there) stays uncorroborated and does
-  not yet build a community. In practice this means a vault with a single source
-  per topic produces few or no community reports until a second independent source
-  corroborates the same relationships; this is intentional — Plan C reports are
-  grounded only on cross-source–confirmed facts.
+  report — once **at least one** genuinely independent source asserts it. Only a
+  relationship with **no** verified support stays quarantined as `unsupported`.
+  So a vault of distinct papers, where each fact is stated by exactly one of
+  them, builds concepts and reports normally.
+
+  Before v0.43.0 this required **two** independent sources. Because the lineage
+  hash already collapses copies (above), that rule excluded no duplicates — it
+  excluded every fact only one paper states, which in a personal research vault
+  is nearly every fact, leaving the graph almost entirely quarantined and L3/L4
+  empty. Corroboration is now a confidence signal on top of an active
+  relationship rather than the gate that admits it.
 - **Authored structure is not a factual citation**: active authored edges can
   connect graph neighborhoods, but only independently supported extracted
   relations can ground community-report facts. An authored-only component does

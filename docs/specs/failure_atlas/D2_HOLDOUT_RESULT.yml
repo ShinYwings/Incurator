@@ -317,6 +317,26 @@ evaluated_code:
       chunking, and materialize_chunks are unchanged. The consumed holdout
       cannot be rerun after run_count=3; the hash below re-arms the existing
       drift tripwire.
+  v0430_corroboration_threshold_rearm:
+    date: '2026-08-05'
+    prior_schema_sha256: 8df87784f5d998cf3a7d682b7702135f81b49b11e8872e5215c8e3932be53961
+    prior_entities_sha256: 9239e698a4e1f034694a78b17023f9f1cdf90f7983bbb88cfb24a44c95f80a2d
+    reason: v0.43.0 lowers _RELATION_CORROBORATION_THRESHOLD from 2 to 1 in
+      db/schema.py and simplifies the support branch of
+      _classify_relation_lifecycle in db/_entities.py accordingly. Both edits are
+      confined to GRAPH RELATION lifecycle classification. The frozen Q06 holdout
+      is DB-native lexical FTS5/BM25 with rerank false, providers none, and no
+      model judges; its harness seeds sources, source_spans, and search_documents
+      directly, then calls materialize_chunks and lexical HybridEngine ranking.
+      It never constructs graph relations, never calls compile_relation_lifecycle
+      or rebuild_graph_generation, and never reads lifecycle_status or
+      quarantine_reason. Q06 documents, FTS ranking, chunking, citations, and
+      metric inputs are therefore provably unchanged. The consumed holdout cannot
+      be rerun after run_count=3; these hashes re-arm the existing drift tripwire
+      without claiming a new holdout result. A follow-up review pass added
+      explanatory comments only (no logic change) to db/schema.py and doc
+      wording to db/_entities.py; the hashes below cover that same edit and the
+      non-impact argument is unchanged.
   v0391_source_lifecycle_rearm:
     date: '2026-07-30'
     prior_entities_sha256: b96d9818e1eb75084fe2d36caa2092c488a0b46a72f8193a0b910fc8ac4323db
@@ -371,8 +391,8 @@ evaluated_code:
     backend/src/curator/retrieval/embedding.py: 0829ac7c7a870879b3f164687cf21a22e347e508bfdba15a4430b2e8b11e3db1
     backend/src/curator/retrieval/chunking.py: 8c45af7ba7457f5930fc05c0a3f0de10eb6cc424c4b70b722510dd2decd59255
     backend/src/curator/db/__init__.py: 9d9b18355372e1f77534aef353a07c3ee1f3e9ce3413ffec7d8030da86a4a16c
-    backend/src/curator/db/schema.py: 8df87784f5d998cf3a7d682b7702135f81b49b11e8872e5215c8e3932be53961
-    backend/src/curator/db/_entities.py: 9239e698a4e1f034694a78b17023f9f1cdf90f7983bbb88cfb24a44c95f80a2d
+    backend/src/curator/db/schema.py: c4d16ac42cf24d75ef8032f2392b9129c3229d46534a985f966965f940455be8
+    backend/src/curator/db/_entities.py: f16c661f4d5cc2fa767895707085823529e6a9ef3ce8d7557d686b7f5835fe28
     backend/src/curator/db/jobs.py: 33d772f0709c3b549b40f29dac7028edee58c882c06dc6e7f38706bd71e9b320
     backend/src/curator/db/sources.py: 5c1d0fa49c77693dfed742ab376f42b51eee7a2d51f6c460d74550f3c8f9891e
   preflight_family_metrics:

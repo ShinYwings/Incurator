@@ -1035,9 +1035,9 @@ def compile_global_l3(
     over canonical entities, fill each served report with LLM prose, and emit CON
     pages.
 
-    A relation grounds a report only once **≥2 independent sources** corroborate it
-    (§27.2); a single uncorroborated source produces no community report — there is
-    no broad community-span fallback (SYSTEM_BEHAVIOR §27.5). The deterministic
+    A relation grounds a report once **≥1 independent source** asserts it (§27.2);
+    only a relation with no verified support is excluded. There is still no broad
+    community-span fallback (SYSTEM_BEHAVIOR §27.5). The deterministic
     ``db.rebuild_graph_generation`` builds the report identity + grounding and
     retires stale communities BEFORE this prose pass / synthesis consume them.
 

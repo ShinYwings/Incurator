@@ -10,14 +10,14 @@ message.
 Adversarial fixtures covered (plan P2 list):
   * self-loop -> quarantined ``self_loop``;
   * unsupported edge -> quarantined ``unsupported``;
-  * copied-source-only support -> quarantined ``copied_source_only`` (independence
-    is by source lineage, not row count; exactly 1 distinct lineage is 1 < 2
-    corroboration);
+  * single-lineage support -> ``active`` since v0.43.0 (independence is by source
+    lineage, not row count, and the lineage hash already collapses copies, so
+    exactly 1 distinct lineage means one genuine source);
   * unresolved endpoint (relation pointing at a redirected entity) ->
     quarantined ``endpoint_unresolved``;
-  * a canonical-endpoint edge with >=2 independent source lineages -> ``active``
-    (the §27.2 corroboration threshold that makes ``active`` and
-    ``copied_source_only`` mutually exclusive);
+  * a canonical-endpoint edge with >=1 independent source lineage -> ``active``
+    (the §27.2 corroboration threshold; only 0 lineages is ``unsupported``, so
+    the support-side partition is total and disjoint);
   * noisy bridge (single low-confidence edge joining two dense components) ->
     ``bridge_risk``; a low-confidence edge INSIDE a dense cluster is NOT flagged
     (topology, not a raw-confidence filter);
@@ -135,15 +135,21 @@ def test_unsupported_relation_is_quarantined(vault: Path) -> None:
     )
 
 
-def test_copied_source_only_relation_is_quarantined(vault: Path) -> None:
-    """Two verified supports that share ONE source_lineage_hash give an
-    independent-lineage count of exactly 1 — a single, uncorroborated source.
-    That is BELOW the §27.2 corroboration threshold (active requires ≥2 distinct
-    source lineages), so the edge quarantines as copied_source_only rather than
-    going active (§27.2 independence by lineage, §27.3 lifecycle). The
-    distinguishing assertion below pins that 1 < 2: contrast
-    test_fully_supported_canonical_edge_is_active, which supplies 2 distinct
-    lineages and DOES go active."""
+def test_single_source_lineage_relation_is_active(vault: Path) -> None:
+    """v0.43.0: two verified supports sharing ONE source_lineage_hash give an
+    independent-lineage count of exactly 1 — one genuine source asserting the
+    proposition — and that is now ACTIVE.
+
+    The lineage hash already collapses copied/forked sources to one lineage, so a
+    count of 1 means "one real source", not "a duplicate faking corroboration".
+    Requiring 2 excluded every fact stated by a single paper, which in a personal
+    research vault is nearly all of them: measured on a real 37-source vault, 717
+    of 722 relations were quarantined and only 5 were active, so communities never
+    formed and L3/L4 reported `skipped`. That contradicted the product philosophy,
+    where a Permanent Note is a SINGLE idea and the value is linking such notes
+    across distinct sources.
+
+    Only a count of 0 is now `unsupported`."""
     compile_fn = getattr(db, "compile_relation_lifecycle", None)
     assert compile_fn is not None, (
         "P4 must define db.compile_relation_lifecycle (SYSTEM_BEHAVIOR §27.3)"
@@ -159,11 +165,9 @@ def test_copied_source_only_relation_is_quarantined(vault: Path) -> None:
             )
         }, "v9 graph_relation_supports table must exist"
         _add_support(conn, rel, "KNU-1", "lineage-X", "h1")
-        _add_support(conn, rel, "KNU-2", "lineage-X", "h2")  # copied source
-        # Make the contradiction the review flagged impossible by construction:
-        # this fixture has support rows (count 2) but exactly ONE distinct
-        # lineage. Pin that 1 < 2 corroboration threshold explicitly so the
-        # quarantine reason cannot be confused with "no support at all".
+        _add_support(conn, rel, "KNU-2", "lineage-X", "h2")  # same source lineage
+        # The fixture deliberately has TWO support rows collapsing to ONE
+        # lineage — the exact shape the old threshold rejected.
         distinct_lineages = conn.execute(
             "SELECT COUNT(DISTINCT source_lineage_hash) "
             "FROM graph_relation_supports WHERE relation_id = ? "
@@ -171,18 +175,32 @@ def test_copied_source_only_relation_is_quarantined(vault: Path) -> None:
             (rel,),
         ).fetchone()[0]
     assert distinct_lineages == 1, (
-        "fixture must have exactly one independent source lineage (not zero); the "
-        f"copied_source_only state is 1 < 2 corroboration, not absent support; "
+        "fixture must have exactly one independent source lineage (not zero); "
         f"got {distinct_lineages}"
     )
     status = compile_fn(vault, relation_id=rel)
     with db.connect(vault) as conn:
         reason = _reason(conn, rel)
+    assert status == "active", (
+        "one genuine source lineage is legitimate support: the lineage hash "
+        "already collapses copies, so 1 means one real source, not a duplicate "
+        f"faking corroboration; got {status!r}/{reason!r}"
+    )
+    assert reason == "", f"an active relation carries no quarantine reason; got {reason!r}"
+
+
+def test_zero_verified_lineages_is_still_unsupported(vault: Path) -> None:
+    """Lowering the threshold to 1 must not admit relations with NO verified
+    support — 0 lineages remains `unsupported`."""
+    src = _seed_entity(vault, "Method C")
+    tgt = _seed_entity(vault, "Method D")
+    rel = _relate(vault, src, tgt)
+    status = db.compile_relation_lifecycle(vault, relation_id=rel)
+    with db.connect(vault) as conn:
+        reason = _reason(conn, rel)
     assert status == "quarantined"
-    assert reason == "copied_source_only", (
-        "a single independent source lineage (1 < 2 corroboration threshold) is "
-        "uncorroborated; the edge must quarantine as copied_source_only, never "
-        f"active; got {reason!r}"
+    assert reason == "unsupported", (
+        f"no verified support must stay quarantined as unsupported; got {reason!r}"
     )
 
 
@@ -232,8 +250,8 @@ def test_fully_supported_canonical_edge_is_active(vault: Path) -> None:
         }, "v9 graph_relation_supports table must exist"
         _add_support(conn, rel, "KNU-1", "lineage-A", "h1")
         _add_support(conn, rel, "KNU-2", "lineage-B", "h2")  # independent lineage
-        # Two DISTINCT source lineages == meets the ≥2 corroboration threshold;
-        # this is the boundary that separates active from copied_source_only.
+        # Two DISTINCT source lineages: comfortably above the >=1 threshold, and
+        # the case where corroboration ADDS confidence to an already-active edge.
         distinct_lineages = conn.execute(
             "SELECT COUNT(DISTINCT source_lineage_hash) "
             "FROM graph_relation_supports WHERE relation_id = ? "
@@ -245,7 +263,7 @@ def test_fully_supported_canonical_edge_is_active(vault: Path) -> None:
     )
     status = compile_fn(vault, relation_id=rel)
     assert status == "active", (
-        "an edge with >=2 independent source lineages of verified support and "
+        "an edge with independent source lineages of verified support and "
         f"canonical endpoints must become active; got {status!r}"
     )
 
@@ -361,7 +379,7 @@ def test_contradicts_relation_is_not_self_quarantined_by_contradiction(
     """A `contradicts` relation must NOT be quarantined by the contradiction rule
     it embodies. Two mutual `contradicts` edges (A->B and B->A) would otherwise
     quarantine each other; instead each is evaluated on its own support, so a
-    `contradicts` edge with >=2 independent verified lineages goes active (§27.3)."""
+    `contradicts` edge with independent verified lineages goes active (§27.3)."""
     a = _seed_entity(vault, "Claim A")
     b = _seed_entity(vault, "Claim B")
     forward = _relate(vault, a, b, rtype="contradicts")

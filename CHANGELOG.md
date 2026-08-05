@@ -2,6 +2,42 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.43.0] - 2026-08-05
+### Changed
+- **Relation Corroboration Threshold Lowered To One Independent Source**
+  A relation entered authoritative topology only with **≥2** distinct verified
+  `source_lineage_hash` values. But the lineage hash already collapses
+  copied/duplicated/forked sources to one lineage, so requiring two did not
+  exclude fraud — it excluded every proposition that only one source states,
+  which in a personal research vault of distinct papers is nearly every
+  proposition.
+
+  Measured on a real 37-source vault: **717 of 722 relations were quarantined**
+  as `copied_source_only` (every one of them with exactly one lineage), leaving
+  5 active relations, 6 community reports, and 3 synthesis nodes. Community
+  construction consumes only `active` relations, so it had almost no input, and
+  34 of 37 sources reported `l3_status='skipped'` and `l4_status='skipped'`. The
+  knowledge graph the product exists to build was effectively empty, which is
+  also why sidechat and MCP had no L3/L4 to reference.
+
+  This contradicted the stated philosophy, where a Permanent Note is "a **single**
+  idea as an independent Atom" and the value is *linking* such notes across
+  distinct sources — Zettelkasten never requires two sources to agree before an
+  idea may be linked. Corroboration is now treated as a ranking/confidence
+  signal rather than an admission gate: `active` requires **≥1** verified
+  lineage, and only **0** is `unsupported`.
+
+  **Existing vaults recover without re-extraction.** Relation lifecycles are
+  recompiled for every non-retired relation at the start of graph rebuild, so
+  the next `wiki build` re-admits previously quarantined relations. Verified on
+  a copy of the affected vault: active relations went from **5 to 651**, with
+  the remaining 71 held only by the separate `bridge_risk` structural check.
+
+  `copied_source_only` is retired as an outcome and kept in the frozen reason
+  set so historical rows stay decodable and re-evaluable. SYSTEM_BEHAVIOR §27.2
+  /§27.3, SCHEMA §21.5/§21.6, and the §27.6 graph-audit assertion are updated to
+  match.
+
 ## [0.42.4] - 2026-08-05
 ### Fixed
 - **A Cancelled CLI Request Is Actually Cancelled**

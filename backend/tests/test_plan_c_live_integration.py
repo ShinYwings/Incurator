@@ -4,10 +4,11 @@ Pins the live wiring that lands the Plan C graph-quality compiler into the
 serving path (SYSTEM_BEHAVIOR §27.2/§27.5/§27.6/§27.8):
 
 1. ``persist_graph_data`` writes ``graph_relation_supports`` rows keyed by the
-   source's lineage, so a relation can reach the >=2-independent-lineage
-   ``active`` floor.
-2. Two INDEPENDENT sources asserting the same proposition corroborate the SAME
-   relation to ``active``; a single source leaves it ``copied_source_only``.
+   source's lineage, so a relation reaches the >=1-independent-lineage
+   ``active`` floor (v0.43.0; only 0 lineages is ``unsupported``).
+2. Two INDEPENDENT sources asserting the same proposition aggregate onto the
+   SAME relation rather than creating a second one; one source alone is already
+   ``active``, and the second adds corroboration as a confidence signal.
 3. ``compile_global_l3`` grounds community reports on the claim-grounded
    ``rebuild_graph_generation`` path (no broad-span fallback).
 4. ``wiki lint`` gains a Graph Quality section that surfaces ``graph_audit``
@@ -131,8 +132,12 @@ def vault():
 
 def test_persist_writes_relation_support_with_source_lineage(vault) -> None:
     """A single source's compile writes one verified graph_relation_supports row
-    keyed by the source's content lineage; one lineage => copied_source_only,
-    NOT active (§27.2 corroboration floor)."""
+    keyed by the source's content lineage; one lineage => ACTIVE (v0.43.0).
+
+    This is the end-to-end shape of the ordinary case: one paper is ingested and
+    asserts a proposition. Before v0.43.0 that quarantined as
+    `copied_source_only`, which meant a vault of distinct papers produced an
+    almost entirely quarantined graph and no L3/L4 at all."""
     paths = vault
     _seed_source(paths, "04_Resources/a.md", SOURCE_A, "hash-a", "CTX-aaaa1111")
     compile_mod.compile_source_l2(paths, GraphFakeClient(), 1)
@@ -151,14 +156,15 @@ def test_persist_writes_relation_support_with_source_lineage(vault) -> None:
     assert len(lineages) == 1, "one source contributes exactly one independent lineage"
 
     status = db.compile_relation_lifecycle(paths.state_db, relation_id=rel["id"])
-    assert status == "quarantined", "a single uncorroborated source never reaches active"
+    assert status == "active", (
+        "one ingested paper asserting a proposition is legitimate support and must "
+        f"enter topology; got {status!r}"
+    )
     with db.connect(paths.state_db) as conn:
         reason = conn.execute(
             "SELECT quarantine_reason FROM graph_relations WHERE id = ?", (rel["id"],)
         ).fetchone()[0]
-    assert reason == "copied_source_only", (
-        "exactly one independent lineage quarantines as copied_source_only (§27.3)"
-    )
+    assert reason == "", f"an active relation carries no quarantine reason; got {reason!r}"
 
 
 def test_two_independent_sources_corroborate_relation_active(vault) -> None:
@@ -198,9 +204,9 @@ def test_two_independent_sources_corroborate_relation_active(vault) -> None:
 
 
 def test_wiki_lint_surfaces_graph_quality_violation(vault) -> None:
-    """`wiki lint` gains a Graph Quality section: an active relation lacking the
-    >=2 verified independent lineages is surfaced as a graph-audit violation
-    (§27.6)."""
+    """`wiki lint` gains a Graph Quality section: an active relation with NO
+    verified independent lineage is surfaced as a graph-audit violation (§27.6).
+    The fixture forces 0 lineages, so it holds at any threshold value."""
     paths = vault
     # Two canonical entities + an active relation with NO supporting lineage:
     # a hand-forced inconsistency the read-only audit must catch.
