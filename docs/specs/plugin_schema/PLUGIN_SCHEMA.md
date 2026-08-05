@@ -278,6 +278,29 @@ settings fields, persisted DTOs, or backend command envelopes.
   result instead of touching the closed view DOM.
 - Optional child-process streams must be checked before writes. A missing MCP
   `args` array is normalized to an empty array during command preparation.
+- **A request's teardown must run at completion, not at launch (v0.42.4).** A
+  provider path that returns a promise from inside the request's `try` settles
+  that block immediately, so the `finally` releases the request — detaching the
+  owner's abort listener — while the transport is still running. Every such
+  return must be awaited inside the guarded block.
+- **Listeners must be detached from the target they were attached to
+  (v0.42.4).** Surfaces that follow the active document across windows (popouts)
+  must record the window an event listener was attached to and remove it from
+  that same window. Removing against the currently-active window strands
+  capture-phase listeners on the previous one. A surface must also tear down its
+  existing UI before its active-document reference moves.
+- **Device-local scratch shared between vaults is swept per entry, with an age
+  guard (v0.42.4).** The CLI cache is scoped to the Incurator repository, not to
+  a vault, so a second vault opening in another window shares it. A startup
+  sweep MUST NOT delete the directory wholesale — it removes only entries older
+  than the longest a single request can legitimately live. Per-request cleanup
+  in the request's own `finally` remains the primary mechanism; the sweep exists
+  only for crash leftovers.
+- **A scheduler's `dispose()` must disarm queued follow-ups (v0.42.4).**
+  Cancelling a debounce timer is not sufficient: a pass already in flight
+  re-fires from its own completion handler when a follow-up was queued, which
+  would start work after unload. Disposal sets a terminal flag that every entry
+  point checks, and clears the queued flag.
 
 #### 1.4.1 Leaf narrowing must not trust the view-type string (v0.41.1)
 
