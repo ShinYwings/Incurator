@@ -567,9 +567,11 @@ fully published claim generation:
   re-extracting the same relation *adds* claim-level support instead of
   overwriting it. Independence is
   counted by source lineage, so copied/forked sources count once — not as
-  multiple confirmations. A relation needs **≥2 independent source lineages** to
-  become `active`, so a single source per topic builds no community reports until a
-  second independent source corroborates the same relations (live wiring: the L2
+  multiple confirmations. A relation needs **≥1 independent source lineage** to
+  become `active` (v0.43.0; only zero verified support is `unsupported`), so a
+  vault of distinct papers builds concepts and reports normally — the previous
+  ≥2 rule excluded no duplicates, since the lineage hash already collapses them,
+  and instead excluded every fact only one paper states (live wiring: the L2
   compile writes one `graph_relation_supports` row per asserting claim keyed by the
   source's lineage; `wiki build`/`wiki update`'s L3 then grounds reports only on the
   corroborated `active` relations).
@@ -590,8 +592,10 @@ fully published claim generation:
   when its exact structure belongs to the current successful source generation;
   it never receives synthetic factual support. Weak extracted edges are
   `quarantined` with a reason
-  (`unsupported`, `self_loop`, `contradiction`, `copied_source_only`,
-  `bridge_risk`, `endpoint_unresolved`) and a re-eval trigger. A relation is
+  (`unsupported`, `self_loop`, `contradiction`, `bridge_risk`,
+  `endpoint_unresolved`; `copied_source_only` is retired as an outcome in
+  v0.43.0 and kept only so historical rows stay decodable) and a re-eval
+  trigger. A relation is
   never a "duplicate": re-asserting the same proposition aggregates support onto
   the one relation, so an edge is either `unsupported` or valid with aggregated
   support — there is no duplicate to quarantine. Authored links and extracted
