@@ -6,6 +6,55 @@ Agents must check this document and triage the received items into the `To-Do (Q
 
 ## 📝 User Inbox
 
+### 2026-08-05 — [P1/DESIGN] The `local` route never descends L4→L3→L2→L1, so most queries read raw L1
+
+User design intent, stated 2026-08-05: *"When querying, shouldn't it search
+L4 → L3 → L2 → L1 → source in that order? Part of why I split L1–L4 in the first
+place was that searching L1 every time would be enormously expensive.
+Zettelkasten works that way too."*
+
+**Measured against the code (`retrieval/evidence.py:364-447`), the descent is
+implemented in only two of four routes:**
+
+| Route | Evidence assembly | Descends? |
+|---|---|---|
+| `global` | L4 `_synthesis_items` → L3 `_report_items` → search only if both empty | yes |
+| `explore` | memory paths + L4 synthesis primer + L3 report primer + entities | yes |
+| `source-section` | every span of one source | n/a by design |
+| **`local`** | **entities + their spans + `_add_search_hits`** | **no** |
+
+`local` (`evidence.py:440-447`) never consults `synthesis_nodes` or
+`community_reports` at all. It resolves query entities, attaches their L1 spans,
+and appends flat search hits. A formula query in this vault routed `local`,
+which is why it returned 9 bare entity names and 17 L1 spans (mostly
+bibliography lines and headings) with one LaTeX-bearing item.
+
+This matches SYSTEM_BEHAVIOR §17's own wording for `local` ("resolve query
+entities… expand to related claims/concepts/spans"), so **the code conforms to
+the spec and the SPEC diverges from the stated design intent** — the same shape
+as the v0.43.0 corroboration finding.
+
+**Two consequences:**
+
+1. **Cost.** The layering was meant to avoid scanning L1 for every query, but
+   `local` searches the full index where L1 spans are 11,052 of 12,435
+   documents (89%). The distilled layers carry no retrieval-cost benefit on the
+   route most factual questions take.
+2. **Quality.** Descending from L4/L3 would surface distilled statements
+   (which retain formulas in their claim text) ahead of raw spans, instead of
+   letting bibliography lines outrank equations on lexical overlap.
+
+**Caveat before acting:** `global` already degrades to flat search when there
+are no synthesis/report rows — exactly this vault's state today (3 synthesis,
+6 reports). So the descent cannot be evaluated fairly until the v0.43.0
+corroboration fix has repopulated L3/L4. **Sequence: merge PR #116 → `wiki
+build` → re-measure → then decide whether `local` should descend.**
+
+Open design question for the user: should `local` consult L4/L3 first and fall
+through to L1 only when the distilled layers do not answer, or should the
+router send more questions to `global`? The first changes a route's contract;
+the second changes routing policy only.
+
 ### 2026-08-05 — [P1/DESIGN] Formula-bearing claims almost never serve: the prose gate overrides an exact formula match
 
 User report: formulas in L1–L4 are not deductively analyzed, so sidechat/MCP
