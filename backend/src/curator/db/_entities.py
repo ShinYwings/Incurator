@@ -2471,8 +2471,9 @@ def graph_audit(
     ``detail``. The enforced invariants:
 
     1. ``active_relation_insufficient_support`` — an ``active`` extracted
-       relation backed by fewer than 2 distinct ``verified`` source lineages
-       (below the §21.5 corroboration floor).
+       relation backed by zero distinct ``verified`` source lineages (below the
+       §21.5 corroboration floor, which is >=1 since v0.43.0). The check reads
+       ``_RELATION_CORROBORATION_THRESHOLD`` rather than a literal.
        ``active_authored_relation_stale_generation`` — an authored relation not
        owned by a current authoritative source generation (§27.3.1).
     2. ``reference_to_redirected_entity`` / ``endpoint_not_canonical`` — an

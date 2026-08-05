@@ -204,9 +204,9 @@ def test_two_independent_sources_corroborate_relation_active(vault) -> None:
 
 
 def test_wiki_lint_surfaces_graph_quality_violation(vault) -> None:
-    """`wiki lint` gains a Graph Quality section: an active relation lacking the
-    >=2 verified independent lineages is surfaced as a graph-audit violation
-    (§27.6)."""
+    """`wiki lint` gains a Graph Quality section: an active relation with NO
+    verified independent lineage is surfaced as a graph-audit violation (§27.6).
+    The fixture forces 0 lineages, so it holds at any threshold value."""
     paths = vault
     # Two canonical entities + an active relation with NO supporting lineage:
     # a hand-forced inconsistency the read-only audit must catch.
