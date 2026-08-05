@@ -6,6 +6,62 @@ Agents must check this document and triage the received items into the `To-Do (Q
 
 ## 📝 User Inbox
 
+### 2026-08-05 — [P1/DESIGN] Formula-bearing claims almost never serve: the prose gate overrides an exact formula match
+
+User report: formulas in L1–L4 are not deductively analyzed, so sidechat/MCP
+cannot cite them.
+
+**Measured** (`13ed51f8b06cb88e/state.sqlite`, read-only). Of 1,055 live
+formula-bearing knowledge units, **only 86 (8%) are `verified`** — i.e. served:
+
+| formula_status | support_status | count |
+|---|---|---|
+| `preserved_in_text` | **failed** | **490** |
+| `uncertain` | unchecked | 309 |
+| `preserved_in_text` | verified | 86 |
+| `missing` | failed | 85 |
+| `preserved_in_text` | unchecked | 85 |
+
+Every one of the 575 `claim_supports` failures carries the **same** reason:
+`"the cited span does not minimally support the claim (no salient term
+overlap)"`. And **all 237 `formula`-role supports are `unchecked`** — not one
+was ever validated.
+
+**Cause 1 — the formula carve-out is unreachable in practice.**
+`pipeline/claim_support.py:361` grants `verified` on an exact ordered formula
+match only when `not claim_terms` — the claim must contain NO salient prose at
+all. An LLM-extracted claim about an equation nearly always carries prose
+("The rendering equation integrates radiance…, $L_o = …$"), so it has both
+prose and a formula and falls through to `:371`, where `max_cov <
+_SUPPORT_FAIL` (0.25) fails it outright. The `formula_status` written on that
+same branch is `preserved_in_text` when `formula_ok` — so the system records
+*"the formula IS exactly present in the cited span"* and fails the claim anyway.
+That is precisely the 490-unit bucket.
+
+SYSTEM_BEHAVIOR §26.1 does sanction the combination ("an F6 textual-grounding
+failure may still carry `formula_status='preserved_in_text'`"), so the code
+conforms. **The contract is what needs revisiting**: an exact ordered formula
+match is strong evidence, yet it currently counts for nothing unless the claim
+happens to be prose-free. Proposed direction — treat an exact formula match as
+support in its own right when the claim also carries prose, e.g. lower the
+prose bar (or waive it) for `formula_ok` claims instead of requiring the
+degenerate prose-free shape.
+
+**Cause 2 — nothing adjudicates `uncertain`.** `claim_support.py:304` states
+that with no `client` an `uncertain` unit "stays `unchecked` (never promoted)".
+The machine-local config has `provider: ollama` with `model: None`, so no
+calibrated validator is available and the 309 `uncertain` + 928 `unchecked`
+units are stranded permanently. They are stored and audited but never served.
+
+**Cause 3 (smaller) — equation spans are scarce.** Only 105 of 11,052
+`source_spans` are `span_type='equation'` (0.95%) in a vault of math-heavy
+papers. Worth checking whether display math is being recognized at L1 at all.
+
+Fixing Cause 1 is the highest-leverage single change: it would move up to 490
+units from `failed` to served without any re-extraction, the same shape as the
+v0.43.0 relation fix. Cause 2 needs a configured validator model and is a
+config/product decision, not only code.
+
 ### 2026-08-04 — [HOTFIX v0.42.1] Zotero import profile edits lost after the first keystroke
 
 User report: edited a Zotero import profile's template path from
