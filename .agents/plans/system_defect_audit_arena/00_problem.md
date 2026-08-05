@@ -36,6 +36,32 @@ master @ `521b420`), then synthesize ONE consolidated Master Plan that merges:
    silent degradation, or edge-case breakage with workaround; P3 = hygiene/doc
    drift. Max 8 findings per inspector — prioritize depth over breadth.
 
+## Baseline Update (2026-08-04, after v0.42.0 merged)
+
+The repo is now at **v0.42.0** (master `1ca26f0`). The items below are ALREADY
+FIXED and merged — do NOT report them again:
+
+- Deferred-view crash: `main.ts` narrowed external-PDF leaves on the view-type
+  string and called `getRuntimePath()`, throwing from `getLeafFile()` and taking
+  the context pins, sidechat Send, and the popover down together. Fixed via the
+  capability guard `asLoadedExternalPdfView` (PLUGIN_SCHEMA §1.4.1).
+- PDF.js canvas collision: per-page render tasks are now cancelled and awaited
+  before the next render claims the reused canvas (PLUGIN_SCHEMA §1.4.2).
+- Version checking now reads `build.backend_version` only; installed package
+  metadata is no longer consulted at all (SYSTEM_BEHAVIOR §11.2.1).
+- `setup.sh` provisions the `wiki` alias idempotently with PATH-conflict
+  warning (SYSTEM_BEHAVIOR §11.2.1).
+- Popover shows elapsed seconds during long provider waits
+  (PLUGIN_SCHEMA §1.4.3).
+
+**Measured performance facts (do not re-derive, and do not propose work that
+ignores them):** a CLI provider round-trip (`agy --print`) costs 8.2–12.2 s and
+is flat across model and effort; the CLI binary starts in 0.29 s; an Incurator
+backend round-trip is 0.20 s; a warm local Ollama round-trip is 0.26–0.32 s.
+The dominant latency is the provider service handshake, which Incurator cannot
+shorten. Micro-optimizing Incurator-side paths that are already sub-second is
+NOT a useful finding.
+
 ## Already-Confirmed Findings (do NOT re-report; deepening/superseding is allowed)
 
 - CAND-01 [P2] `lint.py:1326-1329` — `wiki lint --fix` swallows

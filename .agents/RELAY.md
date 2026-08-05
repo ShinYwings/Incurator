@@ -1,116 +1,99 @@
-# RELAY — v0.42.0 in PR #111 (CI green), perf work queued
+# RELAY — v0.43.0 shipped; `wiki build` running; next code item is B4
 
 ## Goal
 
-Ship v0.42.0 (PR #111, CI green, awaiting user merge), then take up the newly
-reported performance work on the Quick Query popover and Convert-to-LaTeX.
+Land the System Integrity Consolidation milestone (B2–B7). v0.43.0 unblocked
+L3/L4 by lowering the relation-corroboration threshold; the user is running a
+full `wiki build` on the real vault right now, and two queued workstreams —
+B3's `l4_status` semantics and the whole retrieval-layering item — cannot be
+judged until that build repopulates `community_reports` / `synthesis_nodes`.
 
 ## Plan Reference
 
-- No Arena plan for v0.42.0 — HOTFIX EXCEPTION plus a direct user instruction
-  with explicit requirements. Evidence in `.agents/USER_REPORT.md`.
-- Arena diagnosis (`.agents/plans/system_defect_audit_arena/`) is still PAUSED;
-  only `00_problem.md` exists. Two runs died on provider limits.
+- Master plan: `.agents/plans/03_system_integrity_consolidation.md` (B1–B7).
+- Arena record: `.agents/plans/system_defect_audit_arena/` — 4 inspector
+  proposals, 5 critiques, synthesis, and the three Gate-G0 passes.
+  **These files lived only on `chore/system-defect-audit-arena` and were never
+  merged; they are rescued onto this branch.** Do not delete that branch until
+  this branch's PR merges.
+- Live queue: `.agents/ROADMAP.md`. Raw evidence not yet planned:
+  `.agents/USER_REPORT.md` (3 open items).
 
 ## Analysis And Reasoning
 
-v0.42.0 = the v0.41.1 hotfix plus the four follow-up items, promoted to Minor
-because `setup.sh` provisioning a shell alias is a new user-facing capability.
+**The v0.43.0 finding is the template for the rest of this milestone.** No
+Arena inspector could find it, because every inspector audited code-vs-spec
+conformance and the code conformed. Measuring the *real vault* is what surfaced
+it: SYSTEM_BEHAVIOR §27.2 required ≥2 distinct verified source lineages to admit
+a relation, and 717 of 722 relations had exactly 1 — so 99.3% of the graph was
+quarantined, communities could not form, and L3/L4 skipped for 34 of 37 sources.
+The threshold contradicted the project's own philosophy (a Permanent Note is a
+SINGLE idea; the value is linking such notes across sources). Verified on a DB
+copy: active relations go 5 → 651 with no re-extraction. `copied_source_only`
+was retired outright rather than re-scoped, because the lineage hash is
+source-file-grained, so "N rows, 1 lineage" is ordinary restatement — and
+retiring the outcome keeps the partition disjoint, which is what `ba4b2a3`
+raised the threshold to protect in the first place.
 
-Shipped in it:
+The two remaining P1/DESIGN items in `USER_REPORT.md` have the **same shape**:
+code conforms to spec, and the spec diverges from stated design intent.
 
-1. **Deferred-view crash (the real cause of the reported breakage).** Obsidian
-   1.7.2+ restores tabs as deferred views whose `leaf.view` reports the true
-   view type while carrying none of the class's methods. Six sites cast on that
-   string and called `getRuntimePath()`, throwing from `getLeafFile()` — which
-   feeds both `updateActiveContext()` and the open-tab inventory, so ONE
-   restored PDF tab killed the context pins, sidechat Send, and the popover
-   together. Restarting made it *more* likely, which is why the early
-   "reload Obsidian" advice was backwards.
-2. **PDF.js canvas collision** — per-page render tasks now tracked, cancelled,
-   and awaited before the next render claims the reused canvas.
-3. **`setup.sh` provisions the `wiki` alias** — derived from `$ROOT_DIR`,
-   idempotent (replaces the previous block, including the legacy undelimited
-   form, so a wrong alias self-heals), zsh+bash, and warns when another `wiki`
-   is earlier on PATH (scanned against the pre-venv PATH).
-4. **Build-identity gating** — version checks read `build.backend_version`
-   instead of installed package metadata, and a mismatch names the launcher
-   that answered.
-
-Two of my own earlier diagnoses were REFUTED and must not be re-run: the
-stale-runtime bundle gate (user had already restarted; installed bundle hash
-was byte-identical to a fresh build), and the claim that the plugin called the
-anaconda `wiki` (it never did — `resolveBackendCommand` refuses the bare name
-and `resolveWikiBinary` only checks `<repo>/.venv/bin/wiki`; the 0.4.3 was
-terminal-only, from the broken shell alias). Item 4 above was therefore already
-correct and is now pinned by regression tests rather than "fixed".
+1. `local` (`retrieval/evidence.py:440-447`) resolves entities → their L1 spans
+   → flat search hits, never consulting `synthesis_nodes` or `community_reports`.
+   SYSTEM_BEHAVIOR §17 describes exactly that, so the spec is what must be
+   revisited against the user's stated intent ("query should descend
+   L4→L3→L2→L1→source; splitting L1–L4 was partly to avoid the cost of scanning
+   L1 every time").
+2. Formula availability is a **retrieval-ranking** problem, not the L2 support
+   gate. All 105 `span_type='equation'` spans and all 11,052 L1 spans are
+   already in `search_documents` regardless of `support_status`; a real
+   formula-dense query returned 27 items with exactly 1 containing LaTeX, the
+   rest bibliography lines and bare headings. Loosening the support gate — the
+   fix I first proposed — would not have delivered the stated outcome.
 
 ## Progress Status
 
-- PR #111 pushed at `de0e199`, all CI green (backend, plugin, version
-  consistency). Local gates: backend pytest 1414 passed / 6 skipped / 4
-  xfailed, Ruff clean, mypy clean (127 files), plugin Vitest 859/859 across 78
-  files, `tsc --noEmit` clean, production build clean, spec/version sync 10/10.
-- Verified the alias script against a COPY of the user's real `~/.zshrc`: the
-  broken `/home/shin` alias is removed, other tools' blocks survive, and a
-  rerun is byte-identical. The user's own `~/.zshrc` was NOT modified.
-- The stale anaconda `wiki` is already gone from this machine (user removed
-  it), so the PATH-conflict warning correctly stays silent here; the mechanism
-  is covered by a synthetic-conflict pytest.
+- **Shipped**: v0.41.1 → v0.43.0 across 6 merged PRs (deferred-view crash,
+  PDF.js canvas collision, manifest-only version identity, `setup.sh` alias
+  provisioning, Zotero profile edit loss, null-byte CLI arg, Quick Query
+  document identity, B1 plugin lifetime/teardown, corroboration gate).
+- **Gate G0 is CLOSED** — all three missing Arena passes ran.
+- **Decisions locked**: B3 Q1 = `l4_status='error'` (this makes B3 a Minor);
+  B3 Q2 = delete the dead L2 checkpoint-resume; B2 Q5 = no migration needed
+  (zero backslash relpaths); B2 Q6b = Windows is not supported, now or later.
+- **`.agents/` and branches cleaned this session**: `USER_REPORT.md` triaged
+  from 8 entries to the 3 that are still open, `ROADMAP.md` rewritten to
+  current reality, merged branches deleted.
 
 ## Critical Context / Blockers
 
-- **PR #111 is not merged** — that is the user's call.
-- New request (2026-08-04, not started): speed up popover answers and
-  Convert-to-LaTeX. Triaged in USER_REPORT.md WITH first measurements: one
-  backend round-trip is ~0.20 s (fresh Python process per call), and the
-  popover's pre-request reference resolution issues up to ~8–10 SEQUENTIAL
-  round-trips (~1.6–2.0 s) before the provider is called. Named
-  contract-preserving candidate: collapse the four one-page adjacent-equation
-  probes into a single ranged `--radius` call, evaluating results in the
-  documented next-first order.
-- **Do not optimize yet**: the provider's share of wall-clock is still
-  unmeasured and needs in-plugin instrumentation. Repo rule is benchmark-first,
-  accept only on measured speedup with no quality regression.
-
-## Update (2026-08-04 10:55) — metadata removed, perf measured and closed
-
-Both follow-ups landed on the SAME branch per user instruction:
-
-1. **Package metadata is gone from version checking.** The user was right that
-   the contract is manifest-only. `commands/plugin.py:71` seeds
-   `build["backend_version"]` unconditionally before overlaying the manifest, so
-   `build.backend_version` is always present and the fallback I had left was
-   dead code that reintroduced the metadata dependency. The client now reads
-   `build.backend_version` only; an absent value reports "did not report a build
-   identity" rather than guessing, and an empty expectation in our own bundle
-   claims no mismatch. Two pre-existing tests encoded the old metadata behavior
-   and were updated to send real-shaped payloads; two new cases pin the field
-   scenario (stale 0.4.3 metadata alongside correct build identity).
-
-2. **Perf: measured, and the bottleneck is NOT Incurator.** `agy --print` costs
-   8.2–12.2 s for a one-word answer and is flat across model and effort, while
-   the CLI binary starts in 0.29 s, an Incurator backend round-trip is 0.20 s,
-   and a warm local Ollama round-trip is 0.26–0.32 s. So it is the Antigravity
-   service handshake. The PDF reference-fetch optimization was therefore
-   REJECTED: it is ≤0.6 s of a ~13 s action, and `pdfReferenceContext.test.ts:80`
-   proves the common case already issues one fetch, so batching would quadruple
-   backend work on the common path to help only the rare one. Neither slow path
-   makes a redundant provider call (CLI providers get no local tools;
-   Convert-to-LaTeX resolves straight to `vision_model`). Shipped instead:
-   elapsed-time feedback in the popover (PLUGIN_SCHEMA §1.4.3), because a frozen
-   "Thinking…" for 8–12 s is indistinguishable from a hang — the exact ambiguity
-   that made a real crash read as slowness earlier today. The remaining lever is
-   provider choice (~30× gap), not code.
-
-Gates after these changes: plugin Vitest 867/867 across 79 files, tsc clean,
-production build clean, Ruff clean, spec/version sync 10/10. Backend pytest was
-still running at write time.
+- **`wiki build` is running on the real vault.** Do not mutate vault state, do
+  not run mutating `wiki` commands, and do not cancel the job. Source 36 (the
+  MVG book) alone holds 8,692 of the vault's 11,052 source_spans, and a CLI
+  provider round-trip costs 8.2–12.2 s — the wait is scale, not a hang.
+- Measured provider facts, do not re-derive: CLI provider round-trip 8.2–12.2 s
+  and flat across model and effort; CLI binary start 0.29 s; Incurator backend
+  round-trip 0.20 s; warm local Ollama 0.26–0.32 s. The dominant latency is the
+  provider service handshake, which Incurator cannot shorten. Do not propose
+  micro-optimizing Incurator paths that are already sub-second.
+- The D2 frozen holdout is CONSUMED (`run_count: 3`). Never rerun it; re-arming
+  requires a written non-impact proof.
+- Runtime venv is `<repo>/.venv` (`./setup.sh`); dev/validation venv is
+  `<repo>/.venv-dev` via `scripts/backend-check`. Never create
+  `backend/.venv` or backend-local caches.
+- `curate.yml` exists ONLY in `01_Workspaces/<project>/`. Vault-scoped config
+  is `.curator/settings.yml`. (Repeated correction — do not conflate them.)
 
 ## Immediate Next Action
 
-Push the metadata + perf work to PR #111 and verify CI. Then, per the user's
-sequencing, resume the Arena system-defect diagnosis
-(`.agents/plans/system_defect_audit_arena/`) — two prior runs died on provider
-usage limits, so restart it lean (targeted spec line ranges, tool-call budgets)
-and expect to author the consolidated ROADMAP 1+2 plan from its output.
+**B4 is the next unblocked code item and needs no build result and no open
+decisions**: remove `wiki query --update` together with its
+`add_atom_from_insight` path — it is an Exhibition-era leftover, so the fix is
+removal, not better error reporting (this supersedes Arena finding eh-1) — and
+fix eh-3, where a secret-decryption failure is reported to the user as a
+missing API key.
+
+When the build finishes, run `/tmp/measure_after_build.sh` to judge v0.43.0
+(expect `graph_relations.lifecycle='active'` to jump and L3/L4 to populate),
+then re-measure the `local`-route and formula-ranking items before planning
+ROADMAP item 2.
