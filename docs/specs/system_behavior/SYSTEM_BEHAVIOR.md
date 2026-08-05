@@ -2814,8 +2814,8 @@ migration may touch a real vault DB, encoded as tests in P3:
 - **One-source mutation changes only its closure.** A source edit/delete/split
   reconciles exactly the measured downstream graph/report/synthesis closure (via
   `artifact_dependencies`, extending §26.4): supports whose source basis
-  disappeared are retired, relations that drop below 2 independent verified
-  source lineages drop out of `active`, communities whose active membership/support
+  disappeared are retired, relations that drop to zero independent verified
+  source lineages drop out of `active` (>=1 since v0.43.0, §27.2), communities whose active membership/support
   changed retire and regenerate, and dependent reports/synthesis are invalidated
   and regenerated or retired. For authored relations, the current
   source-generation set is reconciled by deterministic relation id: removed

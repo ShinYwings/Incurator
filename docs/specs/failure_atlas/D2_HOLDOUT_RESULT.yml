@@ -333,7 +333,10 @@ evaluated_code:
       quarantine_reason. Q06 documents, FTS ranking, chunking, citations, and
       metric inputs are therefore provably unchanged. The consumed holdout cannot
       be rerun after run_count=3; these hashes re-arm the existing drift tripwire
-      without claiming a new holdout result.
+      without claiming a new holdout result. A follow-up review pass added
+      explanatory comments only (no logic change) to db/schema.py and doc
+      wording to db/_entities.py; the hashes below cover that same edit and the
+      non-impact argument is unchanged.
   v0391_source_lifecycle_rearm:
     date: '2026-07-30'
     prior_entities_sha256: b96d9818e1eb75084fe2d36caa2092c488a0b46a72f8193a0b910fc8ac4323db
@@ -388,8 +391,8 @@ evaluated_code:
     backend/src/curator/retrieval/embedding.py: 0829ac7c7a870879b3f164687cf21a22e347e508bfdba15a4430b2e8b11e3db1
     backend/src/curator/retrieval/chunking.py: 8c45af7ba7457f5930fc05c0a3f0de10eb6cc424c4b70b722510dd2decd59255
     backend/src/curator/db/__init__.py: 9d9b18355372e1f77534aef353a07c3ee1f3e9ce3413ffec7d8030da86a4a16c
-    backend/src/curator/db/schema.py: e1f46c20e26a7af82aa2b67f9f285d875f8d0029b0923025ecf7d6629b10047f
-    backend/src/curator/db/_entities.py: 5660d35092bbd1c056e567ac64ec746109de91313d9740273a810362114303a8
+    backend/src/curator/db/schema.py: c4d16ac42cf24d75ef8032f2392b9129c3229d46534a985f966965f940455be8
+    backend/src/curator/db/_entities.py: 31081365818b9f5e9ccdeb977febe3fc03aad6c8ee009ad27e14dc4fbea7ec51
     backend/src/curator/db/jobs.py: 33d772f0709c3b549b40f29dac7028edee58c882c06dc6e7f38706bd71e9b320
     backend/src/curator/db/sources.py: 5c1d0fa49c77693dfed742ab376f42b51eee7a2d51f6c460d74550f3c8f9891e
   preflight_family_metrics:

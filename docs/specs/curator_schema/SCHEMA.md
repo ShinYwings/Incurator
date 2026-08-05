@@ -2108,7 +2108,7 @@ Rules:
   `verified` supports. Copied/duplicated sources share a `source_lineage_hash`
   and therefore count once (Strict Quality Condition: 0 copied-source rows
   counted as independent support).
-- **Extracted corroboration threshold = 2 independent source lineages.** An
+- **Extracted corroboration threshold = 1 independent source lineage.** An
   extracted relation is
   `active` when its independent-support count is **≥ 1** — at least one DISTINCT
   `source_lineage_hash`, i.e. at least one genuinely independent source asserts
@@ -2260,7 +2260,8 @@ Rules:
   their rows but are recomputed against active topology before being served.
 - **Graph audit (schema-level invariants)** — the read-only audit asserts: 0
   authoritative references to `redirected` entities; 0 `active` **extracted**
-  relations with fewer than 2 independent source lineages of `verified` support;
+  relations with zero independent source lineages of `verified` support (the
+  threshold is >=1 since v0.43.0);
   0 `active` authored relations without exact current-generation source
   structure; 0 endpoints that are not canonical entities;
   every `quarantined` relation has a reason code + re-eval trigger; every served

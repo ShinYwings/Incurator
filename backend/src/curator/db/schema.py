@@ -82,6 +82,24 @@ _QUARANTINE_REEVAL_TRIGGERS = {
 # notes across distinct sources. Corroboration is a useful ranking signal, not an
 # admission gate. `copied_source_only` is retained in QUARANTINE_REASON_CODES for
 # historical rows and re-evaluation, but is no longer produced.
+#
+# WHY `copied_source_only` IS RETIRED OUTRIGHT rather than re-scoped to "several
+# support rows collapsing to one lineage": that shape is not evidence of fraud.
+# `source_lineage_hash` is source-file-grained (it is the source's content hash,
+# pipeline/compile.py), so "N rows, 1 lineage" is exactly what ordinary
+# restatement of the same claim within ONE paper produces. Flagging it would
+# quarantine legitimate single-paper repetition while catching nothing a
+# lineage-deduplicated count does not already handle. The row-count-inflation
+# attack the Arena actually mandated defending against ("0 copied-source rows
+# counted as independent support") is defeated by the lineage dedup itself, at
+# any threshold.
+#
+# Retiring it as an outcome is also what keeps the support-side partition TOTAL
+# and DISJOINT at >=1. Commit ba4b2a3 raised the threshold to 2 precisely because
+# a 1-lineage relation then satisfied both `active` and `copied_source_only`;
+# with only `unsupported` (0) and `active` (>=1) producible, that ambiguity
+# cannot recur. Do not reintroduce `copied_source_only` as a live outcome without
+# re-deriving that partition.
 _RELATION_CORROBORATION_THRESHOLD = 1
 
 SCHEMA_SQL = """

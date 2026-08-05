@@ -1405,7 +1405,7 @@ def graph_quality(paths: cfg.WikiPaths) -> list[LintIssue]:
     Runs the read-only ``db.graph_audit`` (SCHEMA §21.8) and maps each violation
     to a release-blocking ERROR ``LintIssue``, so ``wiki lint`` exits non-zero for
     CI/testbed gating when the served graph/report state breaks a frozen invariant
-    (active relation under the ≥2-lineage floor, an endpoint that is not canonical /
+    (active relation with no verified lineage, an endpoint that is not canonical /
     is redirected, a quarantined relation missing its reason, or a served report
     citing a non-active relation). The audit NEVER edits state. An empty audit
     means the served graph is clean and no Graph Quality issues are emitted."""

@@ -1163,9 +1163,10 @@ def upsert_graph_relation_support(
     (SCHEMA §21.5). The PK ``(relation_id, knowledge_unit_id, support_hash)``
     dedups the SAME unit re-citing the SAME spans — so an idempotent recompile
     leaves the support count unchanged — while ``source_lineage_hash`` is the
-    INDEPENDENCE key: a relation reaches the ``active`` floor only with **≥2
-    DISTINCT** ``verified`` lineages (§27.2). Copied/forked sources share a
-    lineage and therefore count once. Returns the row's ``support_hash``. Pass
+    INDEPENDENCE key: a relation reaches the ``active`` floor with **≥1
+    DISTINCT** ``verified`` lineage (§27.2; only 0 is ``unsupported``).
+    Copied/forked sources share a lineage and therefore count once, which is why
+    one lineage means one genuine source rather than a duplicate. Returns the row's ``support_hash``. Pass
     ``conn`` to run inside the caller's atomic publish transaction (§27.8)."""
     if support_status not in SUPPORT_STATUSES:
         raise ValueError(f"invalid support_status: {support_status!r}")
@@ -2353,8 +2354,8 @@ def reconcile_source_change(
        (this source's removed spans) are marked ``stale`` — their source basis
        disappeared.
     2. :func:`rebuild_graph_generation` recompiles lifecycle, so a relation dropping
-       below the §21.5 corroboration floor (>=2 independent verified source
-       lineages) leaves the ``active`` set, the communities whose active
+       below the §21.5 corroboration floor (>=1 independent verified source
+       lineage) leaves the ``active`` set, the communities whose active
        membership/support changed retire, and dependent reports regenerate or
        retire.
 
