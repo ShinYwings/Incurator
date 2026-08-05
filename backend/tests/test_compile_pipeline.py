@@ -294,10 +294,12 @@ def test_compile_source_l2_rejects_persistently_non_english_generated_units(vaul
 def test_compile_global_l3_writes_concepts(vault) -> None:
     paths = vault
     client = DynamicFakeClient()
-    # Plan C (v0.9.0, §27.2): the claim-grounded L3 path grounds a community report
-    # only on `active` relations corroborated by >=2 INDEPENDENT source lineages. A
-    # single source can never reach the floor, so seed a SECOND independent source
-    # (distinct content_hash => distinct lineage) asserting the SAME proposition.
+    # Plan C (§27.2): the claim-grounded L3 path grounds a community report only on
+    # `active` relations. Since v0.43.0 one independent source lineage is enough, so
+    # a second source is no longer REQUIRED to reach the floor — this fixture keeps
+    # two (distinct content_hash => distinct lineage, asserting the SAME
+    # proposition) to exercise support AGGREGATION onto one relation, which is what
+    # this test is about.
     src2 = paths.root / "04_Resources" / "resnet2.md"
     src2.write_text(SOURCE_MD, encoding="utf-8")
     with db.connect(paths.state_db) as conn:

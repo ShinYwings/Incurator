@@ -10,14 +10,14 @@ message.
 Adversarial fixtures covered (plan P2 list):
   * self-loop -> quarantined ``self_loop``;
   * unsupported edge -> quarantined ``unsupported``;
-  * copied-source-only support -> quarantined ``copied_source_only`` (independence
-    is by source lineage, not row count; exactly 1 distinct lineage is 1 < 2
-    corroboration);
+  * single-lineage support -> ``active`` since v0.43.0 (independence is by source
+    lineage, not row count, and the lineage hash already collapses copies, so
+    exactly 1 distinct lineage means one genuine source);
   * unresolved endpoint (relation pointing at a redirected entity) ->
     quarantined ``endpoint_unresolved``;
-  * a canonical-endpoint edge with >=2 independent source lineages -> ``active``
-    (the §27.2 corroboration threshold that makes ``active`` and
-    ``copied_source_only`` mutually exclusive);
+  * a canonical-endpoint edge with >=1 independent source lineage -> ``active``
+    (the §27.2 corroboration threshold; only 0 lineages is ``unsupported``, so
+    the support-side partition is total and disjoint);
   * noisy bridge (single low-confidence edge joining two dense components) ->
     ``bridge_risk``; a low-confidence edge INSIDE a dense cluster is NOT flagged
     (topology, not a raw-confidence filter);
@@ -250,8 +250,8 @@ def test_fully_supported_canonical_edge_is_active(vault: Path) -> None:
         }, "v9 graph_relation_supports table must exist"
         _add_support(conn, rel, "KNU-1", "lineage-A", "h1")
         _add_support(conn, rel, "KNU-2", "lineage-B", "h2")  # independent lineage
-        # Two DISTINCT source lineages == meets the ≥2 corroboration threshold;
-        # this is the boundary that separates active from copied_source_only.
+        # Two DISTINCT source lineages: comfortably above the >=1 threshold, and
+        # the case where corroboration ADDS confidence to an already-active edge.
         distinct_lineages = conn.execute(
             "SELECT COUNT(DISTINCT source_lineage_hash) "
             "FROM graph_relation_supports WHERE relation_id = ? "
@@ -263,7 +263,7 @@ def test_fully_supported_canonical_edge_is_active(vault: Path) -> None:
     )
     status = compile_fn(vault, relation_id=rel)
     assert status == "active", (
-        "an edge with >=2 independent source lineages of verified support and "
+        "an edge with independent source lineages of verified support and "
         f"canonical endpoints must become active; got {status!r}"
     )
 
@@ -379,7 +379,7 @@ def test_contradicts_relation_is_not_self_quarantined_by_contradiction(
     """A `contradicts` relation must NOT be quarantined by the contradiction rule
     it embodies. Two mutual `contradicts` edges (A->B and B->A) would otherwise
     quarantine each other; instead each is evaluated on its own support, so a
-    `contradicts` edge with >=2 independent verified lineages goes active (§27.3)."""
+    `contradicts` edge with independent verified lineages goes active (§27.3)."""
     a = _seed_entity(vault, "Claim A")
     b = _seed_entity(vault, "Claim B")
     forward = _relate(vault, a, b, rtype="contradicts")

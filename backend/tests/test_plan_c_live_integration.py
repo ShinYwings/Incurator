@@ -4,10 +4,11 @@ Pins the live wiring that lands the Plan C graph-quality compiler into the
 serving path (SYSTEM_BEHAVIOR §27.2/§27.5/§27.6/§27.8):
 
 1. ``persist_graph_data`` writes ``graph_relation_supports`` rows keyed by the
-   source's lineage, so a relation can reach the >=2-independent-lineage
-   ``active`` floor.
-2. Two INDEPENDENT sources asserting the same proposition corroborate the SAME
-   relation to ``active``; a single source leaves it ``copied_source_only``.
+   source's lineage, so a relation reaches the >=1-independent-lineage
+   ``active`` floor (v0.43.0; only 0 lineages is ``unsupported``).
+2. Two INDEPENDENT sources asserting the same proposition aggregate onto the
+   SAME relation rather than creating a second one; one source alone is already
+   ``active``, and the second adds corroboration as a confidence signal.
 3. ``compile_global_l3`` grounds community reports on the claim-grounded
    ``rebuild_graph_generation`` path (no broad-span fallback).
 4. ``wiki lint`` gains a Graph Quality section that surfaces ``graph_audit``
