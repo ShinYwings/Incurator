@@ -126,6 +126,11 @@ export class QuickQueryPopover {
   /** Live selection range, kept so the trigger button tracks PDF scrolling. */
   private anchorRange: Range | null = null;
   private repositionHandler: (() => void) | null = null;
+  /** The window the reposition listeners were ATTACHED to. `activeWin` follows
+   *  `activeDoc`, which moves when the user selects in another window, so
+   *  detaching against it would target the wrong window and strand a
+   *  capture-phase scroll listener on the original one. Mirrors `dragState.win`. */
+  private repositionWin: Window | null = null;
   private childPopovers = new Set<QuickQueryPopover>();
   private onPopoverRemoved: ((popover: QuickQueryPopover) => void) | null = null;
   private requestAbortController: AbortController | null = null;
@@ -188,6 +193,9 @@ export class QuickQueryPopover {
       return;
     }
 
+    // Tear the old button (and its listeners) down BEFORE `activeDoc` moves, so
+    // a selection made in another window cannot strand listeners on this one.
+    if (doc !== this.activeDoc) this.removeButton();
     this.activeDoc = doc;
     this.anchorRange = range.cloneRange();
     this.capturedSelection = text.slice(0, MAX_SELECTION_LENGTH);
@@ -277,15 +285,20 @@ export class QuickQueryPopover {
       this.applyFloatingPosition(this.buttonEl, rect, BUTTON_SIZE);
     };
     this.repositionHandler = handler;
-    this.activeWin.addEventListener("scroll", handler, true);
-    this.activeWin.addEventListener("resize", handler);
+    const win = this.activeWin;
+    this.repositionWin = win;
+    win.addEventListener("scroll", handler, true);
+    win.addEventListener("resize", handler);
   }
 
   private detachRepositionListeners(): void {
     if (!this.repositionHandler) return;
-    this.activeWin.removeEventListener("scroll", this.repositionHandler, true);
-    this.activeWin.removeEventListener("resize", this.repositionHandler);
+    // Detach from the window we attached to, not from whatever is active now.
+    const win = this.repositionWin ?? this.activeWin;
+    win.removeEventListener("scroll", this.repositionHandler, true);
+    win.removeEventListener("resize", this.repositionHandler);
     this.repositionHandler = null;
+    this.repositionWin = null;
   }
 
   private removeButton(): void {

@@ -4,10 +4,12 @@ import { execFile, spawn } from "child_process";
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   renameSync,
   rmSync,
+  statSync,
   unlinkSync,
   writeFileSync,
 } from "fs";
@@ -1247,7 +1249,12 @@ export class LLMClient {
     const toolPolicy: ToolPolicy = opts?.toolPolicy ?? "auto";
 
     if (this.shouldUseCli(messages)) {
-      return this.completeViaCli(messages, toolPolicy, model, controller.signal);
+      // `await` is load-bearing: returning the promise unawaited settles the
+      // enclosing `try`, so the `finally` runs `endRequest(controller)` at
+      // LAUNCH instead of at completion. That detaches the owner's abort
+      // listener while the CLI child is still running, so a Stop/dismiss no
+      // longer reaches it.
+      return await this.completeViaCli(messages, toolPolicy, model, controller.signal);
     }
 
     // Ollama uses fetch for non-streaming too (requestUrl may not reach localhost in all envs)
@@ -1315,7 +1322,9 @@ export class LLMClient {
         }
         this.auth.invalidate(provider);
         new Notice(`${provider} HTTP auth failed. Retrying through the provider CLI login session.`);
-        return this.completeViaCli(messages, toolPolicy, model, controller.signal);
+        // Same `await` requirement as the primary CLI path above: without it the
+        // enclosing `finally` tears the request down at launch.
+        return await this.completeViaCli(messages, toolPolicy, model, controller.signal);
       }
       if (isQuotaErrorMessage(msg)) {
         throw new Error(formatQuotaErrorMessage(provider, msg));
@@ -2320,13 +2329,41 @@ export class LLMClient {
 
   /**
    * Sweep crash-leftover chat image dirs on startup (v0.28.0). Uses cliCacheBase()
-   * (no mkdir side effect); `force` makes a missing dir a no-op.
+   * (no mkdir side effect); a missing dir is a no-op.
+   *
+   * The sweep is PER RUN DIR and age-guarded. `cliCacheBase()` is scoped to the
+   * Incurator repo, not to a vault, so a second vault opening in another Obsidian
+   * window shares this directory — deleting it wholesale would destroy an
+   * in-flight image payload belonging to the other vault mid-send. Only run dirs
+   * older than the longest a single CLI turn can legitimately live are removed;
+   * anything younger might still be someone's active request (PLUGIN_SCHEMA
+   * §2.1.3).
    */
   private sweepStaleChatImages(): void {
+    // Generous upper bound on one CLI turn: the longest configurable
+    // Antigravity print-timeout, plus slack. A measured turn is ~8-12s, and the
+    // per-request `finally` already removes its own dir on success, error, and
+    // abort — this sweep only exists for crash leftovers.
+    const maxAgeMs = 60 * 60 * 1000;
+    // `cliCacheBase()` throws when no repo path is configured; that is a normal
+    // state (nothing was ever written), so it must not escape a startup sweep.
+    let root: string;
+    let entries: string[];
     try {
-      rmSync(join(this.cliCacheBase(), "chat_images"), { recursive: true, force: true });
+      root = join(this.cliCacheBase(), "chat_images");
+      entries = readdirSync(root);
     } catch {
-      /* best-effort */
+      return; // no repo path, missing root (the common case), or unreadable
+    }
+    const now = Date.now();
+    for (const entry of entries) {
+      const dir = join(root, entry);
+      try {
+        if (now - statSync(dir).mtimeMs < maxAgeMs) continue;
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        /* best-effort per entry: a racing cleanup must not abort the sweep */
+      }
     }
   }
 
