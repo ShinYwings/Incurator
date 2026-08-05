@@ -432,6 +432,15 @@ Incurator의 가장 핵심적인 작동 방식입니다. 당신은 그저 질문
 
 `wiki query`와 `curator_query`는 현재 컴파일된 DAG를 읽어 sessionless 답변과 `QTR-` trace를 반환합니다. `search_curator`는 답변 합성 없이 검색 결과를 반환합니다. 쿼리는 source를 등록하거나 pending L2/L3 job을 실행하거나 고정 Exhibition 파일을 쓰지 않습니다. 컴파일된 DAG를 갱신하려면 `wiki add`와 `wiki build`를 명시적으로 실행합니다.
 
+**쿼리는 DAG에 절대 쓰지 않습니다.** 답변을 지식 노드로 바꾸는 플래그는 없습니다.
+합성된 답변으로 L2 Atom을 만들던 `--update` 플래그는 v0.44.0에서 제거되었습니다.
+이 플래그는 데이터베이스 행 없이 파생 산출물인 `Collections/` 투영에 곧바로
+`ATM-*.md` 파일을 썼기 때문에, 그 노드는 검색·그래프·모든 무결성 검사에서 보이지
+않았고 다음 투영 재생성 때 사라졌습니다. 또한 backpropagation은 교정에 의해
+구동되며 쿼리 산출물과 독립적이어야 한다는 규칙에도 어긋났습니다. 답변에서 얻은
+내용을 그래프에 다시 반영하려면 `02_Wiki/`로 승격하거나(다음 사이클에서 L1 입력이
+됩니다) insight 라이프사이클(`wiki insight list` / `show` / `promote`)을 사용하세요.
+
 > [!TIP]
 > 활성 workspace 경로가 `curate.yml` KRS 적용 여부를 결정합니다. workspace
 > 밖에서는 `default` vault scope를 사용합니다.

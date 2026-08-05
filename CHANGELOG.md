@@ -2,6 +2,70 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.44.0] - 2026-08-05
+### Removed
+- **`wiki query --update` And Its Insight-To-Atom Path**
+  The flag created an L2 Atom out of the synthesized answer. It did so by
+  writing an `ATM-*.md` file directly into `.curator/Collections/02_Atoms/`
+  with **no `knowledge_units` row behind it** — an orphan in a directory the
+  system treats as a derived, disposable projection of the database. The node
+  was therefore invisible to search, to the graph, and to every integrity
+  check, and any re-emission from the DB dropped it. It also contradicted
+  SYSTEM_BEHAVIOR §22.2, which requires backpropagation to be
+  correction-driven and independent of query artifacts.
+
+  Querying is now read-only with respect to the DAG, which is what the user
+  guide already claimed. To feed something learned from an answer back into the
+  graph, promote it to `02_Wiki/` (it re-enters as an L1 input on the next
+  cycle) or use the insight lifecycle (`wiki insight list` / `show` /
+  `promote`). `wiki sync --backward` is unaffected — it still synthesizes atoms
+  from *corrections*, which is the sanctioned path.
+
+### Fixed
+- **`context_expand` Double-Subtracted The Expansion Reserve, So Every Handle It
+  Advertised Was Guaranteed To Be Refused**
+  `context_fetch` withholds a reserve (`min(1000, limit // 4)`) so that
+  expansion has headroom, and `context_expand` withheld it a *second* time
+  against the same `limit_tokens`. Since both paths share a cost function and
+  the running total only grows, an item that fetch omitted because
+  `used + cost > limit - reserved` could never satisfy
+  `already_used + cost <= limit - reserved` afterwards. Every handle offered in
+  `next` was therefore mathematically certain to come back as
+  `expansion_refused / budget_exhausted` at the budget that offered it, and the
+  progressive-expansion surface was inert on its own default path
+  (`limit_tokens=8000` for both operations). The admission ceiling on expand is
+  now the full `limit_tokens` per SYSTEM_BEHAVIOR §31.1, and an expand response
+  reports `budget.reserved_tokens = 0` because nothing is being withheld.
+
+- **A Secret That Cannot Be Decrypted Was Reported As A Missing API Key**
+  `secret_store.get_secret` swallowed `InvalidToken` and returned `""`, which
+  is exactly what "no secret stored" returns. The Fernet key is machine-local
+  and never syncs, so this is the ordinary result of the project's own
+  cross-device config sync: the config names a secret whose ciphertext this
+  machine cannot open, and DeepSeek then told the user to set
+  `DEEPSEEK_API_KEY` — sending them to check an environment variable that was
+  never the problem. Reading an undecryptable entry now raises
+  `SecretDecryptionError` naming the secret and the fix. `wiki config secret
+  list` still succeeds, rendering that row as `<undecryptable>`.
+
+- **Silent Exception Boundaries (SYSTEM_BEHAVIOR §32)**
+  `wiki lint --fix` swallowed a failing `search.update_index` with
+  `except Exception: pass` — a false success, since the pages on disk and the
+  search index had diverged and queries would serve stale text with no
+  indication. It now warns with the cause and points at `wiki reindex`. The two
+  account-identity fallbacks in `llm_identity.py` log the suppressed cause
+  instead of silently degrading to "Authenticated", and the JWT claim decoder
+  narrows its catch to the specific parse classes §32 requires. The
+  atom-from-insight path (still reachable through `wiki sync --backward`) logs
+  which of its three failure modes it hit instead of collapsing them all to a
+  bare `return None`.
+
+### Documentation
+- SCHEMA §7 MCP payload examples were stale: `check_source_status` gained
+  `relpath`, `l4_complete`, and the full `source` record, its three other
+  response shapes are now documented, and `get_available_models` shows the `ok`
+  wrapper, the `deepseek`/`ollama` providers, and the per-model entry fields.
+
 ## [0.43.0] - 2026-08-05
 ### Changed
 - **Relation Corroboration Threshold Lowered To One Independent Source**

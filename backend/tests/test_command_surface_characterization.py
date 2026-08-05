@@ -324,3 +324,30 @@ def test_plugin_version_json_command_stays_vault_independent(tmp_path: Path, mon
     assert "version" in payload
     assert "build" in payload
     assert "repo_path" in payload
+
+
+def test_wiki_query_cannot_write_to_the_dag() -> None:
+    """`wiki query` is read-only: no flag turns an answer into an L2 Atom.
+
+    `--update` called `add_atom_from_insight`, which wrote an ATM markdown file
+    straight into the derived `Collections/` projection with no `knowledge_units`
+    row behind it — an orphan the DB never knew about and any re-projection
+    would drop. It also contradicted SYSTEM_BEHAVIOR §22.2, which requires
+    backprop to be correction-driven and independent of query artifacts.
+    Corrections go through the insight lifecycle (`wiki insight`) instead.
+    """
+    runner = CliRunner()
+
+    result = runner.invoke(app, ["query", "--help"])
+    assert result.exit_code == 0
+    help_text = click.unstyle(result.output)
+    assert "--update" not in help_text
+
+    rejected = runner.invoke(app, ["query", "anything", "--update"])
+    assert rejected.exit_code != 0
+
+    from curator.commands import common as common_module
+
+    assert "update_knowledge" not in inspect.signature(
+        common_module._run_query_repl
+    ).parameters

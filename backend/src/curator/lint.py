@@ -14,6 +14,7 @@ pairs of L2 Fragment pages that share outgoing links — much slower, opt-in onl
 
 from __future__ import annotations
 
+import logging
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
@@ -25,6 +26,8 @@ from . import config as cfg
 from . import constants as consts
 from . import db
 from . import page_writer
+
+logger = logging.getLogger(__name__)
 
 # Strip only the retired legacy curator URI schemes (``legacy://`` and the
 # pre-v0.3.2 search-binary scheme) from wikilink targets. Built via string
@@ -1320,13 +1323,22 @@ def apply_fixes(
         current_issues = new_report.issues
 
     # Refresh DB-native search so modified pages are reflected in queries.
-    # Only runs if we actually modified anything. Non-fatal on failure.
+    # Only runs if we actually modified anything. Non-fatal on failure, but §32
+    # forbids a silent skip: the pages were changed and the index was not, so
+    # queries now serve stale text until the next reindex. Broad catch because
+    # the embedding provider is arbitrary and can raise anything.
     if total_modified > 0:
         try:
             from . import search
             search.update_index(paths, embed=True)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "lint --fix modified %d page(s) but the search index refresh "
+                "failed: %s. Queries may serve stale text until "
+                "`wiki reindex` is run.",
+                total_modified,
+                exc,
+            )
 
     return total_modified
 

@@ -474,10 +474,20 @@ def _budget_payloads(
     ``context_expand`` adds to). Seeding ``used`` with it keeps the *cumulative*
     selected set within ``limit_tokens`` instead of granting each expansion a fresh
     full budget, which would let the combined pack overflow the LLM window.
+
+    The admission ceiling is the FULL ``limit_tokens``, not ``limit - reserved``.
+    ``_apply_budget`` withholds the reserve at fetch time precisely so expansion
+    has headroom; withholding it a second time here would spend nothing and make
+    the reserve dead capital. Because both sides use the same cost function and
+    ``used`` is monotonic, re-subtracting made every handle advertised in ``next``
+    provably inadmissible at the budget that produced it: fetch omitted item *i*
+    because ``used_i + cost_i > limit - reserved``, so ``already_used + cost_i``
+    (with ``already_used >= used_i``) always exceeded that same ceiling. §31.1
+    admits an expanded item "if it fits within ``limit_tokens`` alongside
+    everything already selected" — ``limit_tokens``, not the reserved remainder.
     """
     limit = max(0, limit_tokens)
-    reserved = min(_DEFAULT_RESERVED_TOKENS, max(0, limit // 4))
-    available = max(0, limit - reserved)
+    available = limit
     selected: list[dict[str, Any]] = []
     omitted: list[dict[str, Any]] = []
     used = max(0, already_used)
@@ -491,7 +501,9 @@ def _budget_payloads(
     budget: dict[str, int | str] = {
         "limit_tokens": limit_tokens,
         "used_tokens": used,
-        "reserved_tokens": reserved,
+        # Nothing is withheld on the expand path — the fetch-time reserve is
+        # exactly what this operation is spending.
+        "reserved_tokens": 0,
         "omitted_items": len(omitted),
         "estimation_mode": "conservative",
     }

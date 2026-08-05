@@ -1363,11 +1363,6 @@ def query(
         "--no-intent-classify",
         help="Skip intent classification step (saves ~3 sec per query).",
     ),
-    update: bool = typer.Option(
-        False,
-        "--update",
-        help="After answering, create a new L2 Atom from the answer insight.",
-    ),
     workspace: Optional[Path] = typer.Option(
         None,
         "--workspace",
@@ -1380,11 +1375,10 @@ def query(
     Within a session you can say 'save to wiki' / 'save' etc. to promote the
     last answer into 02_Wiki under an auto-determined category folder.
 
-    Use --update to automatically create a new L2 Atom from the synthesized answer,
-    feeding new knowledge back into the L1-L3 pipeline for future curation.
-
-    Sessionless Q&A returns an answer + trace only; durable artifacts come from an
-    explicit promotion to 02_Wiki.
+    Querying never writes to the DAG. Sessionless Q&A returns an answer + trace
+    only; durable artifacts come from an explicit promotion to 02_Wiki. To feed
+    a correction back into the graph, use the insight lifecycle
+    ([bold]wiki insights[/bold]) or [bold]wiki sync --backward[/bold].
 
     The query pipeline:
       1. Translate question to English (for non-English input)
@@ -1480,7 +1474,6 @@ def query(
         had_failure = _run_query_repl(
             paths, client, callbacks, run_kwargs,
             initial_question=question,
-            update_knowledge=update,
         )
     except CurationPolicyError as exc:
         _err(f"Query configuration failed: {exc}")

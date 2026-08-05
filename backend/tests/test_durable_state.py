@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from cryptography.fernet import Fernet
 
 from curator import config as cfg
 from curator import durable_io
@@ -250,3 +251,48 @@ def test_secret_store_json_remains_a_mapping_after_concurrent_writes(
     )
     assert isinstance(payload, dict)
     assert set(payload) == {"one"}
+
+
+def test_secret_stored_but_undecryptable_is_not_reported_as_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A synced config references a secret whose ciphertext this key cannot open.
+
+    The encryption key is machine-local and never syncs, so this is the ordinary
+    outcome of this project's own cross-device config sync. Returning "" made it
+    indistinguishable from "no secret stored", and the provider then told the
+    user their API key was not configured — sending them to re-check an env var
+    that was never the problem.
+    """
+    config_dir = _use_config_dir(tmp_path, monkeypatch)
+    secret_store.set_secret("deepseek-api-key", "sk-real-value")
+
+    # Simulate arriving on another machine: same store file, different key.
+    key_path = config_dir / "secrets" / secret_store.KEY_FILE
+    key_path.write_bytes(Fernet.generate_key() + b"\n")
+
+    with pytest.raises(secret_store.SecretDecryptionError) as excinfo:
+        secret_store.get_secret("secret:deepseek-api-key")
+
+    message = str(excinfo.value)
+    assert "deepseek-api-key" in message
+    assert "cannot be decrypted on this machine" in message
+    assert "wiki config provider --api-key" in message
+
+    # A name that was never stored still reads as absent, not as a failure.
+    assert secret_store.get_secret("secret:never-stored") == ""
+
+
+def test_listing_secrets_survives_one_undecryptable_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_dir = _use_config_dir(tmp_path, monkeypatch)
+    secret_store.set_secret("stale", "sk-from-another-machine")
+    key_path = config_dir / "secrets" / secret_store.KEY_FILE
+    key_path.write_bytes(Fernet.generate_key() + b"\n")
+    secret_store.set_secret("fresh", "sk-local-value")
+
+    listed = secret_store.list_secrets()
+
+    assert listed["secret:stale"] == "<undecryptable>"
+    assert listed["secret:fresh"] == "sk-l...alue"

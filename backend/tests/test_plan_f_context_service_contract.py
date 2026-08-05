@@ -1338,3 +1338,48 @@ def test_context_fetch_admits_plan_a_route_without_downgrade(tmp_path: Path) -> 
     assert response["route"] == "local"
     assert response["route_admission"]["downgraded"] is False
     assert response["route_admission"]["requested"] == "local"
+
+
+def test_context_expand_admits_a_next_handle_at_the_budget_that_produced_it(
+    tmp_path: Path,
+) -> None:
+    """§31.1: an expanded item is admitted if it fits within ``limit_tokens``.
+
+    Regression for the double-subtracted expansion reserve. ``_apply_budget``
+    withholds ``reserved`` at fetch so expansion has headroom; ``_budget_payloads``
+    used to withhold it a second time against the same ``limit_tokens``. Because
+    both sides share a cost function and ``used`` is monotonic, that made every
+    handle advertised in ``next`` provably inadmissible at the very budget that
+    advertised it — the reserve was capital nothing could spend.
+    """
+    from curator.context_service import ContextService
+
+    paths = _seed_budget_vault(tmp_path)
+    service = ContextService(paths)
+
+    limit = 60
+    pack = service.context_fetch(
+        QueryRequest(question="context budget evidence", mode="local"),
+        limit_tokens=limit,
+    )
+    assert pack["next"], "fixture must omit at least one item to offer a handle"
+    assert pack["budget"]["reserved_tokens"] > 0, (
+        "fetch must actually withhold a reserve for this regression to bite"
+    )
+
+    expanded = service.context_expand(
+        pack_id=pack["pack_id"],
+        handles=[pack["next"][0]["handle"]],
+        expected_snapshot_id=pack["snapshot"]["snapshot_id"],
+        limit_tokens=limit,  # the SAME budget that produced the handle
+    )
+
+    assert expanded["ok"] is True
+    assert expanded["items"], (
+        "a handle offered by `next` must be admissible at the budget that "
+        f"offered it; got warnings={expanded['warnings']}"
+    )
+    # The cumulative pack still respects limit_tokens — expansion spends the
+    # reserve, it does not grant a fresh full budget.
+    assert expanded["budget"]["used_tokens"] <= limit
+    assert expanded["budget"]["reserved_tokens"] == 0
