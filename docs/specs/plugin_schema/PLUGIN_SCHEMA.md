@@ -2311,6 +2311,18 @@ boundary closed by §13.5/§13.6.
   model can answer around. No local tool failure may abort the turn, and a
   document identity change MUST NOT be resolved against the new document.
 
+- **Identity pinning is the CALLER's obligation (v0.42.2).** The backing page
+  fetcher only enforces identity when the caller supplies an expected document
+  id — the check is opt-in by construction, so omitting it silently disables it.
+  **Every** surface that fetches PDF pages across an await MUST read the
+  document identity ONCE before its first await and pass that pinned id to each
+  fetch, including surfaces outside the local-tool loop (the Quick Query
+  cross-reference resolver is one). A surface that also writes fetched text into
+  a search index MUST use the same pinned id for the index it writes into;
+  otherwise text from a document the user switched to is attributed to the
+  document they switched away from, contaminating that document's index for
+  later queries.
+
 - **Budgets.** Rounds remain bounded by the existing tool-loop recursion limit,
   which continues to drop tools on the final turn to force an answer. A separate
   per-request page-fetch budget caps the total pages fetched across all rounds;
