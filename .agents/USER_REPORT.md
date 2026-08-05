@@ -6,6 +6,49 @@ Agents must check this document and triage the received items into the `To-Do (Q
 
 ## 📝 User Inbox
 
+### 2026-08-05 — [P2] `wiki jobs list` cannot distinguish "working" from "hung", and names a PDF as `.md`
+
+User observation during the post-v0.43.0 build: job 37 (MVG book) sat at "10%"
+with no visible movement, and both jobs are PDFs but display a `.md` name.
+
+**(a) The `.md` name is correct data, misleading display.** Both sources are
+`file_type='pdf'`, `is_reference=1`, `logical_source_id='zotero:<key>'` — i.e.
+Reference Mode. Per SYSTEM_BEHAVIOR §3.1 the backend keeps the PDF in place and
+writes a lightweight markdown STUB under `04_Resources/`, storing the stub path
+in `sources.relpath`. `wiki jobs list` renders that `relpath`, so a PDF job
+shows the stub's `.md` filename. Fix direction: for `is_reference` sources
+display the PDF/Zotero identity (or mark the row as PDF) rather than the stub
+path. Cosmetic but actively confusing.
+
+Noticed alongside: the generated stub names carry a trailing empty field —
+`"MultipleViewGeometryHartley - .md"`, `"3D Line Mapping Revisited2023 - Liu et
+al. - .md"` — so the stub filename template renders a separator for a metadata
+field it did not fill.
+
+**(b) The job was NOT hung; the progress number is a fixed marker.** Measured
+3.7 minutes after start:
+
+- `progress = 0.1` comes from `ingest_worker.py:180`, written **once** when L2
+  begins. The next update is `progress=0.5` at `:195`, only after the whole L2
+  extraction returns. Nothing moves in between.
+- `progress_current / progress_total = 0 / 1` — the real counters are never
+  advanced, so the "10%" is not derived from work done.
+- `job_events` for that job: **0 rows**. SYSTEM_BEHAVIOR §6 says "Running jobs
+  should publish phase/progress in `ingest_jobs` and `job_events`" — nothing is
+  published, so there is no per-batch trace either.
+- `input_tokens/output_tokens = 0/0`: no provider call had completed yet.
+
+Scale explains the wait rather than a hang: **source 36 alone holds 8,692
+source_spans — 79% of the entire vault's 11,052.** With a measured CLI provider
+round-trip of 8–12 s, a batched L2 extraction over that source is inherently a
+long job.
+
+This is the same defect class as the Quick Query "Thinking…" fix (PLUGIN_SCHEMA
+§1.4.3): a long operation that emits no progress is indistinguishable from a
+hang. Fix direction: advance `progress_current/progress_total` per L2 batch and
+emit a `job_events` row per batch, so `wiki jobs list` and the dashboard show
+real movement and a stall becomes diagnosable.
+
 ### 2026-08-05 — [P1/DESIGN] The `local` route never descends L4→L3→L2→L1, so most queries read raw L1
 
 User design intent, stated 2026-08-05: *"When querying, shouldn't it search
