@@ -57,10 +57,44 @@ units are stranded permanently. They are stored and audited but never served.
 `source_spans` are `span_type='equation'` (0.95%) in a vault of math-heavy
 papers. Worth checking whether display math is being recognized at L1 at all.
 
-Fixing Cause 1 is the highest-leverage single change: it would move up to 490
-units from `failed` to served without any re-extraction, the same shape as the
-v0.43.0 relation fix. Cause 2 needs a configured validator model and is a
-config/product decision, not only code.
+**CORRECTION 2026-08-05 — the support gate is NOT the binding constraint.**
+
+The user reframed the requirement in outcome terms: *"when I ask a question, if
+a related formula exists in the knowledge system, it just needs to be usable as
+prior knowledge for the answer."* Measured against that, the diagnosis above is
+misleading and the proposed fix would not have delivered it.
+
+**All 11,052 L1 `source_spans` are in `search_documents`, including all 105
+`span_type='equation'` spans — indexed regardless of `support_status`.** The
+claim-support gate governs which L2 `knowledge_units` are served (628 of 2,131);
+it never removed the formulas from retrieval. So loosening it would not, by
+itself, put more formulas into an answer.
+
+What actually happens, measured with a real query
+(`wiki plugin context fetch --query "Gaussian splatting covariance"`, a
+formula-dense topic): **27 evidence items returned, exactly 1 containing any
+LaTeX.** The rest are 9 bare entity names plus L1 spans that are mostly
+bibliography lines ("2019. Differentiable surface splatting… ACM", five times)
+and section headings ("D ADDITIONAL RESULTS" x3, "📖 참고 자료", "심층 분석 완료").
+
+DB-level duplication is not the cause: only 98 of 11,052 spans share a preview
+(0%). The cause is **retrieval ranking** — lexical matching scores a paper title
+in a reference list as highly as the equation that answers the question, and
+headings/boilerplate spans (`---`, `{% persist %}` template residue) are indexed
+as ordinary content.
+
+**Revised priority.** To satisfy the stated requirement, work the retrieval
+side, not the support gate:
+1. Rank or filter out non-content spans (bibliography blocks, bare headings,
+   template residue like `{% persist %}` / `---`) at materialization or ranking
+   time.
+2. Give `span_type='equation'` spans (and spans containing LaTeX — 391 of them)
+   a retrieval affordance so a formula-seeking query can actually reach them.
+3. Only then revisit the L2 support gate, which affects distilled-layer quality
+   and cross-source synthesis rather than basic formula availability.
+
+The original Cause 1/2/3 analysis stands as an accurate description of the L2
+gate, but it answers a different question than the one the user asked.
 
 ### 2026-08-04 — [HOTFIX v0.42.1] Zotero import profile edits lost after the first keystroke
 
