@@ -480,15 +480,28 @@ export class QuickQueryPopover {
     // PDF is not open or the fetch returns nothing.
     let resolvedReferencesBlock: string | undefined;
     if (activeContext?.pdfPage) {
+      // Read the identity ONCE, before the first await, and use the same value
+      // for the index we write into and for every page fetch below.
+      const pinnedDocumentId = this.plugin.getActivePdfDocumentId();
       try {
         resolvedReferencesBlock = await resolveSelectionReferencesBlockAsync(
           this.capturedSelection,
           {
             ...activeContext.pdfPage,
             searchIndex: this.plugin.getActivePdfDocumentIndex(),
-            searchDocumentId: this.plugin.getActivePdfDocumentId(),
+            searchDocumentId: pinnedDocumentId,
           },
-          (pageNum) => this.plugin.fetchActivePdfPage(pageNum)
+          // Pin the document identity for the whole resolution. This loop issues
+          // several sequential backend round-trips, so a tab switch mid-flight
+          // would otherwise let later fetches read pages out of the NEWLY active
+          // PDF — and `resolveSelectionReferencesAsync` writes whatever it
+          // fetches back into `searchDocumentId`'s BM25 index, so foreign text
+          // would also contaminate this document's index for later queries.
+          // `fetchActivePdfPage`'s identity guard is opt-in (it only fires when
+          // an expected id is supplied), exactly as the local PDF tool runner
+          // opts in (main.ts). Omitting it here was the bug.
+          (pageNum) =>
+            this.plugin.fetchActivePdfPage(pageNum, pinnedDocumentId)
         );
       } catch {
         // Cross-page resolution failed; fall back to sync inline resolution via buildQuickQueryContextMessages.

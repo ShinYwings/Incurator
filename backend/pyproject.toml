@@ -1,6 +1,6 @@
 [project]
 name = "incurator"
-version = "0.42.2"
+version = "0.42.3"
 description = "An LLM-maintained personal wiki, per Karpathy's pattern. Local-first, enterprise-grade."
 readme = "../docs/README.md"
 requires-python = ">=3.10"
