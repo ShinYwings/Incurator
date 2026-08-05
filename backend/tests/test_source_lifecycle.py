@@ -492,7 +492,18 @@ def test_source_removal_retires_under_supported_relation_and_search_endpoints(
                 "SELECT id FROM community_reports WHERE retired_at IS NOT NULL"
             ).fetchall()
         }
-    assert relation_status != "active"
+    # v0.43.0: losing ONE of two sources leaves one independent lineage, which is
+    # still support — the surviving paper continues to assert the proposition, so
+    # the relation stays active and keeps serving. Under the old ≥2 threshold this
+    # transition dropped it out of topology, which is precisely the behavior that
+    # emptied real vaults. The retirement path is asserted below, after the LAST
+    # supporting source is removed and the count reaches 0.
+    assert relation_status == "active", (
+        "one surviving source lineage still supports the relation; got "
+        f"{relation_status!r}"
+    )
+    # Community identity still changes (membership/support hashes moved), so the
+    # prior reports retire regardless of the relation surviving.
     assert report_ids.issubset(retired_reports)
     assert db.get_search_document(
         paths.state_db,
@@ -501,7 +512,7 @@ def test_source_removal_retires_under_supported_relation_and_search_endpoints(
     assert db.get_search_document(
         paths.state_db,
         f"DOC-graph_relation-{relation_id}",
-    ) is None
+    ) is not None, "an active relation remains materialized for search"
 
     removed, message = ingest_raw.remove_source(
         paths,

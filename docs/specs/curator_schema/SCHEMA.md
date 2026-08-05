@@ -1,4 +1,4 @@
-# Incurator - Schema & Operating Conventions (v0.42.0)
+# Incurator - Schema & Operating Conventions (v0.43.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -2110,14 +2110,13 @@ Rules:
   counted as independent support).
 - **Extracted corroboration threshold = 2 independent source lineages.** An
   extracted relation is
-  `active` only when its independent-support count is **≥ 2** — at least two
-  DISTINCT `source_lineage_hash` values, i.e. two genuinely independent sources
-  assert the same proposition. An independent-support count of exactly **1** is a
-  single uncorroborated source (one source, however many copied/forked rows it
-  contributes) and is NOT promotable; it quarantines as `copied_source_only`
-  (§21.6). A count of **0** is `unsupported`. This is why row count alone can
-  never promote: ten copies of one source are still one lineage, still
-  uncorroborated, still not `active`.
+  `active` when its independent-support count is **≥ 1** — at least one DISTINCT
+  `source_lineage_hash`, i.e. at least one genuinely independent source asserts
+  the proposition. A count of **0** is `unsupported`. Row count alone still never
+  promotes: ten copies of one source collapse to one lineage and count once. The
+  threshold was 2 until v0.43.0; because the lineage hash already collapses
+  copies, requiring two excluded every single-source fact rather than any fraud,
+  which emptied real vaults' graphs (SYSTEM_BEHAVIOR §27.2).
 - `support_status` mirrors `claim_supports` (§20.2): a support is `verified`
   only when its `knowledge_unit_id` is itself eligible (`support_status='verified'`,
   `retired_at IS NULL`, §20.1 eligibility) and its cited spans are fresh.
@@ -2139,8 +2138,8 @@ CREATE INDEX IF NOT EXISTS idx_graph_relations_lifecycle ON graph_relations(life
 `lifecycle_status` (frozen enum, evaluated by `edge_class`):
 
 - `active` — authoritative for its edge class and both endpoints resolve to
-  canonical entities. An `extracted` relation requires **≥2 independent source
-  lineages** of `verified` support (§21.5 corroboration threshold). An
+  canonical entities. An `extracted` relation requires **≥1 independent source
+  lineage** of `verified` support (§21.5 corroboration threshold). An
   `authored` relation instead requires exact supported vault structure in a
   registered visible Markdown source and the source's current authoritative
   compiler `generation_id`; authored relations never require or create
@@ -2158,8 +2157,8 @@ CREATE INDEX IF NOT EXISTS idx_graph_relations_lifecycle ON graph_relations(life
 
 `quarantine_reason` frozen codes: `unsupported` (no eligible support, i.e. 0
 independent source lineages), `self_loop`, `contradiction`, `copied_source_only`
-(exactly 1 independent source lineage — a single, uncorroborated source, below
-the ≥2 corroboration threshold of §21.5), `bridge_risk` (single low-confidence
+(RETIRED as an outcome in v0.43.0; kept frozen so historical rows stay decodable
+and re-evaluable — §21.5), `bridge_risk` (single low-confidence
 edge joining otherwise separate dense components), `endpoint_unresolved`.
 
 **There is no `duplicate_proposition` reason code — a relation is never a
@@ -2171,8 +2170,7 @@ relation (§21.5). Treating a re-assertion as a "duplicate" and quarantining it
 would HIDE its supports from the independent-support count — the exact opposite
 of the aggregation contract — so the state cannot exist by construction. For
 `extracted` relations, support-side outcomes are therefore a total partition by
-independent-source-lineage count: **0** → `unsupported`; **exactly 1** →
-`copied_source_only` (a single, uncorroborated source); **≥2** → `active`. This
+independent-source-lineage count: **0** → `unsupported`; **≥1** → `active`. This
 partition does not apply to authored structural relations. If two physical rows
 are ever found describing the same canonical
 proposition, that is a compile-time defect (the support should have aggregated

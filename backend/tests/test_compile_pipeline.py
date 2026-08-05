@@ -359,30 +359,48 @@ def test_compile_global_l3_marks_l4_done_when_synthesis_is_generated(vault) -> N
     assert _layer_status(paths, 3, "l4") == "skipped"
 
 
-def test_compile_global_l3_marks_l3_and_l4_skipped_when_no_reports_exist(vault) -> None:
+def test_compile_global_l3_builds_l3_from_a_single_source(vault) -> None:
+    """v0.43.0: ONE ingested source is enough to produce L3/L4.
+
+    This test previously asserted the opposite — that a single source yields no
+    concepts, no reports, no synthesis, and `skipped` layers — because the ≥2
+    corroboration threshold quarantined every single-lineage relation. That is
+    the defect, not the contract: a personal vault is mostly single-source
+    papers, so it produced an empty graph (measured: 717 of 722 relations
+    quarantined on a real 37-source vault). The threshold is now ≥1.
+    """
     paths = vault
     client = DynamicFakeClient()
 
     compile_mod.compile_source_l2(paths, client, 1)
     concept_ids = compile_mod.compile_global_l3(paths, client)
 
-    assert concept_ids == []
-    assert db.list_community_reports(paths.state_db) == []
-    assert db.list_synthesis_nodes(paths.state_db) == []
-    assert _layer_status(paths, 1, "l3") == "skipped"
-    assert _layer_status(paths, 1, "l4") == "skipped"
+    assert concept_ids, "a single source's verified relations must form a community"
+    assert db.list_community_reports(paths.state_db), "the community must produce a report"
+    assert _layer_status(paths, 1, "l3") == "done", (
+        "a source grounding a live community report reaches l3=done"
+    )
 
 
-def test_l3_regeneration_preserves_l4_terminal_status(vault) -> None:
+def test_l3_regeneration_from_existing_atoms_reaches_terminal_done(vault) -> None:
+    """Re-running L3 over already-extracted atoms must reach terminal `done`.
+
+    Like its sibling above, this previously pinned the empty-graph outcome that
+    the ≥2 corroboration threshold produced. With the threshold at ≥1 the single
+    source's relations are active, so the rerun path yields synthesis and both
+    layers reach a terminal `done` rather than `skipped`. The point of the test —
+    that the rerun path assigns TERMINAL statuses rather than leaving layers
+    `pending` — is unchanged.
+    """
     paths = vault
     client = DynamicFakeClient()
 
     compile_mod.compile_source_l2(paths, client, 1)
     ingest_llm.run_l3_from_existing_atoms(paths, client, lambda: ingest_llm.IngestCallbacks)
 
-    assert db.list_synthesis_nodes(paths.state_db) == []
-    assert _layer_status(paths, 1, "l3") == "skipped"
-    assert _layer_status(paths, 1, "l4") == "skipped"
+    assert db.list_synthesis_nodes(paths.state_db), "L4 synthesis must be produced"
+    assert _layer_status(paths, 1, "l3") == "done"
+    assert _layer_status(paths, 1, "l4") == "done"
 
 
 def test_compile_source_l2_failed_extraction_sets_error(vault) -> None:

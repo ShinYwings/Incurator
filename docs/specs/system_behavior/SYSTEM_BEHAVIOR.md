@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.42.0)
+# Incurator - System Behavior (v0.43.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -2527,15 +2527,36 @@ heuristics never compensate for unchecked or broadly grounded claims.
   `verified` supports. Copied/duplicated/forked sources share a
   `source_lineage_hash` and therefore count exactly once. The strict quality
   condition is **0 copied-source rows counted as independent support**.
-- **Corroboration threshold = 2 independent source lineages.** A relation
-  becomes `active` only when this count is **≥ 2** (two genuinely independent
-  sources assert the same proposition). A count of exactly **1** is a single
-  uncorroborated source — however many copied/forked support rows it contributes,
-  they collapse to one lineage — and quarantines as `copied_source_only` (§27.3),
-  never `active`. A count of **0** is `unsupported`. Raising the bar to ≥2 is what
-  makes `copied_source_only` and `active` mutually exclusive: a single-lineage
-  relation can never satisfy `active`, and an `active` relation always carries
-  independent corroboration.
+- **Corroboration threshold = 1 independent source lineage (v0.43.0).** A
+  relation becomes `active` when this count is **≥ 1**; a count of **0** is
+  `unsupported`. The lineage hash ALREADY collapses copied/duplicated/forked
+  sources to a single lineage, so the distinct-lineage count is by construction
+  the number of genuinely independent sources — a count of 1 means *one real
+  source asserts this*, not *a duplicate faking corroboration*.
+
+  **Why this changed.** The threshold was 2 until v0.43.0. Because the lineage
+  hash already handles copies, requiring two lineages did not exclude fraud; it
+  excluded every proposition that only one source states. In a personal research
+  vault of distinct papers that is nearly every proposition. Measured on a real
+  37-source vault: **717 of 722 relations quarantined** as `copied_source_only`
+  (all with exactly one lineage), leaving 5 active relations, 6 community
+  reports and 3 synthesis nodes — so §27.4 community construction had almost no
+  input and 34 of 37 sources reported `l3_status='skipped'` and
+  `l4_status='skipped'`. The knowledge graph the product exists to build was
+  empty.
+
+  This also contradicted `docs/philosophy/about.md`, which defines a Permanent
+  Note as "establishing a **single** idea as an independent Atom" and the value
+  as "**Linking & Synthesis** — connecting Permanent Notes to generate new
+  ideas". Zettelkasten links single-source ideas *because* they come from
+  different sources; it does not require two sources to agree before an idea may
+  be linked.
+
+  Corroboration remains meaningful as a **ranking/confidence signal** over active
+  relations. It is not an admission gate. `copied_source_only` is retired as an
+  outcome and retained in the frozen code set only so historical rows stay
+  decodable and re-evaluable; recompiling a vault's relation lifecycles
+  re-admits them without re-extraction.
 - **Support eligibility mirrors the B claim lifecycle.** A support is `verified`
   only when its `knowledge_unit_id` is itself eligible (B `support_status =
   'verified'`, `retired_at IS NULL`, §26.1/§20.1) AND its cited spans are fresh
@@ -2552,8 +2573,8 @@ heuristics never compensate for unchecked or broadly grounded claims.
 - **Lifecycle (Arena decision 7).** Every relation carries `lifecycle_status ∈
   {active, provisional, quarantined, retired}`:
   - `active` — authoritative under the relation's edge-class proof rule and both
-    endpoints resolve to canonical entities. `extracted` requires **≥2
-    independent source lineages** of verified support (§27.2). `authored`
+    endpoints resolve to canonical entities. `extracted` requires **≥1
+    independent source lineage** of verified support (§27.2). `authored`
     requires exact source structure in a registered visible Markdown file and
     the source's current authoritative compiler generation (§27.3.1); it never
     receives synthetic factual support. **Only `active`, non-retired relations
@@ -2569,8 +2590,8 @@ heuristics never compensate for unchecked or broadly grounded claims.
     as a tombstone, never an authoritative input.
 - **Frozen quarantine reason codes** (SCHEMA §21.6): `unsupported` (no eligible
   support — 0 independent source lineages), `self_loop`, `contradiction`,
-  `copied_source_only` (exactly 1 independent source lineage — a single,
-  uncorroborated source, below the ≥2 corroboration threshold of §27.2),
+  `copied_source_only` (RETIRED as an outcome in v0.43.0; kept frozen so
+  historical rows stay decodable and re-evaluable — see §27.2),
   `bridge_risk` (a single low-confidence edge joining otherwise
   separate dense components), `endpoint_unresolved`. Detection of self-loops,
   unsupported edges, contradictions, and bridge-risk candidates runs at compile
@@ -2585,8 +2606,7 @@ heuristics never compensate for unchecked or broadly grounded claims.
   count — the inverse of the aggregation contract — so the state cannot exist by
   construction. An extracted relation's support-side state is therefore a total
   partition by independent-source-lineage count: **0** → `unsupported`;
-  **exactly 1** → `copied_source_only` (a single, uncorroborated source);
-  **≥2** → `active`. If
+  **≥1** → `active`. If
   two physical rows are ever found for the same canonical proposition,
   reconciliation (§27.8) merges their supports onto the canonical relation; it
   never quarantines one as a duplicate.
@@ -2730,8 +2750,8 @@ heuristics never compensate for unchecked or broadly grounded claims.
   **Graph Quality** section alongside the Plan B Compiler Integrity section
   (§26.5). The audit asserts the schema-level invariants frozen in SCHEMA §21.8:
   - 0 authoritative references to `redirected` entities;
-  - 0 `active` extracted relations with fewer than 2 independent source
-    lineages of `verified` support;
+  - 0 `active` extracted relations with zero independent source lineages of
+    `verified` support (the threshold is ≥1 since v0.43.0);
   - 0 `active` authored relations without exact current-generation source
     structure;
   - 0 relation endpoints that are not canonical entities;

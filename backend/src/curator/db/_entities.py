@@ -1629,8 +1629,11 @@ def compile_relation_lifecycle(
     5. Edge-class proof: an authored relation is active only under its current
        authoritative source generation; extracted support corroboration counts
        DISTINCT ``verified`` source lineages (§21.5): ``0`` -> ``unsupported``;
-       exactly ``1`` -> ``copied_source_only``; ``>=2`` -> ``active``. There is
-       no ``duplicate_proposition`` outcome — re-assertion aggregates support.
+       ``>=1`` -> ``active``. There is no ``duplicate_proposition`` outcome —
+       re-assertion aggregates support — and since v0.43.0 no
+       ``copied_source_only`` outcome either: the lineage hash already collapses
+       copied sources, so a single lineage means one genuine source, which is a
+       normal Zettelkasten fact rather than something to exclude.
 
     Pass a precomputed ``bridge_risk_ids`` set (from one
     :func:`detect_bridge_risk_relations` pass) when compiling a whole generation so
@@ -1778,10 +1781,8 @@ def _classify_relation_lifecycle(
         "WHERE relation_id = ? AND support_status = 'verified'",
         (relation_id,),
     ).fetchone()[0]
-    if distinct_lineages == 0:
-        return "quarantined", "unsupported"
     if distinct_lineages < _RELATION_CORROBORATION_THRESHOLD:
-        return "quarantined", "copied_source_only"
+        return "quarantined", "unsupported"
     return "active", ""
 
 

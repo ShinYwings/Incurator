@@ -131,8 +131,12 @@ def vault():
 
 def test_persist_writes_relation_support_with_source_lineage(vault) -> None:
     """A single source's compile writes one verified graph_relation_supports row
-    keyed by the source's content lineage; one lineage => copied_source_only,
-    NOT active (§27.2 corroboration floor)."""
+    keyed by the source's content lineage; one lineage => ACTIVE (v0.43.0).
+
+    This is the end-to-end shape of the ordinary case: one paper is ingested and
+    asserts a proposition. Before v0.43.0 that quarantined as
+    `copied_source_only`, which meant a vault of distinct papers produced an
+    almost entirely quarantined graph and no L3/L4 at all."""
     paths = vault
     _seed_source(paths, "04_Resources/a.md", SOURCE_A, "hash-a", "CTX-aaaa1111")
     compile_mod.compile_source_l2(paths, GraphFakeClient(), 1)
@@ -151,14 +155,15 @@ def test_persist_writes_relation_support_with_source_lineage(vault) -> None:
     assert len(lineages) == 1, "one source contributes exactly one independent lineage"
 
     status = db.compile_relation_lifecycle(paths.state_db, relation_id=rel["id"])
-    assert status == "quarantined", "a single uncorroborated source never reaches active"
+    assert status == "active", (
+        "one ingested paper asserting a proposition is legitimate support and must "
+        f"enter topology; got {status!r}"
+    )
     with db.connect(paths.state_db) as conn:
         reason = conn.execute(
             "SELECT quarantine_reason FROM graph_relations WHERE id = ?", (rel["id"],)
         ).fetchone()[0]
-    assert reason == "copied_source_only", (
-        "exactly one independent lineage quarantines as copied_source_only (§27.3)"
-    )
+    assert reason == "", f"an active relation carries no quarantine reason; got {reason!r}"
 
 
 def test_two_independent_sources_corroborate_relation_active(vault) -> None:
