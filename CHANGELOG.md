@@ -2,6 +2,36 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.42.4] - 2026-08-05
+### Fixed
+- **A Cancelled CLI Request Is Actually Cancelled**
+  The non-streaming CLI paths returned their promise from inside the request's
+  guarded block, so the block settled at launch and the `finally` released the
+  request — detaching the owner's abort listener — while the CLI child was still
+  running. A Stop or dismiss then reached nothing. Both the primary CLI path and
+  the HTTP-auth CLI fallback now await inside the guard.
+- **Reposition Listeners No Longer Leak Onto Popout Windows**
+  The Quick Query trigger attaches `scroll`/`resize` listeners to the window
+  owning the selection, but detached against whichever window was active at
+  teardown. Selecting text in a popout and then in the main window stranded a
+  capture-phase `scroll` listener on the first one for the rest of the session.
+  The attach-time window is now recorded and detached against, and the existing
+  trigger is torn down before the active-document reference moves.
+- **A Second Vault No Longer Deletes The First One's In-Flight Chat Image**
+  The startup sweep for crash-leftover chat images removed the whole
+  `chat_images` directory. That directory is scoped to the Incurator repository,
+  not to a vault, so opening a second vault in another Obsidian window destroyed
+  an image payload the first vault was mid-send with. The sweep is now per run
+  directory and skips anything younger than the longest a single request can
+  legitimately live; per-request cleanup in the request's own `finally` remains
+  the primary mechanism.
+- **Auto-Sync No Longer Runs After Unload**
+  `SyncScheduler.dispose()` cancelled the debounce timer but left a queued
+  follow-up armed, so a pass already in flight re-fired from its own completion
+  handler and started a backend subprocess after the plugin had unloaded.
+  Disposal now sets a terminal flag that every entry point checks and clears the
+  queued flag.
+
 ## [0.42.2] - 2026-08-04
 ### Fixed
 - **Quick Query No Longer Crashes On PDF Text Containing Null Bytes**
