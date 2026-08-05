@@ -2,6 +2,21 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.42.3] - 2026-08-04
+### Fixed
+- **Quick Query No Longer Answers From The Wrong PDF After A Tab Switch**
+  `fetchActivePdfPage` guards document identity only when the caller supplies an
+  expected id. The local PDF tool runner opted in; Quick Query did not. Its
+  cross-reference resolution issues several sequential backend round-trips
+  (~0.2 s each), so switching tabs mid-flight let later fetches read pages out
+  of the newly active PDF and splice them into the answer. Because the resolver
+  also writes each fetched page back into the index under the document id it was
+  given, foreign page text contaminated the original document's BM25 index and
+  skewed later queries too. Quick Query now reads the document identity once,
+  before the first await, and uses that same pinned id both for every page fetch
+  and for the index it writes into — so a mid-flight tab switch fails closed
+  instead of answering from the wrong document.
+
 ## [0.42.2] - 2026-08-04
 ### Fixed
 - **Quick Query No Longer Crashes On PDF Text Containing Null Bytes**
