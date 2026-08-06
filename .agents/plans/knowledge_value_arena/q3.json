@@ -1,0 +1,2193 @@
+{
+  "ok": true,
+  "contract_version": "1",
+  "operation": "context_fetch",
+  "pack_id": "PACK-e6e833328f39",
+  "trace_id": "QTR-e8a8d8bb",
+  "retrieval_execution_id": "RTR-a7a6ecc8",
+  "snapshot": {
+    "snapshot_id": "SNAP-370d64abeaee",
+    "source_epoch_hash": "d94ee29a29b3c4625193588a2ffced3787e26b9b4e76775e7d0b3611413e5642",
+    "db_schema_version": 13,
+    "policy_hash": "",
+    "tokenizer": "conservative"
+  },
+  "actions": [
+    {
+      "action_id": "CTXA-ebbcafce7f08",
+      "trace_id": "QTR-e8a8d8bb",
+      "order": 1,
+      "action_type": "retrieval",
+      "child_id": "RTR-a7a6ecc8"
+    },
+    {
+      "action_id": "CTXA-5250d86b7c6e",
+      "trace_id": "QTR-e8a8d8bb",
+      "order": 2,
+      "action_type": "pack_assembly",
+      "child_id": "PACK-e6e833328f39"
+    },
+    {
+      "action_id": "CTXA-7ec96edb156b",
+      "trace_id": "QTR-e8a8d8bb",
+      "order": 3,
+      "action_type": "budget",
+      "child_id": "PACK-e6e833328f39"
+    }
+  ],
+  "route": "local",
+  "route_reason": "entity/fact question",
+  "route_admission": {
+    "requested": "local",
+    "served": "local",
+    "admitted_routes": [
+      "explore",
+      "global",
+      "local",
+      "source-section"
+    ],
+    "disabled_routes": [],
+    "downgraded": false
+  },
+  "workspace_id": "default",
+  "budget": {
+    "limit_tokens": 8000,
+    "used_tokens": 2645,
+    "reserved_tokens": 1000,
+    "omitted_items": 0,
+    "estimation_mode": "conservative"
+  },
+  "coverage": {
+    "sufficiency": "partial",
+    "omitted_counts": {}
+  },
+  "items": [
+    {
+      "item_id": "ENT-9c4b0a35",
+      "record_id": "ENT-9c4b0a35",
+      "record_hash": "ad5967573d5f10d44a5be52e2d99404ac196b322e15a0bf31a1cb93db6865731",
+      "kind": "entity",
+      "layer": "entity",
+      "summary": "0-cycle overhead (metric)",
+      "detail": "An overhead measurement of zero execution cycles.",
+      "title": "0-cycle overhead (metric)",
+      "text": "An overhead measurement of zero execution cycles.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-7722abf8"
+      ],
+      "locator": {
+        "source_id": 6,
+        "source_kind": "promoted_wiki",
+        "relpath": "02_Wiki/CUDA_GaussianSplatting_고급/01_CUDA_고급_개념/02_Warp과_Occupancy.md",
+        "heading": "🏫 논문 Usecase: Divergence 처리 전략",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s6",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 17,
+      "expansion_handle": "EXP-f94860238cb1",
+      "verification_handle": "VER-f94860238cb1"
+    },
+    {
+      "item_id": "ENT-ceaeca0c",
+      "record_id": "ENT-ceaeca0c",
+      "record_hash": "b9e04836461bcfffcaf908938fd18b3fbe7caa12dbb0e7a648f39c074012aef7",
+      "kind": "entity",
+      "layer": "entity",
+      "summary": "128-bit vectorized load (concept)",
+      "detail": "An optimized data transfer instruction that loads 128 bits of data in a single operation.",
+      "title": "128-bit vectorized load (concept)",
+      "text": "An optimized data transfer instruction that loads 128 bits of data in a single operation.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-b3ba2c69"
+      ],
+      "locator": {
+        "source_id": 3,
+        "source_kind": "promoted_wiki",
+        "relpath": "02_Wiki/CUDA_GaussianSplatting_고급/01_CUDA_고급_개념/07_안티패턴과_꿀팁.md",
+        "heading": "TIP3. `__builtin_assume_aligned`",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s16",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 30,
+      "expansion_handle": "EXP-de1ca989c6a5",
+      "verification_handle": "VER-de1ca989c6a5"
+    },
+    {
+      "item_id": "ENT-dffda627",
+      "record_id": "ENT-dffda627",
+      "record_hash": "727ed6364f15c7538325addf3078a7451e477b6ef9cc6de4b7cca40b821f74d5",
+      "kind": "entity",
+      "layer": "entity",
+      "summary": "2D Gaussian Splatting (method)",
+      "detail": "A Gaussian Splatting variant based on surface resampling.",
+      "title": "2D Gaussian Splatting (method)",
+      "text": "A Gaussian Splatting variant based on surface resampling.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-a5e10432"
+      ],
+      "locator": {
+        "source_id": 18,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Papers/EWA splatting.md",
+        "heading": "3.1. Base Process",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s12",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 19,
+      "expansion_handle": "EXP-5432c729f383",
+      "verification_handle": "VER-5432c729f383"
+    },
+    {
+      "item_id": "ENT-3e87af72",
+      "record_id": "ENT-3e87af72",
+      "record_hash": "d62d3d33e5e60461b75a38072a318e5daf453972c4bb62cd89d3b8e1ddd96cf1",
+      "kind": "entity",
+      "layer": "entity",
+      "summary": "2D Gaussian Splatting (2DGS) (method)",
+      "detail": "A method using 2D Gaussian Splatting.",
+      "title": "2D Gaussian Splatting (2DGS) (method)",
+      "text": "A method using 2D Gaussian Splatting.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-dd9cf26e"
+      ],
+      "locator": {
+        "source_id": 14,
+        "source_kind": "promoted_wiki",
+        "relpath": "02_Wiki/CUDA_GaussianSplatting_고급/02_GS_CUDA_커널_분석/06_논문별_CUDA_커널_상세_분석.md",
+        "heading": "④ 렌더링 품질 추가",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s107",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 13,
+      "expansion_handle": "EXP-01a365ead97f",
+      "verification_handle": "VER-01a365ead97f"
+    },
+    {
+      "item_id": "ENT-1cf7d1f1",
+      "record_id": "ENT-1cf7d1f1",
+      "record_hash": "31c64943039bb91e3350328bfe29052d990639a75d26ab4aa428496bebca580e",
+      "kind": "entity",
+      "layer": "entity",
+      "summary": "2D Gaussian Splatting for Geometrically Accurate Radiance Fields (other)",
+      "detail": "The title of the scientific paper proposing 2D Gaussian Splatting.",
+      "title": "2D Gaussian Splatting for Geometrically Accurate Radiance Fields (other)",
+      "text": "The title of the scientific paper proposing 2D Gaussian Splatting.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-741e09ec"
+      ],
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+        "block_id": null,
+        "page_number": 16,
+        "toc_id": "s4",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 22,
+      "expansion_handle": "EXP-2806447e1afe",
+      "verification_handle": "VER-2806447e1afe"
+    },
+    {
+      "item_id": "ENT-9d195cda",
+      "record_id": "ENT-9d195cda",
+      "record_hash": "6f2aa6ec9e772a07f26bad99204ca951070e7c6cbe1827cb3cb03192ef952992",
+      "kind": "entity",
+      "layer": "entity",
+      "summary": "2D Gaussian primitives (concept)",
+      "detail": "2D representations used as building blocks for modeling 3D geometry and radiance fields.",
+      "title": "2D Gaussian primitives (concept)",
+      "text": "2D representations used as building blocks for modeling 3D geometry and radiance fields.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-1695c14f"
+      ],
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "2023. Zip-NeRF: Anti-Aliased Grid-Based Neural Radiance Fields. ICCV (2023).",
+        "block_id": null,
+        "page_number": 15,
+        "toc_id": "s2",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 30,
+      "expansion_handle": "EXP-c8d26c7e2369",
+      "verification_handle": "VER-c8d26c7e2369"
+    },
+    {
+      "item_id": "ENT-1d6406f6",
+      "record_id": "ENT-1d6406f6",
+      "record_hash": "4126882a986ac89ab94f5ff6f4249de6693cd20f6a2d0239cd2933373a71388c",
+      "kind": "entity",
+      "layer": "entity",
+      "summary": "2D Gaussian splatting (method)",
+      "detail": "An approach for geometrically accurate radiance field reconstruction that utilizes 2D Gaussian primitives for 3D scene representation.",
+      "title": "2D Gaussian splatting (method)",
+      "text": "An approach for geometrically accurate radiance field reconstruction that utilizes 2D Gaussian primitives for 3D scene representation.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-1695c14f",
+        "SPAN-4bab8573",
+        "SPAN-147be148",
+        "SPAN-57f17509",
+        "SPAN-00163e6c",
+        "SPAN-12bc9838",
+        "SPAN-f13b3be8",
+        "SPAN-9cfc91de",
+        "SPAN-fd05639e",
+        "SPAN-3ee91a7a",
+        "SPAN-65bcabd1",
+        "SPAN-a512e131",
+        "SPAN-02fca0f4"
+      ],
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "2023. Zip-NeRF: Anti-Aliased Grid-Based Neural Radiance Fields. ICCV (2023).",
+        "block_id": null,
+        "page_number": 15,
+        "toc_id": "s2",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 45,
+      "expansion_handle": "EXP-884e90c45a68",
+      "verification_handle": "VER-884e90c45a68"
+    },
+    {
+      "item_id": "ENT-19b33094",
+      "record_id": "ENT-19b33094",
+      "record_hash": "20866c5f1a4d977776f1cea42acb4aab49d03a7a7cf17f4c6aa95da64516b2c8",
+      "kind": "entity",
+      "layer": "entity",
+      "summary": "3D Gaussian Splatting (concept)",
+      "detail": "A method for real-time radiance field rendering.",
+      "title": "3D Gaussian Splatting (concept)",
+      "text": "A method for real-time radiance field rendering.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-337b55e6"
+      ],
+      "locator": {
+        "source_id": 1,
+        "source_kind": "promoted_wiki",
+        "relpath": "02_Wiki/CUDA_GaussianSplatting_고급/00_학습_로드맵.md",
+        "heading": "📖 참고 자료",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s10",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 16,
+      "expansion_handle": "EXP-59026d9247f8",
+      "verification_handle": "VER-59026d9247f8"
+    },
+    {
+      "item_id": "SPAN-00163e6c",
+      "record_id": "SPAN-00163e6c",
+      "record_hash": "f509ba3e6665ab2376995536402189e2d03245e9db398b1207987ce8d21169bd",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+      "detail": "Fig. 7. Visualization of a plane tiled by 2D Gaussians. A\"ine approxima- Mean depth: There are two optional depth computations used for 𝑇mean = 𝑋𝑉𝑇𝑉/( 𝑋𝑉+ 𝑑) (18) where 𝑋𝑉= 𝑒𝑉𝐿𝑉ˆG𝑉(u(x) is the weight ",
+      "title": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+      "text": "Fig. 7. Visualization of a plane tiled by 2D Gaussians. A\"ine approxima- Mean depth: There are two optional depth computations used for 𝑇mean = 𝑋𝑉𝑇𝑉/( 𝑋𝑉+ 𝑑) (18) where 𝑋𝑉= 𝑒𝑉𝐿𝑉ˆG𝑉(u(x) is the weight ",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "stale",
+      "source_span_ids": [
+        "SPAN-00163e6c"
+      ],
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+        "block_id": null,
+        "page_number": 16,
+        "toc_id": "s4",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 82,
+      "expansion_handle": "EXP-4e3fa698bcd1",
+      "verification_handle": "VER-4e3fa698bcd1"
+    },
+    {
+      "item_id": "SPAN-02fca0f4",
+      "record_id": "SPAN-02fca0f4",
+      "record_hash": "4f8a96a2562bcdfb50f6f7fe7a3868e3d1c107f3087d292359924d1669b54f01",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+      "detail": "**----- Start of picture text -----**<br> (A) Semi-transparent (B) High light<br>**----- End of picture text -----**<br>",
+      "title": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+      "text": "**----- Start of picture text -----**<br> (A) Semi-transparent (B) High light<br>**----- End of picture text -----**<br>",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "stale",
+      "source_span_ids": [
+        "SPAN-02fca0f4"
+      ],
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+        "block_id": null,
+        "page_number": 16,
+        "toc_id": "s4",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 40,
+      "expansion_handle": "EXP-db3e4c376f03",
+      "verification_handle": "VER-db3e4c376f03"
+    },
+    {
+      "item_id": "SPAN-12bc9838",
+      "record_id": "SPAN-12bc9838",
+      "record_hash": "ca273d36411892a937766fbf84bfe94130e3c2050132a59547adfe6c01ef66c0",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+      "detail": "Our 2D Gaussian Splatting method achieves comparable performance even without the need for regularizations, as Table 7 shows. We have included a detailed breakdown of per-scene metrics for the MipNeRF",
+      "title": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+      "text": "Our 2D Gaussian Splatting method achieves comparable performance even without the need for regularizations, as Table 7 shows. We have included a detailed breakdown of per-scene metrics for the MipNeRF",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "stale",
+      "source_span_ids": [
+        "SPAN-12bc9838"
+      ],
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+        "block_id": null,
+        "page_number": 16,
+        "toc_id": "s4",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 67,
+      "expansion_handle": "EXP-dd1c68735b2d",
+      "verification_handle": "VER-dd1c68735b2d"
+    },
+    {
+      "item_id": "SPAN-147be148",
+      "record_id": "SPAN-147be148",
+      "record_hash": "4a3cc458beac065e94a32b975922a6012bbd6e7855bad5da0535adf9c3742d0d",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "2023. Zip-NeRF: Anti-Aliased Grid-Based Neural Radiance Fields. ICCV (2023).",
+      "detail": "We presented 2D Gaussian splatting, a novel approach for geomet- rically accurate radiance !eld reconstruction. We utilized 2D Gauss- Limitations. While our method successfully delivers accurate ap- s",
+      "title": "2023. Zip-NeRF: Anti-Aliased Grid-Based Neural Radiance Fields. ICCV (2023).",
+      "text": "We presented 2D Gaussian splatting, a novel approach for geomet- rically accurate radiance !eld reconstruction. We utilized 2D Gauss- Limitations. While our method successfully delivers accurate ap- s",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "stale",
+      "source_span_ids": [
+        "SPAN-147be148"
+      ],
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "2023. Zip-NeRF: Anti-Aliased Grid-Based Neural Radiance Fields. ICCV (2023).",
+        "block_id": null,
+        "page_number": 15,
+        "toc_id": "s2",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 67,
+      "expansion_handle": "EXP-72fd591197c2",
+      "verification_handle": "VER-72fd591197c2"
+    },
+    {
+      "item_id": "SPAN-1695c14f",
+      "record_id": "SPAN-1695c14f",
+      "record_hash": "5f6b5ecf20780caf267d66c66db299ae14857d1a647c88e90b6fc5f30ddfd4c1",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "2023. Zip-NeRF: Anti-Aliased Grid-Based Neural Radiance Fields. ICCV (2023).",
+      "detail": "We presented 2D Gaussian splatting, a novel approach for geometrically accurate radiance !eld reconstruction. We utilized 2D Gaussian primitives for 3D scene representation, facilitating accurate and ",
+      "title": "2023. Zip-NeRF: Anti-Aliased Grid-Based Neural Radiance Fields. ICCV (2023).",
+      "text": "We presented 2D Gaussian splatting, a novel approach for geometrically accurate radiance !eld reconstruction. We utilized 2D Gaussian primitives for 3D scene representation, facilitating accurate and ",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "stale",
+      "source_span_ids": [
+        "SPAN-1695c14f"
+      ],
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "2023. Zip-NeRF: Anti-Aliased Grid-Based Neural Radiance Fields. ICCV (2023).",
+        "block_id": null,
+        "page_number": 15,
+        "toc_id": "s2",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 67,
+      "expansion_handle": "EXP-2ca246263271",
+      "verification_handle": "VER-2ca246263271"
+    },
+    {
+      "item_id": "SPAN-337b55e6",
+      "record_id": "SPAN-337b55e6",
+      "record_hash": "4133ff8744591ab6d846ce47b9af01017105d741f7e46e6e101fff2bfcbb3e08",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "📖 참고 자료",
+      "detail": "- [3DGS 공식 코드](https://github.com/graphdeco-inria/gaussian-splatting) | [gsplat](https://github.com/nerfstudio-project/gsplat)\n- [Awesome 3DGS Papers DB](https://mrnerf.github.io/awesome-3D-gaussian-splatting/) (498편)\n- [CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-c-programming-guide/)\n- [Nsight Compute Docs](https://docs.nvidia.com/nsight-compute/)",
+      "title": "📖 참고 자료",
+      "text": "- [3DGS 공식 코드](https://github.com/graphdeco-inria/gaussian-splatting) | [gsplat](https://github.com/nerfstudio-project/gsplat)\n- [Awesome 3DGS Papers DB](https://mrnerf.github.io/awesome-3D-gaussian-splatting/) (498편)\n- [CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-c-programming-guide/)\n- [Nsight Compute Docs](https://docs.nvidia.com/nsight-compute/)",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-337b55e6"
+      ],
+      "locator": {
+        "source_id": 1,
+        "source_kind": "promoted_wiki",
+        "relpath": "02_Wiki/CUDA_GaussianSplatting_고급/00_학습_로드맵.md",
+        "heading": "📖 참고 자료",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s10",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 125,
+      "expansion_handle": "EXP-0a3f20af1206",
+      "verification_handle": "VER-0a3f20af1206"
+    },
+    {
+      "item_id": "SPAN-3ee91a7a",
+      "record_id": "SPAN-3ee91a7a",
+      "record_hash": "b81e2d22a469757fab9d9d5f4ce55990acb5949aa715ba1b586b38935be43c24",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+      "detail": "Fig. 10. #alitative studies for the Tanks and Temples dataset [Knapitsch et al. 2017].",
+      "title": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+      "text": "Fig. 10. #alitative studies for the Tanks and Temples dataset [Knapitsch et al. 2017].",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "stale",
+      "source_span_ids": [
+        "SPAN-3ee91a7a"
+      ],
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+        "block_id": null,
+        "page_number": 16,
+        "toc_id": "s4",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 29,
+      "expansion_handle": "EXP-72a1581d942d",
+      "verification_handle": "VER-72a1581d942d"
+    },
+    {
+      "item_id": "SPAN-4bab8573",
+      "record_id": "SPAN-4bab8573",
+      "record_hash": "42ce1cfbde1d843155abe78ea3796b9928c19047575710fb6c42aac74290c581",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "2023. Zip-NeRF: Anti-Aliased Grid-Based Neural Radiance Fields. ICCV (2023).",
+      "detail": "_Limitations._ While our method successfully delivers accurate appearance and geometry reconstruction for a wide range of objects and scenes, we also discuss its limitations: First, we assume surfaces",
+      "title": "2023. Zip-NeRF: Anti-Aliased Grid-Based Neural Radiance Fields. ICCV (2023).",
+      "text": "_Limitations._ While our method successfully delivers accurate appearance and geometry reconstruction for a wide range of objects and scenes, we also discuss its limitations: First, we assume surfaces",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "stale",
+      "source_span_ids": [
+        "SPAN-4bab8573"
+      ],
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "2023. Zip-NeRF: Anti-Aliased Grid-Based Neural Radiance Fields. ICCV (2023).",
+        "block_id": null,
+        "page_number": 15,
+        "toc_id": "s2",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 67,
+      "expansion_handle": "EXP-f6fb6b7d8cc8",
+      "verification_handle": "VER-f6fb6b7d8cc8"
+    },
+    {
+      "item_id": "SPAN-57f17509",
+      "record_id": "SPAN-57f17509",
+      "record_hash": "fa5d66d978176d3a03ddf8c650a0755104293c36c946e2e07d0fce6c7185ba1d",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+      "detail": "Finally, we conduct ablation experiments on our 2DGS. Notably, 2DGS demonstrates enhanced performance by iteratively integrating components such as TSDF, perspective-correct rasterization, and median ",
+      "title": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+      "text": "Finally, we conduct ablation experiments on our 2DGS. Notably, 2DGS demonstrates enhanced performance by iteratively integrating components such as TSDF, perspective-correct rasterization, and median ",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "stale",
+      "source_span_ids": [
+        "SPAN-57f17509"
+      ],
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+        "block_id": null,
+        "page_number": 16,
+        "toc_id": "s4",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 67,
+      "expansion_handle": "EXP-70db73932b62",
+      "verification_handle": "VER-70db73932b62"
+    },
+    {
+      "item_id": "SPAN-65bcabd1",
+      "record_id": "SPAN-65bcabd1",
+      "record_hash": "4f906662d968cd5ae12d9bc260e004f5768ccb6af2c907ce22c649ca68865637",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "D ADDITIONAL RESULTS",
+      "detail": "Fig. 11. Appearance rendering results from reconstructed 2D Gaussian disks, including DTU, TnT, and Mip-NeRF360 datasets.",
+      "title": "D ADDITIONAL RESULTS",
+      "text": "Fig. 11. Appearance rendering results from reconstructed 2D Gaussian disks, including DTU, TnT, and Mip-NeRF360 datasets.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "stale",
+      "source_span_ids": [
+        "SPAN-65bcabd1"
+      ],
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "D ADDITIONAL RESULTS",
+        "block_id": null,
+        "page_number": 17,
+        "toc_id": "s5",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 41,
+      "expansion_handle": "EXP-e3141a36d10b",
+      "verification_handle": "VER-e3141a36d10b"
+    },
+    {
+      "item_id": "SPAN-741e09ec",
+      "record_id": "SPAN-741e09ec",
+      "record_hash": "2dc0a7290b2d1bc9090f774f32becb5eddd4236db17d1c251bde64fd3b3cd3a8",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+      "detail": "2D Gaussian Spla!ing for Geometrically Accurate Radiance Fields • 13",
+      "title": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+      "text": "2D Gaussian Spla!ing for Geometrically Accurate Radiance Fields • 13",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "stale",
+      "source_span_ids": [
+        "SPAN-741e09ec"
+      ],
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+        "block_id": null,
+        "page_number": 16,
+        "toc_id": "s4",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 24,
+      "expansion_handle": "EXP-c26c4a5ddefb",
+      "verification_handle": "VER-c26c4a5ddefb"
+    },
+    {
+      "item_id": "SPAN-7722abf8",
+      "record_id": "SPAN-7722abf8",
+      "record_hash": "2ec604ab0b926a8deb73537971630979af97024fbfebb5b53a74b4b590294ada",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "🏫 논문 Usecase: Divergence 처리 전략",
+      "detail": "| 논문 | 기법 | 효과 |\n|------|------|:---:|\n| **diff-gauss** (원본) | 개별 스레드 early-out | 활성 비율 ~30-50% |\n| **gsplat** | `__ballot_sync` + warp tiling | 활성 비율 ~60-80% |\n| **StopThePop** | Ballot + if constexpr culling | 0-cycle overhead |\n| **LiteGS** | Ballot으로 1024-chunk visibility | Chunk 단위 skip |",
+      "title": "🏫 논문 Usecase: Divergence 처리 전략",
+      "text": "| 논문 | 기법 | 효과 |\n|------|------|:---:|\n| **diff-gauss** (원본) | 개별 스레드 early-out | 활성 비율 ~30-50% |\n| **gsplat** | `__ballot_sync` + warp tiling | 활성 비율 ~60-80% |\n| **StopThePop** | Ballot + if constexpr culling | 0-cycle overhead |\n| **LiteGS** | Ballot으로 1024-chunk visibility | Chunk 단위 skip |",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-7722abf8"
+      ],
+      "locator": {
+        "source_id": 6,
+        "source_kind": "promoted_wiki",
+        "relpath": "02_Wiki/CUDA_GaussianSplatting_고급/01_CUDA_고급_개념/02_Warp과_Occupancy.md",
+        "heading": "🏫 논문 Usecase: Divergence 처리 전략",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s6",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 115,
+      "expansion_handle": "EXP-cc0439dc1cfe",
+      "verification_handle": "VER-cc0439dc1cfe"
+    },
+    {
+      "item_id": "SPAN-9cfc91de",
+      "record_id": "SPAN-9cfc91de",
+      "record_hash": "a0eeb5173acdafc79630fa0d9511a000c79fa921559a69e2b22ca521eb6b5560",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "D ADDITIONAL RESULTS",
+      "detail": "Fig. 8. We visualize the depth maps generated by MipNeRF360 [Barron et al. 2022b], 3DGS [Kerbl et al. 2023], and our method. The depth maps for 3DGS (d) and 2DGS (f) are rendered using Eq. 18 and visu",
+      "title": "D ADDITIONAL RESULTS",
+      "text": "Fig. 8. We visualize the depth maps generated by MipNeRF360 [Barron et al. 2022b], 3DGS [Kerbl et al. 2023], and our method. The depth maps for 3DGS (d) and 2DGS (f) are rendered using Eq. 18 and visu",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "stale",
+      "source_span_ids": [
+        "SPAN-9cfc91de"
+      ],
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "D ADDITIONAL RESULTS",
+        "block_id": null,
+        "page_number": 17,
+        "toc_id": "s5",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 67,
+      "expansion_handle": "EXP-1d7f04bd9d69",
+      "verification_handle": "VER-1d7f04bd9d69"
+    },
+    {
+      "item_id": "SPAN-a512e131",
+      "record_id": "SPAN-a512e131",
+      "record_hash": "1dfcb125669ae2a8a9382706282df280f5ff30c653b8fb9d175b11ff1a63d809",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "D ADDITIONAL RESULTS",
+      "detail": "Fig. 12. Illustration of limitations: Our 2DGS struggles with the accurate reconstruction of semi-transparent surfaces, for example, the glass shown in example (A). Moreover, our method tends to creat",
+      "title": "D ADDITIONAL RESULTS",
+      "text": "Fig. 12. Illustration of limitations: Our 2DGS struggles with the accurate reconstruction of semi-transparent surfaces, for example, the glass shown in example (A). Moreover, our method tends to creat",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "stale",
+      "source_span_ids": [
+        "SPAN-a512e131"
+      ],
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "D ADDITIONAL RESULTS",
+        "block_id": null,
+        "page_number": 17,
+        "toc_id": "s5",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 67,
+      "expansion_handle": "EXP-9fb14b346cec",
+      "verification_handle": "VER-9fb14b346cec"
+    },
+    {
+      "item_id": "SPAN-a5e10432",
+      "record_id": "SPAN-a5e10432",
+      "record_hash": "3fb52ef0fb8b4b9a4037ed92f774116ab709e35fbbfc227959cef5488739fc20",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "3.1. Base Process",
+      "detail": "**Gaussian Splatting 과 관련성**\n3DGS는 Volume resampling 방법으로부터 아이디어를 얻은 알고리즘입니다. (수식은 Surface resampling 개념도 사용합니다.)\n2DGS는 Surface resampling 방법으로부터 아이디어를 얻은 알고리즘입니다.",
+      "title": "3.1. Base Process",
+      "text": "**Gaussian Splatting 과 관련성**\n3DGS는 Volume resampling 방법으로부터 아이디어를 얻은 알고리즘입니다. (수식은 Surface resampling 개념도 사용합니다.)\n2DGS는 Surface resampling 방법으로부터 아이디어를 얻은 알고리즘입니다.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-a5e10432"
+      ],
+      "locator": {
+        "source_id": 18,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Papers/EWA splatting.md",
+        "heading": "3.1. Base Process",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s12",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 93,
+      "expansion_handle": "EXP-7d9685b4a2d4",
+      "verification_handle": "VER-7d9685b4a2d4"
+    },
+    {
+      "item_id": "SPAN-b3ba2c69",
+      "record_id": "SPAN-b3ba2c69",
+      "record_hash": "47dc42bf72d8471ca85efaee97eed7a52d7f6cb7883922f3c1a72973f390a7c1",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "TIP3. `__builtin_assume_aligned`",
+      "detail": "```c\n// 16-byte alignment 보장 → vectorized load 최적화\nfloat4* ptr = (float4*)__builtin_assume_aligned(data, 16);\nfloat4 val = ptr[tid]; // 128-bit 단일 load\n```",
+      "title": "TIP3. `__builtin_assume_aligned`",
+      "text": "```c\n// 16-byte alignment 보장 → vectorized load 최적화\nfloat4* ptr = (float4*)__builtin_assume_aligned(data, 16);\nfloat4 val = ptr[tid]; // 128-bit 단일 load\n```",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-b3ba2c69"
+      ],
+      "locator": {
+        "source_id": 3,
+        "source_kind": "promoted_wiki",
+        "relpath": "02_Wiki/CUDA_GaussianSplatting_고급/01_CUDA_고급_개념/07_안티패턴과_꿀팁.md",
+        "heading": "TIP3. `__builtin_assume_aligned`",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s16",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 57,
+      "expansion_handle": "EXP-82879a4628fd",
+      "verification_handle": "VER-82879a4628fd"
+    },
+    {
+      "item_id": "SPAN-dd9cf26e",
+      "record_id": "SPAN-dd9cf26e",
+      "record_hash": "95dd84c021221ccabd6364f84cf1a62591196b14c9bd9740116d1b1281a24e9b",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "④ 렌더링 품질 추가",
+      "detail": "| # | 논문 | CUDA | 핵심 |\n|:--:|------|:---:|------|\n| 73 | **DARB-Splatting** | ⚪ | Decaying Anisotropic RBF generalization |\n| 74 | **Deformable Radial Kernel** | ⚪ | Deformable radial kernel splatting |\n| 75 | **Gaussian Billboards** | ⚪ | 2DGS + textures |\n| 76 | **HDGS** | ⚪ | Textured 2DGS enhanced rendering |\n| 79 | **Sort-free GS** | ⚪ | Weighted sum rendering (no sort) |\n| 84 | **SA-GS** | ⚪ | Scale-adaptive training-free anti-aliasing |\n| 86 | **Fisheye-GS** | 🟡 | Fisheye camera module |\n| 87 | **OmniGS** | 🔵 | Omnidirectional 360° images |\n| 90 | **GaussianShader** | 🔵 | 3DV 2024. Shading for reflective surfaces |\n| 91 | **GS-IR** | 🔵 | Inverse rendering with GS |\n| 92 | **GI-GS** | ⚪ | Global illumination decomposition |\n| 93 | **Reflective GS** | ⚪ | Reflective surface meshing+relight |\n| 94 | **LumiGauss** | ⚪ | Relightable in the wild |\n| 95 | **EnvGS** | ⚪ | Environment Gaussian view-dependent |\n| 96 | **Spec-Gaussian** | ⚪ | Anisotropic view-dependent appearance |\n| 99 | **TrimGS** | 🔵 | Trimmed GS for accurate geometry |\n| 100 | **DN-Splatter** | 🔵 | Depth+normal priors for meshing |\n| 101 | **3DGSR** | ⚪ | Implicit surface reconstruction |\n| 102 | **GS2Mesh** | 🔵 | Surface reconstruction via stereo |\n| 103 | **RaDe-GS** | ⚪ | Rasterizing depth for geometry |\n| 104 | **GausSurf** | ⚪ | Geometry-guided surface |\n| 105 | **SolidGS** | ⚪ | Sparse-view surface consolidation |\n| 107 | **MAtCha Gaussians** | ⚪ | Atlas of charts geometry+photo |\n| 111 | **GS-Octree** | ⚪ | Object-level strong lighting |\n| 112 | **SWAG** | ⚪ | Appearance-conditioned in the wild |\n| 114 | **Robust GS** | ⚪ | Robust to distractors |\n| 115 | **Deblurring 3DGS** | 🔵 | Motion blur compensation |\n| 116 | **BAD-Gaussians** | 🔵 | Bundle adjusted deblur |\n| 117 | **DeblurGS** | ⚪ | ECCV 2024. Camera motion blur |\n| 118 | **WeatherGS** | 🔵 | Adverse weather reconstruction |\n| 119 | **DehazeGS** | ⚪ | Fog/haze removal |\n| 121 | **Mirror-3DGS** | ⚪ | Mirror reflection modeling |\n| 122 | **Car-GS** | ⚪ | Reflective/transparent car surfaces |\n| 123 | **SuperGaussians** | ⚪ | Spatially varying colors |\n| 124 | **Textured Gaussians** | ⚪ | Enhanced appearance with textures |\n| 125 | **PlanarSplatting** | ⚪ | Planar surface in 3 min |",
+      "title": "④ 렌더링 품질 추가",
+      "text": "| # | 논문 | CUDA | 핵심 |\n|:--:|------|:---:|------|\n| 73 | **DARB-Splatting** | ⚪ | Decaying Anisotropic RBF generalization |\n| 74 | **Deformable Radial Kernel** | ⚪ | Deformable radial kernel splatting |\n| 75 | **Gaussian Billboards** | ⚪ | 2DGS + textures |\n| 76 | **HDGS** | ⚪ | Textured 2DGS enhanced rendering |\n| 79 | **Sort-free GS** | ⚪ | Weighted sum rendering (no sort) |\n| 84 | **SA-GS** | ⚪ | Scale-adaptive training-free anti-aliasing |\n| 86 | **Fisheye-GS** | 🟡 | Fisheye camera module |\n| 87 | **OmniGS** | 🔵 | Omnidirectional 360° images |\n| 90 | **GaussianShader** | 🔵 | 3DV 2024. Shading for reflective surfaces |\n| 91 | **GS-IR** | 🔵 | Inverse rendering with GS |\n| 92 | **GI-GS** | ⚪ | Global illumination decomposition |\n| 93 | **Reflective GS** | ⚪ | Reflective surface meshing+relight |\n| 94 | **LumiGauss** | ⚪ | Relightable in the wild |\n| 95 | **EnvGS** | ⚪ | Environment Gaussian view-dependent |\n| 96 | **Spec-Gaussian** | ⚪ | Anisotropic view-dependent appearance |\n| 99 | **TrimGS** | 🔵 | Trimmed GS for accurate geometry |\n| 100 | **DN-Splatter** | 🔵 | Depth+normal priors for meshing |\n| 101 | **3DGSR** | ⚪ | Implicit surface reconstruction |\n| 102 | **GS2Mesh** | 🔵 | Surface reconstruction via stereo |\n| 103 | **RaDe-GS** | ⚪ | Rasterizing depth for geometry |\n| 104 | **GausSurf** | ⚪ | Geometry-guided surface |\n| 105 | **SolidGS** | ⚪ | Sparse-view surface consolidation |\n| 107 | **MAtCha Gaussians** | ⚪ | Atlas of charts geometry+photo |\n| 111 | **GS-Octree** | ⚪ | Object-level strong lighting |\n| 112 | **SWAG** | ⚪ | Appearance-conditioned in the wild |\n| 114 | **Robust GS** | ⚪ | Robust to distractors |\n| 115 | **Deblurring 3DGS** | 🔵 | Motion blur compensation |\n| 116 | **BAD-Gaussians** | 🔵 | Bundle adjusted deblur |\n| 117 | **DeblurGS** | ⚪ | ECCV 2024. Camera motion blur |\n| 118 | **WeatherGS** | 🔵 | Adverse weather reconstruction |\n| 119 | **DehazeGS** | ⚪ | Fog/haze removal |\n| 121 | **Mirror-3DGS** | ⚪ | Mirror reflection modeling |\n| 122 | **Car-GS** | ⚪ | Reflective/transparent car surfaces |\n| 123 | **SuperGaussians** | ⚪ | Spatially varying colors |\n| 124 | **Textured Gaussians** | ⚪ | Enhanced appearance with textures |\n| 125 | **PlanarSplatting** | ⚪ | Planar surface in 3 min |",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-dd9cf26e"
+      ],
+      "locator": {
+        "source_id": 14,
+        "source_kind": "promoted_wiki",
+        "relpath": "02_Wiki/CUDA_GaussianSplatting_고급/02_GS_CUDA_커널_분석/06_논문별_CUDA_커널_상세_분석.md",
+        "heading": "④ 렌더링 품질 추가",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s107",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 780,
+      "expansion_handle": "EXP-9813c8b20f15",
+      "verification_handle": "VER-9813c8b20f15"
+    },
+    {
+      "item_id": "SPAN-f13b3be8",
+      "record_id": "SPAN-f13b3be8",
+      "record_hash": "90f1ea946a9b3606829443a95903f55097f55a1612f76793e2271dfe18417925",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "D ADDITIONAL RESULTS",
+      "detail": "Table 7. PSNR scores for Synthetic NeRF dataset. Our model achieve comparable performance without using regularizations.",
+      "title": "D ADDITIONAL RESULTS",
+      "text": "Table 7. PSNR scores for Synthetic NeRF dataset. Our model achieve comparable performance without using regularizations.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "stale",
+      "source_span_ids": [
+        "SPAN-f13b3be8"
+      ],
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "D ADDITIONAL RESULTS",
+        "block_id": null,
+        "page_number": 17,
+        "toc_id": "s5",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 40,
+      "expansion_handle": "EXP-0ed13007bae5",
+      "verification_handle": "VER-0ed13007bae5"
+    },
+    {
+      "item_id": "SPAN-fd05639e",
+      "record_id": "SPAN-fd05639e",
+      "record_hash": "4779c67106e226dc49bbe46394b7e4a3682e2e169d895db5502fa80445a558b9",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "D ADDITIONAL RESULTS",
+      "detail": "Fig. 9. Comparison of surface reconstruction using our 2DGS and 3DGS [Kerbl et al. 2023]. Meshes are extracted by applying TSDF to the depth maps.",
+      "title": "D ADDITIONAL RESULTS",
+      "text": "Fig. 9. Comparison of surface reconstruction using our 2DGS and 3DGS [Kerbl et al. 2023]. Meshes are extracted by applying TSDF to the depth maps.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "stale",
+      "source_span_ids": [
+        "SPAN-fd05639e"
+      ],
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "D ADDITIONAL RESULTS",
+        "block_id": null,
+        "page_number": 17,
+        "toc_id": "s5",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 49,
+      "expansion_handle": "EXP-7e855e1190a4",
+      "verification_handle": "VER-7e855e1190a4"
+    },
+    {
+      "item_id": "01_Contexts/CTX-712074c5.md",
+      "record_id": "01_Contexts/CTX-712074c5.md",
+      "record_hash": "ff6494faa82fcd4c156193fb22ee38d3c1c72b8eee8b54077521d7a9153260bb",
+      "kind": "search_hit",
+      "layer": "search_hit",
+      "summary": "3.1. Base Process",
+      "detail": "최종적으로, $g'_{c}(\\mathbf{x})=\\sum_{k \\in \\mathbb{N}} w_{k}\\mathbf{\\rho}_{k}(x)$ 안에 Reconstruction filter $\\mathbf{\\rho}_{k}(x)$ 로 Gaussian 분포를 사용하면 EWA Splatting이 완성됩니다. 이 때 사용하는 Gaussian 분포 또한 각 Resamp",
+      "title": "3.1. Base Process",
+      "text": "최종적으로, $g'_{c}(\\mathbf{x})=\\sum_{k \\in \\mathbb{N}} w_{k}\\mathbf{\\rho}_{k}(x)$ 안에 Reconstruction filter $\\mathbf{\\rho}_{k}(x)$ 로 Gaussian 분포를 사용하면 EWA Splatting이 완성됩니다. 이 때 사용하는 Gaussian 분포 또한 각 Resamp",
+      "score": 0.02459016393442623,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-b4e50c6c"
+      ],
+      "locator": {
+        "source_id": 18,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Papers/EWA splatting.md",
+        "heading": "3.1. Base Process",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s12",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 88,
+      "expansion_handle": "EXP-6e894dec1e25",
+      "verification_handle": "VER-6e894dec1e25"
+    },
+    {
+      "item_id": "01_Contexts/CTX-3ff181fc.md",
+      "record_id": "01_Contexts/CTX-3ff181fc.md",
+      "record_hash": "0dd597a3c094c8eee644ba84ac00b9e2b5b2ca941b835e24b1fee1f468a3e8f2",
+      "kind": "search_hit",
+      "layer": "search_hit",
+      "summary": "4.1 `atomicAdd` — 그래디언트 누적",
+      "detail": "Backward pass에서 여러 픽셀이 동일한 Gaussian에 그래디언트를 기여 → 원자적 덧셈 필수.",
+      "title": "4.1 `atomicAdd` — 그래디언트 누적",
+      "text": "Backward pass에서 여러 픽셀이 동일한 Gaussian에 그래디언트를 기여 → 원자적 덧셈 필수.",
+      "score": 0.016129032258064516,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-3746cc86"
+      ],
+      "locator": {
+        "source_id": 12,
+        "source_kind": "promoted_wiki",
+        "relpath": "02_Wiki/CUDA_GaussianSplatting_고급/02_GS_CUDA_커널_분석/03_CUDA_명령어_종합_분석.md",
+        "heading": "4.1 `atomicAdd` — 그래디언트 누적",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s15",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 38,
+      "expansion_handle": "EXP-d19d6e2f93d7",
+      "verification_handle": "VER-d19d6e2f93d7"
+    },
+    {
+      "item_id": "01_Contexts/CTX-3ff181fc.md",
+      "record_id": "01_Contexts/CTX-3ff181fc.md",
+      "record_hash": "00e30c8d32e5f2d96f78bbc9cc05da661cedb04894b4cbc933f6efa64ca722a1",
+      "kind": "search_hit",
+      "layer": "search_hit",
+      "summary": "28.3 Warp-Level Segmented Reduction (3DGS-LM, gsplat)",
+      "detail": "동일 Gaussian에 대한 여러 픽셀의 그래디언트를 atomic 없이 워프 내에서 먼저 합산.",
+      "title": "28.3 Warp-Level Segmented Reduction (3DGS-LM, gsplat)",
+      "text": "동일 Gaussian에 대한 여러 픽셀의 그래디언트를 atomic 없이 워프 내에서 먼저 합산.",
+      "score": 0.015873015873015872,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-5b203a8c"
+      ],
+      "locator": {
+        "source_id": 12,
+        "source_kind": "promoted_wiki",
+        "relpath": "02_Wiki/CUDA_GaussianSplatting_고급/02_GS_CUDA_커널_분석/03_CUDA_명령어_종합_분석.md",
+        "heading": "28.3 Warp-Level Segmented Reduction (3DGS-LM, gsplat)",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s101",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 36,
+      "expansion_handle": "EXP-d19d6e2f93d7",
+      "verification_handle": "VER-d19d6e2f93d7"
+    },
+    {
+      "item_id": "01_Contexts/CTX-ebecf0cd.md",
+      "record_id": "01_Contexts/CTX-ebecf0cd.md",
+      "record_hash": "76a6cea49194471eaf4cdee3bc1815c7ca641aa90bd71ff1a3947afda04a4931",
+      "kind": "search_hit",
+      "layer": "search_hit",
+      "summary": "🔑 핵심 차이: 한 줄의 변화",
+      "detail": "**설계 철학**: 2DGS의 disk가 평평한 표면만 표현할 수 있는 한계를 넘어, **2차 곡면(saddle, bowl, ridge 등)** 을 표현. 6개 계수 각각이 기하학적 의미를 가짐.",
+      "title": "🔑 핵심 차이: 한 줄의 변화",
+      "text": "**설계 철학**: 2DGS의 disk가 평평한 표면만 표현할 수 있는 한계를 넘어, **2차 곡면(saddle, bowl, ridge 등)** 을 표현. 6개 계수 각각이 기하학적 의미를 가짐.",
+      "score": 0.015625,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-f1f5529a"
+      ],
+      "locator": {
+        "source_id": 14,
+        "source_kind": "promoted_wiki",
+        "relpath": "02_Wiki/CUDA_GaussianSplatting_고급/02_GS_CUDA_커널_분석/06_논문별_CUDA_커널_상세_분석.md",
+        "heading": "🔑 핵심 차이: 한 줄의 변화",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s75",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 67,
+      "expansion_handle": "EXP-bfe79b3c8173",
+      "verification_handle": "VER-bfe79b3c8173"
+    },
+    {
+      "item_id": "graph_relation/REL-3f5eafd6",
+      "record_id": "graph_relation/REL-3f5eafd6",
+      "record_hash": "6329ae9442601966a21c7fc76f0f6535756add7abba72b73c224ec88df12d95d",
+      "kind": "search_hit",
+      "layer": "search_hit",
+      "summary": "Gaussian Billboards combines 2D Gaussian Splatting (2DGS)",
+      "detail": "Gaussian Billboards combines 2D Gaussian Splatting (2DGS)",
+      "title": "Gaussian Billboards combines 2D Gaussian Splatting (2DGS)",
+      "text": "Gaussian Billboards combines 2D Gaussian Splatting (2DGS)",
+      "score": 0.015384615384615385,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-dd9cf26e"
+      ],
+      "locator": {
+        "source_id": 14,
+        "source_kind": "promoted_wiki",
+        "relpath": "02_Wiki/CUDA_GaussianSplatting_고급/02_GS_CUDA_커널_분석/06_논문별_CUDA_커널_상세_분석.md",
+        "heading": "④ 렌더링 품질 추가",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s107",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 19,
+      "expansion_handle": "EXP-462ee2acf7a5",
+      "verification_handle": "VER-462ee2acf7a5"
+    },
+    {
+      "item_id": "01_Contexts/CTX-712074c5.md",
+      "record_id": "01_Contexts/CTX-712074c5.md",
+      "record_hash": "d592b6619aef52db433795329701271a55e10f48ad9dc986e29ab184da0f96db",
+      "kind": "search_hit",
+      "layer": "search_hit",
+      "summary": "3.2. Surface Resampling",
+      "detail": "1. **2D to 3D parameterization**: Surface Resampling의 Surface는 Surfel을 의미합니다. Surfel은 3D Object의 표면의 접선면을 의미합니다. Texture에서 Surfel로 변환하는 함수가 필요하기 때문에 preprocessing 과정이 추가됩니다. - texture-to-object 맵핑 $\\p",
+      "title": "3.2. Surface Resampling",
+      "text": "1. **2D to 3D parameterization**: Surface Resampling의 Surface는 Surfel을 의미합니다. Surfel은 3D Object의 표면의 접선면을 의미합니다. Texture에서 Surfel로 변환하는 함수가 필요하기 때문에 preprocessing 과정이 추가됩니다. - texture-to-object 맵핑 $\\p",
+      "score": 0.015151515151515152,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-c93ce836"
+      ],
+      "locator": {
+        "source_id": 18,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Papers/EWA splatting.md",
+        "heading": "3.2. Surface Resampling",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s17",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 100,
+      "expansion_handle": "EXP-6e894dec1e25",
+      "verification_handle": "VER-6e894dec1e25"
+    },
+    {
+      "item_id": "01_Contexts/CTX-712074c5.md",
+      "record_id": "01_Contexts/CTX-712074c5.md",
+      "record_hash": "0a8625b9c20d33d10e4638602807d41507f262ec5c877967deabc4ebc5e4ff1f",
+      "kind": "search_hit",
+      "layer": "search_hit",
+      "summary": "3.1.3. Volume Resampling Filter",
+      "detail": "$c_{k}$와 누적 투과율 $o_{k}$은 계산 가능하게 만들기 위해 constant value로 가정했습니다. (논문을 보면서 느끼는게 사소하지만 직접 풀기에는 복잡한 부분들은 모두 상수로 바꾸어 버립니다...)",
+      "title": "3.1.3. Volume Resampling Filter",
+      "text": "$c_{k}$와 누적 투과율 $o_{k}$은 계산 가능하게 만들기 위해 constant value로 가정했습니다. (논문을 보면서 느끼는게 사소하지만 직접 풀기에는 복잡한 부분들은 모두 상수로 바꾸어 버립니다...)",
+      "score": 0.014925373134328358,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-18053917"
+      ],
+      "locator": {
+        "source_id": 18,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Papers/EWA splatting.md",
+        "heading": "3.1.3. Volume Resampling Filter",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s16",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 84,
+      "expansion_handle": "EXP-6e894dec1e25",
+      "verification_handle": "VER-6e894dec1e25"
+    },
+    {
+      "item_id": "01_Contexts/CTX-54b7b22b.md",
+      "record_id": "01_Contexts/CTX-54b7b22b.md",
+      "record_hash": "b10c160c8acfc8ee65d71b5cdf25319a73725c79057f1e42685207d1264639aa",
+      "kind": "search_hit",
+      "layer": "search_hit",
+      "summary": "6.6 gsplat backward 전처리: Warp Reduction + Atomic",
+      "detail": "```cuda // ProjectionEWA3DGSFused backward: 동일 Gaussian에 여러 카메라 그래디언트 누적 auto warp = cg::tiled_partition<32>(cg::this_thread_block()); auto warp_group_g = cg::labeled_partition(warp, gid); // Gaussian",
+      "title": "6.6 gsplat backward 전처리: Warp Reduction + Atomic",
+      "text": "```cuda // ProjectionEWA3DGSFused backward: 동일 Gaussian에 여러 카메라 그래디언트 누적 auto warp = cg::tiled_partition<32>(cg::this_thread_block()); auto warp_group_g = cg::labeled_partition(warp, gid); // Gaussian",
+      "score": 0.014705882352941176,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-6ada9945"
+      ],
+      "locator": {
+        "source_id": 15,
+        "source_kind": "promoted_wiki",
+        "relpath": "02_Wiki/CUDA_GaussianSplatting_고급/02_GS_CUDA_커널_분석/01_전처리_커널.md",
+        "heading": "6.6 gsplat backward 전처리: Warp Reduction + Atomic",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s17",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 77,
+      "expansion_handle": "EXP-fe57e69340a2",
+      "verification_handle": "VER-fe57e69340a2"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "ENT-9c4b0a35",
+      "kind": "entity",
+      "title": "0-cycle overhead (metric)",
+      "text": "An overhead measurement of zero execution cycles.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-7722abf8"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 6,
+        "source_kind": "promoted_wiki",
+        "relpath": "02_Wiki/CUDA_GaussianSplatting_고급/01_CUDA_고급_개념/02_Warp과_Occupancy.md",
+        "heading": "🏫 논문 Usecase: Divergence 처리 전략",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s6",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "ENT-ceaeca0c",
+      "kind": "entity",
+      "title": "128-bit vectorized load (concept)",
+      "text": "An optimized data transfer instruction that loads 128 bits of data in a single operation.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-b3ba2c69"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 3,
+        "source_kind": "promoted_wiki",
+        "relpath": "02_Wiki/CUDA_GaussianSplatting_고급/01_CUDA_고급_개념/07_안티패턴과_꿀팁.md",
+        "heading": "TIP3. `__builtin_assume_aligned`",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s16",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "ENT-dffda627",
+      "kind": "entity",
+      "title": "2D Gaussian Splatting (method)",
+      "text": "A Gaussian Splatting variant based on surface resampling.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-a5e10432"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 18,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Papers/EWA splatting.md",
+        "heading": "3.1. Base Process",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s12",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "ENT-3e87af72",
+      "kind": "entity",
+      "title": "2D Gaussian Splatting (2DGS) (method)",
+      "text": "A method using 2D Gaussian Splatting.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-dd9cf26e"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 14,
+        "source_kind": "promoted_wiki",
+        "relpath": "02_Wiki/CUDA_GaussianSplatting_고급/02_GS_CUDA_커널_분석/06_논문별_CUDA_커널_상세_분석.md",
+        "heading": "④ 렌더링 품질 추가",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s107",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "ENT-1cf7d1f1",
+      "kind": "entity",
+      "title": "2D Gaussian Splatting for Geometrically Accurate Radiance Fields (other)",
+      "text": "The title of the scientific paper proposing 2D Gaussian Splatting.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-741e09ec"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+        "block_id": null,
+        "page_number": 16,
+        "toc_id": "s4",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "ENT-9d195cda",
+      "kind": "entity",
+      "title": "2D Gaussian primitives (concept)",
+      "text": "2D representations used as building blocks for modeling 3D geometry and radiance fields.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-1695c14f"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "2023. Zip-NeRF: Anti-Aliased Grid-Based Neural Radiance Fields. ICCV (2023).",
+        "block_id": null,
+        "page_number": 15,
+        "toc_id": "s2",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "ENT-1d6406f6",
+      "kind": "entity",
+      "title": "2D Gaussian splatting (method)",
+      "text": "An approach for geometrically accurate radiance field reconstruction that utilizes 2D Gaussian primitives for 3D scene representation.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-1695c14f",
+        "SPAN-4bab8573",
+        "SPAN-147be148",
+        "SPAN-57f17509",
+        "SPAN-00163e6c",
+        "SPAN-12bc9838",
+        "SPAN-f13b3be8",
+        "SPAN-9cfc91de",
+        "SPAN-fd05639e",
+        "SPAN-3ee91a7a",
+        "SPAN-65bcabd1",
+        "SPAN-a512e131",
+        "SPAN-02fca0f4"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "2023. Zip-NeRF: Anti-Aliased Grid-Based Neural Radiance Fields. ICCV (2023).",
+        "block_id": null,
+        "page_number": 15,
+        "toc_id": "s2",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "ENT-19b33094",
+      "kind": "entity",
+      "title": "3D Gaussian Splatting (concept)",
+      "text": "A method for real-time radiance field rendering.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-337b55e6"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 1,
+        "source_kind": "promoted_wiki",
+        "relpath": "02_Wiki/CUDA_GaussianSplatting_고급/00_학습_로드맵.md",
+        "heading": "📖 참고 자료",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s10",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-00163e6c",
+      "kind": "source_span",
+      "title": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+      "text": "Fig. 7. Visualization of a plane tiled by 2D Gaussians. A\"ine approxima- Mean depth: There are two optional depth computations used for 𝑇mean = 𝑋𝑉𝑇𝑉/( 𝑋𝑉+ 𝑑) (18) where 𝑋𝑉= 𝑒𝑉𝐿𝑉ˆG𝑉(u(x) is the weight ",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-00163e6c"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+        "block_id": null,
+        "page_number": 16,
+        "toc_id": "s4",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-02fca0f4",
+      "kind": "source_span",
+      "title": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+      "text": "**----- Start of picture text -----**<br> (A) Semi-transparent (B) High light<br>**----- End of picture text -----**<br>",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-02fca0f4"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+        "block_id": null,
+        "page_number": 16,
+        "toc_id": "s4",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-12bc9838",
+      "kind": "source_span",
+      "title": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+      "text": "Our 2D Gaussian Splatting method achieves comparable performance even without the need for regularizations, as Table 7 shows. We have included a detailed breakdown of per-scene metrics for the MipNeRF",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-12bc9838"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+        "block_id": null,
+        "page_number": 16,
+        "toc_id": "s4",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-147be148",
+      "kind": "source_span",
+      "title": "2023. Zip-NeRF: Anti-Aliased Grid-Based Neural Radiance Fields. ICCV (2023).",
+      "text": "We presented 2D Gaussian splatting, a novel approach for geomet- rically accurate radiance !eld reconstruction. We utilized 2D Gauss- Limitations. While our method successfully delivers accurate ap- s",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-147be148"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "2023. Zip-NeRF: Anti-Aliased Grid-Based Neural Radiance Fields. ICCV (2023).",
+        "block_id": null,
+        "page_number": 15,
+        "toc_id": "s2",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-1695c14f",
+      "kind": "source_span",
+      "title": "2023. Zip-NeRF: Anti-Aliased Grid-Based Neural Radiance Fields. ICCV (2023).",
+      "text": "We presented 2D Gaussian splatting, a novel approach for geometrically accurate radiance !eld reconstruction. We utilized 2D Gaussian primitives for 3D scene representation, facilitating accurate and ",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-1695c14f"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "2023. Zip-NeRF: Anti-Aliased Grid-Based Neural Radiance Fields. ICCV (2023).",
+        "block_id": null,
+        "page_number": 15,
+        "toc_id": "s2",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-337b55e6",
+      "kind": "source_span",
+      "title": "📖 참고 자료",
+      "text": "- [3DGS 공식 코드](https://github.com/graphdeco-inria/gaussian-splatting) | [gsplat](https://github.com/nerfstudio-project/gsplat)\n- [Awesome 3DGS Papers DB](https://mrnerf.github.io/awesome-3D-gaussian-splatting/) (498편)\n- [CUDA Programming Guide](https://docs.nvidia.com/cuda/cuda-c-programming-guide/)\n- [Nsight Compute Docs](https://docs.nvidia.com/nsight-compute/)",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-337b55e6"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 1,
+        "source_kind": "promoted_wiki",
+        "relpath": "02_Wiki/CUDA_GaussianSplatting_고급/00_학습_로드맵.md",
+        "heading": "📖 참고 자료",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s10",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-3ee91a7a",
+      "kind": "source_span",
+      "title": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+      "text": "Fig. 10. #alitative studies for the Tanks and Temples dataset [Knapitsch et al. 2017].",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-3ee91a7a"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+        "block_id": null,
+        "page_number": 16,
+        "toc_id": "s4",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-4bab8573",
+      "kind": "source_span",
+      "title": "2023. Zip-NeRF: Anti-Aliased Grid-Based Neural Radiance Fields. ICCV (2023).",
+      "text": "_Limitations._ While our method successfully delivers accurate appearance and geometry reconstruction for a wide range of objects and scenes, we also discuss its limitations: First, we assume surfaces",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-4bab8573"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "2023. Zip-NeRF: Anti-Aliased Grid-Based Neural Radiance Fields. ICCV (2023).",
+        "block_id": null,
+        "page_number": 15,
+        "toc_id": "s2",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-57f17509",
+      "kind": "source_span",
+      "title": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+      "text": "Finally, we conduct ablation experiments on our 2DGS. Notably, 2DGS demonstrates enhanced performance by iteratively integrating components such as TSDF, perspective-correct rasterization, and median ",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-57f17509"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+        "block_id": null,
+        "page_number": 16,
+        "toc_id": "s4",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-65bcabd1",
+      "kind": "source_span",
+      "title": "D ADDITIONAL RESULTS",
+      "text": "Fig. 11. Appearance rendering results from reconstructed 2D Gaussian disks, including DTU, TnT, and Mip-NeRF360 datasets.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-65bcabd1"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "D ADDITIONAL RESULTS",
+        "block_id": null,
+        "page_number": 17,
+        "toc_id": "s5",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-741e09ec",
+      "kind": "source_span",
+      "title": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+      "text": "2D Gaussian Spla!ing for Geometrically Accurate Radiance Fields • 13",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-741e09ec"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "2019. Di\"erentiable surface splatting for point-based geometry processing. ACM",
+        "block_id": null,
+        "page_number": 16,
+        "toc_id": "s4",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-7722abf8",
+      "kind": "source_span",
+      "title": "🏫 논문 Usecase: Divergence 처리 전략",
+      "text": "| 논문 | 기법 | 효과 |\n|------|------|:---:|\n| **diff-gauss** (원본) | 개별 스레드 early-out | 활성 비율 ~30-50% |\n| **gsplat** | `__ballot_sync` + warp tiling | 활성 비율 ~60-80% |\n| **StopThePop** | Ballot + if constexpr culling | 0-cycle overhead |\n| **LiteGS** | Ballot으로 1024-chunk visibility | Chunk 단위 skip |",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-7722abf8"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 6,
+        "source_kind": "promoted_wiki",
+        "relpath": "02_Wiki/CUDA_GaussianSplatting_고급/01_CUDA_고급_개념/02_Warp과_Occupancy.md",
+        "heading": "🏫 논문 Usecase: Divergence 처리 전략",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s6",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-9cfc91de",
+      "kind": "source_span",
+      "title": "D ADDITIONAL RESULTS",
+      "text": "Fig. 8. We visualize the depth maps generated by MipNeRF360 [Barron et al. 2022b], 3DGS [Kerbl et al. 2023], and our method. The depth maps for 3DGS (d) and 2DGS (f) are rendered using Eq. 18 and visu",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-9cfc91de"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "D ADDITIONAL RESULTS",
+        "block_id": null,
+        "page_number": 17,
+        "toc_id": "s5",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-a512e131",
+      "kind": "source_span",
+      "title": "D ADDITIONAL RESULTS",
+      "text": "Fig. 12. Illustration of limitations: Our 2DGS struggles with the accurate reconstruction of semi-transparent surfaces, for example, the glass shown in example (A). Moreover, our method tends to creat",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-a512e131"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "D ADDITIONAL RESULTS",
+        "block_id": null,
+        "page_number": 17,
+        "toc_id": "s5",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-a5e10432",
+      "kind": "source_span",
+      "title": "3.1. Base Process",
+      "text": "**Gaussian Splatting 과 관련성**\n3DGS는 Volume resampling 방법으로부터 아이디어를 얻은 알고리즘입니다. (수식은 Surface resampling 개념도 사용합니다.)\n2DGS는 Surface resampling 방법으로부터 아이디어를 얻은 알고리즘입니다.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-a5e10432"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 18,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Papers/EWA splatting.md",
+        "heading": "3.1. Base Process",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s12",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-b3ba2c69",
+      "kind": "source_span",
+      "title": "TIP3. `__builtin_assume_aligned`",
+      "text": "```c\n// 16-byte alignment 보장 → vectorized load 최적화\nfloat4* ptr = (float4*)__builtin_assume_aligned(data, 16);\nfloat4 val = ptr[tid]; // 128-bit 단일 load\n```",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-b3ba2c69"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 3,
+        "source_kind": "promoted_wiki",
+        "relpath": "02_Wiki/CUDA_GaussianSplatting_고급/01_CUDA_고급_개념/07_안티패턴과_꿀팁.md",
+        "heading": "TIP3. `__builtin_assume_aligned`",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s16",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-dd9cf26e",
+      "kind": "source_span",
+      "title": "④ 렌더링 품질 추가",
+      "text": "| # | 논문 | CUDA | 핵심 |\n|:--:|------|:---:|------|\n| 73 | **DARB-Splatting** | ⚪ | Decaying Anisotropic RBF generalization |\n| 74 | **Deformable Radial Kernel** | ⚪ | Deformable radial kernel splatting |\n| 75 | **Gaussian Billboards** | ⚪ | 2DGS + textures |\n| 76 | **HDGS** | ⚪ | Textured 2DGS enhanced rendering |\n| 79 | **Sort-free GS** | ⚪ | Weighted sum rendering (no sort) |\n| 84 | **SA-GS** | ⚪ | Scale-adaptive training-free anti-aliasing |\n| 86 | **Fisheye-GS** | 🟡 | Fisheye camera module |\n| 87 | **OmniGS** | 🔵 | Omnidirectional 360° images |\n| 90 | **GaussianShader** | 🔵 | 3DV 2024. Shading for reflective surfaces |\n| 91 | **GS-IR** | 🔵 | Inverse rendering with GS |\n| 92 | **GI-GS** | ⚪ | Global illumination decomposition |\n| 93 | **Reflective GS** | ⚪ | Reflective surface meshing+relight |\n| 94 | **LumiGauss** | ⚪ | Relightable in the wild |\n| 95 | **EnvGS** | ⚪ | Environment Gaussian view-dependent |\n| 96 | **Spec-Gaussian** | ⚪ | Anisotropic view-dependent appearance |\n| 99 | **TrimGS** | 🔵 | Trimmed GS for accurate geometry |\n| 100 | **DN-Splatter** | 🔵 | Depth+normal priors for meshing |\n| 101 | **3DGSR** | ⚪ | Implicit surface reconstruction |\n| 102 | **GS2Mesh** | 🔵 | Surface reconstruction via stereo |\n| 103 | **RaDe-GS** | ⚪ | Rasterizing depth for geometry |\n| 104 | **GausSurf** | ⚪ | Geometry-guided surface |\n| 105 | **SolidGS** | ⚪ | Sparse-view surface consolidation |\n| 107 | **MAtCha Gaussians** | ⚪ | Atlas of charts geometry+photo |\n| 111 | **GS-Octree** | ⚪ | Object-level strong lighting |\n| 112 | **SWAG** | ⚪ | Appearance-conditioned in the wild |\n| 114 | **Robust GS** | ⚪ | Robust to distractors |\n| 115 | **Deblurring 3DGS** | 🔵 | Motion blur compensation |\n| 116 | **BAD-Gaussians** | 🔵 | Bundle adjusted deblur |\n| 117 | **DeblurGS** | ⚪ | ECCV 2024. Camera motion blur |\n| 118 | **WeatherGS** | 🔵 | Adverse weather reconstruction |\n| 119 | **DehazeGS** | ⚪ | Fog/haze removal |\n| 121 | **Mirror-3DGS** | ⚪ | Mirror reflection modeling |\n| 122 | **Car-GS** | ⚪ | Reflective/transparent car surfaces |\n| 123 | **SuperGaussians** | ⚪ | Spatially varying colors |\n| 124 | **Textured Gaussians** | ⚪ | Enhanced appearance with textures |\n| 125 | **PlanarSplatting** | ⚪ | Planar surface in 3 min |",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-dd9cf26e"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 14,
+        "source_kind": "promoted_wiki",
+        "relpath": "02_Wiki/CUDA_GaussianSplatting_고급/02_GS_CUDA_커널_분석/06_논문별_CUDA_커널_상세_분석.md",
+        "heading": "④ 렌더링 품질 추가",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s107",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-f13b3be8",
+      "kind": "source_span",
+      "title": "D ADDITIONAL RESULTS",
+      "text": "Table 7. PSNR scores for Synthetic NeRF dataset. Our model achieve comparable performance without using regularizations.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-f13b3be8"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "D ADDITIONAL RESULTS",
+        "block_id": null,
+        "page_number": 17,
+        "toc_id": "s5",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-fd05639e",
+      "kind": "source_span",
+      "title": "D ADDITIONAL RESULTS",
+      "text": "Fig. 9. Comparison of surface reconstruction using our 2DGS and 3DGS [Kerbl et al. 2023]. Meshes are extracted by applying TSDF to the depth maps.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-fd05639e"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 32,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md",
+        "heading": "D ADDITIONAL RESULTS",
+        "block_id": null,
+        "page_number": 17,
+        "toc_id": "s5",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "01_Contexts/CTX-712074c5.md",
+      "kind": "search_hit",
+      "title": "3.1. Base Process",
+      "text": "최종적으로, $g'_{c}(\\mathbf{x})=\\sum_{k \\in \\mathbb{N}} w_{k}\\mathbf{\\rho}_{k}(x)$ 안에 Reconstruction filter $\\mathbf{\\rho}_{k}(x)$ 로 Gaussian 분포를 사용하면 EWA Splatting이 완성됩니다. 이 때 사용하는 Gaussian 분포 또한 각 Resamp",
+      "score": 0.02459016393442623,
+      "source_span_ids": [
+        "SPAN-b4e50c6c"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 18,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Papers/EWA splatting.md",
+        "heading": "3.1. Base Process",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s12",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "01_Contexts/CTX-3ff181fc.md",
+      "kind": "search_hit",
+      "title": "4.1 `atomicAdd` — 그래디언트 누적",
+      "text": "Backward pass에서 여러 픽셀이 동일한 Gaussian에 그래디언트를 기여 → 원자적 덧셈 필수.",
+      "score": 0.016129032258064516,
+      "source_span_ids": [
+        "SPAN-3746cc86"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 12,
+        "source_kind": "promoted_wiki",
+        "relpath": "02_Wiki/CUDA_GaussianSplatting_고급/02_GS_CUDA_커널_분석/03_CUDA_명령어_종합_분석.md",
+        "heading": "4.1 `atomicAdd` — 그래디언트 누적",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s15",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "01_Contexts/CTX-3ff181fc.md",
+      "kind": "search_hit",
+      "title": "28.3 Warp-Level Segmented Reduction (3DGS-LM, gsplat)",
+      "text": "동일 Gaussian에 대한 여러 픽셀의 그래디언트를 atomic 없이 워프 내에서 먼저 합산.",
+      "score": 0.015873015873015872,
+      "source_span_ids": [
+        "SPAN-5b203a8c"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 12,
+        "source_kind": "promoted_wiki",
+        "relpath": "02_Wiki/CUDA_GaussianSplatting_고급/02_GS_CUDA_커널_분석/03_CUDA_명령어_종합_분석.md",
+        "heading": "28.3 Warp-Level Segmented Reduction (3DGS-LM, gsplat)",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s101",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "01_Contexts/CTX-ebecf0cd.md",
+      "kind": "search_hit",
+      "title": "🔑 핵심 차이: 한 줄의 변화",
+      "text": "**설계 철학**: 2DGS의 disk가 평평한 표면만 표현할 수 있는 한계를 넘어, **2차 곡면(saddle, bowl, ridge 등)** 을 표현. 6개 계수 각각이 기하학적 의미를 가짐.",
+      "score": 0.015625,
+      "source_span_ids": [
+        "SPAN-f1f5529a"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 14,
+        "source_kind": "promoted_wiki",
+        "relpath": "02_Wiki/CUDA_GaussianSplatting_고급/02_GS_CUDA_커널_분석/06_논문별_CUDA_커널_상세_분석.md",
+        "heading": "🔑 핵심 차이: 한 줄의 변화",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s75",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "graph_relation/REL-3f5eafd6",
+      "kind": "search_hit",
+      "title": "Gaussian Billboards combines 2D Gaussian Splatting (2DGS)",
+      "text": "Gaussian Billboards combines 2D Gaussian Splatting (2DGS)",
+      "score": 0.015384615384615385,
+      "source_span_ids": [
+        "SPAN-dd9cf26e"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 14,
+        "source_kind": "promoted_wiki",
+        "relpath": "02_Wiki/CUDA_GaussianSplatting_고급/02_GS_CUDA_커널_분석/06_논문별_CUDA_커널_상세_분석.md",
+        "heading": "④ 렌더링 품질 추가",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s107",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "01_Contexts/CTX-712074c5.md",
+      "kind": "search_hit",
+      "title": "3.2. Surface Resampling",
+      "text": "1. **2D to 3D parameterization**: Surface Resampling의 Surface는 Surfel을 의미합니다. Surfel은 3D Object의 표면의 접선면을 의미합니다. Texture에서 Surfel로 변환하는 함수가 필요하기 때문에 preprocessing 과정이 추가됩니다. - texture-to-object 맵핑 $\\p",
+      "score": 0.015151515151515152,
+      "source_span_ids": [
+        "SPAN-c93ce836"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 18,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Papers/EWA splatting.md",
+        "heading": "3.2. Surface Resampling",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s17",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "01_Contexts/CTX-712074c5.md",
+      "kind": "search_hit",
+      "title": "3.1.3. Volume Resampling Filter",
+      "text": "$c_{k}$와 누적 투과율 $o_{k}$은 계산 가능하게 만들기 위해 constant value로 가정했습니다. (논문을 보면서 느끼는게 사소하지만 직접 풀기에는 복잡한 부분들은 모두 상수로 바꾸어 버립니다...)",
+      "score": 0.014925373134328358,
+      "source_span_ids": [
+        "SPAN-18053917"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 18,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Papers/EWA splatting.md",
+        "heading": "3.1.3. Volume Resampling Filter",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s16",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "01_Contexts/CTX-54b7b22b.md",
+      "kind": "search_hit",
+      "title": "6.6 gsplat backward 전처리: Warp Reduction + Atomic",
+      "text": "```cuda // ProjectionEWA3DGSFused backward: 동일 Gaussian에 여러 카메라 그래디언트 누적 auto warp = cg::tiled_partition<32>(cg::this_thread_block()); auto warp_group_g = cg::labeled_partition(warp, gid); // Gaussian",
+      "score": 0.014705882352941176,
+      "source_span_ids": [
+        "SPAN-6ada9945"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 15,
+        "source_kind": "promoted_wiki",
+        "relpath": "02_Wiki/CUDA_GaussianSplatting_고급/02_GS_CUDA_커널_분석/01_전처리_커널.md",
+        "heading": "6.6 gsplat backward 전처리: Warp Reduction + Atomic",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s17",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    }
+  ],
+  "source_span_ids": [
+    "SPAN-7722abf8",
+    "SPAN-b3ba2c69",
+    "SPAN-a5e10432",
+    "SPAN-dd9cf26e",
+    "SPAN-741e09ec",
+    "SPAN-1695c14f",
+    "SPAN-4bab8573",
+    "SPAN-147be148",
+    "SPAN-57f17509",
+    "SPAN-00163e6c",
+    "SPAN-12bc9838",
+    "SPAN-f13b3be8",
+    "SPAN-9cfc91de",
+    "SPAN-fd05639e",
+    "SPAN-3ee91a7a",
+    "SPAN-65bcabd1",
+    "SPAN-a512e131",
+    "SPAN-02fca0f4",
+    "SPAN-337b55e6",
+    "SPAN-b4e50c6c",
+    "SPAN-3746cc86",
+    "SPAN-5b203a8c",
+    "SPAN-f1f5529a",
+    "SPAN-c93ce836",
+    "SPAN-18053917",
+    "SPAN-6ada9945"
+  ],
+  "community_report_ids": [],
+  "synthesis_node_ids": [],
+  "memory_path_ids": [],
+  "warnings": [
+    "vector_unavailable: no embedder configured (FTS5-only)",
+    "no reranker configured: returned RRF order"
+  ],
+  "next": []
+}
