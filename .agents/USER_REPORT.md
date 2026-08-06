@@ -5,6 +5,74 @@ This document is a **plain Inbox (backlog) log** that records bugs reported by t
 Agents must check this document and triage the received items into the `To-Do (Queuing)` area or `Icebox` area of `.agents/ROADMAP.md`. Once the triage is complete, **immediately delete** the item from this document.
 
 ## 📝 User Inbox
+### 2026-08-06 — [P1] Moving or deleting a vault file after import breaks every stored reference to it
+
+User report: after importing a Zotero item, moving the resulting markdown note
+to a different folder inside the vault made the sidechat unable to read it. The
+agent answered `⚠ File not found: 03_Notes/Vision/3DRec/3D Line Mapping
+Revisited.md` while the file was sitting at
+`03_Notes/Papers/3DRec/3D Line Mapping Revisited.md`.
+
+**Measured. The stale path is NOT in the database.** Checked every column that
+stores a path against the reported string:
+
+| table / column | rows matching the stale path |
+|---|---|
+| `sources.relpath` | 0 |
+| `source_spans.relpath` | 0 |
+| `search_documents.projection_path` | 0 |
+
+So the reported symptom is **plugin-side**, and the root cause is blunt:
+
+**The plugin subscribes to no vault file events at all.** Repo-wide there are
+exactly two `registerEvent` calls, both in `ChatSidebarView.ts:266,273`, and
+both are workspace events (`active-leaf-change`, `layout-change`). There is no
+`vault.on("rename")` and no `vault.on("delete")` anywhere in `plugin/src`.
+Obsidian fires both, with the old path supplied on rename — the plugin simply
+never listens. Pinned context chips and session context therefore keep whatever
+path they captured, and the agent dutifully tries to read it.
+
+The existing comment at `ChatSidebarView.ts:264-265` says stale keys are
+"harmlessly ignored" because `renderContextChips` will not render them. That
+reasoning covers *rendering* only. It is not harmless for the agent's file read,
+which is the path the user actually hit.
+
+**The user's instinct — that the backend also stores locations that need
+updating — is correct, and it is a second, independent defect.** The path is
+denormalized into at least three places (`sources.relpath`,
+`source_spans.relpath`, `search_documents.projection_path`), and nothing
+reconciles them when a file moves. `sources.relpath` is only ever corrected
+through an explicit re-add (`ingest_raw.py:2270`), which additionally resets
+every layer status to `pending` — so even the one recovery path is destructive.
+There is no vault watcher on the backend side either.
+
+**This is already rotting in the live vault, independent of the plugin.**
+Source 32 is registered as
+`04_Resources/References/2D-Gaussian-Splatting-...-ref-5.md`, a path that exists
+nowhere on disk; the real file is
+`04_Resources/References/2D Gaussian Splatting for Geometrically Accurate
+Radiance Fields2024 - Huang et al. - .md` (registered separately as source 33).
+48 L2 atoms descend from the dead row, and they are exactly the 48
+`invalid_source_path` errors that survive the v0.44.1 lint fix. That is a
+rename that was never reconciled, showing the same gap without any plugin
+involvement.
+
+**Scope note for whoever plans this.** Reference Mode makes it more than a
+string update: source 37 carries `is_reference=1`,
+`logical_source_id='zotero:YACIRUKK'`, and
+`sync_key='vault:04_Resources/References/…'`. A move has to decide what happens
+to the sync key (it embeds the path), whether the Zotero logical identity should
+survive a move (it should), and what a *delete* means — retire the source and
+its dependency closure, or keep the derived knowledge. `wiki source rm` already
+implements the retire-closure semantics, so delete handling likely routes there
+rather than inventing a second path.
+
+**Not a trivial fix — needs a plan.** It spans plugin event handling, backend
+path reconciliation across three tables, Reference Mode identity, delete
+semantics, and a repair for vaults already carrying dead rows (this one has at
+least source 32). Per the Review Feedback Loop rule this gets a
+`PLAN_TEMPLATE.md`-compliant plan before implementation, not a hot patch.
+
 ### 2026-08-06 — [P1] `wiki lint` reports 70 unfixable ERRORs; 22 of them are a macOS NFC/NFD false positive
 
 Audit of `.curator/Collections/` after the post-v0.43.0 `wiki build`
