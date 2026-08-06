@@ -12,6 +12,7 @@ from __future__ import annotations
 from . import constants as consts
 
 import json
+import logging
 import re
 import uuid
 from dataclasses import dataclass, field
@@ -28,6 +29,8 @@ from . import page_writer
 from . import parsers
 from . import prompts
 from .llm import LLMError
+
+logger = logging.getLogger(__name__)
 
 
 MAX_SOURCE_CHARS = 100_000
@@ -646,10 +649,19 @@ def add_atom_from_insight(
     try:
         raw = client.chat(messages, json_mode=True, temperature=0.2)
         summary_data = _parse_json_model(_extract_json(raw), SummaryData)
-    except (ValueError, LLMError):
+    except (ValueError, LLMError) as exc:
+        logger.warning(
+            "atom-from-insight skipped for %s: candidate extraction failed: %s",
+            source_hint,
+            exc,
+        )
         return None
 
     if not summary_data.atom_candidates:
+        logger.warning(
+            "atom-from-insight skipped for %s: the model proposed no atom candidates",
+            source_hint,
+        )
         return None
 
     candidate = summary_data.atom_candidates[0]
@@ -680,13 +692,25 @@ def add_atom_from_insight(
         content = page_writer.strip_llm_noise(full)
         content = page_writer.sanitize_wikilinks(content)
         if not content:
+            logger.warning(
+                "atom-from-insight skipped for %s: the model returned an empty page body",
+                source_hint,
+            )
             return None
 
         final_path = paths.atoms / f"{atom_id}.md"
         final_path.parent.mkdir(parents=True, exist_ok=True)
         final_path.write_text(content, encoding="utf-8")
         return atom_id
-    except Exception:
+    except Exception as exc:
+        # Broad catch: the page body comes from an arbitrary provider stream, so
+        # any client implementation can raise. §32 permits it at this optional
+        # boundary only with an explicit reason and module logging.
+        logger.warning(
+            "atom-from-insight skipped for %s: page generation failed: %s",
+            source_hint,
+            exc,
+        )
         return None
 
 

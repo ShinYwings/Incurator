@@ -2069,14 +2069,13 @@ class CliQueryCallbacks(query_module.QueryCallbacks):
 def _run_query_repl(
     paths, client, callbacks, run_kwargs, *,
     initial_question: str | None = None,
-    update_knowledge: bool = False,
     curate_spec=None,
 ) -> bool:
     """Interactive REPL: ask questions until the user submits an empty line.
 
     If initial_question is provided, it is answered first before prompting
     for further input — so `wiki query "question"` enters the same REPL.
-    update_knowledge=True creates a new L2 Atom from each synthesized answer.
+    Read-only with respect to the DAG: querying never creates L1-L4 nodes.
     Sessionless: answers are returned/streamed; durable artifacts come only from
     explicit promotion to 02_Wiki.
     """
@@ -2160,14 +2159,6 @@ def _run_query_repl(
             last_question = user_input
             last_answer = result.answer
             last_source_span_ids = result.source_span_ids
-
-            if update_knowledge:
-                today = ingest_llm._now_iso()
-                atom_id = ingest_llm.add_atom_from_insight(
-                    paths, client, result.answer, today, source_hint="query"
-                )
-                if atom_id:
-                    console.print(f"[dim]  → new atom created: [cyan]{atom_id}[/cyan][/dim]")
 
     if last_answer and last_question and console.is_interactive:
         confirmed = Prompt.ask(

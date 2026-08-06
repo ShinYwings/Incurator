@@ -12,6 +12,17 @@ from . import config as cfg
 from . import durable_io
 
 
+class SecretDecryptionError(durable_io.DurableStateError):
+    """A secret is stored under this name but cannot be decrypted here.
+
+    Distinct from "no secret stored". The store is machine-local: the Fernet key
+    lives in this machine's global config dir and is never synced, so a config
+    that was synced from another device references secret names whose ciphertext
+    this machine's key cannot open. Reporting that as a missing API key sends the
+    user to re-check an env var that was never the problem.
+    """
+
+
 KEY_FILE = "secret.key"
 STORE_FILE = "secrets.json"
 DEFAULT_DEEPSEEK_SECRET = "deepseek-api-key"
@@ -104,8 +115,17 @@ def get_secret(reference: str) -> str:
             return _load_fernet().decrypt(encrypted).decode("utf-8")
         except durable_io.DurableStateError:
             raise
-        except Exception:
-            return ""
+        except Exception as exc:
+            # The name IS present in the store, so this is never "not
+            # configured". InvalidToken (wrong/rotated key), a corrupt base64
+            # payload, or a non-UTF-8 plaintext all land here.
+            raise SecretDecryptionError(
+                f"secret '{name}' is stored but cannot be decrypted on this "
+                f"machine ({type(exc).__name__}). The encryption key is "
+                f"machine-local and is never synced, so a secret set on another "
+                f"device must be re-entered here with "
+                f"`wiki config provider --api-key <value>`"
+            ) from exc
 
 
 def delete_secret(reference: str) -> bool:
@@ -126,7 +146,12 @@ def list_secrets() -> dict[str, str]:
 
 
 def mask_secret(reference: str) -> str:
-    value = get_secret(reference)
+    try:
+        value = get_secret(reference)
+    except SecretDecryptionError:
+        # Listing every secret must not fail because one of them is
+        # undecryptable — but the row has to say so rather than read as empty.
+        return "<undecryptable>"
     if not value:
         return ""
     if len(value) <= 8:

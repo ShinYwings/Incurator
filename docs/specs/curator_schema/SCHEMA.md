@@ -1,4 +1,4 @@
-# Incurator - Schema & Operating Conventions (v0.43.0)
+# Incurator - Schema & Operating Conventions (v0.44.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -537,15 +537,31 @@ Output:
 {
   "registered": true,
   "source_id": 1,
+  "relpath": "04_Resources/paper.pdf",
   "source_path": "04_Resources/paper.pdf",
   "l1_complete": true,
   "l2_complete": false,
   "l3_complete": false,
+  "l4_complete": false,
   "jobs_pending": [
     {"id": 3, "type": "l2_atoms", "state": "queued", "phase": "queued"}
-  ]
+  ],
+  "source": {}
 }
 ```
+
+`relpath` and `source_path` carry the same vault-relative value; `source_path`
+is retained for older clients. `l4_complete` is reported alongside the other
+layer flags. `source` is the full source record (`_source_dict`), so a client
+that needs more than the layer flags does not have to make a second call. An
+unregistered hash returns the same keys with `registered: false`, a null
+`source_id`, all four layer flags `false`, and an empty `jobs_pending` — it
+carries neither `relpath`/`source_path` nor `source`.
+
+Looking a source up by `source_id` / `relpath` instead of `file_hash` returns a
+different shape — `{"stats": …, "source": …}`, or
+`{"state": "untracked", "error": …, "source_path": …, "stats": …}` when the row
+does not exist — and the no-argument list form returns `{"stats": …, "sources": …}`.
 
 ### 7.2 `fetch_document_section`
 
@@ -592,10 +608,13 @@ Output:
 
 ```json
 {
+  "ok": true,
   "providers": {
     "antigravity": [],
     "claude": [],
-    "openai": []
+    "openai": [],
+    "deepseek": [],
+    "ollama": []
   }
 }
 ```
@@ -604,6 +623,10 @@ Rules:
 
 - The response is generated from the backend shared model catalogue.
 - Local model discovery remains provider-specific and may be served separately.
+- Each provider maps to a list of model entries with the keys `id`, `label`,
+  `context_window`, `supports_vision`, `supports_thinking`, `efforts`, and
+  `default_effort`. An empty `efforts` list means the model exposes no
+  selectable reasoning-effort dimension.
 
 ## 8. Synced Device Registry
 

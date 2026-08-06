@@ -474,6 +474,17 @@ Vault — it returns an answer + a `QTR-` trace and writes **no** vault file:
 
 `wiki query` and `curator_query` read the currently compiled DAG and synthesize a sessionless answer with a `QTR-` trace. `search_curator` returns retrieval results without answer synthesis. Queries do not register sources, run pending L2/L3 jobs, or write a frozen Exhibition file; use `wiki add` and `wiki build` explicitly to update the compiled DAG.
 
+**Querying never writes to the DAG.** There is no flag that turns an answer into
+a knowledge node. The `--update` flag that once created an L2 Atom from the
+synthesized answer was removed in v0.44.0: it wrote an `ATM-*.md` file straight
+into the derived `Collections/` projection with no database row behind it, so
+the node was invisible to search, to the graph, and to every integrity check,
+and the next projection rebuild dropped it. It also contradicted the rule that
+backpropagation is correction-driven and independent of query artifacts. To feed
+something you learned from an answer back into the graph, promote it to `02_Wiki/`
+(it becomes an L1 input on the next cycle), or use the insight lifecycle
+(`wiki insight list` / `show` / `promote`).
+
 > [!TIP]
 > The active workspace path determines whether a `curate.yml` KRS biases the
 > query. Outside a workspace, the query uses the `default` vault scope.

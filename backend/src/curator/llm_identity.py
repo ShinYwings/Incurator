@@ -1,8 +1,11 @@
 import base64
 import json
+import logging
 from pathlib import Path
 
 from . import constants as consts
+
+logger = logging.getLogger(__name__)
 
 
 def _decode_jwt_claims(token: str) -> dict:
@@ -18,7 +21,11 @@ def _decode_jwt_claims(token: str) -> dict:
     try:
         decoded = base64.urlsafe_b64decode(payload)
         return json.loads(decoded)
-    except Exception:
+    except (ValueError, TypeError):
+        # Deterministic decode/parse fallback, so §32 wants the specific
+        # classes: binascii.Error and json.JSONDecodeError both subclass
+        # ValueError. A malformed token is an expected input here, not a
+        # degradation worth reporting — the caller labels the account generically.
         return {}
 
 
@@ -57,8 +64,16 @@ def get_llm_account_info(provider_key: str) -> dict:
                     claims = _decode_jwt_claims(id_token)
                     info["email"] = claims.get("email")
                     info["name"] = claims.get("name")
-            except Exception:
-                pass
+            except Exception as exc:
+                # Broad catch: the credential file is written by an external CLI
+                # whose shape we do not control, so any decode/parse error is
+                # possible. Degrading to the generic label is correct here; §32
+                # only requires the suppressed cause stay observable.
+                logger.warning(
+                    "could not read the Gemini CLI account identity from %s: %s",
+                    creds_path,
+                    exc,
+                )
         if not info["name"] and not info["email"]:
             info["name"] = "Authenticated"
         return info
@@ -86,8 +101,13 @@ def get_llm_account_info(provider_key: str) -> dict:
                     claims = _decode_jwt_claims(id_token)
                     info["email"] = claims.get("email")
                     info["name"] = claims.get("name")
-            except Exception:
-                pass
+            except Exception as exc:
+                # Broad catch for the same reason as the Gemini branch above.
+                logger.warning(
+                    "could not read the Codex CLI account identity from %s: %s",
+                    auth_file,
+                    exc,
+                )
         if not info["name"] and not info["email"]:
             info["name"] = "Authenticated"
         return info

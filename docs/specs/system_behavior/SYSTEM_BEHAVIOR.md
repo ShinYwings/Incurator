@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.43.0)
+# Incurator - System Behavior (v0.44.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -717,7 +717,16 @@ provider-native control:
   plaintext `llm.deepseek-api.api_key`. Environment variables take precedence.
   `api_key_secret` points to a local encrypted secret outside the shared vault;
   shared/project config must not contain newly stored plaintext API keys.
-  The encrypted secret store distinguishes missing from corrupt/unreadable JSON.
+  The encrypted secret store distinguishes missing from corrupt/unreadable JSON,
+  and it also distinguishes both from **stored but undecryptable**. The Fernet
+  key is machine-local and is never synced, so a config that arrived through
+  cross-device sync (§13) names secrets whose ciphertext this machine's key
+  cannot open. Reading such a name raises `SecretDecryptionError` (a
+  `DurableStateError`) naming the secret and the remedy — re-enter it here with
+  `wiki config provider --api-key` — instead of returning an empty string that
+  a provider would report as an unconfigured API key. `wiki config secret list`
+  must not fail because one entry is undecryptable; it renders that row as
+  `<undecryptable>` rather than as an empty value.
   A corrupt/unreadable existing store is preserved and every mutation fails
   closed rather than treating it as `{}`. Secret read/merge/write mutations are
   process-locked and replace a flushed temporary sibling atomically. Secret
@@ -3206,6 +3215,16 @@ admitted only if it fits within `limit_tokens` alongside everything already
 selected. Expansion never grants a fresh full budget — that would let the combined
 pack overflow the model window. Items that no longer fit are returned as
 `expansion_refused` with the `increase_limit_tokens_or_refetch` retry hint.
+
+The admission ceiling on the expand path is the **full `limit_tokens`**, not
+`limit_tokens` minus the expansion reserve. `context_fetch` withholds
+`reserve_for_expansion` precisely so that expansion has headroom; withholding it
+again during expansion would make the reserve unspendable and would render every
+handle advertised in `next` inadmissible at the budget that advertised it — the
+fetch side omitted an item because it did not fit under `limit - reserved`, and
+the cumulative total only grows from there. An expand response therefore reports
+`budget.reserved_tokens = 0`: nothing is being withheld, because this operation
+is what the reserve was held for.
 
 ### 31.2 Request Contract
 
