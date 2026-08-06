@@ -26,7 +26,6 @@ def sources_list_cmd(
 ) -> None:
     """List all tracked sources."""
     paths = _resolve_root_or_die()
-    ingest_llm._mark_existing_l3_done_if_present(paths)
     runtime_state.write_runtime_snapshots(paths)
     rows = ingest_raw.list_sources(paths, status_filter=status_filter)
 

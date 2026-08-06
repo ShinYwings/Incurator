@@ -360,13 +360,12 @@ def init(
 
 def status(
     json_output: bool = typer.Option(False, "--json", help="Print the live status/sources/jobs payload as machine-readable JSON (used by the plugin dashboard)."),
-    refresh: bool = typer.Option(False, "--refresh", help="Re-mark completed L3 jobs and refresh the on-disk runtime snapshot cache before displaying (side-effects the vault)."),
+    refresh: bool = typer.Option(False, "--refresh", help="Refresh the on-disk runtime snapshot cache before displaying (writes to the vault)."),
 ) -> None:
     """Show the current wiki's stats, paths, and config."""
     paths = _resolve_root_or_die()
     config = cfg.load_config(paths)
     if refresh:
-        ingest_llm._mark_existing_l3_done_if_present(paths)
         runtime_state.write_runtime_snapshots(paths, config)
     if json_output:
         _print_json({

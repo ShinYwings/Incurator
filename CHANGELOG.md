@@ -63,13 +63,30 @@ All notable changes to Incurator are documented here.
   SYSTEM_BEHAVIOR §26.3 states the rule explicitly: layer status is computed by
   the compiler and by nothing else.
 
+- **A Second Filesystem-Glob Status Promotion, Reachable From Two Read-Only
+  Commands**
+  `_mark_existing_l3_done_if_present` was the twin of the promotion deleted from
+  `_mark_clean_sync_status` — same glob, same every-source promotion — and it
+  ran unconditionally from `wiki sources ls` and `wiki status --refresh`, two
+  surfaces that should not mutate the vault at all. Removed along with its
+  callers; `--refresh` now only rewrites the runtime snapshot cache, and its
+  help text says so.
+
+- **`wiki sync` Erased The Gap Reason It Had Just Recorded**
+  `_mark_layer_status_from_sync_gaps` wrote the `sync_logical_gap:` reason with
+  the L3 status, then immediately wrote `l4_status='pending'` with no `error=`
+  — defaulting to `None` and clearing the shared column. `l3_status` was left
+  `error` with no explanation, permanently. The same clobber this batch fixes in
+  `compile_global_l3`, one function away.
+
 ### Added
 - `db.UNSET` sentinel for `set_source_layer_status` / `set_sources_layer_status`,
   leaving `layer_error` untouched, plus `set_source_layer_error` /
   `set_sources_layer_error` for writing the column without touching a status.
   The default stays `None` (clear) — see `.agents/plans/03_b3_roadmap_evidence.md`
   for why flipping it would have traded this bug for its mirror image across
-  ~25 call sites.
+  ~25 call sites. Bulk id predicates are chunked to the module's conservative
+  999-variable convention, matching the eight existing `_chunks()` call sites.
 
 ## [0.44.0] - 2026-08-05
 ### Removed

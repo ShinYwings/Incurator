@@ -254,13 +254,6 @@ def _source_ids_with_l2_done_and_l3_unset(paths: cfg.WikiPaths) -> list[int]:
     return [int(row["id"]) for row in rows]
 
 
-def _mark_existing_l3_done_if_present(paths: cfg.WikiPaths) -> None:
-    if paths.concepts.exists() and any(paths.concepts.glob(f"{consts.PREFIX_L3}-*.md")):
-        source_ids = _source_ids_with_l2_done_and_l3_unset(paths)
-        if source_ids:
-            db.set_sources_layer_status(paths.state_db, source_ids, "l3", "done")
-
-
 # ---------------------------------------------------------------------------
 # Pass 3 — L4 Curations
 # ---------------------------------------------------------------------------

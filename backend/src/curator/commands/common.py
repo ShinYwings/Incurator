@@ -704,7 +704,13 @@ def _mark_layer_status_from_sync_gaps(paths: cfg.WikiPaths, gaps: list) -> None:
         if source_ids:
             reason = "sync_logical_gap:" + ",".join(g.node_id for g in concept_gaps[:5])
             db.set_sources_layer_status(paths.state_db, source_ids, "l3", "error", error=reason)
-            db.set_sources_layer_status(paths.state_db, source_ids, "l4", "pending")
+            # UNSET: this write is about l4 only. Without it the default None
+            # clears `layer_error` — the same shared-column clobber fixed in
+            # compile_global_l3 — erasing the reason the line above just wrote
+            # and leaving l3_status='error' with no explanation at all.
+            db.set_sources_layer_status(
+                paths.state_db, source_ids, "l4", "pending", error=db.UNSET
+            )
     if exhibition_gaps:
         with db.connect(paths.state_db) as conn:
             rows = conn.execute(
