@@ -2,6 +2,47 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.44.1] - 2026-08-06
+### Fixed
+- **`wiki lint` Reported 70 Errors The User Could Not Act On**
+  Audit of a real 37-source vault after the post-v0.43.0 build scored 70 errors
+  / 0 warnings, every one of them `invalid_source_path`. Three separate defects
+  in the same check produced them.
+
+  **(a) Two Unicode normalizations compared byte-exact.** `lint.py` built its
+  set of known source paths from a filesystem walk, which on macOS yields
+  decomposed (NFD) names — `Plu` + U+0308 — while the path stored in
+  `sources.relpath` and written into page frontmatter is precomposed (NFC)
+  `Plü`. Python string equality has no opinion about Unicode equivalence, so
+  the two never matched in a `set` lookup even though they name one file that
+  `Path.exists()` opens either way. 22 of the 70 errors were this. Both sides
+  of the comparison are now NFC-normalized.
+
+  **(b) The repair resolved through a field the compiler no longer writes.**
+  `check_atom_source_paths` recovered an Atom's true source by following its
+  `parent_source` wikilink to a Context and looking the Context up in `sources`.
+  Measured on the same vault: **0 of 1098 Atoms carry `parent_source`** — the
+  compiler emits `source_span_ids` instead. So `fixable` was False for every
+  modern Atom while the suggestion still said to run `wiki lint --fix`, which
+  then did nothing. The repair now resolves through the Atom's own
+  `source_span_ids` → `source_spans.source_id` → `sources.relpath`, which is
+  the provenance the page actually carries; `parent_source` is still consulted
+  second so pre-compiler pages keep working.
+
+  **(c) An unrepairable error advertised a repair.** Even with a resolvable
+  source, `--fix` copies `sources.relpath` into the Atom — which helps only if
+  that row still names a file that exists. When a source is renamed on disk
+  without being re-registered, the "repair" wrote the dead path straight back
+  and the identical error returned on the next run: a loop the tool could not
+  exit. An issue is now marked fixable only when the repair value resolves on
+  disk, and the three cases (repairable / stale source row / no registered
+  source) each carry a suggestion naming the actual remedy.
+
+  On the audited vault this takes 70 errors to 48. The 48 that remain are one
+  genuinely stale `sources` row whose file was renamed away, and they now say
+  so and point at `wiki add` / `wiki source rm` instead of at a fix that cannot
+  work.
+
 ## [0.44.0] - 2026-08-05
 ### Removed
 - **`wiki query --update` And Its Insight-To-Atom Path**

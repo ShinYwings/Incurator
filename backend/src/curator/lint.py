@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from enum import Enum
@@ -235,7 +236,9 @@ def _build_inventory(paths: cfg.WikiPaths, progress_callback: Optional[Callable[
             for raw_path in raw_dir.rglob("*"):
                 if raw_path.is_file() and not raw_path.name.startswith("."):
                     try:
-                        rel = str(raw_path.relative_to(paths.root))
+                        # NFC here so the set can be compared against stored
+                        # paths, which are precomposed. See _nfc().
+                        rel = _nfc(str(raw_path.relative_to(paths.root)))
                         inv.raw_paths.add(rel)
                     except ValueError:
                         pass
@@ -735,6 +738,20 @@ def check_stale_source_refs(inv: PageInventory, paths: cfg.WikiPaths) -> list[Li
     return issues
 
 
+def _nfc(value: str) -> str:
+    """Normalize a path string for comparison against another path string.
+
+    macOS stores filenames decomposed (NFD): a directory walk yields
+    ``Plu`` + U+0308, while the same name read out of ``sources.relpath`` or a
+    page's frontmatter is precomposed (NFC) ``Plü``. Python string equality is
+    byte-exact and has no opinion about Unicode equivalence, so the two forms
+    never match in a ``set`` lookup even though they name the same file and
+    ``Path.exists()`` resolves either one. Every comparison between a
+    filesystem-derived path and a stored path must go through here.
+    """
+    return unicodedata.normalize("NFC", value)
+
+
 def _source_path_targets(raw: str) -> list[str]:
     target = raw.strip()
     if target.startswith("[[") and target.endswith("]]"):
@@ -767,6 +784,50 @@ def _source_relpath_for_context(paths: cfg.WikiPaths, context_id: str) -> str:
     return row["relpath"] if row else ""
 
 
+def _span_ids_from_frontmatter(parsed: page_writer.ParsedPage) -> list[str]:
+    raw = parsed.frontmatter.get("source_span_ids")
+    if isinstance(raw, str):
+        return [raw] if raw else []
+    if isinstance(raw, list):
+        return [item for item in raw if isinstance(item, str) and item]
+    return []
+
+
+def _source_relpath_for_atom(
+    paths: cfg.WikiPaths, parsed: page_writer.ParsedPage
+) -> str:
+    """Resolve the source an Atom actually descends from.
+
+    Prefers the atom's own ``source_span_ids``, which is what the compiler
+    emits: spans carry ``source_id`` directly, so this is the page's real
+    provenance rather than an inference. The ``parent_source`` wikilink is the
+    pre-compiler shape and is no longer written — resolving only through it
+    meant no compiler-emitted atom could ever be repaired, which is why every
+    `invalid_source_path` on a modern vault advertised a `--fix` that did
+    nothing. It is still consulted second so legacy pages keep working.
+    """
+    span_ids = _span_ids_from_frontmatter(parsed)
+    if span_ids:
+        placeholders = ",".join("?" for _ in span_ids)
+        try:
+            with db.connect(paths.state_db) as conn:
+                row = conn.execute(
+                    "SELECT s.relpath FROM source_spans sp "
+                    "JOIN sources s ON s.id = sp.source_id "
+                    f"WHERE sp.id IN ({placeholders}) LIMIT 1",
+                    tuple(span_ids),
+                ).fetchone()
+        except Exception:
+            row = None
+        if row and row["relpath"]:
+            return str(row["relpath"])
+
+    parent_context = _normalize_link(
+        str(parsed.frontmatter.get("parent_source", ""))
+    ).rsplit("/", 1)[-1]
+    return _source_relpath_for_context(paths, parent_context)
+
+
 def check_atom_source_paths(inv: PageInventory, paths: cfg.WikiPaths) -> list[LintIssue]:
     """Flag Atom source_path values that are empty or do not point to raw source files."""
     issues: list[LintIssue] = []
@@ -775,10 +836,18 @@ def check_atom_source_paths(inv: PageInventory, paths: cfg.WikiPaths) -> list[Li
             continue
 
         raw_source_path = parsed.frontmatter.get("source_path", "")
-        parent_context = _normalize_link(str(parsed.frontmatter.get("parent_source", ""))).rsplit("/", 1)[-1]
-        source_relpath = _source_relpath_for_context(paths, parent_context)
+        source_relpath = _source_relpath_for_atom(paths, parsed)
         repair_value = _source_path_link(source_relpath) if source_relpath else ""
-        fixable = bool(repair_value)
+        # `--fix` copies the parent Context's `sources.relpath` into the atom.
+        # That only helps if the row still names a file that exists: when a
+        # source is renamed on disk without the row being reconciled, the
+        # "repair" writes the dead path straight back and the same error
+        # returns on the next run. Claiming fixable there sends the user round
+        # a loop the tool cannot exit.
+        repair_resolves = bool(
+            source_relpath and (paths.root / source_relpath).exists()
+        )
+        fixable = bool(repair_value) and repair_resolves
 
         if not isinstance(raw_source_path, str) or not raw_source_path.strip():
             issues.append(
@@ -787,7 +856,12 @@ def check_atom_source_paths(inv: PageInventory, paths: cfg.WikiPaths) -> list[Li
                     severity=Severity.ERROR,
                     page=relpath,
                     message="Atom `source_path` is empty.",
-                    suggestion="Run `wiki lint --fix` to restore it from the parent Context source.",
+                    suggestion=(
+                        "Run `wiki lint --fix` to restore it from the Atom's registered source."
+                        if fixable
+                        else "This Atom has no resolvable source, so `wiki lint --fix` "
+                        "cannot restore the field. Re-register the source with `wiki add`."
+                    ),
                     fixable=fixable,
                     context={
                         "location": "frontmatter",
@@ -798,15 +872,33 @@ def check_atom_source_paths(inv: PageInventory, paths: cfg.WikiPaths) -> list[Li
             )
             continue
 
-        candidates = _source_path_targets(raw_source_path)
+        candidates = [_nfc(c) for c in _source_path_targets(raw_source_path)]
         if not any(candidate in inv.raw_paths for candidate in candidates):
+            if not repair_value:
+                suggestion = (
+                    "This Atom has no resolvable source: neither its "
+                    "`source_span_ids` nor its `parent_source` leads to a "
+                    "registered source row, so `wiki lint --fix` cannot repair "
+                    "it. Re-register the source with `wiki add`."
+                )
+            elif not repair_resolves:
+                suggestion = (
+                    f"The Atom's registered source {source_relpath!r} does not "
+                    "exist on disk either, so `wiki lint --fix` would write the "
+                    "same dead path back. Re-register the source (`wiki add`) "
+                    "or drop the stale row (`wiki sources rm`)."
+                )
+            else:
+                suggestion = (
+                    "Run `wiki lint --fix` to restore it from the Atom's registered source."
+                )
             issues.append(
                 LintIssue(
                     check=CheckId.INVALID_SOURCE_PATH,
                     severity=Severity.ERROR,
                     page=relpath,
                     message=f"Atom `source_path` does not exist in source dirs: {raw_source_path!r}",
-                    suggestion="Run `wiki lint --fix` to restore it from the parent Context source.",
+                    suggestion=suggestion,
                     fixable=fixable,
                     context={
                         "location": "frontmatter",
