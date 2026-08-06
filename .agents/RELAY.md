@@ -84,6 +84,35 @@ code conforms to spec, and the spec diverges from stated design intent.
 - `curate.yml` exists ONLY in `01_Workspaces/<project>/`. Vault-scoped config
   is `.curator/settings.yml`. (Repeated correction — do not conflate them.)
 
+## Update (2026-08-06) — v0.44.0 shipped; build finished; artifacts audited
+
+PRs #117 (Arena rescue + agent-workspace cleanup) and #118 (B4, v0.44.0) are
+merged. The `wiki build` completed and **v0.43.0 is confirmed on real data**:
+`graph_relations.lifecycle_status` is now 782 `active` / 96 `quarantined`
+(all `bridge_risk`, zero `copied_source_only`) against 5 active before, and
+26 of 36 sources reach `l4_status='done'` where 34 of 37 previously skipped.
+233 community reports and 4 synthesis nodes exist where there were 6 and 3.
+
+The L4 prose is genuinely good — four accurate cross-source themes with stated
+limitations — so the knowledge system works. The audit of
+`.curator/Collections/` nevertheless produced five findings, all recorded in
+`USER_REPORT.md` (2026-08-06) and queued as ROADMAP item 3.
+
+Two things NOT to re-derive:
+
+1. **`community_reports.detect_communities` is dead code.** It reads all
+   relations with no `lifecycle_status` filter, which looks like a §27.4
+   "active-canonical input only" violation. It is not — production uses
+   `db.rebuild_graph_generation` → `connected_components(only_active=True)`.
+   Verified from the artifacts: reports cite 782 active relation ids and zero
+   quarantined, and the 233-component / 176-largest profile matches active-only
+   exactly (all-relations gives 157 / 263). Its docstring is stale.
+2. **The formula picture did not change.** `preserved_in_text|failed` is 498
+   (was 490) and `preserved_in_text|verified` is still 86. The corroboration
+   fix governed relations, not claim support — consistent with the earlier
+   correction that formula availability is a retrieval-ranking problem.
+   ROADMAP item 2 still stands, now judgeable against a populated L3/L4.
+
 ## Immediate Next Action
 
 **B4 is the next unblocked code item and needs no build result and no open

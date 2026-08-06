@@ -5,6 +5,190 @@ This document is a **plain Inbox (backlog) log** that records bugs reported by t
 Agents must check this document and triage the received items into the `To-Do (Queuing)` area or `Icebox` area of `.agents/ROADMAP.md`. Once the triage is complete, **immediately delete** the item from this document.
 
 ## 📝 User Inbox
+### 2026-08-06 — [P1] `wiki lint` reports 70 unfixable ERRORs; 22 of them are a macOS NFC/NFD false positive
+
+Audit of `.curator/Collections/` after the post-v0.43.0 `wiki build`
+(37 sources, health score 85/100, **70 errors / 0 warnings / 1736 infos**).
+Every one of the 70 errors is `invalid_source_path`, and they split into two
+distinct causes.
+
+**(a) 22 errors — the file exists; the comparison is byte-exact across two
+Unicode normalizations.** Proven, not inferred:
+
+```
+disk : b'...using Plu\xcc\x88cker Coordinate...'   (NFD, u + combining diaeresis)
+db   : b'...using Pl\xc3\xbccker Coordinates...'   (NFC, precomposed ü)
+equal as-is = False        equal after NFC = True
+```
+
+`lint.py:238` builds `inv.raw_paths` by walking the filesystem
+(`raw_path.relative_to(paths.root)`), which on APFS yields **NFD** names.
+`lint.py:802` then tests `candidate in inv.raw_paths` — a plain `set[str]`
+membership test — against the atom's `source_path` frontmatter, which carries
+the **NFC** form written from `sources.relpath`. NFC never equals NFD, so every
+atom whose source filename contains a non-ASCII character is falsely reported
+as a missing source. `Path.exists()` would have succeeded (APFS resolves the
+two forms transparently); only the in-Python string compare fails.
+
+**The suggested remedy makes it permanent.** The issue is marked `fixable` and
+tells the user to run `wiki lint --fix`. The repair value comes from
+`_source_relpath_for_context` (`lint.py:757-767`), which reads
+`sources.relpath` — the NFC form again. So `--fix` rewrites the field to the
+identical value it already holds and the same 22 errors reappear on the next
+run. This is an error the user cannot clear by following the tool's own advice.
+
+Scope note: 17 of 36 sources have non-ASCII relpaths in this vault. Only the
+`Plücker`/`Přibyl` paper tripped it here, so the trigger is narrower than "any
+non-ASCII" — the Hangul paths did not decompose the same way. Worth
+establishing exactly which characters diverge before choosing a fix. The
+obvious fix is to normalize both sides (`unicodedata.normalize("NFC", …)`)
+at the comparison boundary rather than at any single writer.
+
+**(b) 48 errors — a genuinely mangled `sources.relpath` that never existed.**
+Source 32 is stored as:
+
+```
+04_Resources/References/2D-Gaussian-Splatting-for-Geometrically-Accurate-Radiance-Fields2024---Huang-et--ref-5.md
+```
+
+The real file on disk is
+`2D Gaussian Splatting for Geometrically Accurate Radiance Fields2024 - Huang et al. - .md`.
+The stored value is a hyphen-slugified form of the title with a `-ref-5`
+disambiguation suffix — spaces collapsed to `-`, `et al.` truncated to `et`.
+It is the only one of the 36 sources whose path does not resolve on disk at
+all. Whatever wrote it produced a slug where a relpath belongs; the 48 atoms
+descending from that source all inherit the broken pointer.
+
+Both causes are cosmetic for retrieval today — the DB-native index keys off
+`source_spans`, not these paths — but they make the health check unusable as a
+signal, which is the point of having one.
+
+### 2026-08-06 — [P2] Community hierarchy is flat by construction, and nothing tells the user
+
+Measured on the post-build graph: **240 community reports, every one at
+`level = 0`**, `parent_community_key` never populated.
+
+`_entities.py:2229` hardcodes `level = 0`. SYSTEM_BEHAVIOR §27.4 explicitly
+sanctions this — "Filtered connected components is the EXPLICIT degraded
+fallback" — but attaches a condition: the fallback "never silently changes
+serving mode: when the degraded filtered-connected-components path runs, it is
+recorded in `config_hash` and **surfaced by the audit**, not hidden."
+
+Half of that holds. `_GRAPH_FALLBACK_CONFIG` (`_entities.py:2074`) does carry
+`"algorithm": "connected_components"` and is folded into `config_hash`. But
+`config_hash` is an opaque 16-hex digest (`fc3c931ce6b59403`), and `graph_audit`
+returns **only violations** — there is no code path that reports which
+construction mode ran. `wiki lint`'s 1736 infos never mention it either. A user
+looking at 233 flat concept pages has no way to learn that hierarchical
+construction never executed. Same defect family as the §32 work in v0.44.0.
+
+**The distribution is what makes it matter.** Over active relations only:
+
+| | components | largest | size-2 components |
+|---|---|---|---|
+| active-only (what ships) | 233 | **176 entities** | 152 |
+
+One community holds 176 of the vault's 965 entities (18%) — "GPU Optimization
+and Parallel CUDA Pipelines for 3D Gaussian Splatting", 243 relations. §27.4
+names this case directly: "**No unexplained giant component.** A single
+component spanning more than the approved threshold of the graph is a benchmark
+failure unless explained by the authored-topology structure." No threshold
+constant exists in the code and nothing checks for it.
+
+Meanwhile 152 of 233 concepts (65%) are single-relation, 1–2 entity
+communities. Sampled, they are not garbage — "Analytic-Splatting and Custom
+CUDA Implementation", "Prefiltering and Anti-Aliasing in EWA Splatting" are
+coherent atomic notes — but 19 of them contain a summary that admits the
+evidence is thin ("The available evidence is thin, covering only the
+containment relationship…"). The layer is simultaneously too coarse at the top
+and too granular in the tail, which is exactly the gap a real hierarchy closes.
+
+Checked and **refuted** during this audit, so nobody re-reports it:
+`community_reports.detect_communities` reads *all* relations with no
+`lifecycle_status` filter, which looked like a §27.4 "active-canonical input
+only" violation. It is not — that function is dead in production (callers are
+tests only); the shipped path is `db.rebuild_graph_generation`, which uses
+`connected_components(only_active=True)`. Verified against the artifacts: the
+stored reports contain 782 active relation ids and **zero** quarantined ones,
+and the 233/176 component profile matches active-only exactly (all-relations
+would give 157 components with a 263-entity giant). The dead function's
+docstring ("A later version may use Leiden") is stale and misdescribes the
+architecture.
+
+### 2026-08-06 — [P2] The L1 projection leaks a stale CTX file on re-ingest
+
+`.curator/Collections/01_Contexts/` holds **37 files for 36 sources**.
+`CTX-f349d7bf` belongs to no source row: source 37 ("3D Line Mapping
+Revisited") now carries `context_id = CTX-f3a44022`. The source was
+re-ingested, a new context id was minted, and the previous CTX markdown was
+never deleted.
+
+Severity is bounded by the fact that the search index is DB-native and indexes
+`source_spans` directly — `record_type` counts are `source_span 2363`,
+`knowledge_unit 1098`, `graph_entity 965`, `graph_relation 782`,
+`community_report 233`, `synthesis_node 4`, total 5445, with **no CTX
+projection at all**. So the stale file cannot be retrieved or cited. It is
+filesystem litter and a wikilink target that outlives its source, not a
+wrong-knowledge defect.
+
+Every other layer is exactly 1:1 with the DB, which is worth recording as the
+baseline this violates:
+
+| layer | files | live DB rows | orphan files | missing files |
+|---|---|---|---|---|
+| 01_Contexts | 37 | 36 | **1** | 0 |
+| 02_Atoms | 1098 | 1098 | 0 | 0 |
+| 03_Concepts | 233 | 233 | 0 | 0 |
+| 04_Synthesis | 4 | 4 | 0 | 0 |
+
+(03_Concepts compared through each CON page's `community_report_id`
+frontmatter, since CON ids and REP ids are different namespaces.)
+
+### 2026-08-06 — [P2] Ten sources report `l2_status='skipped'` with no reason, and two of them have knowledge units anyway
+
+10 of 36 sources carry `l2_status = l3_status = l4_status = 'skipped'` while
+`status = 'curated'`. **All ten have an empty `layer_error` and an empty
+`error_reason`** — nothing records why. This is the B3 compile-status
+truthfulness item, now observable on real data.
+
+Two of them contradict their own status:
+
+| source | spans | knowledge_units | l2_status |
+|---|---|---|---|
+| 28 `03_Notes/.../Pfaffian System.md` | 9 | **11** | skipped |
+| 31 `04_Resources/.../Multiple_View_Geometry...EN.md` | 1 | **11** | skipped |
+| 17, 30, 33 | 8 / 1 / 1 | 1 / 2 / 2 | skipped |
+
+A layer that produced 11 units is not "skipped". Either the status is wrong or
+the units are stale from an earlier generation — both need distinguishing, and
+today nothing in the record lets a user tell which.
+
+The other five (19, 21, 22, 23, 24) produced 0 units from 6–7 spans each, and
+all are 1.5–2 KB note stubs. Sources 30/31/33 are Reference-Mode markdown
+stubs of 320-ish bytes. So "too little content to extract" is the plausible
+reason for most — which is fine as behavior and unacceptable as a silent one.
+
+Related, and confirming the earlier jobs-observability report: **source 36 (the
+MVG book PDF) is gone from `sources` entirely** after the cancel, taking its
+8,692 spans with it — the vault went from 11,052 `source_spans` to 2,363. Its
+`04_Resources/References/MultipleViewGeometryHartley - .md` stub is still on
+disk. So a cancelled job leaves the stub file behind with no source row.
+
+### 2026-08-06 — [P3] L4 Synthesis pages are ~93% frontmatter
+
+All 4 SYN files are ~11 KB on disk while `full_content` is 611–775 characters.
+The bulk is the frontmatter `community_report_ids` list — each node cites all
+**233** reports, and all four share one `dependency_hash` (`8979bbd05f45`) and
+an identical report set.
+
+The prose itself is good and is the strongest evidence the pipeline now works —
+four distinct, accurate, cross-source themes with limitations stated (kernel
+fusion in GS pipelines, line/quadric primitives in SLAM, hierarchical
+localization, surface resampling in radiance fields). But as an Obsidian
+artifact the page is a 10 KB ID dump wrapping a 700-character insight, and the
+"cites all 233 reports" provenance is not selective enough to tell a reader
+which reports actually produced the claim.
+
 ### 2026-08-05 — [P2] `wiki jobs list` cannot distinguish "working" from "hung", and names a PDF as `.md`
 
 User observation during the post-v0.43.0 build: job 37 (MVG book) sat at "10%"
