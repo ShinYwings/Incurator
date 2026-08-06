@@ -64,8 +64,8 @@ __all__ = [
 # compiles of the same source under the same contract version are an unchanged
 # rebuild and must reuse the authoritative generation (§26.3).
 PROMPT_CONTRACT_VERSION = "curator.knowledge_unit_extract@v3"
-_POST_PUBLISH_PROJECTION_ERROR = "post-publish projection failed:"
-_POST_PUBLISH_PROJECTION_PENDING = "post-publish projection pending"
+_POST_PUBLISH_PROJECTION_ERROR = f"{consts.POST_PUBLISH_PROJECTION_PREFIX} failed:"
+_POST_PUBLISH_PROJECTION_PENDING = f"{consts.POST_PUBLISH_PROJECTION_PREFIX} pending"
 
 
 @dataclass

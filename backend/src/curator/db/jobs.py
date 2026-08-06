@@ -152,12 +152,28 @@ def recover_stale_jobs(db_path: Path) -> int:
             """
         )
         if source_ids:
+            # Reset the layer status (SYSTEM_BEHAVIOR §4.1 requires the
+            # `running` -> `pending` transition on recovery) but do NOT blanket
+            # NULL `layer_error`: a source that crashed *after* its compiler
+            # generation was published carries a post-publish projection marker
+            # there, and `pipeline/compile.py:296-307` reads exactly that marker
+            # to take the recovery path instead of recompiling. Erasing it makes
+            # the retry re-run the whole LLM extraction against an
+            # already-published generation.
+            #
+            # LIKE, not `=`: the marker has two forms — the bare
+            # `_POST_PUBLISH_PROJECTION_PENDING` and the
+            # `_POST_PUBLISH_PROJECTION_ERROR` prefix followed by the cause.
+            # Both must survive. Any other value is a stale human error message
+            # and is still cleared.
             conn.execute(
                 f"UPDATE sources SET l2_status = '{consts.STATUS_PENDING}', "
-                "layer_error = NULL "
+                "layer_error = CASE "
+                "WHEN layer_error LIKE ? THEN layer_error "
+                "ELSE NULL END "
                 f"WHERE l2_status = '{consts.STATUS_RUNNING}' "
                 f"AND id IN ({','.join('?' * len(source_ids))})",
-                source_ids,
+                (f"{consts.POST_PUBLISH_PROJECTION_PREFIX}%", *source_ids),
             )
         return int(cur.rowcount or 0)
 
