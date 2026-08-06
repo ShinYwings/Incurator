@@ -278,6 +278,54 @@ def plugin_source_register(
         raise typer.Exit(code=1)
 
 
+@plugin_source_app.command("relocate")
+def plugin_source_relocate(
+    source_id: Optional[int] = typer.Option(None, "--source-id", help="Source row id."),
+    from_path: str = typer.Option("", "--from", help="Current vault-relative path."),
+    to_path: str = typer.Option(..., "--to", help="New vault-relative path."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Vault root override."),
+) -> None:
+    """Record that a registered source moved inside the vault."""
+    from .. import plugin_api
+
+    try:
+        _print_json(
+            plugin_api.relocate_source(
+                _plugin_paths(workspace_path),
+                source_id=source_id,
+                from_path=from_path,
+                to_path=to_path,
+            )
+        )
+    except Exception as exc:
+        _print_json({"ok": False, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
+@plugin_source_app.command("missing")
+def plugin_source_missing(
+    source_id: Optional[int] = typer.Option(None, "--source-id", help="Source row id."),
+    from_path: str = typer.Option("", "--from", help="Vault-relative path of the removed file."),
+    restored: bool = typer.Option(False, "--restored", help="Clear the mark instead of setting it."),
+    workspace_path: str = typer.Option("", "--workspace-path", help="Vault root override."),
+) -> None:
+    """Flag a registered source whose file left the vault (knowledge is kept)."""
+    from .. import plugin_api
+
+    try:
+        _print_json(
+            plugin_api.mark_source_file_missing(
+                _plugin_paths(workspace_path),
+                source_id=source_id,
+                from_path=from_path,
+                missing=not restored,
+            )
+        )
+    except Exception as exc:
+        _print_json({"ok": False, "error": str(exc)})
+        raise typer.Exit(code=1)
+
+
 @plugin_source_app.command("rebind")
 def plugin_source_rebind(
     source_id: Optional[int] = typer.Option(None, "--source-id", help="Source row id."),

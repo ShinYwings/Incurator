@@ -19,8 +19,10 @@ from .pdf import (
 from .query_api import curator_query, promote_answer
 from .sources import (
     import_source,
+    mark_source_file_missing,
     rebind_source,
     register_source,
+    relocate_source,
     search_sources,
     source_dict,
     source_row,
@@ -44,8 +46,10 @@ __all__ = [
     "pdf_context",
     "promote_answer",
     "query",
+    "mark_source_file_missing",
     "rebind_source",
     "register_source",
+    "relocate_source",
     "search",
     "search_sources",
     "source_dict",

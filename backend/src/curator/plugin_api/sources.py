@@ -277,6 +277,76 @@ def register_source(
     }
 
 
+def relocate_source(
+    paths: cfg.WikiPaths,
+    *,
+    source_id: int | None = None,
+    from_path: str = "",
+    to_path: str = "",
+) -> dict[str, Any]:
+    """Record that a registered source moved to a new vault-relative path.
+
+    Distinct from :func:`rebind_source`, which re-points an EXTERNAL file (and
+    therefore refuses Zotero-managed sources, whose external PDF path Zotero
+    owns). This moves the vault-side entry only: the content is unchanged, so
+    the content hash, every layer status, and the whole derived closure survive.
+    A Zotero stub is an ordinary vault file and may be moved freely — its
+    `logical_source_id` identifies the document, not its location.
+    """
+    to_path = (to_path or "").strip()
+    if not to_path:
+        return {"ok": False, "state": "error", "error": "to_path is required"}
+    row = source_row(paths, source_id=source_id, source_path=from_path)
+    if row is None:
+        return {
+            "ok": False,
+            "state": "untracked",
+            "error": "Source not found",
+            "source_path": from_path,
+        }
+    try:
+        counts = db.relocate_source(paths.state_db, int(row["id"]), to_path)
+    except ValueError as exc:
+        return {"ok": False, "state": "error", "error": str(exc), "source_id": row["id"]}
+    return {
+        "ok": True,
+        "state": "relocated" if counts["sources"] else "unchanged",
+        "source_id": int(row["id"]),
+        "old_path": str(row.get("relpath") or ""),
+        "new_path": to_path,
+        "updated": counts,
+    }
+
+
+def mark_source_file_missing(
+    paths: cfg.WikiPaths,
+    *,
+    source_id: int | None = None,
+    from_path: str = "",
+    missing: bool = True,
+) -> dict[str, Any]:
+    """Flag a registered source whose file left the vault, keeping its knowledge.
+
+    Deleting a note marks the source; it never retires the dependency closure.
+    `wiki source rm` remains the explicit way to do that.
+    """
+    row = source_row(paths, source_id=source_id, source_path=from_path)
+    if row is None:
+        return {
+            "ok": False,
+            "state": "untracked",
+            "error": "Source not found",
+            "source_path": from_path,
+        }
+    db.set_source_file_missing(paths.state_db, int(row["id"]), missing)
+    return {
+        "ok": True,
+        "state": "file_missing" if missing else "file_restored",
+        "source_id": int(row["id"]),
+        "relpath": str(row.get("relpath") or ""),
+    }
+
+
 def rebind_source(
     paths: cfg.WikiPaths,
     *,

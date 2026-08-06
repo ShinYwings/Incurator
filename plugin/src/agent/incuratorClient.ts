@@ -386,6 +386,54 @@ export class IncuratorClient {
     };
   }
 
+  /**
+   * Tell the backend a registered source moved inside the vault.
+   *
+   * Distinct from {@link rebindSource}, which re-points an EXTERNAL file and
+   * therefore refuses Zotero-managed sources (Zotero owns the PDF path). A
+   * vault-internal move changes only where our own entry lives: the content is
+   * identical, so the backend keeps the content hash, every layer status, and
+   * the whole derived closure. Zotero stubs move freely — the logical source id
+   * identifies the document, not its folder.
+   *
+   * Fire-and-forget: a rename must never block Obsidian's own file handling.
+   */
+  async relocateSource(fromPath: string, toPath: string): Promise<boolean> {
+    if (!fromPath || !toPath || this.settings.incuratorEnabled === false) return false;
+    try {
+      const result = await this.callBackendJson([
+        "plugin", "source", "relocate",
+        "--from", fromPath,
+        "--to", toPath,
+      ]);
+      return Boolean((result as { ok?: boolean } | null)?.ok);
+    } catch {
+      // An unregistered file is the common case and is not an error worth
+      // surfacing on every rename.
+      return false;
+    }
+  }
+
+  /**
+   * Tell the backend a registered source's file left the vault.
+   *
+   * The backend MARKS the source and keeps its knowledge; it never retires the
+   * dependency closure on our say-so. `wiki source rm` stays the explicit,
+   * user-driven way to do that, so an accidental delete in Obsidian cannot
+   * destroy extracted L1-L4 knowledge.
+   */
+  async markSourceFileMissing(fromPath: string, missing = true): Promise<boolean> {
+    if (!fromPath || this.settings.incuratorEnabled === false) return false;
+    try {
+      const cmd = ["plugin", "source", "missing", "--from", fromPath];
+      if (!missing) cmd.push("--restored");
+      const result = await this.callBackendJson(cmd);
+      return Boolean((result as { ok?: boolean } | null)?.ok);
+    } catch {
+      return false;
+    }
+  }
+
   async rebindSource(args: {
     sourceId?: number;
     sourcePath?: string;

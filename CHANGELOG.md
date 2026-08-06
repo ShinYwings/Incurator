@@ -2,6 +2,62 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.46.0] - 2026-08-06
+### Added
+- **Vault File Moves And Deletes Are Tracked**
+  Moving a file inside the vault after importing it broke every stored reference
+  to it. Reported through the sidechat: after moving a Zotero-imported note from
+  `03_Notes/Vision/3DRec/` to `03_Notes/Papers/3DRec/`, an agent edit block came
+  back `File not found` against the pre-move path.
+
+  **The plugin subscribed to no vault file events at all** — two `registerEvent`
+  calls existed repo-wide and both were workspace layout events. Obsidian
+  supplies the old path on rename; nothing listened. It now subscribes to
+  `vault.on("rename")` and `vault.on("delete")`.
+
+  **A move preserves everything except the location.** `db.relocate_source`
+  updates all three places the path is denormalized (`sources.relpath`, every
+  `source_spans` row, `search_documents.projection_path`) in one transaction,
+  keeping the content hash, every layer status, `context_id`,
+  `logical_source_id`, and the whole derived L1–L4 closure. `sync_key` is
+  deliberately NOT rewritten: it is the cross-device identity, minted once and
+  matched only by equality, and changing it would make a peer replica see a
+  delete plus an insert rather than one moved row.
+
+  **Zotero stubs relocate freely.** `logical_source_id` identifies the document;
+  `relpath` is only where the stub sits. This is why the existing
+  `rebind_source` was the wrong tool — it keeps `relpath` unchanged, re-points
+  the EXTERNAL file, and refuses `zotero:` sources, because Zotero owns the PDF
+  path but not the stub's folder.
+
+  **A delete marks the source and keeps its knowledge.** It records
+  `error_reason='file_missing'` and retires nothing, so an accidental delete —
+  or a file moved out of the vault and back — cannot silently destroy extracted
+  knowledge. `wiki source rm` remains the only path that retires a dependency
+  closure.
+
+  **Historical chat paths still resolve.** A bounded rename journal follows
+  recorded moves, collapsing chains (A→B then B→C means A resolves to C).
+  `resolveVaultFile` consults it only after every exact-path candidate fails,
+  and still refuses a basename fallback — a same-named file in another folder is
+  a different note and retargeting an edit to it would corrupt the wrong file.
+  The journal is exact provenance from Obsidian's own event, not a guess.
+
+- **`wiki lint` reports registered sources whose file is gone.** This is how the
+  delete mark becomes visible, and it also finally diagnoses the real defect
+  behind a pile of `invalid_source_path` errors: on the reporting vault, 48 Atom
+  errors all traced to ONE source row registered at a path that no longer
+  exists. The finding is never auto-fixable — restore versus retire is the
+  user's call.
+
+- New hidden CLI surface: `wiki plugin source relocate --from --to` and
+  `wiki plugin source missing --from [--restored]`.
+
+### Known Gap
+- Vaults that already carry a dead source row from a pre-v0.46.0 move are
+  reported by the new lint check but not repaired automatically. Retro-repair
+  needs a content-hash reconciliation sweep and is tracked separately.
+
 ## [0.45.0] - 2026-08-06
 ### Changed
 - **A Failed Layer Is Now `error`, Never `skipped` (BREAKING for status readers)**

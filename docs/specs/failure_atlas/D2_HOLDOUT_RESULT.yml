@@ -317,6 +317,25 @@ evaluated_code:
       chunking, and materialize_chunks are unchanged. The consumed holdout
       cannot be rerun after run_count=3; the hash below re-arms the existing
       drift tripwire.
+  v0460_vault_file_move_tracking_rearm:
+    date: '2026-08-06'
+    prior_sources_sha256: 260a8274b0ebf833cbbc709d4f00ab7fdd565aa9bbc4a2a4c4a7dd8dea1a0b4e
+    reason: 'v0.46.0 adds vault file move/delete tracking. The only change inside
+      D2''s fingerprint set is db/sources.py, which gains three purely additive symbols:
+      relocate_source, set_source_file_missing, and the FILE_MISSING_REASON constant.
+      No existing function was modified. Non-impact on the frozen Q06 holdout is mechanical:
+      the harness backend/scripts/failure_atlas_holdout.py is unchanged and still
+      hashes OK, and it uses exactly three db symbols, namely connect, init_db, and
+      upsert_search_document, all of which are defined in db/schema.py and db/_entities.py,
+      both of which still hash OK, and none of which is defined in db/sources.py.
+      The harness contains zero references to relocate_source, set_source_file_missing,
+      sources.relpath, or projection_path mutation, so no added code path is reachable
+      from it. The additions introduce no import-time side effects beyond one module-level
+      string constant. Q06 documents, FTS5/BM25 ranking, chunking, citations, and
+      every metric input are therefore provably unchanged. The consumed holdout cannot
+      be rerun after run_count=3; these hashes re-arm the existing drift tripwire
+      and claim no new holdout result. No metric, run_count, valid_run_count, or frozen
+      input is touched.'
   v0450_layer_error_primitive_rearm:
     date: '2026-08-06'
     prior_jobs_sha256: 33d772f0709c3b549b40f29dac7028edee58c882c06dc6e7f38706bd71e9b320
@@ -423,7 +442,7 @@ evaluated_code:
     backend/src/curator/db/schema.py: c4d16ac42cf24d75ef8032f2392b9129c3229d46534a985f966965f940455be8
     backend/src/curator/db/_entities.py: f16c661f4d5cc2fa767895707085823529e6a9ef3ce8d7557d686b7f5835fe28
     backend/src/curator/db/jobs.py: 068d2111bcfab902d56ea6ded90e1c29db77abc6331ad1427f9ec9f2433f1dfc
-    backend/src/curator/db/sources.py: 260a8274b0ebf833cbbc709d4f00ab7fdd565aa9bbc4a2a4c4a7dd8dea1a0b4e
+    backend/src/curator/db/sources.py: 757367c191485a137e0e50e633eb6db79728e5133630b116c10e39886666cda8
   preflight_family_metrics:
     direct-factual:
       query_count: 7

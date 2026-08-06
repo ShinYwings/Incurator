@@ -104,6 +104,7 @@ import {
   modelSupportsVision,
   normalizePluginModelEffort,
 } from "../../types";
+import { RenameJournal } from "../../utils/renameJournal";
 
 export interface MultiEditProposal {
   filepath: string;
@@ -125,6 +126,9 @@ const CONTINUITY_MESSAGE_LIMIT = 6;
 
 
 export class ChatSidebarView extends ItemView {
+  /** Where vault files moved to, so historical chat paths still resolve. */
+  private renameJournal = new RenameJournal();
+
   private plugin: ObsidianAIAgent;
   private messages: ChatMessage[] = [];
   private messagesContainer!: HTMLElement;
@@ -275,6 +279,38 @@ export class ChatSidebarView extends ItemView {
         setTimeout(() => {
           this.renderContextChips();
         }, 0);
+      })
+    );
+
+    // Vault file events. Until v0.46.0 the plugin subscribed to NO vault
+    // events at all, so a file moved after import left every stored reference
+    // pointing at a path that no longer existed — chat history keeps the path
+    // inside the message text of an `ai-agent-edit` block, and the only
+    // feedback was "File not found".
+    this.registerEvent(
+      this.app.vault.on("rename", (file, oldPath) => {
+        if (!(file instanceof TFile)) return;
+        this.renameJournal.record(oldPath, file.path);
+        this.renderContextChips();
+        // Registered sources denormalize the path into three DB columns; the
+        // backend reconciles them. Fire-and-forget: a rename must never block
+        // Obsidian's own file handling, and an unregistered file is the common
+        // case rather than an error.
+        void this.getIncuratorClient().relocateSource(oldPath, file.path);
+      })
+    );
+    this.registerEvent(
+      this.app.vault.on("delete", (file) => {
+        if (!(file instanceof TFile)) return;
+        // Stop redirecting to a path that no longer holds anything, so a stale
+        // reference reports the deletion instead of resolving somewhere wrong.
+        this.renameJournal.forget(file.path);
+        this.renderContextChips();
+        // The backend MARKS the source and keeps its knowledge — it never
+        // retires the dependency closure on a delete event. `wiki source rm`
+        // stays the explicit way to do that, so an accidental delete in
+        // Obsidian cannot destroy extracted L1-L4 knowledge.
+        void this.getIncuratorClient().markSourceFileMissing(file.path, true);
       })
     );
     this.registerDomEvent(
@@ -3949,7 +3985,19 @@ export class ChatSidebarView extends ItemView {
     // is a different note, and resolving to it would silently retarget the edit.
     const wantPath = normalized.trim().toLowerCase().replace(/^\/+/, "");
     const byPath = this.app.vault.getMarkdownFiles().find((f) => f.path.toLowerCase() === wantPath);
-    return byPath ?? null;
+    if (byPath) return byPath;
+
+    // v0.46.0: follow a recorded move. This is NOT the basename fallback the
+    // comment above refuses — the journal holds exact provenance from
+    // Obsidian's own rename event ("this file moved from A to B"), so it can
+    // only ever resolve to the same file, never to a same-named different note.
+    for (const candidate of candidates) {
+      const moved = this.renameJournal.resolve(candidate.replace(/^\/+/, ""));
+      if (!moved) continue;
+      const f = this.app.vault.getAbstractFileByPath(moved);
+      if (f instanceof TFile) return f;
+    }
+    return null;
   }
 
   // Bug 2 (v0.14.1): serialize opens so a second pill click cannot re-point the

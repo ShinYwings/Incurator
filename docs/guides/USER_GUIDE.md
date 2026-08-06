@@ -770,6 +770,37 @@ and the CLI prints a warning; the dashboard can refresh again later.
 > Corrections flow through the MCP `curator_propose_correction` tool, not by
 > editing a generated L4 file.
 
+#### Moving or deleting a source file
+
+Obsidian lets you reorganise freely, and Incurator follows.
+
+**Moving a file inside the vault keeps everything.** The plugin sees the move
+and tells the backend, which updates the source's stored location — in all three
+places it is recorded — while preserving the content hash, every layer status,
+and the whole L1–L4 knowledge built from it. Nothing is recompiled. Zotero
+imports move too: the stub markdown under `04_Resources/References/` is an
+ordinary vault file, and its link to the Zotero item survives the move.
+
+Past chat messages keep working as well. An agent edit block written before the
+move still opens the right file, because the plugin remembers where files went.
+It follows a recorded move only — never a same-named file in another folder,
+which would be a different note.
+
+**Deleting a file marks the source but keeps its knowledge.** Incurator does not
+retire anything on a delete. If you delete a note by accident, or move it out of
+the vault and back, the atoms and concepts built from it are still there.
+`wiki lint` reports the source as missing and offers the three choices:
+
+- put the file back,
+- re-register it at its new location with `wiki add`,
+- or retire it and everything derived from it with `wiki source rm <id>`.
+
+Only the last one discards knowledge, and only when you ask for it.
+
+> **If you moved files before v0.46.0**, the old location may still be recorded.
+> `wiki lint` now names those sources explicitly so you can re-register or retire
+> them.
+
 #### `wiki lint` and what `--fix` can actually repair
 
 `wiki lint` is read-only. `wiki lint --fix` applies only the repairs it can
