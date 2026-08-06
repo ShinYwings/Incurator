@@ -770,6 +770,35 @@ and the CLI prints a warning; the dashboard can refresh again later.
 > Corrections flow through the MCP `curator_propose_correction` tool, not by
 > editing a generated L4 file.
 
+#### `wiki lint` and what `--fix` can actually repair
+
+`wiki lint` is read-only. `wiki lint --fix` applies only the repairs it can
+derive from authoritative data, and every issue it reports says which of the two
+it is — an error it can fix, or one only you can.
+
+The `invalid_source_path` check is the one where that distinction matters. An
+Atom stores a `source_path` pointing at the source file it was extracted from,
+and lint verifies that file exists. When it does not, there are three different
+situations and they need three different answers:
+
+| Situation | `--fix` repairs it? | What to do |
+| :--- | :--- | :--- |
+| The Atom's `source_path` is wrong, but its registered source is fine | yes | `wiki lint --fix` rewrites the field from the source the Atom's spans resolve to |
+| The registered source itself names a file that no longer exists (typically a source renamed on disk without re-registering) | no | `wiki add` to register the file under its current name, or `wiki source rm <id>` to drop the stale row |
+| The Atom resolves to no registered source at all | no | `wiki add` to re-register the source |
+
+In the second and third cases the error is reported but **not** marked fixable,
+because the repair would copy the same dead path back and the error would return
+on the next run.
+
+> **Filenames with accents or non-Latin characters.** macOS stores such names in
+> a decomposed form (`ü` as `u` + a combining mark) while the backend stores the
+> precomposed form. These are the same filename and both open correctly, but a
+> byte-exact comparison treats them as different. Lint normalizes both sides
+> before comparing, so a source called `…Plücker Coordinates.md` is not reported
+> as missing. If you see a `invalid_source_path` error for a file you can plainly
+> see on disk, that is a bug worth reporting — not something to "fix" by renaming.
+
 ### 4. Knowledge Utilization
 | Command | Description | When to use |
 | :--- | :--- | :--- |
