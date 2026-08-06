@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.44.0)
+# Incurator - System Behavior (v0.45.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -236,11 +236,32 @@ Rules:
   processed by the MCP server's IngestWorker or `wiki jobs run`.
 - Recovering a job left `running` by a crashed worker resets both the job to
   `queued` and its source `l2_status` to `pending`; status surfaces must not show
-  a permanently running source after recovery.
+  a permanently running source after recovery. Recovery **must preserve the
+  post-publish projection marker** in `layer_error`. A worker can die after its
+  compiler generation is published but before the markdown/search projection
+  lands, and the marker is what makes the retry recover the published generation
+  instead of recompiling it; clearing it during recovery silently re-runs the
+  whole LLM extraction against work that was already committed. Any other
+  `layer_error` value is stale human error text and is cleared as before.
 - After global L3 completes, sources whose L2 is done must receive a terminal
   `l3_status`: `done` only when a live community report is grounded in that
-  source's spans, or `skipped` when no eligible L3 output exists. Returning
-  without an exception is not sufficient for L3 completion.
+  source's spans, `skipped` when no eligible L3 output exists, or `error` when
+  community/report construction itself failed. Returning without an exception is
+  not sufficient for L3 completion.
+- **L3 and L4 failures are distinct and must not be conflated.** A synthesis
+  (L4) failure does not make `l3_status` `error` — clustering and report
+  construction may have succeeded completely. Only a failure in L3's own work
+  sets `l3_status='error'`.
+- **`skipped` never means "failed".** It means the source contributed nothing to
+  that layer, which is an ordinary non-failing outcome. A layer that was
+  attempted and raised is `error`. Recording an attempted-and-failed layer as
+  `skipped` makes a broken build indistinguishable from an empty one.
+- `layer_error` is a single column shared by all four layers, so a build that
+  fails at more than one layer composes **one** layer-tagged message
+  (`"l3: … ; l4: …"`) and writes it once. A per-layer status write must not
+  overwrite a message another layer already recorded. The L4 text may claim
+  synthesis was "not attempted" only when that is true — i.e. when L3 failed
+  first and gated it.
 - Community-report provenance lookups used by global L3 and projection re-emit
   must query span ids in batches of at most 900 parameters, remaining below
   SQLite's common 999-variable limit even for reports grounded in thousands of
@@ -2311,6 +2332,16 @@ rendered page instead.
   output for its scope. Failed validation discards the staged generation; the
   prior authoritative generation, its projections, and its search state remain
   untouched and continue serving.
+- **Layer status is computed by the compiler and by nothing else.** No other
+  command may advance `l3_status`/`l4_status`. In particular `wiki sync` clears
+  stale `layer_error` values but must not promote a status, and must never infer
+  one from the presence of files on disk: the derived `Collections/` projection
+  is disposable and the existence of a `CON-*.md` or `SYN-*.md` file says
+  nothing about which source contributed to it. A status inferred from a
+  filesystem glob is indistinguishable from a computed one afterwards, which
+  destroys the very truthfulness the terminal statuses exist to provide. If a
+  repair genuinely needs to advance a status, it belongs in the compiler's own
+  re-run.
 - Unchanged rebuild is idempotent: same source content + same prompt contract
   version reuses the authoritative generation's claim ids, hashes, dependency
   closure, and counts — no duplicate accumulation, no count amplification.

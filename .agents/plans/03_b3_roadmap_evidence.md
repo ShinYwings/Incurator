@@ -178,6 +178,65 @@ Each phase ends with `scripts/backend-check pytest` + `ruff` green.
 - Real vault: 10 sources `skipped` with zero recorded reason; 26 `done` with no
   way to distinguish computed-L3 from glob-promoted-L3.
 
+## Scope Cut Taken (recorded, not silent)
+
+This branch ships **P1–P4**: the `layer_error` primitive and its three symptoms
+(CP-1, CP-3a, CP-3b, CP-4). That is the coherent unit the Arena identified —
+"three findings, one primitive" — and it is what makes the terminal statuses
+truthful.
+
+**P5–P7 are deliberately NOT in this PR** and remain open:
+
+- **P5 (CP-2a, the synthesis dep-hash freeze).** Independent of the primitive;
+  it is about a partial L4 rebuild being frozen by a per-node hash short-circuit.
+  Needs the `synthesis_manifest` commit-marker design plus the forced
+  `reemit_synthesis` on unfreeze (critique Attack 4), which is its own change.
+- **P6 (CP-5, delete the L2 checkpoint-resume).** A table migration and the
+  removal of four tests. Unrelated to status truthfulness; batching it here
+  would mean one PR that both changes semantics and drops a schema object.
+- **P7 (record a reason on every terminal `skipped`).** This one I added to the
+  ledger myself, and on implementation it turned out to need a decision this
+  batch should not improvise: `layer_error` is named for errors, while a skip
+  reason ("no community report cites this source") is informational, and
+  `sources.error_reason` already exists as a separate column. Which column
+  carries a non-error reason is a schema-semantics question for the user, so it
+  is filed rather than guessed at.
+
+P4 partially delivers what P7 was for: a `skipped` status can no longer be a
+disguised failure, because failures are now `error` with a recorded cause. What
+remains open is annotating a *legitimate* skip with why it was legitimate.
+
 ## Post-Validation Results
 
-_To be filled in as phases land._
+- Ruff clean; mypy clean (127 source files).
+- `test_compile_pipeline.py` 11 passed, including the inverted
+  `test_synthesis_failure_marks_l4_error_and_leaves_l3_done` and the new
+  `test_l3_failure_message_survives_the_l4_status_write`.
+- `test_plan_b2_staging.py` 16 passed, including the batch's hard condition —
+  `recover_stale_jobs` interposed between crash and retry, generation id
+  unchanged, LLM client never called — **verified failing before the fix**.
+- Spec/version sync 10/10 at v0.45.0 with all four spec titles on the v0.45 line.
+- Full backend suite: see the PR body.
+
+### D2 frozen holdout — tripwire fired and was RE-ARMED, not rerun
+
+The P1 edits touch `db/jobs.py` and `db/sources.py`, both of which are in D2's
+`evaluated_code.file_sha256` fingerprint set, so the drift tripwire failed as
+designed. The holdout is consumed (`run_count: 3`) and must never be rerun; the
+documented path is a written non-impact proof plus a hash re-arm.
+
+The proof here is mechanical rather than argued. `failure_atlas_holdout.py` is
+unchanged and still hashes OK, and it uses exactly three `db` symbols —
+`connect`, `init_db`, `upsert_search_document` — all defined in `db/schema.py`
+and `db/_entities.py`, **both of which still hash OK**, and none defined in
+either changed file. The harness contains zero references to
+`recover_stale_jobs`, `set_source_layer_status`, `ingest_jobs`, or
+`layer_error`, so no changed path is reachable from it. `db/sources.py`'s
+additions are three new symbols plus a branch taken only on `error=UNSET`; with
+`error=None` or a string the SQL is byte-identical. `db/jobs.py`'s change is
+confined to one UPDATE statement inside `recover_stale_jobs`.
+
+Recorded as `v0450_layer_error_primitive_rearm` in `D2_HOLDOUT_RESULT.yml`. The
+diff on that file deletes exactly two lines — the two stale hashes — and adds
+the re-arm block. No metric, `run_count`, `valid_run_count`, or frozen input was
+touched.

@@ -1062,6 +1062,31 @@ L3/L4 badge를 live report와 synthesis node에 맞춰 조정하여 구버전의
 > 없다는 terminal 상태입니다. `wiki build`를 실행하거나 백그라운드 worker가 L3를
 > 끝내도록 기다리는 것은 `pending`인 경우에만 필요합니다.
 
+**각 terminal layer status의 의미.** 이들은 의도적으로 서로 구분되며,
+`wiki source show <id>`가 상태와 함께 이유를 출력합니다:
+
+| 상태 | 의미 |
+| :--- | :--- |
+| `done` | 해당 layer가 산출물을 만들었고 이 source가 거기에 기여했습니다. |
+| `skipped` | layer는 정상적으로 실행되었고, 이 source는 거기에 기여한 것이 없습니다. 실패가 아닙니다. |
+| `error` | layer가 시도되었고 예외가 발생했습니다. 이유가 기록됩니다. |
+
+`skipped`와 `error`는 절대 서로 대체될 수 없습니다. v0.45.0 이전에는 L4
+synthesis 실패가 `skipped`로 기록되어, 망가진 build가 비어 있는 build와 똑같이
+보였습니다 — terminal status의 존재 이유가 바로 그 둘을 구분하는 것입니다.
+
+L3 실패와 L4 실패도 서로 구분됩니다. community/report 구성이 실패하면
+`l3_status='error'`가 되고, synthesis가 실패하면 `l4_status='error'`가 되며
+`l3_status`는 L3가 실제로 달성한 값을 그대로 유지합니다. 두 layer 모두에서
+실패한 경우 단일 reason 필드가 `l3: … ; l4: …` 형태의 layer 태그가 붙은 메시지를
+담습니다.
+
+> **`wiki sync`는 layer status를 절대 진행시키지 않습니다.** 그래프를 검증한 뒤
+> 낡은 오류 텍스트를 지우는 것이 전부입니다. status는 compiler(`wiki build`)가
+> 계산하며 그 외 어떤 것도 계산하지 않습니다. 이전 버전은 디스크에 `CON-*.md`
+> 파일이 *하나라도* 있으면 L3/L4를 `done`으로 승격시켰고, 그 결과 실제로
+> skip된 source를 완료된 source와 구분할 수 없게 만들었습니다.
+
 ### 4. 외부 리소스 연동 (Zotero & Reference Mode)
 Incurator는 Zotero 등의 외부 PDF 파일들을 보관소로 복사하지 않고 원본 그대로 참조(Reference Mode)할 수 있으며, 원할 경우 사용자가 승인한 `04_Resources/` 목적지로 안전하게 복사할 수도 있습니다.
 - **설정**: 옵시디언 플러그인 설정의 "Zotero Library Path"를 입력하거나 터미널에서 `wiki config set external.zotero.path ~/Documents/Zotero` 명령을 사용하여 Zotero 루트 경로를 지정합니다.
