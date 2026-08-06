@@ -37,7 +37,22 @@ belong in Git history, not the active workspace. New raw reports enter through
    - **Sequenced after the current build**: both need a repopulated L3/L4 to be
      judged. Re-measure first with `/tmp/measure_after_build.sh`.
 
-3. **Build-artifact audit findings** (new, 2026-08-06, post-v0.43.0 build)
+3. **Vault file moves and deletes are not tracked anywhere** (new, 2026-08-06, P1)
+   - The plugin registers **no** vault file events at all — two `registerEvent`
+     calls exist repo-wide and both are workspace layout events. No
+     `vault.on("rename")`, no `vault.on("delete")`. Pinned context keeps a dead
+     path and the agent reports "File not found".
+   - The backend denormalizes the path into `sources.relpath`,
+     `source_spans.relpath`, and `search_documents.projection_path`, and
+     reconciles none of them on a move. Already rotting: source 32 points at a
+     path that exists nowhere, and its 48 descendant atoms are the 48 lint
+     errors that survive the v0.44.1 fix.
+   - Reference Mode complicates it: `sync_key` embeds the path, and the Zotero
+     `logical_source_id` must survive a move.
+   - **Needs a PLAN_TEMPLATE plan before implementation.**
+   - Evidence: `.agents/USER_REPORT.md` (2026-08-06).
+
+4. **Build-artifact audit findings** (new, 2026-08-06, post-v0.43.0 build)
    - `wiki lint` is unusable as a signal: 70 unfixable `invalid_source_path`
      ERRORs. 22 are a macOS NFC/NFD byte-compare false positive whose suggested
      `--fix` writes back the same value, so the error can never be cleared; 48
@@ -52,7 +67,7 @@ belong in Git history, not the active workspace. New raw reports enter through
      knowledge units each (feeds B3).
    - Evidence: `.agents/USER_REPORT.md` (2026-08-06).
 
-4. **Job progress is unobservable, and Reference-Mode jobs display as `.md`**
+5. **Job progress is unobservable, and Reference-Mode jobs display as `.md`**
    - `ingest_worker.py:180/195` writes `progress=0.1` once when L2 starts and
      `0.5` only after all of L2 returns; `progress_current/progress_total` stay
      `0/1` and `job_events` gets zero rows, so a long job is indistinguishable
@@ -64,20 +79,20 @@ belong in Git history, not the active workspace. New raw reports enter through
    - Related: no way to cancel a job that is already running.
    - Evidence: `.agents/USER_REPORT.md` (2026-08-05).
 
-5. **Chat Session Context Compaction**
+6. **Chat Session Context Compaction**
    - Draft: `.agents/drafts/chat_context_compaction.md`
 
-6. **Vault Storage Governance & Quota Visibility**
+7. **Vault Storage Governance & Quota Visibility**
    - Draft: `.agents/drafts/vault_storage_governance.md`
 
-7. **Native PDF Annotation & Asset System**
+8. **Native PDF Annotation & Asset System**
    - Draft: `.agents/drafts/pdf_annotation_system.md`
 
-8. **Web Search Integration**
+9. **Web Search Integration**
    - No current plan. Re-plan from current provider, privacy, and cost
      constraints before implementation.
 
-9. ~~**Agentic PDF Retrieval Tools for Ask AI/Sidechat**~~ — shipped in
+10. ~~**Agentic PDF Retrieval Tools for Ask AI/Sidechat**~~ — shipped in
    v0.41.0 as a local (non-MCP) read-only page reader. Scope was narrowed
    during planning: `fetch_pdf_page` is first class, `search_pdf_anchor` is
    exposed only for documents proven outline-less, and CLI providers keep the
