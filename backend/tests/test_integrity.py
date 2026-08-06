@@ -329,7 +329,7 @@ type: concept
 
 
 
-    def test_existing_l3_pages_do_not_clear_sync_l3_errors(self) -> None:
+    def test_existing_concept_pages_never_promote_or_clear_l3_status(self) -> None:
         with db.connect(self.paths.state_db) as conn:
             conn.execute(
                 """INSERT INTO sources
@@ -363,7 +363,21 @@ last_updated: 2026-05-04T00:00:00Z
             encoding="utf-8",
         )
 
-        ingest_llm._mark_existing_l3_done_if_present(self.paths)
+        # `_mark_existing_l3_done_if_present` used to run here and promoted
+        # every `l2_status='done'` source to `l3_status='done'` whenever any
+        # CON-*.md existed. It was deleted in v0.45.0 along with its twin in
+        # `_mark_clean_sync_status`: a status inferred from a filesystem glob is
+        # indistinguishable from a computed one afterwards, and
+        # `.curator/Collections/` is a disposable projection. This test keeps the
+        # original guarantee — an errored source survives the presence of an
+        # unrelated concept page — and now asserts the stronger form, that
+        # nothing outside the compiler touches the status at all.
+        from curator import ingest_llm as _ingest_llm
+
+        self.assertFalse(
+            hasattr(_ingest_llm, "_mark_existing_l3_done_if_present"),
+            "glob-driven L3 promotion must not come back",
+        )
 
         with db.connect(self.paths.state_db) as conn:
             row = conn.execute("SELECT l3_status, layer_error FROM sources").fetchone()

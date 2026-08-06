@@ -73,6 +73,14 @@ STATUS_ERROR = "error"
 STATUS_PENDING = "pending"
 STATUS_SKIPPED = "skipped"
 
+# `sources.layer_error` doubles as pipeline control flow: when a compiler
+# generation is published but its markdown/search projection has not landed yet,
+# the column carries a marker that `pipeline/compile.py` reads to take the
+# recovery path instead of recompiling. `db/jobs.py` must recognise the same
+# marker to avoid erasing it during crash recovery, and `db/` must not import
+# from `pipeline/`, so the shared prefix lives here.
+POST_PUBLISH_PROJECTION_PREFIX = "post-publish projection"
+
 # Zotero Configs
 ZOTERO_PREF_ATTACHMENT = "extensions.zotero.baseAttachmentPath"
 ZOTERO_PREF_ZOTMOOV = "extensions.zotmoov.dst_dir"

@@ -2,6 +2,91 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.45.0] - 2026-08-06
+### Changed
+- **A Failed Layer Is Now `error`, Never `skipped` (BREAKING for status readers)**
+  `compile_global_l3` recorded `l4_status='skipped'` when synthesis threw.
+  SYSTEM_BEHAVIOR §4.1 already required `error` there, so the code was the side
+  that was wrong. `skipped` means "this source contributed nothing to the
+  layer" — an ordinary non-failing outcome — so recording an
+  attempted-and-thrown layer as `skipped` made a broken build indistinguishable
+  from an empty one. Observed on a real vault: 10 of 36 sources sat at
+  `skipped` across L2/L3/L4 with **both** `layer_error` and `error_reason`
+  empty, two of them holding 11 knowledge units each.
+
+- **L3 And L4 Failures Are No Longer Conflated**
+  A single `errors` list collected failures from both community-report
+  construction and synthesis, so a synthesis failure marked `l3_status='error'`
+  even though clustering had succeeded completely. The two are tracked
+  separately: L3's status now reflects only L3's own work.
+
+### Fixed
+- **Crash Recovery Erased The Post-Publish Projection Marker**
+  `sources.layer_error` is overloaded three ways — human error text, the
+  post-publish projection marker that `pipeline/compile.py` *reads* to take the
+  recovery path instead of recompiling, and sync annotations. `recover_stale_jobs`
+  cleared the column unconditionally, so the real crash sequence (worker dies
+  after publishing a generation → supervisor restarts → recovery requeues the
+  job → retry runs) lost the marker at the recovery step and re-ran the entire
+  LLM extraction against an already-published generation. The existing test
+  missed it by retrying in the same process with no recovery interposed.
+
+  The `running` → `pending` reset §4.1 requires still happens; `layer_error` is
+  preserved when it matches the marker and cleared otherwise, so stale human
+  error text still goes away. The marker prefix moved to
+  `constants.POST_PUBLISH_PROJECTION_PREFIX` so the SQL and the Python cannot
+  drift apart.
+
+- **The L4 Status Write Clobbered The Real L3 Error Message**
+  `layer_error` is one column shared by all four layers, and the loop wrote it
+  twice per source — first with the L3 cause, then with a fixed L4 string. The
+  second write won, destroying the actual reason L3 failed on the same line
+  that recorded it. A build that fails at more than one layer now composes one
+  layer-tagged message (`"l3: … ; l4: …"`) and writes it once.
+
+  That fixed L4 string was also a lie in the one case it mattered: it read "L3
+  prerequisite failed; synthesis not attempted" even when the error had come
+  from synthesis itself, which had demonstrably been attempted. It is now used
+  only when L3 really did fail first and gate it.
+
+- **`wiki sync` Promoted L3/L4 To `done` From A Filesystem Glob**
+  `_mark_clean_sync_status` set `l3_status='done'` for **every** source with
+  `l2_status='done'` whenever *any* `CON-*.md` file existed anywhere on disk,
+  and the same for L4 against `SYN-*.md`. The promotion was not per-source and
+  consulted no record of what a given source contributed, so a genuinely
+  `skipped` source came out of sync indistinguishable from a completed one.
+  `.curator/Collections/` is a disposable projection; the presence of a file
+  there says nothing about provenance.
+
+  The promotion is deleted. `_mark_clean_sync_status` now does what its name and
+  docstring always claimed — clear stale `layer_error` — and nothing else.
+  SYSTEM_BEHAVIOR §26.3 states the rule explicitly: layer status is computed by
+  the compiler and by nothing else.
+
+- **A Second Filesystem-Glob Status Promotion, Reachable From Two Read-Only
+  Commands**
+  `_mark_existing_l3_done_if_present` was the twin of the promotion deleted from
+  `_mark_clean_sync_status` — same glob, same every-source promotion — and it
+  ran unconditionally from `wiki sources ls` and `wiki status --refresh`, two
+  surfaces that should not mutate the vault at all. Removed along with its
+  callers; `--refresh` now only rewrites the runtime snapshot cache, and its
+  help text says so.
+
+- **`wiki sync` Erased The Gap Reason It Had Just Recorded**
+  `_mark_layer_status_from_sync_gaps` wrote the `sync_logical_gap:` reason with
+  the L3 status, then immediately wrote `l4_status='pending'` with no `error=`
+  — defaulting to `None` and clearing the shared column. `l3_status` was left
+  `error` with no explanation, permanently. The same clobber this batch fixes in
+  `compile_global_l3`, one function away.
+
+### Added
+- `db.UNSET` sentinel for `set_source_layer_status` / `set_sources_layer_status`,
+  leaving `layer_error` untouched, plus `set_source_layer_error` /
+  `set_sources_layer_error` for writing the column without touching a status.
+  The default stays `None` (clear) — see `.agents/plans/03_b3_roadmap_evidence.md`
+  for why flipping it would have traded this bug for its mirror image across
+  ~25 call sites. Bulk id predicates are chunked to the module's conservative
+  999-variable convention, matching the eight existing `_chunks()` call sites.
 ## [0.44.1] - 2026-08-06
 ### Fixed
 - **`wiki lint` Reported 70 Errors The User Could Not Act On**

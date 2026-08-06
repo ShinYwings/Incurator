@@ -434,3 +434,91 @@ def test_interrupted_post_publish_projection_recovers_without_llm(
     assert db.get_authoritative_generation(vault.state_db, 1)["id"] == generation["id"]
     assert recovered.atom_ids
     assert (vault.atoms / f"{recovered.atom_ids[0]}.md").exists()
+
+
+def test_crash_recovery_between_interrupt_and_retry_preserves_the_projection_marker(
+    vault,
+    monkeypatch,
+) -> None:
+    """The B3 hard condition: `recover_stale_jobs` must run BETWEEN the two.
+
+    A real crash does not politely leave the process alive to retry. The worker
+    dies, something restarts it, and `recover_stale_jobs` runs first to return
+    interrupted jobs to the queue. That reset used to `SET layer_error = NULL`
+    unconditionally — erasing the post-publish projection marker that
+    `compile_source_l2` reads to take the recovery path. With the marker gone,
+    the retry re-runs the full LLM extraction against a generation that was
+    already published.
+
+    Asserted here: the generation id is unchanged and the LLM client is never
+    called, with recovery interposed exactly where the crash would put it.
+    """
+    # The worker claims a job before compiling; `recover_stale_jobs` keys off
+    # that row, so a faithful crash simulation has to create it.
+    with db.connect(vault.state_db) as conn:
+        conn.execute(
+            "INSERT INTO ingest_jobs (source_id, job_type, state, phase, created_at) "
+            "VALUES (1, 'l2_atoms', 'running', 'extracting', '2026-08-06T00:00:00Z')"
+        )
+
+    original_finalize = compile_mod._finalize_published_source
+
+    def _interrupt_after_publish(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(
+        compile_mod, "_finalize_published_source", _interrupt_after_publish
+    )
+    with pytest.raises(KeyboardInterrupt):
+        compile_mod.compile_source_l2(vault, _UnitsClient(), 1)
+
+    generation = db.get_authoritative_generation(vault.state_db, 1)
+    assert generation is not None
+
+    # --- the restart: exactly what a supervisor does before the retry ---
+    db.recover_stale_jobs(vault.state_db)
+
+    with db.connect(vault.state_db) as conn:
+        source = conn.execute(
+            "SELECT l2_status, layer_error FROM sources WHERE id = 1"
+        ).fetchone()
+    # §4.1 still requires the running -> pending reset...
+    assert source["l2_status"] == "pending"
+    # ...but the control-flow marker must survive it.
+    assert source["layer_error"] == "post-publish projection pending"
+
+    monkeypatch.setattr(
+        compile_mod, "_finalize_published_source", original_finalize
+    )
+    recovered = compile_mod.compile_source_l2(vault, _NoCallClient(), 1)
+
+    assert recovered.ok, recovered.error
+    assert db.get_authoritative_generation(vault.state_db, 1)["id"] == generation["id"]
+    assert recovered.atom_ids
+
+
+def test_crash_recovery_still_clears_an_ordinary_stale_error(vault) -> None:
+    """The marker is preserved; a plain human error message is not.
+
+    Without this the CASE expression could be written to preserve everything,
+    which would leave a stale failure message attached to a source that is about
+    to be recompiled from scratch.
+    """
+    with db.connect(vault.state_db) as conn:
+        conn.execute(
+            "UPDATE sources SET l2_status = 'running', layer_error = ? WHERE id = 1",
+            ("provider timed out after 120s",),
+        )
+        conn.execute(
+            "INSERT INTO ingest_jobs (source_id, job_type, state, phase, created_at) "
+            "VALUES (1, 'l2_atoms', 'running', 'extracting', '2026-08-06T00:00:00Z')"
+        )
+
+    db.recover_stale_jobs(vault.state_db)
+
+    with db.connect(vault.state_db) as conn:
+        source = conn.execute(
+            "SELECT l2_status, layer_error FROM sources WHERE id = 1"
+        ).fetchone()
+    assert source["l2_status"] == "pending"
+    assert source["layer_error"] is None

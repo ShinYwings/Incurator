@@ -1152,3 +1152,29 @@ nodes, repairing stale `done` values left by older versions.
 > build completed but no eligible community reports/syntheses exist for this
 > corpus. Run `wiki build` (or let the background worker finish L3) only for the
 > pending case.
+
+**What each terminal layer status means.** These are deliberately distinct, and
+`wiki source show <id>` prints the reason alongside them:
+
+| Status | Meaning |
+| :--- | :--- |
+| `done` | The layer produced output that this source contributed to. |
+| `skipped` | The layer ran fine, and this source contributed nothing to it. Not a failure. |
+| `error` | The layer was attempted and raised. The reason is recorded. |
+
+`skipped` and `error` are never interchangeable. Before v0.45.0 a failed L4
+synthesis was recorded as `skipped`, which made a broken build look exactly like
+an empty one — the whole point of a terminal status is that you can tell those
+apart.
+
+An L3 failure and an L4 failure are also distinct. Community/report construction
+failing sets `l3_status='error'`; synthesis failing sets `l4_status='error'` and
+leaves `l3_status` at whatever L3 genuinely achieved. When a build fails at more
+than one layer, the single reason field carries a layer-tagged message such as
+`l3: … ; l4: …`.
+
+> **`wiki sync` never advances a layer status.** It clears stale error text once
+> it has verified the graph, and that is all. Status is computed by the compiler
+> (`wiki build`) and by nothing else. Earlier versions promoted L3/L4 to `done`
+> whenever *any* `CON-*.md` file existed on disk, which made a genuinely skipped
+> source indistinguishable from a completed one afterwards.

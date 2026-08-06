@@ -426,8 +426,23 @@ def test_compile_source_l2_failed_extraction_sets_error(vault) -> None:
     assert len(docs) == len(db.list_source_spans(paths.state_db, 1))
 
 
-def test_compile_global_l3_failure_sets_l4_skipped_not_error(vault) -> None:
-    """When synthesis errors, L4 should be 'skipped' with its own message, not 'error'."""
+def test_synthesis_failure_marks_l4_error_and_leaves_l3_done(vault) -> None:
+    """A synthesis failure is an L4 failure. It is not an L3 failure and it is not a skip.
+
+    Inverted from `test_compile_global_l3_failure_sets_l4_skipped_not_error`,
+    which asserted the two lies this batch removes:
+
+    * `l3 == "error"` — clustering demonstrably succeeded here; only synthesis
+      threw. Marking L3 failed made a working layer look broken.
+    * `l4 == "skipped"` — §4.1 reserves `skipped` for "this source contributed
+      nothing to the layer", a non-failing outcome. Reporting an attempted-and-
+      thrown synthesis as `skipped` is what let a broken L4 read as a no-op, and
+      it is the state the user found on 10 real sources with no recorded reason.
+
+    The old test's defence was that a per-source `l4='error'` is odd because L4
+    is global. But a status the user cannot distinguish from success is worse
+    than one that is coarse, and the composed `layer_error` names the layer.
+    """
     paths = vault
 
     class SynthesisFailClient(DynamicFakeClient):
@@ -454,8 +469,69 @@ def test_compile_global_l3_failure_sets_l4_skipped_not_error(vault) -> None:
     with pytest.raises(RuntimeError, match="L3 global clustering"):
         compile_mod.compile_global_l3(paths, client)
 
-    assert _layer_status(paths, 1, "l3") == "error"
-    assert _layer_status(paths, 2, "l3") == "error"
-    # L4 must NOT be "error" — synthesis was the failure, and L4 was never completed.
-    assert _layer_status(paths, 1, "l4") == "skipped"
-    assert _layer_status(paths, 2, "l4") == "skipped"
+    # L3 clustering succeeded; only synthesis threw.
+    assert _layer_status(paths, 1, "l3") == "done"
+    assert _layer_status(paths, 2, "l3") == "done"
+    # L4 was attempted and failed, so it is `error` (Q1), not `skipped`.
+    assert _layer_status(paths, 1, "l4") == "error"
+    assert _layer_status(paths, 2, "l4") == "error"
+
+    # The surviving message names the failing layer and carries the real cause,
+    # instead of the old "L3 prerequisite failed; synthesis not attempted" — a
+    # claim that was false precisely when synthesis had been attempted.
+    with db.connect(paths.state_db) as conn:
+        errors = [
+            row["layer_error"]
+            for row in conn.execute(
+                "SELECT layer_error FROM sources WHERE id IN (1, 2)"
+            ).fetchall()
+        ]
+    assert all(e and e.startswith("l4: ") for e in errors), errors
+    assert all("synthetic synthesis failure" in e for e in errors), errors
+    assert not any("not attempted" in e for e in errors), errors
+
+
+def test_l3_failure_message_survives_the_l4_status_write(vault) -> None:
+    """CP-3b: the L4 write used to clobber the real L3 error message.
+
+    `layer_error` is one column shared by all four layers, and the loop wrote it
+    twice per source — first with the L3 cause, then with a fixed L4 string.
+    The second write won, so the actual reason L3 failed was destroyed on the
+    same line that recorded it.
+    """
+    paths = vault
+
+    class ReportFailClient(DynamicFakeClient):
+        def chat(self, messages, *, json_mode=False, temperature=0.3) -> str:
+            text = "\n".join(m.content for m in messages)
+            if "community" in text.lower():
+                raise RuntimeError("synthetic community report failure")
+            return super().chat(messages, json_mode=json_mode, temperature=temperature)
+
+    client = ReportFailClient()
+    src2 = paths.root / "04_Resources" / "resnet2.md"
+    src2.write_text(SOURCE_MD, encoding="utf-8")
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "INSERT INTO sources (relpath, content_hash, file_type, bytes, added_at, "
+            "context_id, l1_status) VALUES (?, ?, ?, ?, datetime('now'), ?, 'done')",
+            ("04_Resources/resnet2.md", "h2", "md", len(SOURCE_MD), "CTX-test5678"),
+        )
+
+    compile_mod.compile_source_l2(paths, client, 1)
+    compile_mod.compile_source_l2(paths, client, 2)
+
+    with pytest.raises(RuntimeError, match="L3 global clustering"):
+        compile_mod.compile_global_l3(paths, client)
+
+    with db.connect(paths.state_db) as conn:
+        error = conn.execute(
+            "SELECT layer_error FROM sources WHERE id = 1"
+        ).fetchone()["layer_error"]
+
+    assert error, "the L3 cause must not be erased by the L4 status write"
+    assert "synthetic community report failure" in error
+    assert error.startswith("l3: "), error
+    # When L3 is the failure, L4 legitimately was not attempted — and now only
+    # then does the message say so.
+    assert "l4: L3 prerequisite failed; synthesis not attempted" in error

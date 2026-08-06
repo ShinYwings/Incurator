@@ -64,8 +64,8 @@ __all__ = [
 # compiles of the same source under the same contract version are an unchanged
 # rebuild and must reuse the authoritative generation (§26.3).
 PROMPT_CONTRACT_VERSION = "curator.knowledge_unit_extract@v3"
-_POST_PUBLISH_PROJECTION_ERROR = "post-publish projection failed:"
-_POST_PUBLISH_PROJECTION_PENDING = "post-publish projection pending"
+_POST_PUBLISH_PROJECTION_ERROR = f"{consts.POST_PUBLISH_PROJECTION_PREFIX} failed:"
+_POST_PUBLISH_PROJECTION_PENDING = f"{consts.POST_PUBLISH_PROJECTION_PREFIX} pending"
 
 
 @dataclass
@@ -1052,7 +1052,8 @@ def compile_global_l3(
     concept_ids: list[str] = []
     report_concept_ids: dict[str, str] = {}
     paths.concepts.mkdir(parents=True, exist_ok=True)
-    errors = []
+    l3_errors: list[str] = []
+    l4_errors: list[str] = []
     # (2) Prose pass over each SERVED (non-retired) report, merge-upserted by key.
     # rebuild_graph_generation already recorded the report's precise artifact
     # dependencies (report->relation, report->span), so the prose pass adds no
@@ -1078,12 +1079,12 @@ def compile_global_l3(
             # continue so one bad report does not abort the whole L3 pass; the
             # aggregated errors gate the synthesis step below.
             logger.warning("Community report prose failed: %s", e)
-            errors.append(str(e))
+            l3_errors.append(str(e))
 
     # L4 Synthesis: distill all community reports into shared corpus-wide insights.
     # Skipped automatically when the report corpus is unchanged.
     synthesis_ids: list[str] = []
-    if not errors:
+    if not l3_errors:
         try:
             synthesis_ids = synthesis.generate_synthesis(
                 paths, client, curate_spec_hash=curate_spec_hash,
@@ -1093,7 +1094,7 @@ def compile_global_l3(
             # KEEP broad: synthesis is the final best-effort L4 step; record the
             # error (surfaced via the errors list) rather than crashing L3.
             logger.warning("L4 synthesis failed: %s", e)
-            errors.append(str(e))
+            l4_errors.append(str(e))
 
     # Mark L3 done for sources whose L2 is complete.
     with db.connect(paths.state_db) as conn:
@@ -1102,8 +1103,29 @@ def compile_global_l3(
         ).fetchall()
         l2_done_ids = [r["id"] for r in rows]
     
-    error_msg = "; ".join(errors) if errors else None
-    l4_error = "L3 prerequisite failed; synthesis not attempted" if errors else None
+    # `layer_error` is ONE column shared by all four layers, so the two writes
+    # below cannot each carry their own message — the second would clobber the
+    # first. Compose a single layer-tagged message and write it once.
+    #
+    # The two error lists are kept apart because conflating them made both
+    # statuses lie: a synthesis failure marked L3 `error` even though clustering
+    # had succeeded, and the L4 message claimed "synthesis not attempted" in the
+    # one case where it demonstrably had been attempted and had thrown.
+    l3_error_msg = "; ".join(l3_errors) if l3_errors else None
+    if l3_errors:
+        l4_error_msg = "L3 prerequisite failed; synthesis not attempted"
+    elif l4_errors:
+        l4_error_msg = "; ".join(l4_errors)
+    else:
+        l4_error_msg = None
+    error_msg = "; ".join(
+        part
+        for part in (
+            f"l3: {l3_error_msg}" if l3_error_msg else "",
+            f"l4: {l4_error_msg}" if l4_error_msg else "",
+        )
+        if part
+    ) or None
 
     report_span_ids = {
         span_id
@@ -1118,20 +1140,26 @@ def compile_global_l3(
     synthesis_source_ids = report_source_ids if synthesis_ids else set()
 
     for sid in l2_done_ids:
-        l3_status = "error" if errors else (
+        l3_status = "error" if l3_errors else (
             "done" if sid in report_source_ids else "skipped"
         )
-        source_l4_status = "skipped" if errors else (
+        # SYSTEM_BEHAVIOR §4.1: a layer that was attempted and failed is
+        # `error`, never `skipped`. `skipped` means "this source contributed
+        # nothing to the layer" — a different, non-failing outcome. Reporting a
+        # failure as `skipped` is what let a broken L4 read as an ordinary no-op.
+        source_l4_status = "error" if (l3_errors or l4_errors) else (
             "done" if sid in synthesis_source_ids else "skipped"
         )
         db.set_source_layer_status(
             paths.state_db, sid, "l3", l3_status, error=error_msg
         )
+        # UNSET: the composed message written by the l3 call above already
+        # covers both layers. Passing an error here would clobber it.
         db.set_source_layer_status(
-            paths.state_db, sid, "l4", source_l4_status, error=l4_error
+            paths.state_db, sid, "l4", source_l4_status, error=db.UNSET
         )
-        
-    if errors:
+
+    if l3_errors or l4_errors:
         raise RuntimeError(f"L3 global clustering encountered errors: {error_msg}")
 
     materializer.materialize_search_documents(paths.state_db)

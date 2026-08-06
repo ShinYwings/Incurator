@@ -704,7 +704,13 @@ def _mark_layer_status_from_sync_gaps(paths: cfg.WikiPaths, gaps: list) -> None:
         if source_ids:
             reason = "sync_logical_gap:" + ",".join(g.node_id for g in concept_gaps[:5])
             db.set_sources_layer_status(paths.state_db, source_ids, "l3", "error", error=reason)
-            db.set_sources_layer_status(paths.state_db, source_ids, "l4", "pending")
+            # UNSET: this write is about l4 only. Without it the default None
+            # clears `layer_error` — the same shared-column clobber fixed in
+            # compile_global_l3 — erasing the reason the line above just wrote
+            # and leaving l3_status='error' with no explanation at all.
+            db.set_sources_layer_status(
+                paths.state_db, source_ids, "l4", "pending", error=db.UNSET
+            )
     if exhibition_gaps:
         with db.connect(paths.state_db) as conn:
             rows = conn.execute(
@@ -715,20 +721,34 @@ def _mark_layer_status_from_sync_gaps(paths: cfg.WikiPaths, gaps: list) -> None:
             reason = "sync_logical_gap:" + ",".join(g.node_id for g in exhibition_gaps[:5])
             db.set_sources_layer_status(paths.state_db, source_ids, "l4", "error", error=reason)
 def _mark_clean_sync_status(paths: cfg.WikiPaths) -> None:
-    """Clear stale layer errors once sync has verified the current graph."""
+    """Clear stale layer errors once sync has verified the current graph.
+
+    Clearing errors is all this does, which is what the name and the original
+    docstring always claimed. It used to also promote `l3_status`/`l4_status`
+    to `done` — for EVERY source with `l2_status='done'`, gated only on whether
+    *any* `CON-*.md` file existed anywhere on disk. That promotion was not
+    per-source and consulted no record of what a given source actually
+    contributed, so a source whose L3 was genuinely `skipped` came out of sync
+    indistinguishable from one the compiler had really completed.
+
+    Layer status is computed by the compiler (SYSTEM_BEHAVIOR §26.3) and is
+    already terminal and correct when `compile_global_l3` finishes. Recomputing
+    it here would duplicate compile-time policy into the sync command and create
+    a second place for §4.1 to drift; if a repair genuinely needs to advance a
+    status, that belongs in `compile_global_l3`'s own re-run. Deleting the
+    promotion also removes the last filesystem glob from status computation.
+    """
     with db.connect(paths.state_db) as conn:
-        l2_done = [
+        stale = [
             int(row["id"])
-            for row in conn.execute("SELECT id FROM sources WHERE l2_status = 'done'").fetchall()
+            for row in conn.execute(
+                "SELECT id FROM sources WHERE layer_error IS NOT NULL "
+                "AND layer_error <> '' AND l2_status = 'done' "
+                "AND l3_status <> 'error' AND l4_status <> 'error'"
+            ).fetchall()
         ]
-        l3_done = [
-            int(row["id"])
-            for row in conn.execute("SELECT id FROM sources WHERE l3_status = 'done'").fetchall()
-        ]
-    if l2_done and paths.concepts.exists() and any(paths.concepts.glob(f"{consts.PREFIX_L3}-*.md")):
-        db.set_sources_layer_status(paths.state_db, l2_done, "l3", "done")
-    if l3_done and paths.synthesis.exists() and any(paths.synthesis.glob(f"{consts.PREFIX_L4}-*.md")):
-        db.set_sources_layer_status(paths.state_db, l3_done, "l4", "done")
+    if stale:
+        db.set_sources_layer_error(paths.state_db, stale, None)
 def _resolve_curate_workspace(explicit: Path | None) -> Path | None:
     if explicit is not None:
         return explicit.expanduser().resolve()

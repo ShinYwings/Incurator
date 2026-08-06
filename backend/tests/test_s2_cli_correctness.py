@@ -80,8 +80,13 @@ class TestQueryNoopFlagWarning:
 # ─── G07-7: wiki status does NOT mutate state without --refresh ─────────────
 
 class TestStatusReadOnly:
-    """G07-7: status() no longer calls _mark_existing_l3_done_if_present or
-    write_runtime_snapshots unless --refresh is passed."""
+    """G07-7: status() does not write to the vault unless --refresh is passed.
+
+    The L3 glob-promotion half of this guarantee became unconditional in
+    v0.45.0 — `_mark_existing_l3_done_if_present` was deleted outright, so
+    `--refresh` no longer advances any layer status either. What remains
+    gated on the flag is the runtime snapshot write.
+    """
 
     _FAKE_STATS = {
         "total_sources": 0, "done_sources": 0, "error_sources": 0,
@@ -95,7 +100,6 @@ class TestStatusReadOnly:
         config = cfg.load_config(paths)
 
         with (
-            patch("curator.cli.ingest_llm._mark_existing_l3_done_if_present") as mark_l3,
             patch("curator.cli.runtime_state.write_runtime_snapshots") as write_snap,
             patch("curator.cli.cfg.load_config", return_value=config),
             patch("curator.cli._resolve_root_or_die", return_value=paths),
@@ -108,7 +112,6 @@ class TestStatusReadOnly:
             except (SystemExit, Exception):
                 pass
 
-        mark_l3.assert_not_called()
         write_snap.assert_not_called()
 
     def test_status_with_refresh_calls_mutations(self, tmp_path: Path) -> None:
@@ -116,7 +119,6 @@ class TestStatusReadOnly:
         config = cfg.load_config(paths)
 
         with (
-            patch("curator.cli.ingest_llm._mark_existing_l3_done_if_present") as mark_l3,
             patch("curator.cli.runtime_state.write_runtime_snapshots") as write_snap,
             patch("curator.cli.cfg.load_config", return_value=config),
             patch("curator.cli._resolve_root_or_die", return_value=paths),
@@ -129,7 +131,6 @@ class TestStatusReadOnly:
             except (SystemExit, Exception):
                 pass
 
-        mark_l3.assert_called_once()
         write_snap.assert_called_once()
 
 

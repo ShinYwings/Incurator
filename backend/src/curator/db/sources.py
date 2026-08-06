@@ -504,27 +504,84 @@ def _delete_source_on_connection(
     return revision
 
 
+class _UnsetType:
+    """Sentinel for "do not touch ``layer_error``"."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return "UNSET"
+
+
+UNSET = _UnsetType()
+"""Passed as ``error=`` to leave ``sources.layer_error`` exactly as it is.
+
+``sources.layer_error`` is overloaded three ways: human error text, the
+post-publish projection control-flow marker that ``pipeline/compile.py:296-307``
+*reads* to decide whether to recover instead of recompile, and sync annotations
+(``sync_logical_gap:…``). A status write that also clears the column therefore
+destroys pipeline state, not just a message.
+
+``error=None`` still means "clear it", because for success transitions that is
+the correct and intended behaviour. Preservation is opt-in and every site that
+opts in says what it is protecting.
+"""
+
+
 def set_source_layer_status(
     db_path: Path,
     source_id: int,
     layer: str,
     status: str,
     *,
-    error: str | None = None,
+    error: str | None | _UnsetType = None,
 ) -> None:
     """Update a source's per-layer pipeline status.
 
     layer must be one of: l1, l2, l3, l4.
     status should be: pending, running, done, error, or skipped.
+
+    ``error`` is written to ``layer_error``: a string sets it, ``None`` clears
+    it, and :data:`UNSET` leaves it untouched.
     """
     if layer not in {"l1", "l2", "l3", "l4"}:
         raise ValueError(f"Invalid layer status key: {layer}")
     column = f"{layer}_status"
     with connect(db_path) as conn:
+        if isinstance(error, _UnsetType):
+            conn.execute(
+                f"UPDATE sources SET {column} = ? WHERE id = ?",
+                (status, source_id),
+            )
+            return
         conn.execute(
             f"UPDATE sources SET {column} = ?, layer_error = ? WHERE id = ?",
             (status, error, source_id),
         )
+
+
+def set_sources_layer_error(
+    db_path: Path, source_ids: list[int], error: str | None
+) -> None:
+    """Write ``layer_error`` without touching any ``*_status`` column.
+
+    ``wiki sync`` needs to clear stale errors after verifying the graph without
+    also advancing a layer status (SYSTEM_BEHAVIOR §26.3 — status is computed by
+    the compiler, never inferred by another command).
+
+    Chunked like every other bulk id predicate in this module: the caller passes
+    an unfiltered ``SELECT id FROM sources`` result, so the ``IN`` list is
+    unbounded and would trip SQLite's 999-variable limit on a large vault.
+    """
+    if not source_ids:
+        return
+    with connect(db_path) as conn:
+        for chunk in _chunks([str(sid) for sid in source_ids]):
+            conn.execute(
+                "UPDATE sources SET layer_error = ? "
+                f"WHERE id IN ({','.join('?' * len(chunk))})",
+                (error, *chunk),
+            )
 
 
 def set_sources_layer_status(
@@ -533,20 +590,32 @@ def set_sources_layer_status(
     layer: str,
     status: str,
     *,
-    error: str | None = None,
+    error: str | None | _UnsetType = None,
 ) -> None:
-    """Bulk update per-layer status for source rows."""
+    """Bulk update per-layer status for source rows.
+
+    ``error`` behaves as in :func:`set_source_layer_status`.
+    """
     if not source_ids:
         return
     if layer not in {"l1", "l2", "l3", "l4"}:
         raise ValueError(f"Invalid layer status key: {layer}")
     column = f"{layer}_status"
+    keep_error = isinstance(error, _UnsetType)
     with connect(db_path) as conn:
-        conn.execute(
-            f"UPDATE sources SET {column} = ?, layer_error = ? "
-            f"WHERE id IN ({','.join('?' * len(source_ids))})",
-            (status, error, *source_ids),
-        )
+        for chunk in _chunks([str(sid) for sid in source_ids]):
+            placeholders = ",".join("?" * len(chunk))
+            if keep_error:
+                conn.execute(
+                    f"UPDATE sources SET {column} = ? WHERE id IN ({placeholders})",
+                    (status, *chunk),
+                )
+            else:
+                conn.execute(
+                    f"UPDATE sources SET {column} = ?, layer_error = ? "
+                    f"WHERE id IN ({placeholders})",
+                    (status, error, *chunk),
+                )
 def insert_dag_edge(
     db_path: str | Path,
     from_id: str,
