@@ -321,7 +321,7 @@ evaluated_code:
     date: '2026-08-06'
     prior_jobs_sha256: 33d772f0709c3b549b40f29dac7028edee58c882c06dc6e7f38706bd71e9b320
     prior_sources_sha256: 5c1d0fa49c77693dfed742ab376f42b51eee7a2d51f6c460d74550f3c8f9891e
-    reason: v0.45.0 (B3) changes db/jobs.py inside recover_stale_jobs ONLY, and only
+    reason: 'v0.45.0 (B3) changes db/jobs.py inside recover_stale_jobs ONLY, and only
       within the single UPDATE statement that resets l2_status, which now preserves
       the post-publish projection marker instead of blanket-NULLing layer_error. db/sources.py
       gains three purely additive symbols (the _UnsetType/UNSET sentinel, set_source_layer_error,
@@ -339,7 +339,13 @@ evaluated_code:
       FTS5/BM25 ranking, chunking, citations, and every metric input are therefore
       provably unchanged. The consumed holdout cannot be rerun after run_count=3;
       these hashes re-arm the existing drift tripwire and claim no new holdout result.
-      No metric, run_count, valid_run_count, or frozen input is touched.
+      No metric, run_count, valid_run_count, or frozen input is touched. A follow-up
+      code-review pass on the same branch further edited db/sources.py only: it deleted
+      the unused singular set_source_layer_error writer and wrapped both bulk id predicates
+      in the module''s existing _chunks() helper. Neither touches a symbol the harness
+      imports, and the chunking is a loop over the same UPDATE, so the non-impact
+      argument above is unchanged and the db/sources.py hash below covers that later
+      edit.'
   v0430_corroboration_threshold_rearm:
     date: '2026-08-05'
     prior_schema_sha256: 8df87784f5d998cf3a7d682b7702135f81b49b11e8872e5215c8e3932be53961
@@ -417,7 +423,7 @@ evaluated_code:
     backend/src/curator/db/schema.py: c4d16ac42cf24d75ef8032f2392b9129c3229d46534a985f966965f940455be8
     backend/src/curator/db/_entities.py: f16c661f4d5cc2fa767895707085823529e6a9ef3ce8d7557d686b7f5835fe28
     backend/src/curator/db/jobs.py: 068d2111bcfab902d56ea6ded90e1c29db77abc6331ad1427f9ec9f2433f1dfc
-    backend/src/curator/db/sources.py: 41bb5b1381a5b62f1ae2596d6fb4c9dd2dd1fcc31f95c285e68926991ab4c77f
+    backend/src/curator/db/sources.py: 260a8274b0ebf833cbbc709d4f00ab7fdd565aa9bbc4a2a4c4a7dd8dea1a0b4e
   preflight_family_metrics:
     direct-factual:
       query_count: 7
