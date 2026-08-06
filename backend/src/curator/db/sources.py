@@ -560,6 +560,89 @@ def set_source_layer_status(
         )
 
 
+def relocate_source(db_path: Path, source_id: int, new_relpath: str) -> dict[str, int]:
+    """Record that a registered source moved to a new vault-relative path.
+
+    The file's CONTENT did not change, only its location, so this preserves the
+    content hash, every layer status, the context id, the logical source id, and
+    the entire derived closure. Nothing is recompiled and no knowledge is lost.
+
+    The path is denormalized into three places and all three move together:
+    ``sources.relpath``, the copy on every ``source_spans`` row for the source,
+    and ``search_documents.projection_path`` for that source's rows.
+
+    ``sync_key`` is deliberately NOT rewritten. It is the cross-device sync
+    identity, minted once by the ``sources_set_sync_key`` trigger (which fires
+    only on INSERT and only when the column is empty) and thereafter matched by
+    equality alone — nothing anywhere reverses it back into a path. Changing it
+    on a move would make a peer replica see a delete plus an insert instead of
+    one moved row, manufacturing exactly the divergence the sync-convergence
+    work exists to prevent. Location is not identity.
+
+    Returns the per-table row counts actually updated, so callers can report a
+    truthful outcome instead of assuming.
+    """
+    new_relpath = new_relpath.replace("\\", "/").lstrip("/")
+    if not new_relpath:
+        raise ValueError("new_relpath is required")
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT relpath FROM sources WHERE id = ?", (source_id,)
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"source {source_id} not found")
+        old_relpath = str(row["relpath"])
+        if old_relpath == new_relpath:
+            return {"sources": 0, "source_spans": 0, "search_documents": 0}
+        counts = {
+            "sources": conn.execute(
+                "UPDATE sources SET relpath = ? WHERE id = ?",
+                (new_relpath, source_id),
+            ).rowcount,
+            "source_spans": conn.execute(
+                "UPDATE source_spans SET relpath = ? WHERE source_id = ?",
+                (new_relpath, source_id),
+            ).rowcount,
+            "search_documents": conn.execute(
+                "UPDATE search_documents SET projection_path = ? "
+                "WHERE source_id = ? AND projection_path = ?",
+                (new_relpath, source_id, old_relpath),
+            ).rowcount,
+        }
+    return {k: int(v or 0) for k, v in counts.items()}
+
+
+FILE_MISSING_REASON = "file_missing"
+
+
+def set_source_file_missing(db_path: Path, source_id: int, missing: bool) -> None:
+    """Flag or unflag a registered source whose file is gone from the vault.
+
+    Deleting a note MARKS the source and preserves its knowledge: L1-L4 records,
+    the graph, and every layer status are left exactly as they are. An accidental
+    delete in Obsidian, or a file moved out of the vault and back, must not
+    silently destroy extracted knowledge. `wiki lint` surfaces the mark and
+    `wiki source rm` remains the explicit, user-driven way to retire the
+    dependency closure.
+
+    Uses ``sources.error_reason``, the existing free-text source-level reason
+    column (``empty_file`` is the established precedent), so there is no schema
+    change and no migration.
+    """
+    with connect(db_path) as conn:
+        if missing:
+            conn.execute(
+                "UPDATE sources SET error_reason = ? WHERE id = ?",
+                (FILE_MISSING_REASON, source_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE sources SET error_reason = NULL WHERE id = ? "
+                "AND error_reason = ?",
+                (source_id, FILE_MISSING_REASON),
+            )
+
+
 def set_sources_layer_error(
     db_path: Path, source_ids: list[int], error: str | None
 ) -> None:

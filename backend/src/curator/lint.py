@@ -52,6 +52,7 @@ class CheckId(str, Enum):
     MALFORMED_WIKILINK = "malformed_wikilink"
     MISSING_CONCEPT_PAGE = "missing_concept_page"
     STALE_SOURCE_REF = "stale_source_ref"
+    MISSING_SOURCE_FILE = "missing_source_file"
     INVALID_SOURCE_PATH = "invalid_source_path"
     NOISE_IN_SYNTHESIS = "noise_in_synthesis"
     CONTRADICTION = "contradiction"
@@ -688,6 +689,73 @@ def check_missing_extracted(inv: PageInventory, threshold: int = 3) -> list[Lint
                 )
             )
     return issues
+
+
+def check_missing_source_files(paths: cfg.WikiPaths) -> list[LintIssue]:
+    """Flag registered sources whose file is no longer in the vault.
+
+    A source file that is deleted or moved out is MARKED, never auto-retired:
+    an accidental Obsidian delete must not silently destroy the L1-L4 knowledge
+    built from it. This check is how that mark becomes visible, and it is the
+    prompt to either restore the file, re-register it at its new path, or run
+    `wiki source rm` to retire the dependency closure deliberately.
+
+    It also catches a source whose file was renamed without the move being
+    recorded — the case that leaves every descendant Atom pointing at a path
+    that no longer exists.
+    """
+    issues: list[LintIssue] = []
+    if not paths.state_db.exists():
+        return issues
+    try:
+        with db.connect(paths.state_db) as conn:
+            rows = conn.execute(
+                "SELECT id, relpath, error_reason FROM sources ORDER BY id"
+            ).fetchall()
+    except Exception:
+        return issues
+
+    for row in rows:
+        relpath = str(row["relpath"] or "")
+        if not relpath:
+            continue
+        if _nfc_exists(paths.root / relpath):
+            continue
+        marked = str(row["error_reason"] or "") == "file_missing"
+        issues.append(
+            LintIssue(
+                check=CheckId.MISSING_SOURCE_FILE,
+                severity=Severity.ERROR,
+                page=relpath,
+                message=(
+                    f"Source #{row['id']} is registered at {relpath!r}, which no "
+                    "longer exists in the vault."
+                    + (" It is marked `file_missing`." if marked else "")
+                ),
+                suggestion=(
+                    "Restore the file, re-register it at its new path with "
+                    "`wiki add`, or retire it and its derived knowledge with "
+                    f"`wiki source rm {row['id']}`. Knowledge built from this "
+                    "source is preserved until you do."
+                ),
+                fixable=False,
+                context={"source_id": int(row["id"]), "marked_missing": marked},
+            )
+        )
+    return issues
+
+
+def _nfc_exists(path: Path) -> bool:
+    """Existence check that tolerates the two Unicode normalizations.
+
+    macOS stores filenames decomposed while the database stores them
+    precomposed. ``Path.exists()`` resolves either on APFS, but a
+    case-sensitive or normalization-sensitive filesystem may not, so try the
+    decomposed spelling too before declaring a file missing.
+    """
+    if path.exists():
+        return True
+    return Path(unicodedata.normalize("NFD", str(path))).exists()
 
 
 def check_stale_source_refs(inv: PageInventory, paths: cfg.WikiPaths) -> list[LintIssue]:
@@ -1563,6 +1631,7 @@ def run_lint(
         ("malformed_wikilinks", lambda: check_malformed_wikilinks(inv, paths)),
         ("missing_extracted",   lambda: check_missing_extracted(inv)),
         ("stale_source_refs",   lambda: check_stale_source_refs(inv, paths)),
+        ("missing_source_files", lambda: check_missing_source_files(paths)),
         ("atom_source_paths",   lambda: check_atom_source_paths(inv, paths)),
         ("noise_in_curation",   lambda: check_noise_in_curation_sources(inv)),
         ("cross_layer_links",   lambda: check_cross_layer_links(inv)),

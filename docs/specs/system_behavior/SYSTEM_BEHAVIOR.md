@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.45.0)
+# Incurator - System Behavior (v0.46.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -289,6 +289,39 @@ Rules:
   changes both still call the embedding-enabled native index refresh. Only the
   change-dependent side effects (persona reinforcement, sync-report
   invalidation) remain gated on real L2/L3 changes.
+
+## 4.1.1 Vault File Moves And Deletes
+
+A registered source's vault-relative path is denormalized into three places —
+`sources.relpath`, the copy on every `source_spans` row, and
+`search_documents.projection_path` — and all three move together or none do.
+
+- **A move preserves everything except the location.** The file's content did
+  not change, so relocation keeps `content_hash`, every layer status,
+  `context_id`, `logical_source_id`, `is_reference`, and the entire derived
+  L1–L4 closure. Nothing is recompiled and no knowledge is discarded.
+- **`sync_key` is identity, not location, and never changes on a move.** It is
+  minted once by the insert trigger and thereafter matched only by equality;
+  nothing reverses it back into a path. Rewriting it would make a peer replica
+  see a delete plus an insert instead of one moved row, manufacturing exactly
+  the divergence sync convergence exists to prevent.
+- **Reference-Mode stubs relocate freely.** `logical_source_id` (`zotero:KEY`)
+  identifies the *document*; `relpath` is only where the vault-side stub sits.
+  This is distinct from `rebind_source`, which re-points the EXTERNAL file and
+  therefore refuses Zotero-managed sources — Zotero owns the PDF path, not the
+  stub's folder.
+- **A delete MARKS the source and preserves its knowledge.** Removing a file
+  records `error_reason='file_missing'` and retires nothing. An accidental
+  delete, or a file moved out of the vault and back, must not silently destroy
+  extracted knowledge. `wiki source rm` remains the only path that retires a
+  dependency closure, and it stays explicit and user-driven.
+- **The mark must be observable.** `wiki lint` reports every registered source
+  whose file is absent, whether or not the delete was recorded, and states the
+  three available remedies (restore, re-register, retire). The finding is never
+  auto-fixable: restore-versus-retire is the user's decision.
+- **Path comparison is normalization-insensitive.** macOS stores filenames
+  decomposed while the database stores them precomposed; a source is not
+  "missing" because the two spellings differ byte-wise.
 
 ## 4.2 Source Management Commands
 

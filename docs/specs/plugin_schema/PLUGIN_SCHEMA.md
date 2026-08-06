@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.45.0)
+# Incurator Plugin Schema & API Contract (v0.46.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -353,6 +353,33 @@ in flight ("Cannot use the same canvas during multiple render() operations").
   scheduled after the bump but cannot release a canvas already owned by PDF.js.
 - A cancelled task rejects with PDF.js's cancellation exception. That rejection
   is the expected outcome and MUST NOT be surfaced as a render failure.
+
+### Vault File Events (v0.46.0)
+
+The plugin subscribes to `vault.on("rename")` and `vault.on("delete")`. Before
+v0.46.0 it subscribed to no vault file events at all, so a file moved after
+import left every stored reference pointing at a path that no longer existed —
+chat history keeps the path inside an `ai-agent-edit` block's message text, and
+the only feedback was `File not found`.
+
+- **Rename** records the move in a bounded rename journal and forwards it to
+  `wiki plugin source relocate` so the backend reconciles its three path
+  columns. The backend call is fire-and-forget: a rename must never block
+  Obsidian's own file handling, and an unregistered file is the common case
+  rather than an error.
+- **Delete** forgets the path in the journal and calls
+  `wiki plugin source missing`, which marks the source without retiring
+  anything.
+- **`resolveVaultFile` consults the journal only after every exact-path
+  candidate fails.** It still refuses a basename fallback: a same-named file in
+  another folder is a different note and retargeting an edit to it would
+  silently corrupt the wrong file. The journal is not that fallback — it holds
+  exact provenance from Obsidian's own rename event, so it can only resolve to
+  the same file.
+- The journal collapses chains on write (A→B then B→C means A resolves to C),
+  drops an entry when a file returns to a path it is redirecting away from, and
+  is bounded so a long-lived vault cannot grow it without limit.
+
 
 ## 2. Persisted Settings Schema
 
