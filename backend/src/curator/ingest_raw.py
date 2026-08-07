@@ -1091,7 +1091,16 @@ def _section_preview(text: str, *, max_chars: int = 260) -> str:
         cleaned,
     )
     cleaned = re.sub(r"!\[\[.*?\]\]", " ", cleaned)
-    cleaned = re.sub(r"\*\*==>.*?intentionally omitted.*?<==\*\*", " ", cleaned)
+    # A region the parser could not read must stay VISIBLE here (§26.2b). For a
+    # `source_text_policy: on_demand` source this preview IS the CTX body, which
+    # `_durable_l1_projection` serves as the plugin's PDF chat context — so
+    # eliding it to whitespace closed the gap on the one surface the reader
+    # actually sees, leaving prose that stops mid-sentence with no explanation.
+    # The marker is compact and free of parser noise; the machine-readable
+    # record lives in `source_spans.metadata.loss`.
+    cleaned = re.sub(
+        r"\*\*==>.*?intentionally omitted.*?<==\*\*", "[image not extracted]", cleaned
+    )
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     if not cleaned:
         return ""
@@ -1473,6 +1482,22 @@ def generate_l1_structural_context(
         sections = _extract_structural_sections(parsed)
         spans = _source_spans.spans_from_sections(sections)
         _source_spans.store_source_spans(paths.state_db, source_id, relpath, spans)
+
+        # §26.2b: say so at ingest, while the user is still looking. Silence
+        # here is how 158 discarded equation images went unnoticed until a
+        # question about one of them could not be answered. Only when this
+        # source actually lost something — a warning on clean input is noise.
+        lost = sum(1 for span in spans if span.loss is not None)
+        if lost:
+            print(
+                f"  [Warn] {lost} region(s) in this source are images and could "
+                f"not be read (often equations or figures). Their text is not in "
+                f"the knowledge base."
+            )
+            print(
+                "         Set `llm.vision_model` in .curator/settings.yml to "
+                "transcribe rendered pages at ingest, then re-add the source."
+            )
     except Exception as e:  # span extraction must never break instant L1
         print(f"  [Warn] source span extraction failed for {relpath}: {e}")
 

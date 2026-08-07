@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.48.0)
+# Incurator - System Behavior (v0.49.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -2386,6 +2386,47 @@ rendered page instead.
   falls back to the ASCII terms already present in the message — a real query
   for the mixed-script case common in technical vaults ("ellipsoid 형태의
   quadric") — and states that it did so.
+
+### 26.2b Span-Level Extraction Loss Is Recorded And Reported (v0.49.0)
+
+§26.2 governs *recovering* a measured loss. This section governs the case where
+there is nothing to recover from and no claim to anchor to: the parser could not
+read a region at all, so no text entered the pipeline and no knowledge unit was
+ever created from it. The system's duty there is to record the loss and say so
+— never to delete it silently.
+
+- **The loss record lives on the span, not the claim.** `formula_status` is a
+  property of a claim and has no value meaning "no claim exists". A region the
+  parser could not read is a property of the SPAN. It is recorded as
+  `source_spans.metadata.loss` (SCHEMA §20.6), reusing the §26.2 verdict
+  vocabulary (`image_only | fragmented | parser_omitted`).
+- **A rasterized region is `image_only`.** When a PDF parser emits a
+  picture-omitted placeholder in place of a region, the span carrying that
+  placeholder records `verdict: "image_only"` with whatever geometry survived
+  (width/height when the placeholder states them). Absence of geometry is
+  recorded as absence, never guessed.
+- **The marker must survive projection.** A loss record is worthless if the
+  text the reader sees has the gap silently closed. Any projection that
+  summarizes or previews span text — including the L1 CTX body built for
+  `source_text_policy: on_demand` sources — MUST render a compact visible marker
+  where an unreadable region was, rather than eliding it to whitespace. A reader
+  (human or model) must be able to tell "nothing was there" from "something was
+  there and could not be read".
+- **Ingest and lint must report it.** `wiki add` reports the count of unreadable
+  regions for a source it just ingested, and `wiki lint` reports affected
+  sources with counts. Both name the remedy (§26.2a `llm.vision_model`). Neither
+  may fire for a source that lost nothing — a warning that appears on clean
+  input trains the user to ignore it.
+- **Never assert a verified absence.** User-facing text — CLI, lint, and the
+  prompt block that names unresolvable references — states that content
+  *could not be read*, never that it is *absent from the document*. How
+  exhaustively any surface searched varies by call site, and a confident false
+  negative is the same wrong-context failure the fail-closed rules exist to
+  prevent, merely relocated into prose.
+- **Recording a loss is not recovering it.** Nothing in this section transcribes
+  a region, schedules a provider call, or changes any `formula_status`. It makes
+  an existing silent loss observable. Recovery remains §26.2, gated as written
+  there.
 
 ### 26.1.1 Entity Descriptions Carry Meaning, Not The Name Again
 

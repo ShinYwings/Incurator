@@ -801,6 +801,45 @@ Only the last one discards knowledge, and only when you ask for it.
 > `wiki lint` now names those sources explicitly so you can re-register or retire
 > them.
 
+#### When a PDF's equations are pictures (v0.49.0)
+
+Many papers render their displayed equations and figures as **images**, not
+text. The PDF parser cannot read those regions, so their content never reaches
+the knowledge base — and until v0.49.0 that happened silently. One 27-page paper
+in a real vault lost **158** such regions with nothing reported anywhere, so
+questions about those equations simply could not be answered and nothing said
+why.
+
+Now the loss is visible in three places:
+
+- **`wiki add` says so as it ingests**, naming how many regions were unreadable
+  — but only for a source that actually lost something. A clean text-layer PDF
+  prints nothing extra.
+- **`wiki lint` reports affected sources**, one line each with the count and the
+  sections involved. A paper with 95 unreadable regions produces one line, not
+  95.
+- **The L1 page keeps a `[image not extracted]` marker** where the region was,
+  so a reader — you or the assistant — can tell "nothing was there" from
+  "something was there and could not be read". Previously the gap was closed to
+  whitespace and the surrounding prose just stopped mid-sentence.
+
+To actually read those regions, set a vision model in
+`.curator/settings.yml` and re-add the source:
+
+```yaml
+llm:
+  vision_model: "antigravity::gemini-2.5-pro"   # provider::model
+```
+
+This is opt-in on purpose. It is a heavy, per-page model call over the whole
+document, so Incurator never enables it for you — a silent VLM pass over every
+PDF you add would be a worse surprise than the missing text.
+
+Two honest limits: the reported section numbers are span section indices, **not
+physical PDF pages**, and the report tells you a region *could not be read* —
+never that the content is absent from the paper. Incurator does not know what it
+could not read.
+
 #### `wiki lint` and what `--fix` can actually repair
 
 `wiki lint` is read-only. `wiki lint --fix` applies only the repairs it can
