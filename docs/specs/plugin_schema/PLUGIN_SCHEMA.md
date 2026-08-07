@@ -1394,16 +1394,38 @@ Rules:
   referenced target could not be located. Concretely, every extracted reference
   the plugin could not deliver target text for must be named in an
   `<unresolved_cross_references>` block carrying a `note` attribute that (a)
-  states the text is absent from the extracted document, (b) directs the
-  provider to answer from the context already supplied and say plainly that the
-  referenced item was unavailable, and (c) forbids the provider from opening,
-  reading, or searching the source file itself. Omitting the block is a
-  contract violation, not a graceful degradation: a prompt that names neither
-  the target nor the failure reads as though nothing was asked, and a provider
-  running headless will attempt a tool call it cannot be granted permission for
-  — the runtime auto-denies it and the user receives no answer at all. The
-  block carries labels only and never a snippet, so failing closed on content
-  is preserved.
+  states the text could not be retrieved from the material available, (b)
+  directs the provider to answer from the context already supplied and say
+  plainly that it could not retrieve the referenced item, and (c) forbids the
+  provider from opening, reading, or searching the source file itself. Omitting
+  the block is a contract violation, not a graceful degradation: a prompt that
+  names neither the target nor the failure reads as though nothing was asked,
+  and a provider running headless will attempt a tool call it cannot be granted
+  permission for — the runtime auto-denies it and the user receives no answer
+  at all. The block carries labels only and never a snippet, so failing closed
+  on content is preserved.
+- The `note` must claim only that retrieval failed, never that the item is
+  verifiably absent from the document. How exhaustively the plugin searched
+  varies by call site — the quick-query popover supplies no whole-document
+  locator at all, and where one is supplied it yields nothing when the backend
+  is offline — so "confirmed absent" would direct the provider to state a
+  falsehood with confidence. That is the same wrong-context failure the
+  fail-closed rule exists to prevent, merely relocated from the snippet into
+  the note.
+- A reference whose page text was folded into a nearby sibling reference must
+  appear in NEITHER block. Hint transfer marks such a reference internally as
+  unresolved purely to suppress a duplicate render; it is resolved, and its
+  text is already quoted under the sibling's entry. Serializing it into the
+  unresolved block would assert that a page the provider can read in the same
+  prompt could not be retrieved. Implementations must therefore distinguish
+  "no target text" from "target text delivered elsewhere" rather than
+  overloading a single resolution state for both.
+- Whatever prompt block is emitted last — the recency anchor at the position of
+  strongest provider attention — must carry the unresolved-reference rule too,
+  not only the resolved-target rule. An anchor that names solely
+  `<resolved_cross_references>` re-asserts a partial contract at the exact
+  point where it overrides everything earlier, which in a long session can
+  steer the provider back into the auto-denied tool call.
 - Theorem-family pointers (`Theorem`, `Lemma`, `Corollary`, `Proposition`,
   `Definition`, `Result`, `Claim`, `Conjecture`) accept letter-prefixed
   appendix numbering (e.g. `Result A4.1`), and their line-anchored definition

@@ -114,7 +114,10 @@ export function buildRecencyAnchor(
         "or, when that selection is a pointer/cross-reference, about its resolved " +
         "target in <resolved_cross_references>. Do NOT explain, summarize, or " +
         "modify the whole document unless the latest request explicitly asks for " +
-        "it, regardless of earlier turns in this conversation."
+        "it, regardless of earlier turns in this conversation. If the pointer's " +
+        "target appears in <unresolved_cross_references> instead, say you could " +
+        "not retrieve it and answer from the context already given — never try " +
+        "to open, read, or search the source file yourself."
     );
   }
   if (!profile.allowEdits) {

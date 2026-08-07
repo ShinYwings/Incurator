@@ -5,7 +5,8 @@
  * call this to follow a pointer in the selected passage: it builds an ad-hoc
  * BM25 index + caption index over whatever PDF window/outline is on hand,
  * resolves any cross-references, and returns either the resolved set or the
- * formatted `<resolved_cross_references>` block.
+ * formatted `<resolved_cross_references>` / `<unresolved_cross_references>`
+ * blocks.
  */
 import { PdfDocumentIndexService } from "./pdfDocumentIndex";
 import {
@@ -229,7 +230,14 @@ export function resolveSelectionReferences(
   return resolveReferences(refs, ctx);
 }
 
-/** Convenience: resolve and format in one call. Returns "" when nothing resolves. */
+/**
+ * Convenience: resolve and format in one call.
+ *
+ * Returns "" only when the selection contained no reference to resolve. When
+ * references were found but none could be delivered, the result is a non-empty
+ * `<unresolved_cross_references>` block naming them — an empty string is NOT
+ * the "nothing to show" signal it used to be.
+ */
 export function resolveSelectionReferencesBlock(
   selectedText: string,
   source: PdfReferenceSource | undefined
@@ -465,7 +473,13 @@ export async function resolveSelectionReferencesAsync(
   return failClosedUnresolvedAdjacentEquations(latest);
 }
 
-/** Async convenience wrapper: resolve, fetch missing pages, format. Returns "" when nothing resolves. */
+/**
+ * Async convenience wrapper: resolve, fetch missing pages, format.
+ *
+ * Returns "" only when the selection contained no reference to resolve — see
+ * {@link resolveSelectionReferencesBlock} on why "" no longer means "nothing
+ * resolved".
+ */
 export async function resolveSelectionReferencesBlockAsync(
   selectedText: string,
   source: PdfReferenceSource | undefined,

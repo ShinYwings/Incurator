@@ -66,6 +66,13 @@ describe("buildRecencyAnchor", () => {
     expect(withSel).toContain("Do NOT explain, summarize, or modify the whole document");
     // Defers to the pointer rule rather than overriding it.
     expect(withSel).toContain("<resolved_cross_references>");
+    // This anchor is emitted LAST, at the position of strongest attention, and
+    // on the same sidechat surface where the "no output produced ...
+    // auto-denied" failure was reported. If it names only the resolved block, a
+    // long session can still steer the model back to a file-read tool it cannot
+    // be granted — so it must carry the unresolved case too.
+    expect(withSel).toContain("<unresolved_cross_references>");
+    expect(withSel).toContain("never try to open, read, or search the source file");
 
     const noSel = buildRecencyAnchor(SIDECHAT_PROFILE, { hasPrimarySelection: false });
     expect(noSel).not.toContain("Answer ONLY about the <primary_focus_selection>");

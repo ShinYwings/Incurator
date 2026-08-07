@@ -196,6 +196,17 @@ LLM이 제안 생성 → Diff 표시 → Accept / Reject
   `no output produced — a tool required the "command" permission that headless
   mode cannot prompt for, so it was auto-denied`로 돌아왔습니다. 이제는 어떤 수식이나
   그림을 가져오지 못했는지 밝히는 실제 답변을 받게 됩니다.
+
+  표현은 의도적으로 "존재하지 않는다"가 아니라 "가져오지 못했다"입니다. 플러그인이
+  얼마나 넓게 찾았는지는 어디서 질문했는지에 따라 다릅니다. 드래그 선택 popover는
+  이미 로드된 페이지만 검색하고, 문서 전체 검색은 백엔드가 실행 중이어야 합니다.
+  그래서 어시스턴트는 그 수식이 논문에 없다고 단정하는 대신 가져오기에 실패했다고
+  보고합니다.
+
+  이웃 참조를 통해 해석된 pointer는 누락으로 보고되지 않습니다.
+  `(Section 11.1.2, p281)` 같은 것을 선택하면 페이지와 section은 하나의 참조이며,
+  그 텍스트는 section 아래에 한 번만 나타납니다. 동시에 가져올 수 없는 항목으로
+  나열되지 않습니다.
 - **인쇄 페이지 번호 vs 물리 페이지 번호 (v0.40.3)**: 책 PDF에는 보통 앞부분
   front matter가 있어서 인쇄된 581쪽이 PDF의 581번째 페이지가 *아닙니다*.
   `p581` 같은 locator는 다음 순서로 매핑됩니다: PDF 자체의 page label; 독자가

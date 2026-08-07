@@ -516,4 +516,48 @@ describe("buildResolvedReferencesBlock — unresolved references fail open", () 
     expect(block).toContain("<unresolved_cross_references");
     expect(block).toContain('label="Equation (26)"');
   });
+  it("never names a page whose text was folded into a nearby sibling", () => {
+    // Regression: `resolveWithNearbyPageHints` marks a RESOLVED page ref
+    // "unresolved" only to suppress a duplicate render. Naming it told the
+    // model that page 281 — quoted verbatim right above — was absent.
+    const pages = [
+      {
+        pageNum: 281,
+        text: "Section 11.1.2 Seven point correspondences. Compute the fundamental matrix.",
+      },
+    ];
+    const map = new Map(pages.map((pg) => [pg.pageNum, pg.text]));
+    const ctx: ResolveContext = {
+      outline: [],
+      currentPage: 281,
+      captionIndex: buildCaptionIndex(pages),
+      searchPages: () => [],
+      getPageText: (n) => map.get(n),
+      printedToPdf: () => undefined,
+      printedHeaderToPdf: () => undefined,
+      pageOffset: 0,
+      pageCount: 400,
+    };
+    const resolved = resolveReferences(
+      extractReferences("참조 대상(Section 11.1.2, p281)"),
+      ctx
+    );
+    const pageRef = resolved.find((r) => r.query.kind === "page");
+    expect(pageRef?.consumedBySibling).toBe(true);
+
+    const block = buildResolvedReferencesBlock(resolved);
+    expect(block).toContain("Seven point correspondences");
+    expect(block).not.toContain("<unresolved_cross_references");
+    expect(block).not.toContain('label="p.281"');
+  });
+
+  it("does not claim a verified absence it never established", () => {
+    const block = buildResolvedReferencesBlock([unresolved("Equation (26)", "26")]);
+    // The quick-query path passes no `locatePages`, so nothing beyond the
+    // adjacent probe is searched. Asserting "confirmed absent" would make the
+    // model state a falsehood confidently.
+    expect(block).not.toContain("confirmed");
+    expect(block).not.toContain("absent from the extracted document");
+    expect(block).toContain("could not be retrieved");
+  });
 });

@@ -206,6 +206,17 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
   as `no output produced — a tool required the "command" permission that
   headless mode cannot prompt for, so it was auto-denied`. You should now get a
   real answer that states which equation or figure it could not retrieve.
+
+  The wording is deliberately "could not retrieve", not "does not exist". How
+  hard the plugin looked depends on where you asked from — the drag-to-select
+  popover searches only the pages already loaded, and the whole-document search
+  needs the backend running — so the assistant reports a retrieval failure
+  rather than asserting the equation is absent from the paper.
+
+  A pointer that resolves through a neighbour is not reported as missing. When
+  you select something like `(Section 11.1.2, p281)`, the page and the section
+  are one reference, and its text appears once under the section. It is not
+  also listed as unretrievable.
 - **Printed vs physical page numbers (v0.40.3)**: book PDFs usually have front
   matter, so printed page 581 is *not* PDF page 581. A `p581`-style locator is
   mapped through, in order: the PDF's own page labels; a front-matter offset

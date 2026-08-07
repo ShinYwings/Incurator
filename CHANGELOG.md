@@ -34,6 +34,36 @@ All notable changes to Incurator are documented here.
   implemented and specified in SYSTEM_BEHAVIOR §26.2 with zero production call
   sites) and is tracked as its own roadmap item.
 
+- **A Merged Page Reference Was Declared Missing While Being Quoted**
+  Found in review of the fix above, before release. `resolveWithNearbyPageHints`
+  relabels a successfully resolved page reference `method: "unresolved"` purely
+  to suppress a duplicate render once its text has been folded into a nearby
+  sibling. That flag never escaped while every unresolved entry was dropped;
+  naming them sent it straight into the prompt. Selecting
+  `(Section 11.1.2, p281)` produced page 281's text quoted verbatim under the
+  section entry *and* `p.281` listed as absent from the document, in the same
+  prompt — misleading content, which is worse than the silence it replaced.
+
+  The two meanings are now distinct: `consumedBySibling` records that the text
+  was delivered elsewhere, so such a reference appears in neither block, while
+  `method` keeps its existing meaning for the fetch and identity-repair paths.
+
+- **The Unresolved Note Claimed a Verified Absence It Never Established**
+  The note asserted the text "is absent from the extracted document" and that
+  the gap was final. The quick-query popover passes no whole-document locator
+  at all, and where one is wired it returns nothing when the backend is
+  offline, so "we did not look" was being reported to the model as "confirmed
+  absent" — directing it to state a falsehood confidently. It now claims only
+  that retrieval failed.
+
+- **The Recency Anchor Did Not Carry the New Rule**
+  `buildRecencyAnchor` is emitted last, at the position of strongest attention,
+  specifically to survive long-session attention decay, and is appended on the
+  same sidechat surface where the failure was reported. It still named only
+  `<resolved_cross_references>`, so a long enough session could steer the model
+  back into the auto-denied tool call even with the fix in place. It now
+  carries the unresolved case and the no-file-read rule.
+
 ## [0.48.2] - 2026-08-07
 ### Fixed
 - **The Sidechat Job Indicator Disappeared**
