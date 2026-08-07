@@ -239,23 +239,30 @@ To prevent context fragmentation and hallucinations when switching between AI co
     is live state only. See the `.agents/`-only fast-forward rule below for how
     to land it.
 
-### `.agents/` Work Is Fast-Forward, Not PR (user directive, 2026-08-08)
+### Agent Bookkeeping Is Fast-Forward, Not PR (user directive, 2026-08-08)
 
-Changes confined to the `.agents/` tree — `RELAY.md`, `ROADMAP.md`,
-`USER_REPORT.md`, `plans/`, `drafts/` — are agent bookkeeping, not product
-code. They do NOT get a branch or a Pull Request. Commit them straight to
-`master`:
+Agent bookkeeping is not product code and does NOT get a branch or a Pull
+Request. It covers:
+
+- the `.agents/` tree — `RELAY.md`, `ROADMAP.md`, `USER_REPORT.md`, `plans/`,
+  `drafts/`
+- the agent rule files themselves — `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`
+
+Commit straight to `master`:
 
 1. `git pull --ff-only origin master`
-2. Verify **every** pending path is under `.agents/` (`git status --short`).
+2. Verify every pending path is agent bookkeeping (`git status --short`).
 3. One `chore(agents): <what>` commit (or `docs(agents):` for plan/Arena
    records) directly on `master`.
 4. `git push` normally. **Never force-push.**
 
 **Abort and use the normal `chore/*` branch + PR flow if** `master` cannot
-fast-forward, OR any pending path falls outside `.agents/`. A change that
-touches `.agents/` *and* code or `docs/` is a normal change — the mixed commit
-is what the branch/PR flow is for.
+fast-forward, OR any pending path is product code (`backend/`, `plugin/`,
+`docs/`, build manifests). A change that touches bookkeeping *and* product code
+is a normal change — the mixed commit is what the branch/PR flow is for.
+
+Do not route a rule change through a PR merely because it edits a root-level
+file. Editing the contract is bookkeeping; shipping code against it is not.
 
 This rule covers the bookkeeping only. It does not exempt `.agents/` work from
 being correct: plans still follow `PLAN_TEMPLATE.md`, and a plan that changes a
