@@ -173,6 +173,7 @@ export class ChatSidebarView extends ItemView {
   private sessionQuery = "";
   private statusBarEl!: HTMLElement;
   private statusPollInterval: any = null;
+  private statusPollInFlight = false;
 
   constructor(leaf: WorkspaceLeaf, plugin: ObsidianAIAgent) {
     super(leaf);
@@ -252,8 +253,11 @@ export class ChatSidebarView extends ItemView {
     this.sessionDrawerEl.createDiv("ai-agent-session-drawer-list");
 
     // Start status polling
-    this.statusPollInterval = setInterval(() => this.updateStatusBar(), 2000) as any;
-    this.updateStatusBar();
+    // 5s, not 2s: this now spawns a backend process per poll (~0.2s each)
+    // instead of reading a local file. Fast enough that a queued job still
+    // appears promptly, slow enough not to churn processes while idle.
+    this.statusPollInterval = setInterval(() => void this.updateStatusBar(), 5000) as any;
+    void this.updateStatusBar();
 
     // ── Messages area ──
     this.messagesContainer = container.createDiv("ai-agent-chat-messages");
@@ -463,31 +467,54 @@ export class ChatSidebarView extends ItemView {
     this.splitDropOverlay = null;
   }
 
-  private updateStatusBar(): void {
+  /**
+   * Job indicator, read from the LIVE backend rather than an on-disk snapshot.
+   *
+   * This used to read `<vault>/.curator/runtime/jobs.json` directly. Runtime
+   * snapshots moved to the repo-local cache in 2026-07 and nothing migrated or
+   * rewrote the vault-side copies, so the file froze — on the reporting vault it
+   * sat at 2026-07-04 with `running: []` while the live snapshot showed a job
+   * running. The indicator therefore rendered nothing at all and looked like it
+   * had been removed.
+   *
+   * `incuratorDashboardModal` already solved this and says why in its own
+   * comment: read backend info from the live command, "never from the on-disk
+   * snapshot file", so it cannot show stale data left behind when a backend
+   * change forgets to regenerate the snapshot. The sidebar never got the same
+   * treatment. Correcting the path would not have worked either — the cache
+   * directory is keyed by a hash of the vault root that the plugin has no way
+   * to compute, and duplicating that derivation here would create a second
+   * place to keep in sync.
+   */
+  private async updateStatusBar(): Promise<void> {
     if (!this.statusBarEl) return;
+    if (this.statusPollInFlight) return; // never stack CLI calls
+    this.statusPollInFlight = true;
     try {
-      const vaultRoot = (this.plugin.app.vault.adapter as any).getBasePath?.() || "";
-      if (!vaultRoot) return;
-      const jobsPath = join(vaultRoot, ".curator", "runtime", "jobs.json");
-      const statusPath = join(vaultRoot, ".curator", "runtime", "status.json");
-      
-      this.statusBarEl.empty();
+      const client = this.getIncuratorClient();
+      if (!client.available) return;
+      const jobs = await client.getJobsSnapshot();
+      if (!this.statusBarEl) return; // view closed while awaiting
 
-      if (existsSync(jobsPath)) {
-        const raw = readFileSync(jobsPath, "utf8");
-        const data = JSON.parse(raw);
-        if (data.running && data.running.length > 0) {
-          const spinner = this.statusBarEl.createSpan({ cls: "ai-agent-spin" });
-          setIcon(spinner, "loader");
-          this.statusBarEl.createSpan({ text: ` ${data.running.length} running` });
-        } else if (data.queued && data.queued.length > 0) {
-          const spinner = this.statusBarEl.createSpan({ cls: "ai-agent-spin" });
-          setIcon(spinner, "loader");
-          this.statusBarEl.createSpan({ text: ` ${data.queued.length} queued` });
-        }
+      const running = Array.isArray(jobs?.running) ? jobs.running.length : 0;
+      const queued = Array.isArray(jobs?.queued) ? jobs.queued.length : 0;
+
+      this.statusBarEl.empty();
+      if (running > 0) {
+        const spinner = this.statusBarEl.createSpan({ cls: "ai-agent-spin" });
+        setIcon(spinner, "loader");
+        this.statusBarEl.createSpan({ text: ` ${running} running` });
+      } else if (queued > 0) {
+        const spinner = this.statusBarEl.createSpan({ cls: "ai-agent-spin" });
+        setIcon(spinner, "loader");
+        this.statusBarEl.createSpan({ text: ` ${queued} queued` });
       }
-    } catch (e) {
-      // fail silently
+    } catch {
+      // Fail silent: a transient backend hiccup must not disturb the chat, and
+      // the next poll recovers. The previous render is left in place rather
+      // than blanked, so a blip does not look like "nothing is running".
+    } finally {
+      this.statusPollInFlight = false;
     }
   }
 

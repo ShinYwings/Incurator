@@ -529,6 +529,24 @@ export class IncuratorClient {
     return this.normalizeOutline(result);
   }
 
+  /**
+   * Live job counts from `wiki status --json`.
+   *
+   * Read from the backend, never from `.curator/runtime/jobs.json`: those
+   * snapshots moved to the repo-local cache and the vault-side copies were left
+   * frozen, so anything reading the file shows state from whenever the move
+   * happened. Returns null on any failure so the caller can leave its previous
+   * render in place rather than blanking it on a transient hiccup.
+   */
+  async getJobsSnapshot(): Promise<{ running?: unknown[]; queued?: unknown[] } | null> {
+    if (this.settings.incuratorEnabled === false) return null;
+    const result = await this.callBackendJson(["status", "--json"]);
+    if (!result || typeof result !== "object") return null;
+    const jobs = (result as { jobs?: unknown }).jobs;
+    if (!jobs || typeof jobs !== "object") return null;
+    return jobs as { running?: unknown[]; queued?: unknown[] };
+  }
+
   async getPdfRagHits(args: {
     query: string;
     sourcePath?: string;

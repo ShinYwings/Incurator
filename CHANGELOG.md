@@ -2,6 +2,34 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.48.2] - 2026-08-07
+### Fixed
+- **The Sidechat Job Indicator Disappeared**
+  The spinner and "N running / N queued" badge in the sidechat header stopped
+  appearing entirely. `updateStatusBar` read
+  `<vault>/.curator/runtime/jobs.json` directly. Runtime snapshots moved to the
+  repo-local cache in 2026-07 and nothing migrated or rewrites the vault-side
+  copies, so that file froze: on the reporting vault it sat at 2026-07-04 with
+  `running: []` while the live snapshot showed a job actively running. The
+  indicator therefore rendered nothing, indistinguishable from having been
+  removed.
+
+  It now reads the live `wiki status --json` payload. `incuratorDashboardModal`
+  already solved this and documents why in its own comment — read backend info
+  from the live command, "never from the on-disk snapshot file", so it cannot
+  show stale data left behind when a backend change forgets to regenerate a
+  snapshot. The sidebar had never received the same treatment.
+
+  Correcting the path would not have worked: the cache directory is keyed by a
+  hash of the vault root that the plugin cannot compute, and duplicating that
+  derivation in the plugin would create a second place to keep in sync.
+
+  Polling drops from 2 s to 5 s because each poll is now a backend process
+  (~0.2 s) rather than a local file read, and overlapping polls are suppressed.
+  A failed poll leaves the previous render in place instead of blanking it, so a
+  transient hiccup does not read as "nothing is running". A source-level test
+  now fails if any file-path read is reintroduced into `updateStatusBar`.
+
 ## [0.48.1] - 2026-08-07
 ### Fixed
 - **Asking About A Formula On A Distant PDF Page Produced No Answer At All**

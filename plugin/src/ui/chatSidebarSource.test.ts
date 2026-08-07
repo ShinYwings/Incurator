@@ -582,4 +582,28 @@ describe("chat sidebar context chip source contract", () => {
     expect(source).toContain('`[data-msg-id="${msg.id}"]`');
     expect(source).toContain("byId ?? allMsgEls[allMsgEls.length - 1]");
   });
+
+  it("reads job state from the live backend, never from the snapshot file", () => {
+    // The indicator disappeared because updateStatusBar read
+    // <vault>/.curator/runtime/jobs.json. Runtime snapshots moved to the
+    // repo-local cache and nothing rewrites the vault-side copies, so that file
+    // froze — on the reporting vault at 2026-07-04 with `running: []` while a
+    // job was actually running.
+    //
+    // Correcting the path is NOT a valid fix either: the cache directory is
+    // keyed by a hash of the vault root that the plugin cannot compute, and
+    // duplicating that derivation would create a second place to keep in sync.
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
+    const body = source.slice(
+      source.indexOf("private async updateStatusBar("),
+      source.indexOf("// ── Public API ──")
+    );
+
+    expect(body).toContain("getJobsSnapshot()");
+    expect(body).not.toContain("jobs.json");
+    expect(body).not.toContain("runtime");
+    expect(body).not.toContain("readFileSync");
+    expect(body).not.toContain("existsSync");
+  });
 });
