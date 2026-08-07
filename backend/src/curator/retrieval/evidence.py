@@ -216,10 +216,22 @@ def _search_hits(
     items: list[EvidenceItem] = []
     for hit in results.hits:
         text = (hit.full_content or hit.snippet or "")[:1200]
+        # A search hit over a report or synthesis node IS L3/L4 evidence. The
+        # engine knows the record type; dropping it here made real L4 content
+        # arrive as an anonymous `search_hit` with an empty `synthesis_node_id`,
+        # so the pack's own counters reported zero synthesis while serving it.
+        record_type = getattr(hit, "record_type", "") or ""
         items.append(
             EvidenceItem(
                 id=hit.full_path, kind="search_hit", title=hit.title or hit.full_path,
                 text=text, score=hit.score, source_span_ids=hit.source_span_ids,
+                support_status=getattr(hit, "support_status", "") or "",
+                community_report_id=(
+                    hit.docid if record_type == "community_report" else ""
+                ),
+                synthesis_node_id=(
+                    hit.docid if record_type == "synthesis_node" else ""
+                ),
             )
         )
     return items, results.retrieval_trace

@@ -72,6 +72,10 @@ class EvidenceItem:
     # to the 200-char preview (an explicit flag, so the preview is never silently
     # presented as sufficient evidence).
     evidence_status: str = "ok"
+    # Claim-support state of the underlying knowledge unit, served as a LABEL
+    # since v0.47.0 — it used to gate the search index entirely. Empty for
+    # records that have no claim support (spans, entities, reports, synthesis).
+    support_status: str = ""
     # §29.5: resolved sub-document locator; None when no backing source_span_id.
     locator: StructuredLocator | None = None
 
