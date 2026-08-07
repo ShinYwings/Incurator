@@ -10,7 +10,7 @@ belong in Git history, not the active workspace. New raw reports enter through
 
 Verified against the code on 2026-08-07, not against previous roadmap text.
 
-### Shipped since the audits (v0.43.0 → v0.48.4)
+### Shipped since the audits (v0.43.0 → v0.49.1)
 
 Corroboration gate · B4 · `wiki lint` truthfulness · B3 P1–P4 · vault
 move/delete tracking · the search-index support gate (61% of units were
@@ -18,35 +18,49 @@ unreachable) · language-independent routing, then corrected to enforce the
 English-internal boundary at the backend · the workspace/curation lens on the
 chat surface · entity-description prompt v2 · the sidechat job indicator ·
 add-source state after ingest · Reference-Mode sources resolved by Zotero
-identity · unresolved cross-references named instead of dropped.
+identity · unresolved cross-references named instead of dropped ·
+**image-only extraction loss made visible** (v0.49.0/.1).
 
 Note: v0.48.1 "distant PDF equation references" shipped but was a **no-op** —
 see item 1. It searched neighbouring pages for a label that was never ingested.
 
-### 1. Formula recovery is built, specified, and never called
+### 1. Formula RECOVERY — blocked on three prerequisites, not on a plan
 
-`pipeline/formula_recovery.py` implements `recover_formula()` and
-`classify_formula_loss()`, SYSTEM_BEHAVIOR §26.2 specifies them, `compile.py`
-imports and re-exports them — and there are **0 production call sites** against
-14 test call sites (re-verified 2026-08-07). This is the remaining half of the
-formula problem: v0.47.0 stopped the index from hiding unvalidated units, but
-nothing repairs the PDF-extraction damage that made them unvalidatable.
+Visibility shipped in v0.49.0/.1: `source_spans.metadata.loss`, a `wiki lint`
+`extraction_loss` check, a `wiki add` warning, and an `[image-not-extracted]`
+marker that survives into the L1 projection the plugin reads. On the reporting
+vault that surfaces **130 unreadable regions across 4 sources** (95 of them in
+one 27-page paper). The assistant now says which region it could not read and
+why. **It still recovers nothing.**
 
-**This is the jetski bug's other half, measured 2026-08-07.** Source 37, a
-27-page paper ingested correctly through Reference Mode (643 spans), renders
-every displayed equation as a **rasterized image**. The parser emits
-`**==> picture [W x H] intentionally omitted <==**` — 158 blocks across all 27
-pages, and 95 spans are nothing but the placeholder. Spans containing `(24)`,
-`(25)`, `(26)`: **zero each**. Page 4 visibly renders equations (3) and (4) and
-stores only the placeholder. `classify_formula_loss` returns `image_only` for
-exactly this case and is never invoked, while the evidence it needs — page
-number and image dimensions — is already sitting in those spans.
+`recover_formula()` and `classify_formula_loss()` remain at **0 production call
+sites**. The Arena (`.agents/plans/formula_recovery_arena/`) established that
+wiring them today yields an estimated **0–2 of ~48 regions** — a third no-op —
+because three things are missing. Any recovery plan must start here:
 
-v0.48.4 made the assistant say *which* equation it could not retrieve instead
-of returning nothing; it does not recover the equation. Needs an Arena plan:
-where in ingest the classifier is called, what `recover_formula` uses as
-provider input when there is no text to repair from, whether recovery is a
-re-ingest or a repair pass, and what invalidates a recovery.
+1. **The acceptance gate rejects faithful transcriptions.**
+   `formula_recovery.py:135` uses token-tuple **equality**
+   (`recovered_tokens in claim_formulas`) where `validate_claim_support` uses
+   **subsequence** (`_is_formula_subsequence`, `claim_support.py:343`). Of 8
+   plausible faithful transcriptions of `KNU-63af4c5c`'s formula, 6 reject —
+   `^\top` vs `^{T}`, `\boldsymbol{\lambda}` vs `\lambda`, a `\tag{26}`.
+2. **`validator_trace_id` has no producer.** Every occurrence in the backend is
+   a parameter, a pass-through, or a column read. Nothing mints one, so the
+   `reviewed` state is unreachable and every candidate would sit at
+   `candidate` forever.
+3. **The region cannot be cropped.** `recover_formula` wants a `crop_hash` and
+   locator; placeholder spans carry `metadata = None`, and the only geometry
+   that survives is `[width x height]` in the placeholder text — no page
+   coordinates. `page_number` is a section index, not a physical page (max 23
+   on a 27-page PDF).
+
+Useful anchor for whoever picks this up: the user's own question maps to
+`KNU-63af4c5c` (`formula_status='uncertain'`), whose cited span
+`SPAN-6df340cb` on p11 reads "This is a quadratic equation in λ1 and λ2, and
+can thus be written as" — and whose rowid±1 neighbours are **both** placeholder
+images. 159 of 480 `uncertain` units vault-wide (99 on source 37) sit adjacent
+to a placeholder, so the owning claims already exist; what is missing is a
+locator, not a unit.
 
 ### 2. Community hierarchy is flat by construction
 
