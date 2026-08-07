@@ -2,6 +2,58 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.47.0] - 2026-08-07
+### Changed
+- **Claim Support Now Ranks And Labels Knowledge Instead Of Hiding It**
+  `retrieval/materializer.py` selected only `support_status = 'verified'` units
+  when building the search index, making claim-support validation an **admission
+  gate**. A unit that had not been validated was not ranked lower — it was
+  invisible to every route, every ranker, and every reranker.
+
+  Validating an `uncertain` claim requires a calibrated secondary validator, and
+  when none is configured the unit stays `unchecked` permanently. So a missing
+  provider configuration silently deleted most of a knowledge base, with no
+  warning and no way for a user to discover it.
+
+  **Measured on a real 36-source vault: 1,701 of 2,799 live units (61%) were
+  unreachable.** 1,117 of those were merely `unchecked` — never validated
+  because no validator was configured. The reporting user's own question — how
+  an ellipsoid quadric is written as a matrix — had its exact answer
+  (`$Q^* = Z \breve{Q}^* Z^T$`) sitting in the database at confidence 1.0 and
+  could not be retrieved by any route. After this change the index carries 2,215
+  units (+1,117) and that answer is reachable, labelled `unchecked`.
+
+  **`failed` stays excluded, deliberately.** It is not a weaker tier: it means
+  the support check ran and found the cited span does not support the claim.
+  Such a unit already writes no atom page and never feeds graph extraction, so
+  search was the one remaining place ungrounded content could leak back in.
+  (498 of the 584 `failed` units carry `formula_status='preserved_in_text'` and
+  are prose-gate false negatives — real, but fixable at the gate rather than by
+  admitting flagged content to the index.)
+
+  This is the same defect shape as the pre-v0.43.0 relation-corroboration gate,
+  and it takes the same resolution:
+
+  - **Ranking**: `verified` is unpenalised; `unchecked` / `uncertain` / `failed`
+    are multiplied down so they sort below comparable verified evidence. The
+    penalty is applied *before* ranking so it reorders rather than relabels, and
+    is deliberately gentle — a strongly matching unverified claim may still beat
+    a weakly matching verified one, because the alternative is serving nothing.
+  - **Labelling**: every evidence item now carries `support_state`. Serving
+    unverified knowledge without saying so would trade a silent omission for a
+    silent overstatement.
+
+  The gates that were correct are unchanged: retired units never serve, and
+  staged or discarded generations never serve (§26.3).
+
+### Fixed
+- **L3/L4 Content Reached Through Search Arrived Anonymous**
+  `EngineHit.record_type` was discarded when building the public `SearchHit`, so
+  a community report or synthesis node found via search surfaced as a bare
+  `search_hit` with an empty `community_report_id` / `synthesis_node_id` — served
+  in the pack but invisible to the pack's own L3/L4 counters, which is why an
+  audit measured "0 synthesis nodes" on a pack that contained one.
+
 ## [0.46.0] - 2026-08-06
 ### Added
 - **Vault File Moves And Deletes Are Tracked**

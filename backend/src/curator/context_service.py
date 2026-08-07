@@ -448,6 +448,11 @@ def _item_payload(
         "memory_path_id": item.memory_path_id,
         "authority_state": "derived",
         "truth_state": truth_state,
+        # Claim support is served as a LABEL now that it no longer gates the
+        # index. A reader (human or agent) must be able to tell a validated
+        # claim from an unvalidated one; serving both without saying which is
+        # which would trade a silent omission for a silent overstatement.
+        "support_state": item.support_status or "unchecked",
         "freshness_state": freshness_state,
         "source_span_ids": item.source_span_ids,
         "locator": locator,

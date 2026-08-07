@@ -317,6 +317,23 @@ evaluated_code:
       chunking, and materialize_chunks are unchanged. The consumed holdout
       cannot be rerun after run_count=3; the hash below re-arms the existing
       drift tripwire.
+  v0470_support_status_not_a_gate_rearm:
+    date: '2026-08-07'
+    reason: 'v0.47.0 stops claim-support from gating the search index. Files in the
+      fingerprint set that changed: backend/src/curator/retrieval/engine.py. The Q06
+      holdout seeds source_spans and search_documents DIRECTLY via db.upsert_search_document
+      and never calls materialize_search_documents, so the indexing-admission change
+      cannot alter its corpus - verified by reading the harness, which is itself unchanged
+      and still hashes OK. The engine gains a support-status demotion applied before
+      ranking, but it reads provenance_json[''support_status''] which is absent on
+      every span the holdout seeds, so every factor resolves to 1.0 and the fused
+      order is bit-identical. The holdout''s own frozen result records lexical FTS5/BM25
+      with rerank false, and knowledge_unit records are not part of its corpus at
+      all. Q06 documents, ranking, chunking, citations, and every metric input are
+      therefore provably unchanged. The consumed holdout cannot be rerun after run_count=3;
+      these hashes re-arm the drift tripwire and claim no new holdout result. No metric,
+      run_count, valid_run_count, or frozen input is touched.'
+    prior_engine_sha256: 5c4c677c8fc495be1740afc345df6d96ba0a6bd5912369c997bf5dbb7f37b101
   v0460_vault_file_move_tracking_rearm:
     date: '2026-08-06'
     prior_sources_sha256: 260a8274b0ebf833cbbc709d4f00ab7fdd565aa9bbc4a2a4c4a7dd8dea1a0b4e
@@ -433,7 +450,7 @@ evaluated_code:
   file_sha256:
     backend/scripts/failure_atlas_holdout.py: c6afe0307dd3f68fa9902387bb0dc269db6ff9d6b73ad2f3ac1cc6ecc883297a
     backend/src/curator/retrieval/evaluation.py: 0cc9e655142c725dd4bbbabfd2b44d6bf0355265bb2510fbb78cbd47d7d43c17
-    backend/src/curator/retrieval/engine.py: 5c4c677c8fc495be1740afc345df6d96ba0a6bd5912369c997bf5dbb7f37b101
+    backend/src/curator/retrieval/engine.py: be67486467928869bb6355cb111c8046084e8c602cc0e9226869003ceceb1198
     backend/src/curator/retrieval/lexical.py: eb1633f384be1a1d5484fc112f4e92bb800b9726cad5d64acddacd0a2cb7f62f
     backend/src/curator/retrieval/fusion.py: bbaf138a2903019733722915c8b2ff1e21e53157e4cb53360f7fb5de0a219ad2
     backend/src/curator/retrieval/embedding.py: 0829ac7c7a870879b3f164687cf21a22e347e508bfdba15a4430b2e8b11e3db1

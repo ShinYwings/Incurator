@@ -16,7 +16,7 @@ from __future__ import annotations
 import hashlib
 import math
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from .. import db
@@ -29,6 +29,18 @@ __all__ = ["EngineHit", "EngineResult", "HybridEngine"]
 
 _CANDIDATE_CAP = 100
 _RERANK_ALPHA = 0.7  # cross-encoder-led blend; RRF retained as a stabilizer
+
+
+# Ranking multipliers for claim-support state. Only `verified` is unpenalised.
+# Non-unit records (spans, entities, reports, synthesis) carry no
+# `support_status` and therefore default to 1.0 — this gate only ever applied
+# to knowledge units.
+_SUPPORT_RANK_FACTORS = {
+    "verified": 1.0,
+    "unchecked": 0.85,
+    "uncertain": 0.80,
+    "failed": 0.70,
+}
 
 
 @dataclass
@@ -47,6 +59,7 @@ class EngineHit:
     rerank_score: float = 0.0
     source_span_ids: list[str] = field(default_factory=list)
     contributions: list[dict] = field(default_factory=list)
+    support_status: str = ""
 
 
 @dataclass
@@ -192,6 +205,37 @@ class HybridEngine:
     # hydrate
     # ------------------------------------------------------------------
 
+    def _demote_unsupported(self, fused: list) -> list:
+        """Rank verified claims above unverified ones, without excluding either.
+
+        `support_status` used to be an admission gate on the search index
+        (`materializer.py`: ``AND ku.support_status = 'verified'``). On a real
+        36-source vault that hid 1,701 of 2,799 live units — 61% — and only
+        1,149 of those were even formula-related; the rest were simply never
+        checked, because validating an `uncertain` claim needs a calibrated
+        validator and none was configured. A missing config silently deleted
+        most of the knowledge base from every route.
+
+        Same fix as the v0.43.0 corroboration gate: the signal becomes ranking
+        and labelling instead of admission. Verified keeps its score; anything
+        else is multiplied down so it sorts below comparable verified evidence
+        but remains reachable. The factors are deliberately gentle — a strongly
+        matching unverified claim should still beat a weakly matching verified
+        one, because the alternative is the user getting nothing.
+        """
+        if not fused:
+            return fused
+        rescored = []
+        for hit in fused:
+            doc = db.get_search_document(self.db_path, hit.doc_id)
+            status = str(((doc or {}).get("provenance") or {}).get("support_status") or "")
+            factor = _SUPPORT_RANK_FACTORS.get(status, 1.0)
+            if factor != 1.0:
+                hit = replace(hit, score=hit.score * factor)
+            rescored.append(hit)
+        rescored.sort(key=lambda h: h.score, reverse=True)
+        return rescored
+
     def _hydrate(self, doc_id: str) -> dict | None:
         doc = db.get_search_document(self.db_path, doc_id)
         if not doc:
@@ -207,6 +251,7 @@ class HybridEngine:
             "snippet": body[:280],
             "full_path": locator,
             "source_span_ids": prov.get("source_span_ids", []),
+            "support_status": str(prov.get("support_status") or ""),
         }
 
     # ------------------------------------------------------------------
@@ -318,6 +363,10 @@ class HybridEngine:
         fuse_cap = int(self.config.get("fuse_cap", 40))
         fused = fusion.rrf_fuse(ranked_lists, candidate_cap=_CANDIDATE_CAP, fuse_cap=fuse_cap)
 
+        # Demote unvalidated claims BEFORE ranking so the penalty actually
+        # reorders, rather than after, where it would only relabel.
+        fused = self._demote_unsupported(fused)
+
         do_rerank = rerank and mode == "hybrid"
         rerank_failed = False
         if do_rerank:
@@ -334,6 +383,12 @@ class HybridEngine:
 
         hits: list[EngineHit] = []
         for fused_hit, final in ranked:
+            # Claim support demotes, it no longer excludes. Until v0.47.0 an
+            # unvalidated unit was absent from the index entirely, so a missing
+            # validator silently hid 61% of a real vault's knowledge. Serving it
+            # ranked below verified knowledge — and labelled, see
+            # `context_service._item_payload` — keeps the quality signal while
+            # letting the reader actually reach the claim.
             data = self._hydrate(fused_hit.doc_id)
             if not data:
                 continue
@@ -353,6 +408,7 @@ class HybridEngine:
                     rerank_score=final if do_rerank and not rerank_failed else 0.0,
                     source_span_ids=data["source_span_ids"],
                     contributions=fused_hit.contributions,
+                    support_status=data["support_status"],
                 )
             )
 

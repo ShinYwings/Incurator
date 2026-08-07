@@ -228,13 +228,49 @@ def materialize_search_documents(
         ]
         # Serve only authoritative-generation units (SYSTEM_BEHAVIOR §26.3):
         # staged/discarded-generation rows are never materialized into search.
+        #
+        # `support_status` is deliberately NOT a filter here. It used to be
+        # (`AND ku.support_status = 'verified'`), which made claim-support
+        # validation an ADMISSION GATE on the search index: a unit that had not
+        # been validated was not merely ranked lower, it was invisible to every
+        # route, every ranker, and every reranker.
+        #
+        # Measured on a real 36-source vault: 1,701 of 2,799 live units (61%)
+        # were excluded. Only 1,149 of those were formula-related at all; 552
+        # had `formula_status='not_applicable'` and were simply never checked.
+        # Validation of an `uncertain` claim needs a calibrated secondary
+        # validator (`pipeline/claim_support.py`), and when none is configured
+        # the unit stays `unchecked` forever — so a missing config silently
+        # deleted most of the knowledge base from retrieval.
+        #
+        # This is the same defect shape as the v0.43.0 relation-corroboration
+        # gate, and it takes the same fix: support becomes a RANKING and
+        # LABELLING signal, not an admission gate. Unverified knowledge is
+        # served, ranked below verified knowledge, and labelled so the reader
+        # can see what it is.
+        #
+        # `failed` is the ONE exception and stays excluded. It does not mean
+        # "lower confidence" — it means the support check RAN and found the
+        # cited span does not support the claim, i.e. a detected hallucination.
+        # `test_compile_source_l2_excludes_failed_claim_from_downstream` pins
+        # that guard: such a unit writes no atom page and never feeds graph
+        # extraction, so serving it in search would be the one place ungrounded
+        # content leaked back in.
+        #
+        # Note 498 of the 584 `failed` units carry
+        # `formula_status='preserved_in_text'` — the formula IS verifiably in
+        # the cited span and only the prose-overlap bar failed them. Those are
+        # false negatives, but the fix belongs at the support gate
+        # (§26.1), not here: relaxing the index would also admit the 86 units
+        # whose formula is genuinely `missing`.
         units = [
             dict(row)
             for row in conn.execute(
                 "SELECT ku.* FROM knowledge_units ku "
                 "JOIN compiler_generations g ON g.id = ku.generation_id "
                 "JOIN sources s ON s.id = ku.source_id AND s.id = g.source_id "
-                "WHERE ku.retired_at IS NULL AND ku.support_status = 'verified' "
+                "WHERE ku.retired_at IS NULL "
+                "AND ku.support_status <> 'failed' "
                 "AND g.status = 'authoritative' "
                 "ORDER BY ku.source_id, ku.id"
             ).fetchall()
@@ -370,11 +406,17 @@ def materialize_search_documents(
                 "source_span_ids": span_ids,
                 "prompt_run_id": row.get("prompt_run_id"),
                 "truth_status": row.get("truth_status"),
+                # Re-materialize when support changes: the status now drives
+                # ranking and the served label, so a stale copy would misreport
+                # how well-grounded the claim is.
+                "support_status": row.get("support_status"),
             },
             provenance={
                 "unit_type": row.get("unit_type"),
                 "truth_status": row.get("truth_status"),
                 "confidence": row.get("confidence"),
+                "support_status": row.get("support_status") or "unchecked",
+                "formula_status": row.get("formula_status") or "",
             },
         ))
 

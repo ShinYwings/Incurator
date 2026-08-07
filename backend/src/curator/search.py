@@ -57,6 +57,11 @@ class SearchHit:
     full_content: str = ""   # populated when hydrate=True
     docid: str = ""          # legacy content-hash short id (#abc123)
     source_span_ids: list[str] = field(default_factory=list)
+    # The engine knows both of these; dropping them here is what made real L4
+    # content arrive with an empty `synthesis_node_id`, invisible to the pack's
+    # own counters (knowledge-value audit, 2026-08-07).
+    record_type: str = ""
+    support_status: str = ""
 
 
 @dataclass
@@ -261,6 +266,8 @@ def query(
             full_content=h.full_content if hydrate else "",
             docid=h.record_id,
             source_span_ids=h.source_span_ids,
+            record_type=h.record_type,
+            support_status=h.support_status,
         )
         for h in result.hits
     ]

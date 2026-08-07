@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.46.0)
+# Incurator - System Behavior (v0.47.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -2351,6 +2351,45 @@ rendered page instead.
 - The §26.2 selective formula-recovery mechanism still runs on top of whichever L1
   was produced (VLM or pymupdf4llm) and still never performs blanket whole-corpus VLM
   as a recovery action.
+
+### 26.2.1 Claim Support Ranks And Labels; It Does Not Gate The Index
+
+- **Every live knowledge unit on an authoritative generation is materialized
+  into the search index, except those whose support check actively `failed`.**
+  Support is a quality signal, not an admission gate.
+- **`failed` is not a weaker tier and remains excluded.** It means the support
+  check RAN and found the cited span does not support the claim — a detected
+  hallucination. Such a unit already writes no atom page and never feeds graph
+  extraction (§26.1); search is the one remaining place ungrounded content could
+  leak back in. `unchecked` and `uncertain` are different: they mean the check
+  never reached a verdict, usually because no calibrated validator is
+  configured, and withholding them punishes the user for a missing config.
+- Until v0.47.0 the materializer selected only `support_status = 'verified'`.
+  Validating an `uncertain` claim requires a calibrated secondary validator
+  (§26.2), and when none is configured the unit stays `unchecked` permanently —
+  so a missing provider configuration silently removed knowledge from every
+  route, every ranker, and every reranker, with no warning and no way for a user
+  to discover it. Measured on a real 36-source vault: 1,701 of 2,799 live units
+  (61%) were unreachable. 1,117 of those were merely `unchecked`; the remaining
+  584 were `failed` and stay excluded. Note that 498 of the `failed` units carry
+  `formula_status='preserved_in_text'` — the formula is verifiably present and
+  only the prose-overlap bar rejected them. Those are false negatives, but the
+  correct fix is at the support gate (§26.1), not by admitting `failed` to the
+  index, which would also admit the 86 whose formula is genuinely `missing`.
+- This is the same defect shape as the pre-v0.43.0 relation-corroboration gate
+  (§27.2), and it takes the same resolution: an admission gate that should have
+  been a confidence signal.
+- **Ranking.** `verified` is unpenalised; `unchecked` and `uncertain`
+  are multiplied down so they sort below comparable verified evidence. The
+  penalty is deliberately gentle: a strongly matching unverified claim may still
+  outrank a weakly matching verified one, because the alternative is serving
+  nothing. The penalty is applied **before** ranking so it reorders results
+  rather than merely relabelling them.
+- **Labelling is mandatory.** Every evidence item carries `support_state`.
+  Serving unverified knowledge without saying which claims are unverified would
+  trade a silent omission for a silent overstatement, and the second is worse.
+- The gates that remain correct are unchanged: retired units never serve, and
+  staged or discarded generations never serve (§26.3).
 
 ### 26.3 Staged Compile Generations And Atomic Publish
 
