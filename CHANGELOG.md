@@ -2,6 +2,39 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.48.0] - 2026-08-07
+### Changed
+- **The Internal Language Boundary Is Enforced By The Backend, Not Requested By Callers**
+  v0.47.0 fixed Korean questions failing to reach L3/L4 by adding
+  Korean/CJK/Cyrillic alternatives to the route signals and making `seed_terms`
+  script-aware. That worked, and it was architecturally backwards: it made the
+  system's INTERNALS multilingual, when the contract is that internals are
+  English and only input/output carry the user's language
+  (USER_GUIDE: "using English only as the internal search/reasoning language").
+  Every future internal component would have inherited the same obligation.
+
+  The real defect was that `QueryRequest.english_query` — the slot built for
+  exactly this — was never populated on the ContextService path, so
+  `working_query` silently fell back to the raw question.
+
+  - Route signals and `seed_terms` are back to English/Latin-only.
+  - `fetch_context` derives the English query itself. It is **not** a CLI flag:
+    an invariant with no exceptions cannot depend on a caller remembering to
+    pass it, and a caller that forgets degrades silently — the original bug.
+  - New prompt contract `curator.query_search_terms` extracts a short English
+    **search query**, not a translation. Translating is wrong for real requests:
+    "이 문장을 한글로 번역해줘: <body>" rendered into English becomes an English
+    sentence asking for a Korean translation, which would then be routed and
+    matched as a question about the vault; and a long paste would be translated
+    in full at cost with none of it usable as a query.
+  - The same step returns `is_knowledge_question=false` when a message needs no
+    stored knowledge, and retrieval is skipped with a stated reason. This is
+    decided by reading intent — never by matching trigger words, which is
+    unmaintainable and fails on the first synonym.
+  - When derivation is unavailable it falls back to the ASCII terms already in
+    the message (a real query for mixed-script input like "ellipsoid 형태의
+    quadric") and says so.
+
 ## [0.47.0] - 2026-08-07
 ### Fixed
 - **Routing Was Language-Bound: Korean Questions Could Never Reach L3/L4**

@@ -17,7 +17,8 @@ from . import constants as consts
 
 import re
 from dataclasses import dataclass, field
-from typing import Protocol
+from pathlib import Path
+from typing import Protocol, cast
 
 from . import config as cfg
 from . import db
@@ -155,6 +156,59 @@ def _node_path_from_target(target: str) -> str:
     # wrapped wikilink like ``[[…/ATM-abc.md]]`` still loses its suffix.
     cleaned = cleaned.split("|", 1)[0].strip().removesuffix(".md")
     return _LEGACY_SCHEME_RE.sub("", cleaned).lstrip("/")
+
+
+def derive_search_query(
+    db_path: Path, client: ChatClient, message: str
+) -> tuple[str, bool, str]:
+    """Derive the INTERNAL English search query from a message in any language.
+
+    Returns ``(search_query, is_knowledge_question, reason)``.
+
+    This is deliberately NOT :func:`translate_to_english`. Translating the whole
+    message is wrong for the cases that actually occur: "이 문장을 한글로 번역해줘:
+    <long body>" translated to English yields an English sentence asking for a
+    Korean translation, which is then routed and BM25-matched as if it were a
+    question about the knowledge base. A long pasted body would also be
+    translated in full — slow, lossy, and none of it a search query.
+
+    Extraction handles those as a consequence of understanding the message
+    rather than by matching words, so there is no keyword list to maintain and
+    nothing to miss when the user phrases it differently.
+
+    Degrades to the ASCII terms already present in the message. That is a real
+    query for the mixed-script case that dominates this domain ("ellipsoid
+    형태의 quadric") and an honest empty for pure non-Latin input, which the
+    caller surfaces rather than silently searching in the wrong language.
+    """
+    message = (message or "").strip()
+    if not message:
+        return "", False, "empty message"
+
+    from . import prompting
+    from .prompting.families.query import SearchQueryInput, SearchQueryOutput
+
+    contract = prompting.REGISTRY.get("curator.query_search_terms")
+    try:
+        result = prompting.run_prompt(
+            db_path,
+            client,
+            contract,
+            SearchQueryInput(message=message[:4000]),
+        )
+        if result.parsed is None or not result.ok:
+            raise ValueError(
+                "; ".join(result.validation.errors) or "no parsed output"
+            )
+        parsed = cast(SearchQueryOutput, result.parsed)
+    except Exception as exc:  # noqa: BLE001 - any provider may raise
+        ascii_terms = re.sub(r"[^A-Za-z0-9_./+-]+", " ", message).strip()
+        ascii_terms = re.sub(r"\s+", " ", ascii_terms)
+        return ascii_terms, bool(ascii_terms), f"derivation unavailable: {exc}"
+
+    if not parsed.is_knowledge_question:
+        return "", False, parsed.reason or "not a knowledge question"
+    return parsed.search_query.strip(), True, parsed.reason
 
 
 def translate_to_english(client: ChatClient, question: str) -> str:

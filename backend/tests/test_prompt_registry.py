@@ -79,6 +79,9 @@ def test_list_filters_by_family() -> None:
         "curator.query_router",
         "curator.query_local_answer",
         "curator.query_global_reduce",
+        # v0.48.0: derives the internal English search query, or decides the
+        # message is not a knowledge question and no retrieval should run.
+        "curator.query_search_terms",
     }
 
 
