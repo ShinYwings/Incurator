@@ -208,3 +208,26 @@ def test_a_search_hit_over_synthesis_keeps_its_layer_identity() -> None:
     hit = SearchHit(full_path="x", docid="SYN-abc12345", record_type="synthesis_node")
     assert hit.record_type == "synthesis_node"
     assert hit.support_status == ""
+
+
+def test_records_without_claim_support_are_not_labelled_unchecked() -> None:
+    """L3/L4 and spans have no claim support; saying "unchecked" invents a verdict.
+
+    Caught on a real acceptance run: a `global` pack of 10 community reports and
+    4 synthesis nodes came back with all 14 items labelled `unchecked`, which
+    reads as "we tried to validate these and could not" when claim support never
+    applied to them at all.
+    """
+    from curator.context_service import _item_payload
+    from curator.retrieval.models import EvidenceItem
+
+    report = EvidenceItem(
+        id="REP-abc12345", kind="community_report", title="T", text="body"
+    )
+    unit = EvidenceItem(
+        id="KNU-abc12345", kind="knowledge_unit", title="T", text="body",
+        support_status="unchecked",
+    )
+
+    assert _item_payload(report, {})["support_state"] == "not_applicable"
+    assert _item_payload(unit, {})["support_state"] == "unchecked"

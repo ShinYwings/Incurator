@@ -105,6 +105,7 @@ import {
   normalizePluginModelEffort,
 } from "../../types";
 import { RenameJournal } from "../../utils/renameJournal";
+import { resolveWorkspacePath } from "../../context/workspaceScope";
 
 export interface MultiEditProposal {
   filepath: string;
@@ -1901,7 +1902,13 @@ export class ChatSidebarView extends ItemView {
     }
 
     if (client.available && query.trim()) {
-      const wsPath = (this.app.vault.adapter as any).getBasePath();
+      // The vault ROOT is not a workspace. `curate.yml` lives only at
+      // `01_Workspaces/<project>/curate.yml`, so passing the root made the
+      // backend fall back to the empty default policy on every request — the
+      // Artist-persona lens in about.md §4/§5.6 never applied to anything a
+      // user read. Resolve the real workspace from the note in focus, and pass
+      // nothing when none applies rather than a path that merely looks like one.
+      const wsPath = this.contextWorkspacePath();
 
       if (wsPath) {
         sections.push(
@@ -2381,7 +2388,7 @@ export class ChatSidebarView extends ItemView {
       new Notice("Nothing to promote yet — ask a question first.");
       return;
     }
-    const workspacePath = (this.app.vault.adapter as any).getBasePath?.() || "";
+    const workspacePath = this.contextWorkspacePath();
     new Notice("Saving answer to 02_Wiki…");
     const res = await this.getIncuratorClient().promoteAnswer(
       question,
@@ -3063,7 +3070,7 @@ export class ChatSidebarView extends ItemView {
       return;
     }
 
-    const workspacePath = (this.app.vault.adapter as any).getBasePath?.() || "";
+    const workspacePath = this.contextWorkspacePath();
     const recorded = await client.feedbackContext({
       traceId: detail.trace_id,
       packId: detail.pack_id,
@@ -3104,7 +3111,7 @@ export class ChatSidebarView extends ItemView {
       return;
     }
 
-    const workspacePath = (this.app.vault.adapter as any).getBasePath?.() || "";
+    const workspacePath = this.contextWorkspacePath();
     const packLimit = Math.max(
       1000,
       Math.min(16000, Math.floor((this.plugin.settings.maxContextLength || 128000) * 0.18))
@@ -3146,7 +3153,7 @@ export class ChatSidebarView extends ItemView {
       new Notice("Incurator backend is not available.");
       return;
     }
-    const workspacePath = (this.app.vault.adapter as any).getBasePath?.() || "";
+    const workspacePath = this.contextWorkspacePath();
     const packLimit = Math.max(
       1000,
       Math.min(16000, Math.floor((this.plugin.settings.maxContextLength || 128000) * 0.18))
@@ -3954,6 +3961,24 @@ export class ChatSidebarView extends ItemView {
   }
 
   // Bug 32: Strips absolute filesystem paths and URL-encoding before vault lookup
+  /**
+   * Workspace path for ContextService calls.
+   *
+   * `curate.yml` lives only at `01_Workspaces/<project>/`, so the vault root
+   * this used to send always resolved to the empty default policy — the lens in
+   * about.md §4/§5.6 never applied. Falls back to the vault base because the
+   * backend also uses this argument to pick which vault to open.
+   *
+   * Every ContextService call must use this, not just the initial fetch: a pack
+   * fetched under one workspace and expanded under another would not share a
+   * policy hash, and the snapshot check would reject the expansion.
+   */
+  private contextWorkspacePath(): string {
+    const vaultBase = (this.app.vault.adapter as any).getBasePath?.() || "";
+    const activeRelpath = this.app.workspace.getActiveFile()?.path || "";
+    return resolveWorkspacePath(vaultBase, activeRelpath) || vaultBase;
+  }
+
   private resolveVaultFile(raw: string): TFile | null {
     // Reviewer fix 3: Normalize backslashes to forward slashes for Windows paths
     let normalized = raw.replace(/\\/g, "/");

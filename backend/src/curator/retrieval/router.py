@@ -17,14 +17,48 @@ from .models import GraphStatus, QueryRequest
 
 __all__ = ["graph_status", "choose_route"]
 
+# Route signals, per language.
+#
+# These were English-only ASCII regexes until v0.47.0, which made routing
+# silently language-bound: a Korean question could never match, so every
+# non-English query fell through to `local` and the distilled L3/L4 layers were
+# unreachable in the user's own language. The identical question in English
+# routed `global`. USER_GUIDE documents Korean, English, Chinese, Japanese and
+# Russian as supported, so the signal set covers those.
+#
+# `\b` is deliberately NOT used around CJK alternatives: Python's `\b` is
+# defined on `\w` boundaries and does not fire between a Han/Hangul character
+# and its neighbours, so a word-boundary-anchored CJK pattern silently never
+# matches. Latin alternatives keep their boundaries to avoid matching inside
+# longer words.
 _EXPLORE_SIGNALS = re.compile(
+    # English
     r"\b(what else|find connections?|new insight|explore|brainstorm|related ideas?|"
-    r"how (?:might|could)|connections? between)\b",
+    r"how (?:might|could)|connections? between)\b"
+    # Korean
+    r"|또 (?:뭐|무엇)|관련(?:된)? ?(?:아이디어|생각)|연결(?:점|고리)?|탐색|브레인스토밍"
+    r"|어떤 관련|무슨 관련"
+    # Japanese
+    r"|他に何|関連(?:する)?(?:アイデア|考え)|つながり|探索"
+    # Chinese
+    r"|还有什么|相关(?:的)?想法|联系|探索"
+    # Russian
+    r"|что ещё|что еще|связи между|исследовать",
     re.IGNORECASE,
 )
 _GLOBAL_SIGNALS = re.compile(
+    # English
     r"\b(overall|summar(?:y|ize|ise)|across (?:all|the)|in general|big picture|"
-    r"themes?|landscape|state of)\b",
+    r"themes?|landscape|state of)\b"
+    # Korean — includes the natural phrasing for "synthesize across papers"
+    r"|전반(?:적|적으로)?|요약|종합(?:해|하여|적)?|전체(?:적)?|큰 ?그림|주제(?:들)?"
+    r"|여러 ?(?:논문|문서|자료).{0,6}(?:종합|정리|비교)|통틀어"
+    # Japanese
+    r"|全体(?:的)?|要約|まとめ|総合|概観"
+    # Chinese
+    r"|总体|总结|综合|概览|整体"
+    # Russian
+    r"|в целом|обобщ|сводк|итог",
     re.IGNORECASE,
 )
 
