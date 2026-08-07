@@ -1,10 +1,10 @@
-# RELAY — v0.48.1 shipped; knowledge-value audit findings are the live queue
+# RELAY — v0.48.4 shipped; formula recovery is the live goal
 
 ## Goal
 
-Make the knowledge system actually serve real questions. The v0.43.0–v0.48.1
-run closed the structural reasons it could not; what remains is queued in
-`.agents/ROADMAP.md` items 2 and 3.
+Make the knowledge system actually serve real questions. The v0.43.0–v0.48.4
+run closed the structural reasons it could not. What remains is the half of the
+formula problem nothing has touched yet: ROADMAP item 1.
 
 ## Plan Reference
 
@@ -17,48 +17,63 @@ run closed the structural reasons it could not; what remains is queued in
 
 ## Analysis And Reasoning
 
-**The method that works is measuring the real vault, not auditing code against
-specs.** Every high-value finding this run came that way, and the two Arenas
-that started from artifacts found things a conformance review structurally
-cannot — because in each case the code conformed:
+**Measure the artifact, not the code against the spec.** Every high-value
+finding this run came that way, and in each case the code conformed:
 
 - the ≥2 corroboration gate quarantining 99.3% of the graph (v0.43.0)
 - `support_status='verified'` gating the search index, hiding 61% of live
   knowledge units (v0.47.0)
 - ASCII-only route signals making L3/L4 unreachable in Korean (v0.47.0)
-- a `runtime/jobs.json` frozen since 2026-07-04 that the sidebar still polls
+- a `runtime/jobs.json` frozen since 2026-07-04 that the sidebar still polled
 
-**Two corrections the user made that changed the design**, both recorded because
-they generalize:
+**The jetski error, root-caused (2026-08-07).** Two hotfixes coded from the
+symptom shipped no-ops before measuring the stored spans found it in one pass.
+On source 37 — a 27-page paper added through Reference Mode, 643 spans,
+ingested correctly:
 
-1. **Internals are English, without exception.** v0.47.0 first made Korean
-   questions work by teaching the route signals Korean/CJK/Cyrillic. That was
-   backwards: it made the internals multilingual when the contract
-   (USER_GUIDE: "using English only as the internal search/reasoning language")
-   says only input/output carry the user's language. v0.48.0 reverted that and
-   fixed the boundary instead — `english_query` was simply never populated.
-2. **An invariant with no exceptions cannot be a caller-supplied parameter.**
-   The `--english-query` flag was removed; `fetch_context` derives it. A caller
-   that forgets a flag degrades silently, which was the original bug.
+- Every displayed equation is a **rasterized image**. The parser emits
+  `**==> picture [W x H] intentionally omitted <==**` — 158 blocks across all
+  27 pages; 95 spans are nothing but the placeholder.
+- Spans containing `(24)`: 0. `(25)`: 0. `(26)`: 0. Page 4, which visibly
+  renders equations (3) and (4), stores only the placeholder.
+- `wiki plugin pdf search --source-id 37 --query "(26)"` → 0 hits. Not a
+  window-width problem; the string was never ingested. That is why v0.48.1's
+  distant-page locator could not have worked — it searched more of the same
+  emptiness.
 
-**And the derivation is extraction, not translation.** "이 문장을 한글로 번역해줘:
-<body>" translated into English becomes an English sentence asking for a Korean
-translation, which would then be routed and BM25-matched as a vault question.
-`curator.query_search_terms` extracts a short English search query instead and
-returns `is_knowledge_question=false` when there is nothing to look up —
-decided by reading intent, never by matching trigger words.
+**Two separable defects. Do not conflate them.**
+
+1. *The answer disappeared.* `buildResolvedReferencesBlock` returned `""` when
+   nothing resolved, so the prompt named neither the target nor the failure and
+   the model reached for a file-read tool headless auto-denies. **Shipped in
+   v0.48.4.** PLUGIN_SCHEMA already required this; the implementation never did
+   it.
+2. *The equation is still missing.* Nothing repairs image-only formula loss.
+   **This is the live goal.**
+
+**Review caught a defect that made the v0.48.4 fix net-negative**, before
+release. `resolveWithNearbyPageHints` relabels a *resolved* page reference
+`method: "unresolved"` purely to suppress a duplicate render. Naming unresolved
+references sent that flag into the prompt, so `(Section 11.1.2, p281)` quoted
+page 281 verbatim *and* declared it absent, in one prompt. Fixed by splitting
+the two meanings (`consumedBySibling`) rather than filtering downstream. Two
+lessons worth keeping: a single state carrying two meanings is safe only while
+one of them is never observed, and the trap was already documented in
+`pdfReferenceContext.ts` — the comment was read after the bug, not before.
 
 ## Progress Status
 
-Shipped this run: **v0.43.0 → v0.48.1**, 16 merged PRs.
+Shipped this run: **v0.43.0 → v0.48.4**, 18 merged PRs.
 
 - v0.43.0 corroboration gate · v0.44.0 B4 · v0.44.1 lint truthfulness ·
-  v0.45.0 B3 P1–P4 · v0.46.0 vault move/delete tracking · v0.47.0 support
-  gate + routing + lens + entity prompt · v0.48.0 English-internal boundary ·
-  v0.48.1 distant-equation hotfix
+  v0.45.0 B3 P1–P4 · v0.46.0 vault move/delete tracking · v0.47.0 support gate
+  + routing + lens + entity prompt · v0.48.0 English-internal boundary ·
+  v0.48.1 distant-equation locator (a no-op; see above) · v0.48.2 sidechat job
+  indicator · v0.48.3 add-source state + Zotero identity · v0.48.4 unresolved
+  cross-reference block
 - Local gates at HEAD: backend pytest 1456 passed / 6 skipped / 4 xfailed,
-  Ruff clean, mypy clean (127 files), plugin Vitest 911/911 across 86 files,
-  `tsc --noEmit` clean, spec/version sync at v0.48.1.
+  Ruff clean, mypy clean (127 files), plugin Vitest 921/921 across 86 files,
+  `tsc --noEmit` clean, spec/version sync at v0.48.4.
 - Acceptance test on the real vault, the user's own question
   ("2D GS가 3D보다 …여러 논문을 종합해서 설명해줘"): route `local → global`,
   L4 `0 → 4`, L3 `0 → 10`.
@@ -72,18 +87,20 @@ Shipped this run: **v0.43.0 → v0.48.1**, 16 merged PRs.
   see the `v04*_rearm` entries in `D2_HOLDOUT_RESULT.yml`. `procedure`,
   `queries`, and `frozen_inputs` must stay byte-identical; verify with a YAML
   comparison, do not assert it.
-- **Highest-value open item is the dead status file** (ROADMAP item 3): the chat
-  sidebar polls `<vault>/.curator/runtime/jobs.json`, frozen at 2026-07-04
-  saying `idle: true`, while the live file says `running: 1`. This is the user's
-  own "build indicator appears then stops" report. Fix by calling
-  `wiki status --json` as `incuratorDashboardModal` already does — **not** by
-  correcting the path, because the plugin cannot compute the vault cache key.
-- Retrieval now costs one model call up front to derive the search query. With
-  a CLI provider at 8–12 s that is real. If it bites, cache the derivation by
-  message hash; do not revert the boundary.
+- **The plugin CAN compute the vault cache key.** `vaultMachineCacheDir()` in
+  `plugin/src/utils/machineCache.ts` computes `sha256(canonicalPath(root))
+  .slice(0,16)`, mirroring the backend's `get_vault_cache_dir`. An earlier
+  relay entry claimed the opposite and recommended shelling out to
+  `wiki status --json` instead; that was wrong, and v0.48.2 shipped the direct
+  read via `plugin.readRuntimeJson("jobs")`.
 - `recover_formula()` / `classify_formula_loss()` are fully implemented and
   specified (§26.2) with **zero production call sites** and 14 test call sites.
-  Wiring them is a separate item from the indexing gate that v0.47.0 fixed.
+  `classify_formula_loss` returns `image_only` for exactly the source-37 case
+  and is never invoked. The evidence it needs is already in the DB: the
+  placeholder spans carry page number and image dimensions.
+- Retrieval costs one model call up front to derive the English search query.
+  With a CLI provider at 8–12 s that is real. If it bites, cache the derivation
+  by message hash; do not revert the boundary.
 - The LLM router `curator.query_router` is registered and unwired. Deterministic
   signals cover the documented languages first per §17; wiring it needs a client
   threaded through the routing call chain.
@@ -94,51 +111,17 @@ Shipped this run: **v0.43.0 → v0.48.1**, 16 merged PRs.
 
 ## Immediate Next Action
 
-ROADMAP item 3, in the synthesis's stated order: the dead `runtime/jobs.json`
-first (only finding with a symptom the user has already hit, small
-self-contained fix), then the silent-empty-vault guard, then `sessions.json`
-bloat (15 MB, 81% re-embedded context, ~1.1 s per send), then sync-journal
-compaction (24 MB, gzip measured at 9.86× and unused).
+**ROADMAP item 1 — wire formula recovery.** Needs an Arena plan, not a third
+hot-patch; the two previous attempts at this bug both coded from the symptom
+and shipped no-ops. The plan must decide:
 
-Still open in the integrity milestone: B3 P5–P7, B2, and B5/B7 which each need
-their own Arena plan.
+- where in ingest `classify_formula_loss` is called (`rendered_formula_present`
+  comes free from the placeholder, with bbox and page number)
+- what `recover_formula` uses as provider input when the equation is image-only
+  and there is no text to repair from
+- whether recovery is a re-ingest pass or a repair pass over existing spans,
+  and what invalidates a recovery (`invalidate_formula_recoveries` exists)
 
-### Update (2026-08-07, Claude Code) — the jetski error, root-caused
-
-**v0.48.1 was a no-op and is now understood.** The distant-equation locator
-searched neighbouring pages for a label that does not exist anywhere in the
-ingested document. Measured on source 37 (a 27-page paper added through
-Reference Mode, 643 spans, ingested correctly):
-
-- Every displayed equation is a **rasterized image**. The parser emits
-  `**==> picture [W x H] intentionally omitted <==**` — **158** blocks across
-  all 27 pages; 95 spans are nothing but the placeholder.
-- Spans containing `(24)`: 0. `(25)`: 0. `(26)`: 0. Page 4, which visibly
-  renders equations (3) and (4), stores only the placeholder.
-- `wiki plugin pdf search --source-id 37 --query "(26)"` → 0 hits. Not a
-  window-width problem; the string was never ingested.
-
-**Two separable defects, do not conflate them:**
-
-1. *The answer disappeared* — `buildResolvedReferencesBlock` returned `""` when
-   nothing resolved, so the prompt named neither the target nor the failure.
-   The model reached for a file-reading tool, headless auto-denied it, and the
-   turn produced no output. **Fixed in v0.48.4 (PR #131)** with an
-   `<unresolved_cross_references>` block. PLUGIN_SCHEMA already required this
-   ("the prompt must tell the provider when the referenced target could not be
-   located"); the implementation never did it.
-2. *The equation is still missing* — nothing repairs image-only formula loss.
-   `recover_formula()` / `classify_formula_loss()` are implemented and
-   specified (§26.2) with **0 production call sites**. `classify_formula_loss`
-   returns `image_only` for exactly this case and is never invoked. This is
-   ROADMAP item 1 and **is** the jetski bug's other half. Needs an Arena plan,
-   not a third hot-patch.
-
-**Method note that keeps holding:** both prior attempts at this bug coded from
-the symptom and shipped no-ops. Measuring the artifact — the stored spans, not
-the resolver — found it in one pass.
-
-**Merge order:** PR #131 is versioned 0.48.4 off master (0.48.2), leaving
-0.48.3 to the open PR #130. Merge #130 first. #131 does not touch ROADMAP
-because #130 rewrites it; the formula-recovery item is already ROADMAP item 1
-there.
+Still open after that: B3 P5–P7, B2, and B5/B7 which each need their own Arena
+plan, plus the `.curator` state items (silent empty vault, vault rename,
+`sessions.json` bloat, journal compaction, `wiki sync` false rebuild claims).
