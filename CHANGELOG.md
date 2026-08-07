@@ -2,6 +2,33 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.48.1] - 2026-08-07
+### Fixed
+- **Asking About A Formula On A Distant PDF Page Produced No Answer At All**
+  Reading page 1 of a 30-page paper and asking about equation (24) on page 27
+  returned only a provider error:
+
+  > no output produced — a tool required the "command" permission that headless
+  > mode cannot prompt for, so it was auto-denied
+
+  The reference resolver probes for a numbered equation at `currentPage ±2`
+  only (`ADJACENT_EQUATION_PAGE_OFFSETS = [1, -1, 2, -2]`). Page 27 was never
+  fetched, so the reference failed closed, no `<resolved_references>` block was
+  attached, and the provider was left to locate the page with its own tool call.
+  A headless CLI provider cannot prompt for tool permission, so it produced
+  nothing — the error was the symptom, not the cause.
+
+  The resolver now falls back to a whole-document lookup when the adjacent probe
+  comes up empty: the backend already indexes every page of a tracked PDF and
+  returns a page number per hit, so the referenced equation is located and its
+  page fetched deterministically before the provider is called.
+
+  Deliberately bounded: the lookup runs **only** after the cheap adjacent probe
+  fails (verified by test — no backend search for an equation one page away),
+  fetches at most 3 located pages so a poor hit list cannot become dozens of
+  fetches, and a locator that throws leaves the previous fail-closed behaviour
+  intact rather than surfacing a resolved-looking reference with no content.
+
 ## [0.48.0] - 2026-08-07
 ### Changed
 - **The Internal Language Boundary Is Enforced By The Backend, Not Requested By Callers**

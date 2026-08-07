@@ -27,6 +27,9 @@ const CHAPTER_OUTLINE_RANGE_FETCH_LIMIT = 24;
 const OUTLINE_RANGE_FETCH_BATCH_SIZE = 6;
 const ADJACENT_EQUATION_PAGE_OFFSETS = [1, -1, 2, -2] as const;
 const DIRECT_FETCH_ROUND_LIMIT = 3;
+// Bounded so a bad locator hit list cannot turn one question into dozens of
+// backend page fetches.
+const DOCUMENT_WIDE_EQUATION_PAGE_LIMIT = 3;
 
 export interface PdfReferenceSource {
   outline?: PdfOutlineItem[];
@@ -246,7 +249,19 @@ export function resolveSelectionReferencesBlock(
 export async function resolveSelectionReferencesAsync(
   selectedText: string,
   source: PdfReferenceSource | undefined,
-  fetchPageText: (pageNum: number) => Promise<string | undefined>
+  fetchPageText: (pageNum: number) => Promise<string | undefined>,
+  /**
+   * Locate a label anywhere in the document, not just near the current page.
+   *
+   * The adjacent probe below only looks at currentPage +/-2. Ask about
+   * equation (24) while reading page 1 of a 30-page paper and it is never
+   * probed, the reference fails closed, and the provider is left to find the
+   * page with its own tool call — which a headless CLI provider cannot do,
+   * surfacing as "no output produced ... auto-denied".
+   *
+   * Optional: callers without a backend simply keep the old behaviour.
+   */
+  locatePages?: (label: string) => Promise<number[]>
 ): Promise<ResolvedReference[]> {
   if (!selectedText || !source) return [];
   const refs = extractReferences(selectedText);
@@ -384,6 +399,36 @@ export async function resolveSelectionReferencesAsync(
     }
   }
 
+  // The adjacent probe is bounded to +/-2 pages, so a reference to a distant
+  // equation is still unresolved here. Ask the backend where that label lives
+  // in the whole document and fetch exactly those pages. Without this the
+  // reference fails closed and the provider must find the page itself, which a
+  // headless CLI provider cannot do.
+  if (locatePages && latest.some(needsAdjacentEquationExpansion)) {
+    const pending = latest.filter(needsAdjacentEquationExpansion);
+    for (const ref of pending) {
+      const objectNumber = ref.query.objectNumber ?? "";
+      if (!objectNumber) continue;
+      let located: number[] = [];
+      try {
+        located = await locatePages(ref.label || objectNumber);
+      } catch {
+        located = [];
+      }
+      const fresh = orderedUniquePages(located).filter(
+        (pageNum) => withinDocument(pageNum) && !pageTextMap.has(pageNum)
+      );
+      if (fresh.length === 0) continue;
+      const locatedChanged = await fetchPages(
+        fresh.slice(0, DOCUMENT_WIDE_EQUATION_PAGE_LIMIT)
+      );
+      changed = changed || locatedChanged;
+      if (!locatedChanged) continue;
+      latest = resolveReferences(refs, buildCtx());
+      if (!latest.some(needsAdjacentEquationExpansion)) return latest;
+    }
+  }
+
   // Outline fallback can span many pages. Fetch in small batches and stop as
   // soon as the resolver finds the referenced target.
   const outlinePages: number[] = [];
@@ -424,8 +469,14 @@ export async function resolveSelectionReferencesAsync(
 export async function resolveSelectionReferencesBlockAsync(
   selectedText: string,
   source: PdfReferenceSource | undefined,
-  fetchPageText: (pageNum: number) => Promise<string | undefined>
+  fetchPageText: (pageNum: number) => Promise<string | undefined>,
+  locatePages?: (label: string) => Promise<number[]>
 ): Promise<string> {
-  const resolved = await resolveSelectionReferencesAsync(selectedText, source, fetchPageText);
+  const resolved = await resolveSelectionReferencesAsync(
+    selectedText,
+    source,
+    fetchPageText,
+    locatePages
+  );
   return buildResolvedReferencesBlock(resolved);
 }
