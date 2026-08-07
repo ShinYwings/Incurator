@@ -14,7 +14,19 @@ from ..contracts import PromptContract
 from ..registry import register
 
 PROMPT_ID = "curator.entity_relation_extract"
-VERSION = "v1"
+# v2 (2026-08-07): the description contract. v1 gave seven hard rules about
+# relations, confidence and span citation and said nothing about what a
+# description should contain — and its worked example literally showed
+# `"description": "..."`. Measured result on a real vault: 12 of 34 entities in
+# served evidence packs (35%) were circular restatements of their own name
+# ("A method using 2D Gaussian Splatting"), with a ~10% floor across all 965
+# entities. Entity descriptions are the only text retrieval can match a question
+# against, so a circular one occupies a slot without carrying meaning.
+#
+# The version bump is required, not cosmetic: `prompt_run_id` and
+# `prompt_contract_version` are recorded against generated records, and leaving
+# two materially different prompts sharing "v1" would make that provenance a lie.
+VERSION = "v2"
 
 EntityType = Literal[
     "concept", "method", "dataset", "metric", "system", "person",
@@ -67,11 +79,32 @@ Hard rules:
 - Cite source_span_ids from the allowed list only; never invent ids.
 - confidence is a float in [0,1].
 - Never propose editing the original source.
+- description must state what the entity IS or DOES, in terms a reader who does
+  not already know the entity could use. It is the only text a retrieval system
+  has to match a question against, so a description that merely restates the
+  name is worse than useless — it occupies a slot without carrying meaning.
+  * Never repeat the canonical_name as the definition.
+    BAD:  "2D Gaussian Splatting" -> "A method using 2D Gaussian Splatting."
+    BAD:  "2DGS paper title"      -> "The title of the scientific paper
+                                      proposing 2D Gaussian Splatting."
+    GOOD: "2D Gaussian Splatting" -> "Represents a scene with flat 2D Gaussian
+                                      primitives instead of 3D ellipsoids, so
+                                      the surface is recovered directly rather
+                                      than inferred from a volume."
+  * Prefer the mechanism, the purpose, or the distinguishing property over a
+    category label. "A CUDA optimization" says almost nothing; "Fuses the
+    backward pass and the optimizer update into one kernel so gradients never
+    round-trip through global memory" says what it is.
+  * If the source genuinely does not explain the entity, write a short factual
+    description of the role it plays in that source rather than inventing
+    detail, and do not pad it into a definition.
 
 Return ONLY JSON:
 {
   "entities": [
-    {"canonical_name": "ResNet", "entity_type": "method", "description": "...",
+    {"canonical_name": "ResNet", "entity_type": "method",
+     "description": "Adds identity shortcut connections so very deep networks
+     optimize as easily as shallow ones, removing the degradation problem.",
      "source_span_ids": ["SPAN-..."]}
   ],
   "relations": [

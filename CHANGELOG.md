@@ -3,6 +3,48 @@
 All notable changes to Incurator are documented here.
 
 ## [0.47.0] - 2026-08-07
+### Fixed
+- **Routing Was Language-Bound: Korean Questions Could Never Reach L3/L4**
+  `retrieval/router.py` chose the route with ASCII-only keyword regexes, so a
+  non-English question could not match `global` or `explore` and always fell
+  through to `local`. Measured on the real vault: all four of a Korean user's
+  questions returned 0 of 233 community reports and 0 of 4 synthesis nodes —
+  including one that explicitly asked to synthesize across multiple papers. The
+  identical questions in English routed `global`. The distilled layers were not
+  badly ranked for a non-English speaker; they were unreachable.
+
+  Signals now cover the five languages USER_GUIDE documents as supported. Note
+  `\b` is deliberately not applied to CJK alternatives: Python word boundaries
+  are defined on `\w` and never fire between Han/Hangul characters, so a
+  boundary-anchored CJK pattern silently never matches.
+
+- **Entity Seeding Was Latin-Only**
+  `seed_terms` tokenized `[A-Za-z]` only, so a pure-Korean question produced
+  zero seed terms and entity resolution returned nothing on every route,
+  regardless of graph coverage. It is now script-aware. A lone Hangul/Han
+  character is skipped — it is a grammatical particle far more often than a
+  term, and seeding on it matches any entity containing that character.
+
+- **The Chat Surface Never Passed A Workspace, So The Curation Lens Never Applied**
+  `ChatSidebarView` sent the Obsidian vault ROOT as `workspace_path`.
+  `curate.yml` lives only at `01_Workspaces/<project>/`, so the backend found
+  none, silently fell back to the empty default policy, and every pack reported
+  `workspace_id: "default"` with an empty `policy_hash` — the Artist-persona
+  lens of `about.md` §4/§5.6 applied to nothing a user read. The workspace is now
+  resolved from the note in focus, through one helper shared by every
+  ContextService call so a pack cannot be fetched under one policy and expanded
+  under another. It still falls back to the vault base when no project applies,
+  because `workspace_path` also selects which vault the backend opens.
+
+- **Entity Descriptions Were Frequently Circular** (`curator.entity_relation_extract`
+  v1 → v2) — 12 of 34 entities in served packs (35%) merely restated their own
+  name, with a ~10% floor across all 965 entities. The v1 prompt had seven hard
+  rules about relations, confidence and span citation, nothing about
+  descriptions, and a worked example showing `"description": "..."`. v2 adds a
+  description contract with worked bad/good examples. The version bump is
+  required rather than cosmetic: `prompt_run_id` and `prompt_contract_version`
+  are recorded against generated records.
+
 ### Changed
 - **Claim Support Now Ranks And Labels Knowledge Instead Of Hiding It**
   `retrieval/materializer.py` selected only `support_status = 'verified'` units

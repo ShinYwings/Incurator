@@ -452,7 +452,12 @@ def _item_payload(
         # index. A reader (human or agent) must be able to tell a validated
         # claim from an unvalidated one; serving both without saying which is
         # which would trade a silent omission for a silent overstatement.
-        "support_state": item.support_status or "unchecked",
+        #
+        # Only knowledge units have claim support. Spans, entities, community
+        # reports and synthesis nodes have none, and defaulting them to
+        # "unchecked" would report a validation failure that never applied to
+        # them — the same overstatement in the opposite direction.
+        "support_state": item.support_status or "not_applicable",
         "freshness_state": freshness_state,
         "source_span_ids": item.source_span_ids,
         "locator": locator,

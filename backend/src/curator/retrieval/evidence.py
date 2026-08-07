@@ -185,11 +185,33 @@ def _build_locator(span: dict, src: dict) -> StructuredLocator:
     )
 
 
+# Latin words, plus runs of CJK / Hangul / Cyrillic. The Latin-only pattern this
+# replaces meant a pure-Korean question produced ZERO seed terms, so entity
+# seeding returned nothing on every route regardless of how well the graph
+# covered the topic — the same language-bound failure as the route signals.
+_TERM_RE = re.compile(
+    r"[A-Za-z][A-Za-z0-9+\-]*"
+    r"|[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]+"
+    r"|[\u0400-\u04ff]+"
+)
+
+
 def seed_terms(query: str, limit: int = 8) -> list[str]:
     terms: list[str] = []
-    for tok in re.findall(r"[A-Za-z][A-Za-z0-9+\-]*", query):
+    for tok in _TERM_RE.findall(query):
         low = tok.lower()
-        if low in _STOP or (len(tok) <= 3 and not tok.isupper()):
+        if low in _STOP:
+            continue
+        # The <=3-character floor exists to drop English filler ("the", "and").
+        # It cannot apply to CJK, where a 2-character token is a full word and
+        # often the most specific term in the sentence.
+        if tok.isascii():
+            if len(tok) <= 3 and not tok.isupper():
+                continue
+        elif len(tok) < 2:
+            # A lone Hangul/Han character is a grammatical particle far more
+            # often than a term ("은", "의", "를"). Seeding on it matches any
+            # entity that merely contains the character, which is pure noise.
             continue
         if tok not in terms:
             terms.append(tok)

@@ -2352,6 +2352,45 @@ rendered page instead.
   was produced (VLM or pymupdf4llm) and still never performs blanket whole-corpus VLM
   as a recovery action.
 
+### 17.1 Routing And Seeding Are Language-Independent
+
+- **Route selection must not depend on the question's language.** The same
+  question asked in Korean, English, Chinese, Japanese, or Russian resolves to
+  the same route. Until v0.47.0 the route signals were ASCII-only regexes, so a
+  non-English question could never match `global` or `explore` and always fell
+  through to `local` — the distilled L3/L4 layers were not merely ranked poorly
+  for a non-English speaker, they were **unreachable**, while their English
+  translation reached them. `docs/guides/USER_GUIDE.md` documents those five
+  languages as supported, so the signal set covers them.
+- **Entity seeding is script-aware.** `seed_terms` tokenizes Latin words and
+  runs of CJK / Hangul / Cyrillic. A Latin-only tokenizer produced zero seed
+  terms for a pure-Korean question, so entity resolution returned nothing on
+  every route regardless of how well the graph covered the topic.
+- A lone Hangul or Han character is a grammatical particle far more often than a
+  term and is not seeded: matching every entity that merely contains the
+  character is noise. The `<= 3 character` filler filter is an English rule and
+  is not applied to CJK, where a two-character token is a full word.
+- The LLM router contract (`curator.query_router`) remains the intended handler
+  for genuinely ambiguous questions in any language. It is registered and still
+  not wired into `choose_route`; deterministic signals cover the documented
+  languages first, per §17's deterministic-first rule.
+
+### 26.1.1 Entity Descriptions Carry Meaning, Not The Name Again
+
+- An entity `description` must state what the entity IS or DOES in terms a
+  reader who does not already know it could use. It is the only text retrieval
+  can match a question against, so a description that restates the
+  `canonical_name` occupies a retrieval slot while carrying no meaning.
+- Measured before the v2 extraction contract: 12 of 34 entities in served
+  evidence packs (35%) were circular — "A method using 2D Gaussian Splatting",
+  "The title of the scientific paper proposing 2D Gaussian Splatting" — with a
+  ~10% floor across all 965 entities in the vault. The v1 prompt gave seven hard
+  rules about relations, confidence, and span citation and said nothing about
+  descriptions; its worked example showed `"description": "..."`.
+- Changing prompt content requires a prompt **version** bump. `prompt_run_id`
+  and `prompt_contract_version` are recorded against generated records, so two
+  materially different prompts sharing one version makes that provenance false.
+
 ### 26.2.1 Claim Support Ranks And Labels; It Does Not Gate The Index
 
 - **Every live knowledge unit on an authoritative generation is materialized
