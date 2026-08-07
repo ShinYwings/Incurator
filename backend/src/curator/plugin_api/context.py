@@ -16,6 +16,29 @@ def fetch_context(
     workspace_path: str = "",
     limit_tokens: int = 8000,
 ) -> dict[str, Any]:
+    """Return a ContextService evidence pack.
+
+    Everything inside the system — route selection, entity seeding, BM25/vector
+    matching — operates in English by contract (USER_GUIDE: "using English only
+    as the internal search/reasoning language"). Only the question the user
+    typed and the answer they read are in their own language.
+
+    The English query is derived HERE, not accepted as an argument. It is an
+    invariant with no exceptions, and an invariant that depends on the caller
+    remembering to pass a parameter is not an invariant: `working_query` falls
+    back to `question` when unset, so a forgetful caller silently makes every
+    internal component read the original language. That is precisely how a
+    Korean question came to be routed by English-only signals and seeded by a
+    Latin-only tokenizer, returning none of the vault's distilled layers.
+
+    Derivation extracts a short English SEARCH QUERY; it does not translate the
+    message. Translating is wrong for the requests that actually occur — "이
+    문장을 한글로 번역해줘: <long body>" translated into English becomes an
+    English sentence asking for a Korean translation, which would then be routed
+    and matched as though it were a question about the knowledge base. The same
+    step decides such a message is not a knowledge question at all, by reading
+    intent rather than by matching any list of words.
+    """
     if not query_text.strip():
         return {
             "ok": False,
@@ -30,12 +53,34 @@ def fetch_context(
 
     try:
         from ..context_service import ContextService
+        from ..query import derive_search_query
         from ..retrieval import QueryRequest
 
         with llm.build_client(config) as client:
+            english_query, is_knowledge, reason = derive_search_query(
+                paths.state_db, client, query_text
+            )
+            if not is_knowledge:
+                # Not a knowledge question — the message asks for something to be
+                # done to text the user supplied, or needs no stored knowledge.
+                # Returning an empty pack is the honest answer; running retrieval
+                # on it would select evidence for a question nobody asked.
+                return {
+                    "ok": True,
+                    "operation": "context_fetch",
+                    "items": [],
+                    "evidence": [],
+                    "source_span_ids": [],
+                    "community_report_ids": [],
+                    "synthesis_node_ids": [],
+                    "memory_path_ids": [],
+                    "warnings": [f"no retrieval: {reason}"],
+                    "coverage": {"sufficiency": "not_applicable"},
+                }
             return ContextService(paths, client).context_fetch(
                 QueryRequest(
                     question=query_text,
+                    english_query=english_query,
                     workspace_path=workspace_path,
                     mode="auto",
                 ),

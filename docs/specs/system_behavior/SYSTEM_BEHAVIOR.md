@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.47.0)
+# Incurator - System Behavior (v0.48.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -2352,28 +2352,40 @@ rendered page instead.
   was produced (VLM or pymupdf4llm) and still never performs blanket whole-corpus VLM
   as a recovery action.
 
-### 17.1 Routing And Seeding Are Language-Independent
+### 17.1 The Internal Language Is English, Without Exception
 
-- **Route selection must not depend on the question's language.** The same
-  question asked in Korean, English, Chinese, Japanese, or Russian resolves to
-  the same route. Until v0.47.0 the route signals were ASCII-only regexes, so a
-  non-English question could never match `global` or `explore` and always fell
-  through to `local` — the distilled L3/L4 layers were not merely ranked poorly
-  for a non-English speaker, they were **unreachable**, while their English
-  translation reached them. `docs/guides/USER_GUIDE.md` documents those five
-  languages as supported, so the signal set covers them.
-- **Entity seeding is script-aware.** `seed_terms` tokenizes Latin words and
-  runs of CJK / Hangul / Cyrillic. A Latin-only tokenizer produced zero seed
-  terms for a pure-Korean question, so entity resolution returned nothing on
-  every route regardless of how well the graph covered the topic.
-- A lone Hangul or Han character is a grammatical particle far more often than a
-  term and is not seeded: matching every entity that merely contains the
-  character is noise. The `<= 3 character` filler filter is an English rule and
-  is not applied to CJK, where a two-character token is a full word.
-- The LLM router contract (`curator.query_router`) remains the intended handler
-  for genuinely ambiguous questions in any language. It is registered and still
-  not wired into `choose_route`; deterministic signals cover the documented
-  languages first, per §17's deterministic-first rule.
+- **Everything inside the system operates in English**: route selection, entity
+  seeding, BM25/vector matching, ranking. Only the message the user typed and
+  the answer they read are in their own language. `QueryRequest.english_query`
+  is that internal form and `working_query` returns it.
+- **The boundary derives it; callers do not supply it.** An invariant with no
+  exceptions cannot be a parameter. `working_query` falls back to `question`
+  when `english_query` is empty, so a caller that omits it silently makes every
+  internal component read the original language — with no error and no warning.
+  That is exactly how a Korean question came to be routed by English-only
+  signals and seeded by a Latin-only tokenizer, returning none of the vault's
+  233 community reports or 4 synthesis nodes.
+- **Internal components must NOT be taught other languages.** Adding
+  Korean/CJK/Cyrillic alternatives to the route signals would make the internal
+  representation multilingual, obliging every future internal component to carry
+  the same table and to be re-audited whenever a language is added. Translate at
+  the boundary; keep the inside monolingual.
+- **What is derived is a SEARCH QUERY, not a translation.** Translating the
+  message is wrong for requests that actually occur: "이 문장을 한글로 번역해줘:
+  <long body>" rendered into English becomes an English sentence asking for a
+  Korean translation, which would then be routed and matched as though it asked
+  something about the knowledge base; and a long pasted body would be translated
+  in full at cost, none of it a query. The derivation extracts the short English
+  terms to look up, bounded regardless of input length.
+- **The same step decides when there is nothing to look up.** A message that
+  asks for supplied text to be manipulated, or that needs no stored knowledge,
+  yields `is_knowledge_question=false` and an empty pack with a stated reason.
+  This is decided by reading intent, never by matching a list of trigger words —
+  a word list is unmaintainable and fails on the first synonym.
+- **Degradation is observable.** When derivation is unavailable the boundary
+  falls back to the ASCII terms already present in the message — a real query
+  for the mixed-script case common in technical vaults ("ellipsoid 형태의
+  quadric") — and states that it did so.
 
 ### 26.1.1 Entity Descriptions Carry Meaning, Not The Name Again
 

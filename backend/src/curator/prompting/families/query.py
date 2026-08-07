@@ -17,6 +17,71 @@ from ..registry import register
 Route = Literal["local", "global", "explore", "source-section"]
 
 
+# --- internal search query -------------------------------------------
+
+class SearchQueryInput(BaseModel):
+    message: str
+
+
+class SearchQueryOutput(BaseModel):
+    """The INTERNAL search query, or an explicit decision that there is none."""
+
+    search_query: str = ""
+    is_knowledge_question: bool = True
+    reason: str = ""
+
+
+SEARCH_QUERY_SYSTEM = """\
+You derive the INTERNAL search query for a knowledge base.
+
+The knowledge base is indexed in English. The user writes in any language. Your
+job is to turn their message into a short English search query, or to state that
+the message is not a knowledge question at all.
+
+This is NOT translation. You are extracting what to look up.
+
+Rules:
+- Output English only, regardless of the input language.
+- Keep it short: the topic terms someone would type into a search box. Never
+  more than about 20 words, no matter how long the message is.
+- Preserve technical terms, proper nouns, and notation exactly as written. Do
+  not translate "Plücker coordinates" or "Gaussian Splatting" into something else.
+- If the message pastes a long body of text and asks for something to be done to
+  it (translated, rewritten, summarised, formatted, corrected), the pasted body
+  is NOT the search query. Set is_knowledge_question=false.
+- Set is_knowledge_question=false whenever answering needs no stored knowledge:
+  the request is about manipulating text the user supplied, about the
+  conversation itself, or is small talk. Judge the intent of the message, not
+  the presence of any particular word.
+- When is_knowledge_question is false, search_query MUST be empty.
+- reason is one short English clause explaining the call.
+
+Return ONLY JSON:
+{"search_query": "...", "is_knowledge_question": true, "reason": "..."}"""
+
+SEARCH_QUERY_USER = """\
+Message:
+{{ message }}
+
+Return the JSON."""
+
+
+SEARCH_QUERY_CONTRACT = register(
+    PromptContract(
+        prompt_id="curator.query_search_terms",
+        version="v1",
+        family="query",
+        role="router",
+        purpose="Derive the internal English search query, or decide there is none.",
+        input_model=SearchQueryInput,
+        output_model=SearchQueryOutput,
+        system_template=SEARCH_QUERY_SYSTEM,
+        user_template=SEARCH_QUERY_USER,
+        temperature=0.0,
+    )
+)
+
+
 # --- router ----------------------------------------------------------
 
 class QueryRouterInput(BaseModel):
