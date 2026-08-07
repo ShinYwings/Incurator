@@ -1391,7 +1391,19 @@ Rules:
   the PDF, and never broadens a provider's native filesystem roots or tool
   permissions. Pointer resolution failures must not silently turn the current
   page into the answer target; the prompt must tell the provider when the
-  referenced target could not be located.
+  referenced target could not be located. Concretely, every extracted reference
+  the plugin could not deliver target text for must be named in an
+  `<unresolved_cross_references>` block carrying a `note` attribute that (a)
+  states the text is absent from the extracted document, (b) directs the
+  provider to answer from the context already supplied and say plainly that the
+  referenced item was unavailable, and (c) forbids the provider from opening,
+  reading, or searching the source file itself. Omitting the block is a
+  contract violation, not a graceful degradation: a prompt that names neither
+  the target nor the failure reads as though nothing was asked, and a provider
+  running headless will attempt a tool call it cannot be granted permission for
+  — the runtime auto-denies it and the user receives no answer at all. The
+  block carries labels only and never a snippet, so failing closed on content
+  is preserved.
 - Theorem-family pointers (`Theorem`, `Lemma`, `Corollary`, `Proposition`,
   `Definition`, `Result`, `Claim`, `Conjecture`) accept letter-prefixed
   appendix numbering (e.g. `Result A4.1`), and their line-anchored definition

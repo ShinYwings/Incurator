@@ -193,6 +193,19 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
   exact section. Theorem-style pointers accept appendix-lettered numbering
   (`Result A4.1`, `Corollary B2.3`), and `Appendix 4` ToC titles answer to
   `A4`-style numbers so appendix anchors resolve too.
+- **When a reference cannot be found (v0.48.4)**: some PDFs render their
+  displayed equations and figures as images, so the label never appears in the
+  extracted text and no amount of searching will locate it. The plugin now says
+  so explicitly: unfindable pointers are listed in an
+  `<unresolved_cross_references>` block that tells the model the text is
+  genuinely unavailable, to answer from the context it already has, and not to
+  go opening the file itself. Previously the block was simply omitted, which
+  left the prompt looking as though nothing had been asked — a model running
+  through a headless CLI would then reach for a file-reading tool, the CLI
+  would auto-deny the permission it cannot prompt for, and the answer came back
+  as `no output produced — a tool required the "command" permission that
+  headless mode cannot prompt for, so it was auto-denied`. You should now get a
+  real answer that states which equation or figure it could not retrieve.
 - **Printed vs physical page numbers (v0.40.3)**: book PDFs usually have front
   matter, so printed page 581 is *not* PDF page 581. A `p581`-style locator is
   mapped through, in order: the PDF's own page labels; a front-matter offset

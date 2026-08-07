@@ -2,6 +2,38 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.48.4] - 2026-08-07
+### Fixed
+- **`no output produced` Instead of an Answer About a Formula**
+  Asking about a numbered equation in a PDF whose displayed math is rasterized
+  returned no answer at all, only the provider's own failure text:
+
+  > jetski: no output produced — a tool required the "command" permission that
+  > headless mode cannot prompt for, so it was auto-denied
+
+  `buildResolvedReferencesBlock` returned the empty string whenever no
+  reference resolved. The user's question ("수식 26 설명좀") therefore reached
+  the model with the equation absent *and* with nothing indicating an equation
+  had been asked about — the prompt read as though the selection pointed at
+  nothing. The model did the reasonable thing and tried to open the PDF with a
+  file-reading tool. A headless CLI provider cannot prompt for that permission,
+  the runtime auto-denied it, and the turn produced no output.
+
+  Unfindable references are now named in an `<unresolved_cross_references>`
+  block whose `note` states the text is genuinely absent from the extracted
+  document, directs the model to answer from the context it already has and to
+  say which item was unavailable, and forbids it from opening the file itself.
+  The block carries labels only and never a snippet, so the existing
+  fail-closed guarantee on content is unchanged — no context is still preferred
+  to wrong context. `PLUGIN_SCHEMA.md` already required that "the prompt must
+  tell the provider when the referenced target could not be located"; this is
+  the concrete block that requirement was missing, and the spec now names it.
+
+  Note that this restores a useful answer, not the equation: recovering math
+  that was never extracted is a separate defect (`recover_formula()` is
+  implemented and specified in SYSTEM_BEHAVIOR §26.2 with zero production call
+  sites) and is tracked as its own roadmap item.
+
 ## [0.48.2] - 2026-08-07
 ### Fixed
 - **The Sidechat Job Indicator Disappeared**

@@ -184,6 +184,18 @@ LLM이 제안 생성 → Diff 표시 → Accept / Reject
   range로 fallback합니다. Theorem 계열 pointer는 부록식 문자-접두 번호
   (`Result A4.1`, `Corollary B2.3`)를 인식하고, `Appendix 4` 형태의 ToC 제목은
   `A4` 스타일 번호에도 응답하므로 부록 anchor도 해석됩니다.
+- **참조를 찾지 못했을 때 (v0.48.4)**: 일부 PDF는 본문에 표시되는 수식과 그림을
+  이미지로 렌더링하기 때문에, 그 라벨이 추출된 텍스트에 아예 나타나지 않아 아무리
+  검색해도 찾을 수 없습니다. 이제 플러그인은 그 사실을 명시적으로 알립니다. 찾을 수
+  없는 pointer는 `<unresolved_cross_references>` 블록에 나열되며, 이 블록은 모델에게
+  해당 텍스트가 실제로 존재하지 않는다는 것, 이미 주어진 context만으로 답해야 한다는
+  것, 그리고 파일을 직접 열어보려 하지 말라는 것을 알려줍니다. 이전에는 이 블록이
+  그냥 생략되었고, 그 결과 프롬프트는 마치 아무것도 묻지 않은 것처럼 보였습니다.
+  headless CLI로 실행되는 모델은 파일을 읽는 도구를 시도하게 되고, CLI는 프롬프트를
+  띄울 수 없는 권한을 자동으로 거부하여 답변이
+  `no output produced — a tool required the "command" permission that headless
+  mode cannot prompt for, so it was auto-denied`로 돌아왔습니다. 이제는 어떤 수식이나
+  그림을 가져오지 못했는지 밝히는 실제 답변을 받게 됩니다.
 - **인쇄 페이지 번호 vs 물리 페이지 번호 (v0.40.3)**: 책 PDF에는 보통 앞부분
   front matter가 있어서 인쇄된 581쪽이 PDF의 581번째 페이지가 *아닙니다*.
   `p581` 같은 locator는 다음 순서로 매핑됩니다: PDF 자체의 page label; 독자가

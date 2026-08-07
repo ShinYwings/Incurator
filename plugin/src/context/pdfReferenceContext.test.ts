@@ -83,7 +83,7 @@ describe("resolveSelectionReferencesAsync", () => {
     expect(block).toContain("±1 term in Eq. (10)");
   });
 
-  it("fails closed when the bounded adjacent scan finds no exact equation label", async () => {
+  it("declares the miss, injecting no content, when the adjacent scan finds no exact label", async () => {
     const fetch = vi.fn().mockImplementation(async (pageNum: number) => {
       const adjacentText = new Map([
         [6, "The next page discusses equation systems with 10 unknowns."],
@@ -108,7 +108,13 @@ describe("resolveSelectionReferencesAsync", () => {
     );
 
     expect(fetch.mock.calls.map(([pageNum]) => pageNum)).toEqual([6, 4, 7, 3]);
-    expect(block).toBe("");
+    // Still no content: none of the probed pages carries an exact label, so
+    // nothing misleading is injected. The miss is named rather than dropped —
+    // silence is what let the provider reach for a tool it could not use.
+    expect(block).not.toContain("<resolved_cross_references>");
+    expect(block).toContain("<unresolved_cross_references");
+    expect(block).toContain('label="Equation 10"');
+    expect(block).not.toContain("10 unknowns");
   });
 
   it("resolves equation ref from outline (no fetch needed)", async () => {

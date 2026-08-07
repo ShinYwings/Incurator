@@ -4,8 +4,10 @@ import {
   resolveReferences,
   resolveObjectOwningSection,
   buildCaptionIndex,
+  buildResolvedReferencesBlock,
   inferPrintedPageOffset,
   type ResolveContext,
+  type ResolvedReference,
 } from "./crossReferenceResolver";
 import type { PdfOutlineItem, PdfRagHit } from "../types";
 
@@ -466,5 +468,52 @@ describe("resolveReferences", () => {
     expect(section?.targetPage).toBe(281);
     expect(section?.snippet).toContain("Seven point correspondences");
     expect(page?.method).toBe("unresolved");
+  });
+});
+
+describe("buildResolvedReferencesBlock — unresolved references fail open", () => {
+  /**
+   * Regression: a paper whose displayed equations are rasterized images stores
+   * no `(26)` anywhere, so "수식 26 설명좀" extracts a reference that cannot
+   * resolve. The block used to return "" — the prompt then said nothing about
+   * the missing equation, and the provider tried to read the PDF with its own
+   * shell tool. A headless CLI cannot prompt for that permission, so it was
+   * auto-denied and the user saw only:
+   *   "jetski: no output produced — a tool required the 'command' permission
+   *    that headless mode cannot prompt for, so it was auto-denied"
+   * Naming the failure keeps the model answering from what it has.
+   */
+  const unresolved = (label: string, objectNumber: string): ResolvedReference => ({
+    query: { kind: "equation", label, raw: label, index: 0, objectNumber },
+    label,
+    confidence: 0,
+    method: "unresolved",
+  });
+
+  it("declares unresolved references instead of returning an empty block", () => {
+    const block = buildResolvedReferencesBlock([unresolved("Equation (26)", "26")]);
+    expect(block).not.toBe("");
+    expect(block).toContain("<unresolved_cross_references");
+    expect(block).toContain('label="Equation (26)"');
+  });
+
+  it("still returns nothing when no references were extracted at all", () => {
+    expect(buildResolvedReferencesBlock([])).toBe("");
+  });
+
+  it("reports both resolved and unresolved references together", () => {
+    const resolved: ResolvedReference = {
+      query: { kind: "equation", label: "Equation (2)", raw: "Equation (2)", index: 0, objectNumber: "2" },
+      label: "Equation (2)",
+      targetPage: 3,
+      snippet: "the reprojection residual",
+      confidence: 0.9,
+      method: "caption-index",
+    };
+    const block = buildResolvedReferencesBlock([resolved, unresolved("Equation (26)", "26")]);
+    expect(block).toContain("<resolved_cross_references>");
+    expect(block).toContain("the reprojection residual");
+    expect(block).toContain("<unresolved_cross_references");
+    expect(block).toContain('label="Equation (26)"');
   });
 });

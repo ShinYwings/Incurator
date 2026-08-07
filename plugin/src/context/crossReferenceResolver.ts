@@ -680,16 +680,38 @@ function escapeAttr(value: string): string {
 }
 
 /**
- * Render resolved references as a first-class context block. Only references
- * resolved with usable target text/section are included; unresolved pointers
- * degrade gracefully (omitted) so we never inject misleading content.
+ * Instruction carried on the unresolved block.
+ *
+ * The provider must be told that the gap is final, not that it should go
+ * looking. A headless CLI provider cannot prompt for the tool permission it
+ * would need to open the file, so an implied "go read it yourself" is answered
+ * by the runtime with an auto-denial and the user sees no answer at all.
+ */
+const UNRESOLVED_NOTE =
+  "The text behind these references could not be retrieved — it is absent " +
+  "from the extracted document (commonly because the equation or figure is a " +
+  "rasterized image). Answer from the context already provided, and state " +
+  "plainly that the referenced item itself was unavailable. Do not attempt to " +
+  "open, read, or search the source file yourself.";
+
+/**
+ * Render cross-references as first-class context blocks.
+ *
+ * References resolved with usable target text/section are rendered verbatim.
+ * References we could NOT deliver content for are *named* rather than dropped:
+ * silence made the prompt look as though the user had asked about nothing, and
+ * the provider filled the gap with a tool call it was not permitted to make
+ * (surfacing as "no output produced ... auto-denied"). Naming the gap keeps the
+ * model answering from what it has without injecting misleading content.
  */
 export function buildResolvedReferencesBlock(resolved: ResolvedReference[]): string {
-  const usable = resolved.filter(
-    (r) => r.method !== "unresolved" && (r.snippet || r.sectionTitle)
+  if (resolved.length === 0) return "";
+  const usable = new Set(
+    resolved.filter((r) => r.method !== "unresolved" && (r.snippet || r.sectionTitle))
   );
-  if (usable.length === 0) return "";
-  const body = usable
+
+  const resolvedBody = resolved
+    .filter((r) => usable.has(r))
     .map((r) => {
       const attrs = [
         `label="${escapeAttr(r.label)}"`,
@@ -703,5 +725,21 @@ export function buildResolvedReferencesBlock(resolved: ResolvedReference[]): str
       return `  <reference ${attrs}>${inner}  </reference>`;
     })
     .join("\n");
-  return `<resolved_cross_references>\n${body}\n</resolved_cross_references>`;
+
+  const missingBody = resolved
+    .filter((r) => !usable.has(r))
+    .map((r) => `  <reference label="${escapeAttr(r.label)}" />`)
+    .join("\n");
+
+  const blocks: string[] = [];
+  if (resolvedBody) {
+    blocks.push(`<resolved_cross_references>\n${resolvedBody}\n</resolved_cross_references>`);
+  }
+  if (missingBody) {
+    blocks.push(
+      `<unresolved_cross_references note="${escapeAttr(UNRESOLVED_NOTE)}">\n` +
+        `${missingBody}\n</unresolved_cross_references>`
+    );
+  }
+  return blocks.join("\n");
 }
