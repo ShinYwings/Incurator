@@ -14,6 +14,7 @@ pairs of L2 Fragment pages that share outgoing links — much slower, opt-in onl
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import unicodedata
@@ -58,6 +59,7 @@ class CheckId(str, Enum):
     CONTRADICTION = "contradiction"
     MISSING_CROSS_LAYER_LINK = "missing_cross_layer_link"  # ATM missing parent_source wikilink, etc.
     EPHEMERAL_GC = "ephemeral_gc"
+    EXTRACTION_LOSS = "extraction_loss"  # §26.2b regions the parser could not read
     COMPILER_INTEGRITY = "compiler_integrity"  # Plan B (v0.8.0) §26.5 audit findings
     GRAPH_QUALITY = "graph_quality"  # Plan C (v0.9.0) §27.6 graph-audit findings
 
@@ -689,6 +691,105 @@ def check_missing_extracted(inv: PageInventory, threshold: int = 3) -> list[Lint
                 )
             )
     return issues
+
+
+def check_extraction_loss(paths: cfg.WikiPaths) -> list[LintIssue]:
+    """Report regions the parser could not read at all (SYSTEM_BEHAVIOR §26.2b).
+
+    A PDF whose displayed equations are rasterized loses them entirely at
+    ingest: the parser emits a picture-omitted placeholder, no text enters the
+    pipeline, and no knowledge unit is ever built from the region. That was
+    silent — one 27-page paper dropped 158 image blocks and no surface said so,
+    so the user's questions about those equations simply could not be answered
+    and nothing explained why.
+
+    One issue per SOURCE, never per span: 95 lossy spans on one paper must not
+    become 95 lint lines. Sources that lost nothing produce nothing — a warning
+    that fires on clean input is a warning users learn to skip.
+
+    This reports; it does not recover. Recovery is §26.2 and is gated there.
+    """
+    issues: list[LintIssue] = []
+    if not paths.state_db.exists():
+        return issues
+    try:
+        with db.connect(paths.state_db) as conn:
+            rows = conn.execute(
+                """
+                SELECT s.relpath AS relpath, sp.page_number AS page_number,
+                       sp.metadata AS metadata, sp.text_preview AS text_preview
+                  FROM source_spans sp
+                  JOIN sources s ON s.id = sp.source_id
+                 WHERE (sp.metadata IS NOT NULL AND sp.metadata LIKE '%"loss"%')
+                    OR sp.text_preview LIKE '%intentionally omitted%'
+                 ORDER BY s.relpath, sp.page_number
+                """
+            ).fetchall()
+    except Exception:
+        return issues
+
+    by_source: dict[str, list[int]] = {}
+    counts: dict[str, int] = {}
+    for row in rows:
+        if not _row_lost_a_region(row):
+            continue
+        relpath = str(row["relpath"] or "")
+        if not relpath:
+            continue
+        counts[relpath] = counts.get(relpath, 0) + 1
+        pages = by_source.setdefault(relpath, [])
+        page = row["page_number"]
+        if isinstance(page, int) and page not in pages:
+            pages.append(page)
+
+    for relpath in sorted(by_source):
+        pages = sorted(by_source[relpath])
+        count = counts[relpath]
+        shown = ", ".join(str(p) for p in pages[:6])
+        if len(pages) > 6:
+            shown += f", +{len(pages) - 6} more"
+        issues.append(
+            LintIssue(
+                check=CheckId.EXTRACTION_LOSS,
+                severity=Severity.WARNING,
+                page=relpath,
+                message=(
+                    f"{count} region(s) could not be read from '{relpath}' "
+                    f"(sections: {shown}). They are rendered as images, so their "
+                    f"text — often equations or figures — never entered the "
+                    f"knowledge base and questions about them cannot be answered."
+                ),
+                suggestion=(
+                    "Set `llm.vision_model` in .curator/settings.yml to transcribe "
+                    "rendered pages at ingest (SYSTEM_BEHAVIOR §26.2a), then "
+                    "re-add the source. Section numbers above are span section "
+                    "indices, not physical PDF pages."
+                ),
+                context={"lost_regions": count, "pages": pages},
+            )
+        )
+    return issues
+
+
+def _row_lost_a_region(row: Any) -> bool:
+    """True when this span records — or visibly is — an unreadable region.
+
+    The stored `metadata.loss` record is authoritative, but it only exists for
+    spans written since v0.49.0: `upsert_source_span` returns the existing row
+    for an unchanged (source_id, content_hash), so a re-parse never refreshes
+    metadata on an already-ingested span. Falling back to the placeholder still
+    present in `text_preview` lets an existing vault be reported today, with no
+    migration and no re-ingest — `wiki add --force` would set l2_status back to
+    pending and silently trigger a full, expensive L2/L3 rebuild.
+    """
+    try:
+        meta = json.loads(str(row["metadata"] or "{}"))
+    except (ValueError, TypeError):
+        meta = None
+    loss = meta.get("loss") if isinstance(meta, dict) else None
+    if isinstance(loss, dict) and loss.get("verdict"):
+        return True
+    return "intentionally omitted" in str(row["text_preview"] or "")
 
 
 def check_missing_source_files(paths: cfg.WikiPaths) -> list[LintIssue]:
@@ -1632,6 +1733,7 @@ def run_lint(
         ("missing_extracted",   lambda: check_missing_extracted(inv)),
         ("stale_source_refs",   lambda: check_stale_source_refs(inv, paths)),
         ("missing_source_files", lambda: check_missing_source_files(paths)),
+        ("extraction_loss",     lambda: check_extraction_loss(paths)),
         ("atom_source_paths",   lambda: check_atom_source_paths(inv, paths)),
         ("noise_in_curation",   lambda: check_noise_in_curation_sources(inv)),
         ("cross_layer_links",   lambda: check_cross_layer_links(inv)),

@@ -2,6 +2,60 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.49.0] - 2026-08-08
+### Added
+- **Unreadable PDF Regions Are Reported Instead of Silently Dropped**
+  Many papers render displayed equations and figures as images. The parser
+  cannot read them, so their content never reaches the knowledge base — and
+  that happened silently. Measured on a real vault: one 27-page paper discarded
+  **158** such regions, and **130** existed vault-wide across 4 sources, with no
+  surface reporting any of it. A question about one of those equations could not
+  be answered and nothing explained why.
+
+  Three changes make the loss visible:
+
+  - `source_spans.metadata.loss` records the verdict (`image_only`) and whatever
+    geometry the parser stated (SCHEMA §20.4a, SYSTEM_BEHAVIOR §26.2b). It is
+    additive: it gates nothing, changes no `formula_status`, and triggers no
+    provider call.
+  - `wiki lint` gains an `extraction_loss` check — one line per source with the
+    count and sections, never one per span, and silent for sources that lost
+    nothing. `wiki add` reports the same at ingest time.
+  - The L1 projection keeps a `[image not extracted]` marker where the region
+    was. `_section_preview` had been eliding it to whitespace, and for an
+    `on_demand` source that preview **is** the CTX body that
+    `_durable_l1_projection` serves as the plugin's chat context — so the one
+    surface a reader actually sees had the gap closed, leaving prose that
+    stopped mid-sentence.
+
+  Existing vaults are covered with no migration and no re-ingest: the check also
+  recognizes the placeholder still present in `text_preview`. That deliberately
+  avoids `wiki add --force`, which sets `l2_status` back to `pending` and
+  silently triggers a full L2/L3 rebuild across every source.
+
+### Fixed
+- **A `source_spans.metadata` Write Was Silently Dropped By Every Peer**
+  `source_spans` has no `updated_at`, and `db_sync` used the immutable
+  `created_at` as its last-write-wins clock. Any metadata mutation therefore tied
+  on import and lost the strict `>` comparison, so the peer discarded it — and
+  `_local_max_ts` never moved either, so the writing device did not even detect
+  it had something to export. This was live but unexercised: `recover_formula()`
+  has mutated `metadata` since v0.8.0.
+
+  The LWW clock for `source_spans` is now derived from `created_at` plus the
+  timestamps inside `metadata`, applied identically to both sides of the
+  comparison and to the export gate. No new column — this codebase has no
+  `ALTER TABLE` path, so an existing vault could not have received one.
+
+### Notes
+- This release makes formula loss **observable**; it does not recover a single
+  equation. Recovery is blocked on three prerequisites documented in the Arena
+  record: the `recover_formula` acceptance gate uses token-tuple equality where
+  `validate_claim_support` uses subsequence (so faithful transcriptions are
+  rejected), `validator_trace_id` has no producer anywhere in the backend (so
+  the `reviewed` state is unreachable), and placeholder spans carry no bbox or
+  physical page (so the region cannot be cropped for a vision model).
+
 ## [0.48.4] - 2026-08-07
 ### Fixed
 - **`no output produced` Instead of an Answer About a Formula**

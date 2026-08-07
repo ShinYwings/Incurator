@@ -1,4 +1,4 @@
-# Incurator - Schema & Operating Conventions (v0.48.0)
+# Incurator - Schema & Operating Conventions (v0.49.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -1886,6 +1886,45 @@ Rules (Arena decisions 2-4; Plan E FR05 contract candidates):
 - A changed `page_hash` invalidates exactly that page's candidates: the audit
   marks them stale-by-hash, and they cannot be cited by `support_role='formula'`
   rows until refreshed.
+
+### 20.4a Span-Level Extraction Loss (`source_spans.metadata.loss`, v0.49.0)
+
+Distinct from §20.4. `formula_recovery` records an *attempt to repair* a loss
+against an owning claim. `loss` records that a region **could not be read at
+all** — there is no text, and therefore no knowledge unit and no claim to
+anchor to. Recording it requires no provider call and changes no
+`formula_status`.
+
+```json
+{
+  "loss": {
+    "verdict": "image_only",
+    "region": {"width": 221, "height": 18},
+    "classified_at": "2026-08-08T00:00:00Z"
+  }
+}
+```
+
+- `verdict` — one of `image_only | fragmented | parser_omitted`, the same
+  vocabulary as §20.4 and `formula_recovery.LOSS_VERDICTS`.
+- `region` — whatever geometry the parser stated, and nothing more. A
+  picture-omitted placeholder carries `width`/`height` only; it carries **no
+  page coordinates**, so `region` is not a crop locator and must never be
+  treated as one. Omit the key entirely when no geometry survived rather than
+  writing zeros or nulls.
+- `classified_at` — UTC ISO-8601, when the verdict was assigned.
+
+Invariants:
+
+- Additive and non-authoritative. `loss` never gates indexing, never changes
+  `support_status` or `formula_status`, and never removes a span.
+- Written at span creation for new ingests, and by an explicit one-shot backfill
+  for spans that predate the field. Because `upsert_source_span` returns the
+  existing row for an unchanged `(source_id, content_hash)`, a re-parse does not
+  refresh `loss` — the backfill is the only path for existing rows.
+- `page_number` on a span is a section index, not a physical page. It must not
+  be used to locate the lost region in the source document.
+- A `metadata` write must survive cross-device import. See §20.6a.
 
 ### 20.5 Compiler Audit Contract (Schema-Level)
 

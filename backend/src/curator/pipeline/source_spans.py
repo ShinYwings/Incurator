@@ -11,15 +11,56 @@ from __future__ import annotations
 import hashlib
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 from .. import db
 
-__all__ = ["SpanRecord", "spans_from_sections", "store_source_spans"]
+__all__ = [
+    "SpanRecord",
+    "classify_span_loss",
+    "spans_from_sections",
+    "store_source_spans",
+]
 
 _CODE_BLOCK = re.compile(r"```.*?```", re.DOTALL)
 _EQUATION_BLOCK = re.compile(r"\$\$.*?\$\$", re.DOTALL)
 _PREVIEW_CHARS = 200
+
+# What a PDF parser leaves behind where it could not read a rendered region.
+# Geometry is optional: some emitters state `[W x H]`, some state nothing.
+_PICTURE_OMITTED = re.compile(
+    r"\*\*==>\s*picture\s*(?:\[\s*(\d+)\s*x\s*(\d+)\s*\])?[^<]*?intentionally omitted\s*<==\*\*",
+    re.IGNORECASE,
+)
+
+
+def classify_span_loss(text: str) -> dict[str, Any] | None:
+    """Record that a region could not be read at all (SYSTEM_BEHAVIOR §26.2b).
+
+    This is NOT §26.2 recovery: there is no text to repair and no claim to
+    anchor to, so no provider call happens and no ``formula_status`` changes.
+    It only makes an otherwise silent deletion observable.
+
+    Returns ``None`` when nothing was lost. Geometry is included only when the
+    parser stated it — the placeholder carries no page coordinates, so the
+    result is never a crop locator (SCHEMA §20.4a).
+    """
+    if not text or not text.strip():
+        return None
+    match = _PICTURE_OMITTED.search(text)
+    if match is None:
+        return None
+
+    loss: dict[str, Any] = {
+        "verdict": "image_only",
+        "classified_at": datetime.now(timezone.utc).isoformat(),
+    }
+    width, height = match.group(1), match.group(2)
+    if width and height:
+        loss["region"] = {"width": int(width), "height": int(height)}
+    return loss
 
 
 @dataclass
@@ -32,11 +73,16 @@ class SpanRecord:
     page_number: int | None = None
     section_title: str | None = None
     toc_id: str | None = None
+    loss: dict[str, Any] | None = None
 
     @property
     def text_preview(self) -> str:
         preview = " ".join(self.text.split())
         return preview[:_PREVIEW_CHARS]
+
+    @property
+    def metadata(self) -> dict[str, Any] | None:
+        return {"loss": self.loss} if self.loss else None
 
 
 def _hash(text: str) -> str:
@@ -64,7 +110,10 @@ def _block_spans(
             para = para.strip()
             if para:
                 spans.append(
-                    SpanRecord("paragraph", para, _hash(para), page, title, toc_id)
+                    SpanRecord(
+                        "paragraph", para, _hash(para), page, title, toc_id,
+                        classify_span_loss(para),
+                    )
                 )
 
     for start, end, kind in blocks:
@@ -72,7 +121,10 @@ def _block_spans(
         block_text = text[start:end].strip()
         if block_text:
             spans.append(
-                SpanRecord(kind, block_text, _hash(block_text), page, title, toc_id)
+                SpanRecord(
+                    kind, block_text, _hash(block_text), page, title, toc_id,
+                    classify_span_loss(block_text),
+                )
             )
         cursor = end
     _emit_prose(text[cursor:])
@@ -98,7 +150,10 @@ def spans_from_sections(sections: list[dict]) -> list[SpanRecord]:
         if len(sub) <= 1 and not any(s.span_type in ("code", "equation") for s in sub):
             # Treat a single-chunk section as one section-level span.
             out.append(
-                SpanRecord("heading_section", text, _hash(text), page_number, title, toc_id)
+                SpanRecord(
+                    "heading_section", text, _hash(text), page_number, title, toc_id,
+                    classify_span_loss(text),
+                )
             )
         else:
             out.extend(sub)
@@ -124,6 +179,7 @@ def store_source_spans(
             section_title=span.section_title,
             toc_id=span.toc_id,
             text_preview=span.text_preview,
+            metadata=span.metadata,
         )
         ids.append(span_id)
     return ids

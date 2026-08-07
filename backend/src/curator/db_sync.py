@@ -115,6 +115,56 @@ _REMOTE_TS_FN: dict[str, _Callable[[dict], str]] = {
     "sources": lambda row: row.get("updated_at") or "",
 }
 
+
+def _span_metadata_stamps(metadata: object) -> list[str]:
+    """Every timestamp buried in a source span's ``metadata`` JSON."""
+    if isinstance(metadata, str):
+        try:
+            metadata = json.loads(metadata or "{}")
+        except (ValueError, TypeError):
+            return []
+    if not isinstance(metadata, dict):
+        return []
+
+    stamps: list[str] = []
+    loss = metadata.get("loss")
+    if isinstance(loss, dict) and loss.get("classified_at"):
+        stamps.append(str(loss["classified_at"]))
+    recoveries = metadata.get("formula_recovery")
+    if isinstance(recoveries, list):
+        for candidate in recoveries:
+            if isinstance(candidate, dict) and candidate.get("created_at"):
+                stamps.append(str(candidate["created_at"]))
+    return stamps
+
+
+def _source_span_revision(row: dict) -> str:
+    """Effective LWW clock for a source span.
+
+    `source_spans` has no `updated_at` and its `created_at` is immutable, but
+    `metadata` IS mutated in place — by `recover_formula()` (SCHEMA §20.4,
+    shipped v0.8.0) and by the `loss` record (§20.4a). Comparing the immutable
+    column makes those writes tie, so `_lw_upsert`'s strict `>` skips them and a
+    peer silently drops the change; `_local_max_ts` never moves either, so the
+    writing device does not even offer it.
+
+    Deriving the revision from the metadata timestamps fixes both halves
+    without a new column — this codebase has no `ALTER TABLE` path, so an
+    existing vault could not receive one anyway. `created_at` stays in the max,
+    so a span with no metadata behaves exactly as before.
+    """
+    stamps = [str(row.get("created_at") or "")]
+    stamps.extend(_span_metadata_stamps(row.get("metadata")))
+    return max(stamps, key=_timestamp_key)
+
+
+# Tables whose LWW clock is not a plain column. Applied to BOTH sides of the
+# comparison and to the export gate, so local and remote are always ranked the
+# same way.
+_REVISION_FN: dict[str, _Callable[[dict], str]] = {
+    "source_spans": _source_span_revision,
+}
+
 # Scalar transport key per table. Composite tables use their full PRAGMA-derived
 # primary key for row merge and the closed portable-key registry for tombstones.
 _PK_COL: dict[str, str | None] = {
@@ -1360,9 +1410,18 @@ def _lw_upsert(
             return "inserted"
 
         if updated_col:
-            local_ts = existing[updated_col] or ""
-            remote_ts_fn = _REMOTE_TS_FN.get(table_name)
-            remote_ts = remote_ts_fn(row) if remote_ts_fn else (row.get(updated_col) or "")
+            revision_fn = _REVISION_FN.get(table_name)
+            if revision_fn is not None:
+                # Same function on both sides: the column alone is not the clock
+                # for this table (see _source_span_revision).
+                local_ts = revision_fn(dict(existing))
+                remote_ts = revision_fn(row)
+            else:
+                local_ts = existing[updated_col] or ""
+                remote_ts_fn = _REMOTE_TS_FN.get(table_name)
+                remote_ts = (
+                    remote_ts_fn(row) if remote_ts_fn else (row.get(updated_col) or "")
+                )
             if _timestamp_key(remote_ts) > _timestamp_key(local_ts):
                 if not dry_run:
                     _preserve_device_local(conn, table_name, row)
@@ -1648,6 +1707,15 @@ def _local_max_ts(db_path: Path) -> str:
         }
         for tbl, col in _UPDATED_AT_COL.items():
             if tbl not in existing:
+                continue
+            revision_fn = _REVISION_FN.get(tbl)
+            if revision_fn is not None:
+                # MAX(col) cannot see a clock that lives inside a JSON column,
+                # so the export gate would never fire for a metadata-only write.
+                for span in conn.execute(f"SELECT * FROM {tbl}"):
+                    stamp = revision_fn(dict(span))
+                    if stamp and _timestamp_key(stamp) > _timestamp_key(newest):
+                        newest = stamp
                 continue
             row = conn.execute(f"SELECT MAX({col}) FROM {tbl}").fetchone()
             if row and row[0] and _timestamp_key(row[0]) > _timestamp_key(newest):
