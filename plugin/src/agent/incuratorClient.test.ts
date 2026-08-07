@@ -1029,3 +1029,65 @@ describe("IncuratorClient", () => {
   });
 
 });
+
+/**
+ * "Add source" stayed clickable after a PDF was already added.
+ *
+ * A Reference-Mode source stores the vault-side STUB in `relpath`
+ * (`04_Resources/References/<title>.md`), never the external PDF path. Looking
+ * it up by the PDF therefore returned `untracked` even when the source was
+ * registered with all four layers `done` — verified against the reporting
+ * vault, where source 37 is fully built yet
+ * `wiki plugin source status --file-path <pdf>` answers "Source not found".
+ *
+ * `logical_source_id` (`zotero:<key>`) is the identity that survives, and
+ * `get_source_row` already matches on it. The plugin simply never sent it.
+ */
+describe("getSourceStatus with a Zotero attachment key", () => {
+  it("sends the durable logical id so an added reference resolves", async () => {
+    const calls: string[][] = [];
+    const backendJson = async (args: string[]) => {
+      calls.push(args);
+      return { source: { id: 37, l1_status: "done", l2_status: "done",
+                         l3_status: "done", l4_status: "done" } };
+    };
+    const client = new IncuratorClient(settings(), "0.48.3", backendJson);
+
+    await client.getSourceStatus({
+      sourcePath: "/Assets/Zotero/paper.pdf",
+      zoteroAttachmentKey: "YACIRUKK",
+    });
+
+    expect(calls[0]).toContain("--path");
+    expect(calls[0]).toContain("zotero:YACIRUKK");
+  });
+
+  it("resolves by the key alone when no local path is known", async () => {
+    // A Zotero PDF whose local path has not been resolved on this device is
+    // still findable — it used to be reported untracked without even asking.
+    const calls: string[][] = [];
+    const client = new IncuratorClient(settings(), "0.48.3", async (args) => {
+      calls.push(args);
+      return { source: { id: 37, l1_status: "done" } };
+    });
+
+    const status = await client.getSourceStatus({ zoteroAttachmentKey: "YACIRUKK" });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain("zotero:YACIRUKK");
+    expect(status.state).not.toBe("untracked");
+  });
+
+  it("still reports unknown when there is no identity of any kind", async () => {
+    let called = false;
+    const client = new IncuratorClient(settings(), "0.48.3", async () => {
+      called = true;
+      return {};
+    });
+
+    const status = await client.getSourceStatus({});
+
+    expect(status.state).toBe("unknown");
+    expect(called).toBe(false);
+  });
+});

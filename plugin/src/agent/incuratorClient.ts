@@ -179,17 +179,33 @@ export class IncuratorClient {
   }
 
   async getSourceStatus(
-    input?: string | { sourcePath?: string; fileHash?: string }
+    input?: string | {
+      sourcePath?: string;
+      fileHash?: string;
+      zoteroAttachmentKey?: string;
+    }
   ): Promise<IncuratorSourceStatus> {
     const sourcePath = typeof input === "string" ? input : input?.sourcePath;
     const fileHash = typeof input === "string" ? undefined : input?.fileHash;
-    if ((!sourcePath && !fileHash) || this.settings.incuratorEnabled === false) {
+    const zoteroKey =
+      typeof input === "string" ? undefined : input?.zoteroAttachmentKey;
+    if (
+      (!sourcePath && !fileHash && !zoteroKey) ||
+      this.settings.incuratorEnabled === false
+    ) {
       return { state: "unknown", message: "No source path available" };
     }
 
     const args = ["plugin", "source", "status"];
     if (fileHash) args.push("--file-hash", fileHash);
     if (sourcePath) args.push("--source-path", sourcePath);
+    // A Reference-Mode source stores the vault-side STUB in `relpath`, never
+    // the external PDF path — so looking it up by the PDF returns "untracked"
+    // even when it is fully registered and built. `logical_source_id`
+    // (`zotero:<key>`) is the identity that survives, and the backend's
+    // `get_source_row` already matches on it; the plugin simply never sent it,
+    // so an added Zotero PDF kept rendering "Add source" and stayed clickable.
+    if (zoteroKey) args.push("--path", `zotero:${zoteroKey}`);
     const result = await this.callBackendJson(args);
     if (!result || typeof result !== "object") return { state: "unknown", sourcePath };
     const record = result as Record<string, unknown>;

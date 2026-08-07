@@ -354,6 +354,19 @@ in flight ("Cannot use the same canvas during multiple render() operations").
 - A cancelled task rejects with PDF.js's cancellation exception. That rejection
   is the expected outcome and MUST NOT be surfaced as a render failure.
 
+### Reference-Mode Source Identity (v0.48.3)
+
+A Reference-Mode source stores the **vault-side stub** in `sources.relpath`
+(`04_Resources/References/<title>.md`). The external PDF path is not the
+source's identity and is not stored as `relpath`, so a status lookup by that
+path matches nothing even when the source is registered and fully built.
+
+Status checks for a Zotero-backed PDF MUST send the durable logical identity
+`zotero:<attachment key>`, which `get_source_row` resolves via
+`logical_source_id`. Sending it only when no local path is known is not enough:
+the path being resolvable is exactly the case that produced a false `untracked`,
+which renders "Add source" and lets an already-added source be submitted again.
+
 ### Distant Equation References (v0.48.1)
 
 Numbered-equation references are probed at `currentPage ±2` first, because that
