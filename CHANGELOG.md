@@ -2,6 +2,29 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.48.3] - 2026-08-07
+### Fixed
+- **"Add source" Stayed Clickable After A PDF Was Already Added**
+  Adding a Zotero PDF from the purple pin registered it correctly, but the
+  control kept reading "Add source" and remained clickable, so the same source
+  could be submitted again with no sign it was already in the knowledge system.
+
+  A Reference-Mode source stores the vault-side **stub** in `sources.relpath`
+  (`04_Resources/References/<title>.md`), never the external PDF path. The
+  plugin checked status by the PDF path, which matches nothing — verified
+  against the reporting vault, where source 37 has all four layers `done` and
+  yet `wiki plugin source status --file-path <pdf>` answers "Source not found".
+  That `untracked` result renders the "Add source" label, and the
+  already-added guard (`isAddedState`) never fires because the state never
+  reaches an added value.
+
+  `logical_source_id` (`zotero:<key>`) is the identity that survives, and the
+  backend's `get_source_row` already matches on it — confirmed by looking the
+  same source up that way and getting id 37 with `l1..l4 = done`. The plugin
+  simply never sent it. It now does, on every status check rather than only
+  when no local path is known, so a Zotero PDF whose path is unresolved on this
+  device also resolves instead of being reported untracked without asking.
+
 ## [0.48.2] - 2026-08-07
 ### Fixed
 - **The Sidechat Job Indicator Disappeared**
