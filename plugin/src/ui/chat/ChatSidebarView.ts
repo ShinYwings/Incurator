@@ -173,6 +173,7 @@ export class ChatSidebarView extends ItemView {
   private sessionQuery = "";
   private statusBarEl!: HTMLElement;
   private statusPollInterval: any = null;
+  private statusPollInFlight = false;
 
   constructor(leaf: WorkspaceLeaf, plugin: ObsidianAIAgent) {
     super(leaf);
@@ -252,8 +253,8 @@ export class ChatSidebarView extends ItemView {
     this.sessionDrawerEl.createDiv("ai-agent-session-drawer-list");
 
     // Start status polling
-    this.statusPollInterval = setInterval(() => this.updateStatusBar(), 2000) as any;
-    this.updateStatusBar();
+    this.statusPollInterval = setInterval(() => void this.updateStatusBar(), 2000) as any;
+    void this.updateStatusBar();
 
     // ── Messages area ──
     this.messagesContainer = container.createDiv("ai-agent-chat-messages");
@@ -463,31 +464,52 @@ export class ChatSidebarView extends ItemView {
     this.splitDropOverlay = null;
   }
 
-  private updateStatusBar(): void {
+  /**
+   * Job indicator, read from the runtime snapshot at its REAL location.
+   *
+   * This used to read `<vault>/.curator/runtime/jobs.json`. Runtime snapshots
+   * moved to the repo-local cache in 2026-07 and nothing migrated or rewrites
+   * the vault-side copies, so that file froze — on the reporting vault it sat
+   * at 2026-07-04 with `running: []` while the live snapshot showed a job
+   * running. The indicator rendered nothing, indistinguishable from having been
+   * removed.
+   *
+   * `plugin.readRuntimeJson` already resolves the correct hash-keyed cache
+   * directory (`vaultMachineCacheDir`, which mirrors the backend's
+   * `get_vault_cache_dir` exactly) and is used in production by the main status
+   * bar. Reusing it keeps this a free file read: `b9a49a1` deliberately left
+   * the sidebar on the snapshot rather than the live CLI, because unlike the
+   * dashboard's once-per-render fetch this polls for the lifetime of the view.
+   */
+  private async updateStatusBar(): Promise<void> {
     if (!this.statusBarEl) return;
+    if (this.statusPollInFlight) return;
+    this.statusPollInFlight = true;
     try {
-      const vaultRoot = (this.plugin.app.vault.adapter as any).getBasePath?.() || "";
-      if (!vaultRoot) return;
-      const jobsPath = join(vaultRoot, ".curator", "runtime", "jobs.json");
-      const statusPath = join(vaultRoot, ".curator", "runtime", "status.json");
-      
-      this.statusBarEl.empty();
+      const jobs = await this.plugin.readRuntimeJson("jobs");
+      // A missing or unreadable snapshot is NOT "no jobs". Leave whatever is on
+      // screen rather than blanking it, so a transient read failure does not
+      // reproduce the very symptom this fixes.
+      if (!jobs) return;
+      if (!this.statusBarEl) return;
 
-      if (existsSync(jobsPath)) {
-        const raw = readFileSync(jobsPath, "utf8");
-        const data = JSON.parse(raw);
-        if (data.running && data.running.length > 0) {
-          const spinner = this.statusBarEl.createSpan({ cls: "ai-agent-spin" });
-          setIcon(spinner, "loader");
-          this.statusBarEl.createSpan({ text: ` ${data.running.length} running` });
-        } else if (data.queued && data.queued.length > 0) {
-          const spinner = this.statusBarEl.createSpan({ cls: "ai-agent-spin" });
-          setIcon(spinner, "loader");
-          this.statusBarEl.createSpan({ text: ` ${data.queued.length} queued` });
-        }
+      const running = Array.isArray(jobs.running) ? jobs.running.length : 0;
+      const queued = Array.isArray(jobs.queued) ? jobs.queued.length : 0;
+
+      this.statusBarEl.empty();
+      if (running > 0) {
+        const spinner = this.statusBarEl.createSpan({ cls: "ai-agent-spin" });
+        setIcon(spinner, "loader");
+        this.statusBarEl.createSpan({ text: ` ${running} running` });
+      } else if (queued > 0) {
+        const spinner = this.statusBarEl.createSpan({ cls: "ai-agent-spin" });
+        setIcon(spinner, "loader");
+        this.statusBarEl.createSpan({ text: ` ${queued} queued` });
       }
-    } catch (e) {
-      // fail silently
+    } catch {
+      // Same rule as above: never blank on failure.
+    } finally {
+      this.statusPollInFlight = false;
     }
   }
 

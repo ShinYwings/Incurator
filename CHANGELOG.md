@@ -2,6 +2,36 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.48.2] - 2026-08-07
+### Fixed
+- **The Sidechat Job Indicator Disappeared**
+  The spinner and "N running / N queued" badge in the sidechat header stopped
+  appearing entirely. `updateStatusBar` read
+  `<vault>/.curator/runtime/jobs.json`. Runtime snapshots moved to the
+  repo-local cache in 2026-07 and nothing migrated or rewrites the vault-side
+  copies, so that file froze: on the reporting vault it sat at 2026-07-04 with
+  `running: []` while the live snapshot showed a job actively running. With an
+  empty `running` list the render block is skipped and nothing is drawn, which
+  is indistinguishable from the feature having been removed.
+
+  It now reads the snapshot at its real location through
+  `plugin.readRuntimeJson("jobs")`, which resolves the hash-keyed cache
+  directory (`vaultMachineCacheDir`, mirroring the backend's
+  `get_vault_cache_dir`) and is already used in production by the main status
+  bar. This stays a cheap file read: `b9a49a1` deliberately left the sidebar on
+  the snapshot rather than the live CLI, because unlike the dashboard's
+  once-per-render fetch this polls for the lifetime of the view. Polling stays
+  at 2 s.
+
+  A missing or unreadable snapshot is treated as "unknown", not "no jobs" —
+  whatever is on screen is left alone. Blanking on a read failure would
+  reproduce the exact symptom being fixed from a different cause.
+
+  Two source-level tests guard the invariants that let this hide for a month:
+  that the poll resolves the hash-keyed path rather than any `.curator` vault
+  path, and that the not-readable early return sits before the element is
+  emptied.
+
 ## [0.48.1] - 2026-08-07
 ### Fixed
 - **Asking About A Formula On A Distant PDF Page Produced No Answer At All**

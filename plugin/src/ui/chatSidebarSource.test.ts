@@ -582,4 +582,45 @@ describe("chat sidebar context chip source contract", () => {
     expect(source).toContain('`[data-msg-id="${msg.id}"]`');
     expect(source).toContain("byId ?? allMsgEls[allMsgEls.length - 1]");
   });
+
+  it("reads job state from the hash-keyed cache, never the vault-side copy", () => {
+    // The indicator disappeared because updateStatusBar read
+    // <vault>/.curator/runtime/jobs.json. Runtime snapshots moved to the
+    // repo-local cache and nothing rewrites the vault-side copies, so that file
+    // froze — on the reporting vault at 2026-07-04 with `running: []` while a
+    // job was actually running.
+    //
+    // `plugin.readRuntimeJson` resolves the correct hash-keyed directory. This
+    // pins that, not "no file reads at all": b9a49a1 deliberately kept the
+    // sidebar on a cheap snapshot read rather than the live CLI, because unlike
+    // the dashboard's once-per-render fetch this polls for the view's lifetime.
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
+    const body = source.slice(
+      source.indexOf("private async updateStatusBar("),
+      source.indexOf("// ── Public API ──")
+    );
+
+    expect(body).toContain('readRuntimeJson("jobs")');
+    expect(body).not.toContain(".curator");
+    expect(body).not.toContain("jobs.json");
+    expect(body).not.toContain("getBasePath");
+  });
+
+  it("never blanks the indicator when the snapshot cannot be read", () => {
+    // A missing or unreadable snapshot is not "no jobs". Blanking on failure
+    // reproduces the exact symptom this fixed, from a different cause.
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
+    const body = source.slice(
+      source.indexOf("private async updateStatusBar("),
+      source.indexOf("// ── Public API ──")
+    );
+
+    // The early return must come BEFORE the element is emptied.
+    const guard = body.indexOf("if (!jobs) return;");
+    const empty = body.indexOf("this.statusBarEl.empty()");
+    expect(guard).toBeGreaterThan(-1);
+    expect(guard).toBeLessThan(empty);
+  });
 });
