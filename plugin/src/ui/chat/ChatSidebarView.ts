@@ -2543,16 +2543,15 @@ export class ChatSidebarView extends ItemView {
   private async ensureIncuratorStatusForRef(ref: ContextRef): Promise<IncuratorSourceStatus> {
     const sourcePath = this.getPdfRefSourcePath(ref);
     const fileHash = await this.getPdfRefFileHash(ref);
-    if (!sourcePath && !fileHash && ref.zoteroAttachmentKey) {
-      const status: IncuratorSourceStatus = {
-        state: "untracked",
-        message: "Zotero PDF is available by attachment key; add it to Incurator to register this device's resolved path.",
-        updatedAt: Date.now(),
-      };
-      ref.backendStatus = status;
-      return status;
-    }
-    const status = await this.getIncuratorClient().getSourceStatus({ sourcePath, fileHash });
+    // The Zotero attachment key is the durable identity of a Reference-Mode
+    // source: its `relpath` is the vault-side stub, so a lookup by the external
+    // PDF path finds nothing even when the source is registered and built.
+    // Pass it whenever we have it, not only when the path is unresolved.
+    const status = await this.getIncuratorClient().getSourceStatus({
+      sourcePath,
+      fileHash,
+      zoteroAttachmentKey: ref.zoteroAttachmentKey,
+    });
     this.incuratorStatusByPath.set(this.refStatusKey(ref), status);
     ref.backendStatus = status;
     return status;

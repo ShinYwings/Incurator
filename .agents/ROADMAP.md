@@ -1,6 +1,6 @@
 # Incurator Active Roadmap
 
-Updated: 2026-08-06
+Updated: 2026-08-07
 
 This file contains only live work. Completed milestones and planning artifacts
 belong in Git history, not the active workspace. New raw reports enter through
@@ -8,147 +8,94 @@ belong in Git history, not the active workspace. New raw reports enter through
 
 ## Active Queue
 
-1. **System Integrity Consolidation — B2 through B7** (in progress)
-   - Single milestone replacing the former regression-audit (P10) and stability
-     overhaul umbrellas. 22 work items from the v0.42.x Arena audit.
-   - **Shipped**: B1 plugin lifetime/teardown (v0.42.4) · the Quick Query
-     document-identity P1 (v0.42.3) · the corroboration-gate fix that unblocked
-     L3/L4 (v0.43.0).
-   - **Also shipped**: B4 (v0.44.0) · B3 P1-P4 (v0.45.0, `l4_status='error'`
-     per Q1, the `layer_error` primitive, and the glob-promotion deletion).
-   - **B3 remainder**: P5 (synthesis dep-hash freeze), P6 (Q2 = delete the dead
-     L2 checkpoint-resume, a table migration), and P7 (record a reason on
-     legitimate skips — needs a decision on whether `layer_error` or
-     `error_reason` carries a non-error reason).
-   - **B2** (cross-device sync integrity, the last P1): Q5 = no migration needed
-     (zero backslash relpaths; Windows unsupported), Q6b = Windows not supported.
-   - **B5 / B7** each require their own Arena plan before implementation.
-   - Gate G0 is CLOSED: all three missing passes ran.
-   - Plan: `.agents/plans/03_system_integrity_consolidation.md`
-   - Arena record: `.agents/plans/system_defect_audit_arena/`
+Verified against the code on 2026-08-07, not against previous roadmap text.
 
-2. **The knowledge system does not serve real questions** (2026-08-07, from the
-   knowledge-value Arena — supersedes and absorbs the old "retrieval reaches the
-   distilled layers" item)
-   - **[P1] 61% of knowledge never enters the search index.** 1,701 of 2,799
-     live `knowledge_units` are absent from `search_documents`. Chain: PDF spans
-     lack `$…$` → formula match fails → `support_status` stays `unchecked` →
-     `materializer.py:237` gates indexing on `verified`. No route or reranker
-     can retrieve them. **`recover_formula()` (SYSTEM_BEHAVIOR §26.2) is fully
-     implemented with 0 production call sites and 14 test call sites** — wiring
-     it up is the highest-leverage fix in the audit.
-   - **[P1] Route selection is ASCII-regex-only** (`router.py:20-29`), so a
-     Korean question can never reach `global`/`explore` while its English
-     translation can. The registered LLM router is never called. `global` itself
-     works — forcing it on Q3 returned 10/233 reports + 4/4 synthesis.
-   - **[P1] `about.md` §5.2's "refined essence" claim is not met** — L3 is
-     0/233 through any path; raw L1 is 55–90% of every pack.
-   - **[P1] The chat sidebar never passes a workspace** (`ChatSidebarView.ts:1904`),
-     so `curate.yml` and the vault persona reach no answer the user reads. The
-     lens itself works when a workspace IS passed (verified). = CAND-06 / B6.
-   - **[P2]** Circular entity descriptions (35% of pack entities; ~10% DB-wide);
-     the extraction prompt has no description contract.
-   - **[P2]** Span segmentation isolates single-word fragments.
-   - Evidence: `.agents/plans/knowledge_value_arena/` (4 proposals, 2 critiques,
-     synthesis, and the four raw evidence packs `q1.json`–`q4.json`).
-   - Acceptance test: re-run the same four questions with embedder + reranker on.
+### Shipped since the audits (v0.43.0 → v0.48.2)
 
-3. **`.curator` state audit findings** (new, 2026-08-06, from the artifact-first Arena)
-   - **[P1] The chat sidebar's job/status indicator has been dead since
-     2026-07-04.** It polls `<vault>/.curator/runtime/jobs.json`, which the
-     backend stopped writing when runtime snapshots moved to the repo cache.
-     Verified: the vault file says `idle: true`, the live one says `running: 1`.
-     This is the user's own "build indicator appears then stops" report. Fix is
-     to call `wiki status --json` as `incuratorDashboardModal` already does —
-     not to correct the path, since the plugin cannot compute the cache key.
-   - **[P1] Losing `.cache/` reports a healthy empty vault**, because `connect()`
-     self-heals a schema into any empty DB file and `get_stats` returns zeros.
-     Recovery exists (the in-vault sync journal + `wiki db import`) but is
-     silent and undocumented.
-   - **[P1] Vault rename/move silently mints a new empty database** — the cache
-     key is `sha256(resolved_root)[:16]`. Also hits `VAULT_ROOT=testbed` run
-     from two different directories.
-   - **[P2] `sessions.json` is 15 MB, 81% re-embedded context** (one note stored
-     52×, a 1.39 MB base64 image); ~1.1 s per send, and the 30-session cap is a
-     provable no-op. Supersedes the vaguer "Chat Session Context Compaction"
-     item with measurements.
-   - **[P2] Sync journals never compact** — 24 MB, unused gzip measured at
-     9.86×, tombstones never expire, a stale peer is skipped silently while
-     autosync reports success.
-   - **[P2] Several derived artifacts are never rewritten**, incl. `wiki sync`
-     claiming to rebuild `ledger.md`/`overview.md` while calling neither.
-   - **[P3] Docs contradict themselves** on where `state.sqlite` lives —
-     SYSTEM_BEHAVIOR contradicts itself internally.
-   - Arena record: `.agents/plans/curator_state_arena/`
-   - Synthesis + sequencing: `.agents/plans/curator_state_arena/03_synthesis.md`
+Corroboration gate · B4 · `wiki lint` truthfulness · B3 P1–P4 · vault
+move/delete tracking · the search-index support gate (61% of units were
+unreachable) · language-independent routing, then corrected to enforce the
+English-internal boundary at the backend · the workspace/curation lens on the
+chat surface · entity-description prompt v2 · distant PDF equation references ·
+the sidechat job indicator.
 
-4. **Vault file moves and deletes are not tracked anywhere** — shipped v0.46.0
-   for moves/deletes going forward. Remaining: retro-repair of vaults that
-   already carry a dead source row (needs a content-hash reconciliation sweep).
-   - The plugin registers **no** vault file events at all — two `registerEvent`
-     calls exist repo-wide and both are workspace layout events. No
-     `vault.on("rename")`, no `vault.on("delete")`. Pinned context keeps a dead
-     path and the agent reports "File not found".
-   - The backend denormalizes the path into `sources.relpath`,
-     `source_spans.relpath`, and `search_documents.projection_path`, and
-     reconciles none of them on a move. Already rotting: source 32 points at a
-     path that exists nowhere, and its 48 descendant atoms are the 48 lint
-     errors that survive the v0.44.1 fix.
-   - Reference Mode complicates it: `sync_key` embeds the path, and the Zotero
-     `logical_source_id` must survive a move.
-   - **Needs a PLAN_TEMPLATE plan before implementation.**
-   - Evidence: `.agents/USER_REPORT.md` (2026-08-06).
+### 1. Formula recovery is built, specified, and never called
 
-5. **Build-artifact audit findings** (new, 2026-08-06, post-v0.43.0 build)
-   - `wiki lint` is unusable as a signal: 70 unfixable `invalid_source_path`
-     ERRORs. 22 are a macOS NFC/NFD byte-compare false positive whose suggested
-     `--fix` writes back the same value, so the error can never be cleared; 48
-     come from one genuinely mangled `sources.relpath` (a title slug with a
-     `-ref-5` suffix that never existed on disk).
-   - Community hierarchy is flat by construction (`level = 0` hardcoded) with
-     one 176-entity giant and a 152-community singleton tail. §27.4 sanctions
-     the degraded fallback but requires it be "surfaced by the audit" — nothing
-     reports the mode.
-   - One stale CTX file survives re-ingest; every other layer is 1:1 with the DB.
-   - 10 sources are `skipped` with no recorded reason, two of them holding 11
-     knowledge units each (feeds B3).
-   - Evidence: `.agents/USER_REPORT.md` (2026-08-06).
+`pipeline/formula_recovery.py` implements `recover_formula()` and
+`classify_formula_loss()`, SYSTEM_BEHAVIOR §26.2 specifies them, `compile.py`
+imports and re-exports them — and there are **0 production call sites** against
+14 test call sites (re-verified 2026-08-07). This is the remaining half of the
+formula problem: v0.47.0 stopped the index from hiding unvalidated units, but
+nothing repairs the PDF-extraction damage that made them unvalidatable.
 
-6. **Job progress is unobservable, and Reference-Mode jobs display as `.md`**
-   - `ingest_worker.py:180/195` writes `progress=0.1` once when L2 starts and
-     `0.5` only after all of L2 returns; `progress_current/progress_total` stay
-     `0/1` and `job_events` gets zero rows, so a long job is indistinguishable
-     from a hung one. Same defect class as the popover "Thinking…" fix.
-   - `wiki jobs list` renders `sources.relpath`, which for `is_reference`
-     sources is the `04_Resources/` markdown stub — so a PDF job shows a `.md`
-     name. The stub filename template also emits a trailing empty field
-     (`"… - .md"`).
-   - Related: no way to cancel a job that is already running.
-   - Evidence: `.agents/USER_REPORT.md` (2026-08-05).
+### 2. `add source` stays clickable after a PDF is already added
 
-7. **Chat Session Context Compaction**
-   - Draft: `.agents/drafts/chat_context_compaction.md`
-   - **Superseded in evidence by item 3**, which supplies the measurements this
-     draft was missing: 15 MB file, 81% `contextRefs`, one note stored 52×, a
-     1.39 MB base64 image, ~1.1 s per send. Fold them in before planning.
+Reported 2026-08-05 with the L3/L4 batch and **lost during a ROADMAP
+restructure** — it was never tracked until now. After adding a PDF from the
+purple pin the control remains enabled, so the same source can be submitted
+repeatedly with no indication it is already in the knowledge system.
 
-8. **Vault Storage Governance & Quota Visibility**
-   - Draft: `.agents/drafts/vault_storage_governance.md`
+### 3. Community hierarchy is flat by construction
 
-9. **Native PDF Annotation & Asset System**
-   - Draft: `.agents/drafts/pdf_annotation_system.md`
+`_entities.py` hardcodes `level = 0`; one community holds 176 of 965 entities
+while 152 of 233 are single-relation pairs. §27.4 permits the degraded
+connected-components fallback but requires it be "surfaced by the audit" —
+`config_hash` records it only as an opaque digest and `graph_audit` returns
+violations only.
 
-10. **Web Search Integration**
-   - No current plan. Re-plan from current provider, privacy, and cost
-     constraints before implementation.
+### 4. System Integrity Consolidation — the remainder
 
-11. ~~**Agentic PDF Retrieval Tools for Ask AI/Sidechat**~~ — shipped in
-   v0.41.0 as a local (non-MCP) read-only page reader. Scope was narrowed
-   during planning: `fetch_pdf_page` is first class, `search_pdf_anchor` is
-   exposed only for documents proven outline-less, and CLI providers keep the
-   deterministic path. Historical context: `git show` the deleted
-   `.agents/plans/04_agentic_pdf_retrieval.md` and
-   `.agents/plans/agentic_pdf_retrieval_arena/`.
+- **B2** (cross-device sync integrity) — the last P1 in the milestone.
+- **B3 P5** synthesis dep-hash freeze · **P6** delete the dead L2
+  checkpoint-resume (table migration) · **P7** record a reason on legitimate
+  skips (needs a decision: `layer_error` is named for errors, `error_reason`
+  already exists).
+- **B5 / B7** each require their own Arena plan.
+- Plan: `.agents/plans/03_system_integrity_consolidation.md`,
+  ledger `03_b3_roadmap_evidence.md`.
+
+### 5. `.curator` state audit — the remainder
+
+- Losing `.cache/` reports a healthy **empty** vault: `connect()` self-heals a
+  schema into any empty DB and `get_stats` returns zeros. Recovery exists (the
+  in-vault sync journal + `wiki db import`) but is silent and undocumented.
+- Vault rename/move silently mints a new empty DB (cache key is
+  `sha256(resolved_root)[:16]`); also hits `VAULT_ROOT=testbed` from two
+  directories.
+- `sessions.json` 15 MB, **81% re-embedded context** — one note stored 52×, a
+  1.39 MB base64 image, ~1.1 s per send. The 30-session cap is a provable no-op.
+  Supersedes the old "Chat Session Context Compaction" draft.
+- Sync journals never compact — 24 MB, `compress=True` exists unused with gzip
+  measured at 9.86×; tombstones never expire; a stale peer is skipped silently
+  while `autosync` reports success.
+- `wiki sync` claims to rebuild `ledger.md`/`overview.md` and calls neither.
+- `SYSTEM_BEHAVIOR.md` contradicts itself on where `state.sqlite` lives.
+- Arena record: `.agents/plans/curator_state_arena/`
+
+### 6. Retrieval and projection leftovers
+
+- Span segmentation isolates single-word fragments
+  (`pipeline/source_spans.py` splits on blank lines with no minimum length).
+- One stale CTX file survives re-ingest (bounded — the index carries no CTX
+  projection, so it cannot be retrieved).
+- Retro-repair for vaults carrying a dead source row from a pre-v0.46.0 move;
+  `wiki lint` reports them but nothing fixes them.
+
+### 7. Job progress is unobservable
+
+`ingest_worker.py` writes `progress=0.1` once when L2 starts and `0.5` only
+after all of L2 returns; `progress_current/progress_total` stay `0/1` and
+`job_events` gets zero rows. Reference-Mode jobs also display the `.md` stub
+name for a PDF, and a running job cannot be cancelled.
+
+### 8. Drafts not yet planned
+
+- Vault Storage Governance & Quota Visibility —
+  `.agents/drafts/vault_storage_governance.md`
+- Native PDF Annotation & Asset System —
+  `.agents/drafts/pdf_annotation_system.md`
+- Web Search Integration — no current plan; re-plan from current provider,
+  privacy, and cost constraints.
 
 ## Blocked / Icebox
 
