@@ -250,13 +250,30 @@ To prevent context fragmentation and hallucinations when switching between AI co
   - **IDLE Cleanup (Feed-Forward Exception)**: When the goal is fully shipped
     (PR merged, no active task), truncate `.agents/RELAY.md` to a minimal IDLE
     stub — do NOT accumulate session history. Git log is the history; RELAY.md
-    is live state only. This exact cleanup is the sole exception to the normal
-    branch/PR rule: do not create a cleanup branch or PR. First update local
-    `master` with `git pull --ff-only origin master`, verify the only pending
-    path is `.agents/RELAY.md`, create one `chore(agents): reset relay after
-    vX.Y.Z` commit directly on `master`, and push it normally (never force-push).
-    If `master` cannot fast-forward or any other path is modified, stop using
-    this exception and use the normal `chore/*` branch + PR flow.
+    is live state only. See the `.agents/`-only fast-forward rule below for how
+    to land it.
+
+### `.agents/` Work Is Fast-Forward, Not PR (user directive, 2026-08-08)
+
+Changes confined to the `.agents/` tree — `RELAY.md`, `ROADMAP.md`,
+`USER_REPORT.md`, `plans/`, `drafts/` — are agent bookkeeping, not product
+code. They do NOT get a branch or a Pull Request. Commit them straight to
+`master`:
+
+1. `git pull --ff-only origin master`
+2. Verify **every** pending path is under `.agents/` (`git status --short`).
+3. One `chore(agents): <what>` commit (or `docs(agents):` for plan/Arena
+   records) directly on `master`.
+4. `git push` normally. **Never force-push.**
+
+**Abort and use the normal `chore/*` branch + PR flow if** `master` cannot
+fast-forward, OR any pending path falls outside `.agents/`. A change that
+touches `.agents/` *and* code or `docs/` is a normal change — the mixed commit
+is what the branch/PR flow is for.
+
+This rule covers the bookkeeping only. It does not exempt `.agents/` work from
+being correct: plans still follow `PLAN_TEMPLATE.md`, and a plan that changes a
+stored contract still stops for user approval before implementation.
 
 ---
 
