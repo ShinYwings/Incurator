@@ -2,6 +2,68 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.48.4] - 2026-08-07
+### Fixed
+- **`no output produced` Instead of an Answer About a Formula**
+  Asking about a numbered equation in a PDF whose displayed math is rasterized
+  returned no answer at all, only the provider's own failure text:
+
+  > jetski: no output produced — a tool required the "command" permission that
+  > headless mode cannot prompt for, so it was auto-denied
+
+  `buildResolvedReferencesBlock` returned the empty string whenever no
+  reference resolved. The user's question ("수식 26 설명좀") therefore reached
+  the model with the equation absent *and* with nothing indicating an equation
+  had been asked about — the prompt read as though the selection pointed at
+  nothing. The model did the reasonable thing and tried to open the PDF with a
+  file-reading tool. A headless CLI provider cannot prompt for that permission,
+  the runtime auto-denied it, and the turn produced no output.
+
+  Unfindable references are now named in an `<unresolved_cross_references>`
+  block whose `note` states the text is genuinely absent from the extracted
+  document, directs the model to answer from the context it already has and to
+  say which item was unavailable, and forbids it from opening the file itself.
+  The block carries labels only and never a snippet, so the existing
+  fail-closed guarantee on content is unchanged — no context is still preferred
+  to wrong context. `PLUGIN_SCHEMA.md` already required that "the prompt must
+  tell the provider when the referenced target could not be located"; this is
+  the concrete block that requirement was missing, and the spec now names it.
+
+  Note that this restores a useful answer, not the equation: recovering math
+  that was never extracted is a separate defect (`recover_formula()` is
+  implemented and specified in SYSTEM_BEHAVIOR §26.2 with zero production call
+  sites) and is tracked as its own roadmap item.
+
+- **A Merged Page Reference Was Declared Missing While Being Quoted**
+  Found in review of the fix above, before release. `resolveWithNearbyPageHints`
+  relabels a successfully resolved page reference `method: "unresolved"` purely
+  to suppress a duplicate render once its text has been folded into a nearby
+  sibling. That flag never escaped while every unresolved entry was dropped;
+  naming them sent it straight into the prompt. Selecting
+  `(Section 11.1.2, p281)` produced page 281's text quoted verbatim under the
+  section entry *and* `p.281` listed as absent from the document, in the same
+  prompt — misleading content, which is worse than the silence it replaced.
+
+  The two meanings are now distinct: `consumedBySibling` records that the text
+  was delivered elsewhere, so such a reference appears in neither block, while
+  `method` keeps its existing meaning for the fetch and identity-repair paths.
+
+- **The Unresolved Note Claimed a Verified Absence It Never Established**
+  The note asserted the text "is absent from the extracted document" and that
+  the gap was final. The quick-query popover passes no whole-document locator
+  at all, and where one is wired it returns nothing when the backend is
+  offline, so "we did not look" was being reported to the model as "confirmed
+  absent" — directing it to state a falsehood confidently. It now claims only
+  that retrieval failed.
+
+- **The Recency Anchor Did Not Carry the New Rule**
+  `buildRecencyAnchor` is emitted last, at the position of strongest attention,
+  specifically to survive long-session attention decay, and is appended on the
+  same sidechat surface where the failure was reported. It still named only
+  `<resolved_cross_references>`, so a long enough session could steer the model
+  back into the auto-denied tool call even with the fix in place. It now
+  carries the unresolved case and the no-file-read rule.
+
 ## [0.48.3] - 2026-08-07
 ### Fixed
 - **"Add source" Stayed Clickable After A PDF Was Already Added**

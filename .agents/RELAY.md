@@ -102,3 +102,43 @@ compaction (24 MB, gzip measured at 9.86× and unused).
 
 Still open in the integrity milestone: B3 P5–P7, B2, and B5/B7 which each need
 their own Arena plan.
+
+### Update (2026-08-07, Claude Code) — the jetski error, root-caused
+
+**v0.48.1 was a no-op and is now understood.** The distant-equation locator
+searched neighbouring pages for a label that does not exist anywhere in the
+ingested document. Measured on source 37 (a 27-page paper added through
+Reference Mode, 643 spans, ingested correctly):
+
+- Every displayed equation is a **rasterized image**. The parser emits
+  `**==> picture [W x H] intentionally omitted <==**` — **158** blocks across
+  all 27 pages; 95 spans are nothing but the placeholder.
+- Spans containing `(24)`: 0. `(25)`: 0. `(26)`: 0. Page 4, which visibly
+  renders equations (3) and (4), stores only the placeholder.
+- `wiki plugin pdf search --source-id 37 --query "(26)"` → 0 hits. Not a
+  window-width problem; the string was never ingested.
+
+**Two separable defects, do not conflate them:**
+
+1. *The answer disappeared* — `buildResolvedReferencesBlock` returned `""` when
+   nothing resolved, so the prompt named neither the target nor the failure.
+   The model reached for a file-reading tool, headless auto-denied it, and the
+   turn produced no output. **Fixed in v0.48.4 (PR #131)** with an
+   `<unresolved_cross_references>` block. PLUGIN_SCHEMA already required this
+   ("the prompt must tell the provider when the referenced target could not be
+   located"); the implementation never did it.
+2. *The equation is still missing* — nothing repairs image-only formula loss.
+   `recover_formula()` / `classify_formula_loss()` are implemented and
+   specified (§26.2) with **0 production call sites**. `classify_formula_loss`
+   returns `image_only` for exactly this case and is never invoked. This is
+   ROADMAP item 1 and **is** the jetski bug's other half. Needs an Arena plan,
+   not a third hot-patch.
+
+**Method note that keeps holding:** both prior attempts at this bug coded from
+the symptom and shipped no-ops. Measuring the artifact — the stored spans, not
+the resolver — found it in one pass.
+
+**Merge order:** PR #131 is versioned 0.48.4 off master (0.48.2), leaving
+0.48.3 to the open PR #130. Merge #130 first. #131 does not touch ROADMAP
+because #130 rewrites it; the formula-recovery item is already ROADMAP item 1
+there.

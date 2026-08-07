@@ -100,6 +100,21 @@ export interface ResolvedReference {
   snippet?: string;
   confidence: number;
   method: ResolveMethod;
+  /**
+   * This page reference RESOLVED, but its page text was folded into a nearby
+   * sibling reference, so it must not be rendered a second time on its own.
+   *
+   * `resolveWithNearbyPageHints` marks such a reference `method: "unresolved"`
+   * to suppress that duplicate render. That overloads one value with two
+   * meanings — "we found nothing" and "we found it and showed it elsewhere" —
+   * which was harmless only while every unresolved entry was silently dropped.
+   * Once unresolved references started being NAMED to the model, the overload
+   * began asserting that a page whose text is quoted verbatim in
+   * `<resolved_cross_references>` is absent from the document. This flag keeps
+   * the two apart. The fetch and identity-repair paths in
+   * `pdfReferenceContext.ts` still read `method`, whose meaning is unchanged.
+   */
+  consumedBySibling?: boolean;
 }
 
 const SNIPPET_LIMIT = 1800;
@@ -658,7 +673,10 @@ function resolveWithNearbyPageHints(
   }
 
   for (const index of consumedPageIndexes) {
-    out[index] = { ...out[index], method: "unresolved" };
+    // `method` stays "unresolved" so the fetch/repair paths keep behaving
+    // exactly as before; `consumedBySibling` records WHY, so serialization can
+    // tell a suppressed duplicate from a genuine miss.
+    out[index] = { ...out[index], method: "unresolved", consumedBySibling: true };
   }
   return out;
 }
@@ -680,16 +698,54 @@ function escapeAttr(value: string): string {
 }
 
 /**
- * Render resolved references as a first-class context block. Only references
- * resolved with usable target text/section are included; unresolved pointers
- * degrade gracefully (omitted) so we never inject misleading content.
+ * Instruction carried on the unresolved block.
+ *
+ * The provider must be told not to go looking. A headless CLI provider cannot
+ * prompt for the tool permission it would need to open the file, so an implied
+ * "go read it yourself" is answered by the runtime with an auto-denial and the
+ * user sees no answer at all.
+ *
+ * It says "could not be retrieved", never "confirmed absent". How hard the
+ * plugin actually looked varies by call site: the quick-query popover passes no
+ * `locatePages` at all, so nothing beyond the adjacent-page probe is ever
+ * searched, and even where it IS wired the locator returns no pages when the
+ * backend is offline. Asserting a verified absence the code did not establish
+ * would make the model state a falsehood confidently — the wrong-context
+ * failure this block exists to avoid, relocated from the snippet to the note.
+ */
+const UNRESOLVED_NOTE =
+  "The text behind these references could not be retrieved from the material " +
+  "available here (commonly because the equation or figure is a rasterized " +
+  "image, or because it lies outside the pages loaded). Answer from the " +
+  "context already provided, and say plainly that you could not retrieve the " +
+  "referenced item. Do not attempt to open, read, or search the source file " +
+  "yourself.";
+
+/**
+ * Render cross-references as first-class context blocks.
+ *
+ * References resolved with usable target text/section are rendered verbatim.
+ * References we could NOT deliver content for are *named* rather than dropped:
+ * silence made the prompt look as though the user had asked about nothing, and
+ * the provider filled the gap with a tool call it was not permitted to make
+ * (surfacing as "no output produced ... auto-denied"). Naming the gap keeps the
+ * model answering from what it has without injecting misleading content.
+ *
+ * A reference whose text was folded into a nearby sibling (`consumedBySibling`)
+ * appears in NEITHER block. It is not missing — its page text is already quoted
+ * under the sibling's entry — so naming it would tell the model that a page it
+ * can read right there could not be retrieved.
  */
 export function buildResolvedReferencesBlock(resolved: ResolvedReference[]): string {
-  const usable = resolved.filter(
-    (r) => r.method !== "unresolved" && (r.snippet || r.sectionTitle)
+  if (resolved.length === 0) return "";
+  const reportable = resolved.filter((r) => !r.consumedBySibling);
+  if (reportable.length === 0) return "";
+  const usable = new Set(
+    reportable.filter((r) => r.method !== "unresolved" && (r.snippet || r.sectionTitle))
   );
-  if (usable.length === 0) return "";
-  const body = usable
+
+  const resolvedBody = reportable
+    .filter((r) => usable.has(r))
     .map((r) => {
       const attrs = [
         `label="${escapeAttr(r.label)}"`,
@@ -703,5 +759,21 @@ export function buildResolvedReferencesBlock(resolved: ResolvedReference[]): str
       return `  <reference ${attrs}>${inner}  </reference>`;
     })
     .join("\n");
-  return `<resolved_cross_references>\n${body}\n</resolved_cross_references>`;
+
+  const missingBody = reportable
+    .filter((r) => !usable.has(r))
+    .map((r) => `  <reference label="${escapeAttr(r.label)}" />`)
+    .join("\n");
+
+  const blocks: string[] = [];
+  if (resolvedBody) {
+    blocks.push(`<resolved_cross_references>\n${resolvedBody}\n</resolved_cross_references>`);
+  }
+  if (missingBody) {
+    blocks.push(
+      `<unresolved_cross_references note="${escapeAttr(UNRESOLVED_NOTE)}">\n` +
+        `${missingBody}\n</unresolved_cross_references>`
+    );
+  }
+  return blocks.join("\n");
 }
