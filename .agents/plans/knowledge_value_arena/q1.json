@@ -1,0 +1,2449 @@
+{
+  "ok": true,
+  "contract_version": "1",
+  "operation": "context_fetch",
+  "pack_id": "PACK-0e198cee6884",
+  "trace_id": "QTR-6029af21",
+  "retrieval_execution_id": "RTR-0f2ad3c7",
+  "snapshot": {
+    "snapshot_id": "SNAP-370d64abeaee",
+    "source_epoch_hash": "d94ee29a29b3c4625193588a2ffced3787e26b9b4e76775e7d0b3611413e5642",
+    "db_schema_version": 13,
+    "policy_hash": "",
+    "tokenizer": "conservative"
+  },
+  "actions": [
+    {
+      "action_id": "CTXA-6310a32a73a3",
+      "trace_id": "QTR-6029af21",
+      "order": 1,
+      "action_type": "retrieval",
+      "child_id": "RTR-0f2ad3c7"
+    },
+    {
+      "action_id": "CTXA-6e655a93aa34",
+      "trace_id": "QTR-6029af21",
+      "order": 2,
+      "action_type": "pack_assembly",
+      "child_id": "PACK-0e198cee6884"
+    },
+    {
+      "action_id": "CTXA-4b931002c044",
+      "trace_id": "QTR-6029af21",
+      "order": 3,
+      "action_type": "budget",
+      "child_id": "PACK-0e198cee6884"
+    }
+  ],
+  "route": "local",
+  "route_reason": "entity/fact question",
+  "route_admission": {
+    "requested": "local",
+    "served": "local",
+    "admitted_routes": [
+      "explore",
+      "global",
+      "local",
+      "source-section"
+    ],
+    "disabled_routes": [],
+    "downgraded": false
+  },
+  "workspace_id": "default",
+  "budget": {
+    "limit_tokens": 8000,
+    "used_tokens": 5475,
+    "reserved_tokens": 1000,
+    "omitted_items": 0,
+    "estimation_mode": "conservative"
+  },
+  "coverage": {
+    "sufficiency": "partial",
+    "omitted_counts": {}
+  },
+  "items": [
+    {
+      "item_id": "ENT-197903f1",
+      "record_id": "ENT-197903f1",
+      "record_hash": "b7c8c0d438c13db8fea940b5e8e024579619a1027c4c219b5b52c8edc1b5aafd",
+      "kind": "entity",
+      "layer": "entity",
+      "summary": "ellipsoids (concept)",
+      "detail": "Closed 3D surfaces used as constrained landmark representations in SLAM.",
+      "title": "ellipsoids (concept)",
+      "text": "Closed 3D surfaces used as constrained landmark representations in SLAM.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-0dadd5bc"
+      ],
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "II Related Work",
+        "block_id": null,
+        "page_number": 2,
+        "toc_id": "s2",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      },
+      "token_cost": 24,
+      "expansion_handle": "EXP-6e9b92ef14e1",
+      "verification_handle": "VER-6e9b92ef14e1"
+    },
+    {
+      "item_id": "ENT-ab9e5e19",
+      "record_id": "ENT-ab9e5e19",
+      "record_hash": "5411d00c5f228dc780a95b5c09d8ca9e613e14baa069d444e91e6c5ec211e798",
+      "kind": "entity",
+      "layer": "entity",
+      "summary": "Absolute Dual Quadric (concept)",
+      "detail": "A degenerate dual quadric in projective 3D space represented by a rank 3 homogeneous symmetric matrix.",
+      "title": "Absolute Dual Quadric (concept)",
+      "text": "A degenerate dual quadric in projective 3D space represented by a rank 3 homogeneous symmetric matrix.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-071d9929",
+        "SPAN-264d23e9",
+        "SPAN-2f44479c",
+        "SPAN-45ecf7b0",
+        "SPAN-59492192",
+        "SPAN-a73420e9",
+        "SPAN-c6513d07",
+        "SPAN-e190cb04",
+        "SPAN-e2bd549c",
+        "SPAN-efb61c6a"
+      ],
+      "locator": {
+        "source_id": 26,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Vision/Auto Calibration.md",
+        "heading": "2.2. 한계점",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s3",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 34,
+      "expansion_handle": "EXP-8de1e168045f",
+      "verification_handle": "VER-8de1e168045f"
+    },
+    {
+      "item_id": "ENT-2551b1b9",
+      "record_id": "ENT-2551b1b9",
+      "record_hash": "9c5ee43eab39bd512ea6e09fd2b47793f6262d93ec005baf64de0d16ac406e1e",
+      "kind": "entity",
+      "layer": "entity",
+      "summary": "Absolute Line Quadric (concept)",
+      "detail": "A codimension 1 object in projective space that represents the geometric locus of all lines intersecting the absolute conic.",
+      "title": "Absolute Line Quadric (concept)",
+      "text": "A codimension 1 object in projective space that represents the geometric locus of all lines intersecting the absolute conic.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-be8a3706"
+      ],
+      "locator": {
+        "source_id": 20,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Papers/PoseEst/The Absolute Line Quadric and Camera Autocalibration.md",
+        "heading": "💡 Review & Synthesis",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s1",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 42,
+      "expansion_handle": "EXP-a32e125311eb",
+      "verification_handle": "VER-a32e125311eb"
+    },
+    {
+      "item_id": "ENT-3246e195",
+      "record_id": "ENT-3246e195",
+      "record_hash": "e4dc30e11c6af3a923b2aa0698da8da34512384ae17ac0c05a8f52ec11a9ca62",
+      "kind": "entity",
+      "layer": "entity",
+      "summary": "Klein Quadric (concept)",
+      "detail": "A specific quadric surface in 5D projective space upon which all 3D lines are mapped.",
+      "title": "Klein Quadric (concept)",
+      "text": "A specific quadric surface in 5D projective space upon which all 3D lines are mapped.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-63d75811"
+      ],
+      "locator": {
+        "source_id": 25,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Vision/Silhouette Based Reconstruction.md",
+        "heading": "3.3 Dual Plücker Line으로의 확장과 그 이유",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s8",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 29,
+      "expansion_handle": "EXP-f2c06e30960a",
+      "verification_handle": "VER-f2c06e30960a"
+    },
+    {
+      "item_id": "ENT-79a5664d",
+      "record_id": "ENT-79a5664d",
+      "record_hash": "f40d6701f384ffa64f7c121b65118b66af0a740a0ce47dbec416ee48579b5e8a",
+      "kind": "entity",
+      "layer": "entity",
+      "summary": "QuadricSLAM (system)",
+      "detail": "A system that combines object detection and SLAM to simultaneously estimate camera positions and 3D landmark representations of objects.",
+      "title": "QuadricSLAM (system)",
+      "text": "A system that combines object detection and SLAM to simultaneously estimate camera positions and 3D landmark representations of objects.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-31477ea5",
+        "SPAN-3249e8ff",
+        "SPAN-40d7121e",
+        "SPAN-46b0a2f5",
+        "SPAN-5a4590d1",
+        "SPAN-621716b9",
+        "SPAN-642b4fae",
+        "SPAN-8797f26f",
+        "SPAN-9399afb9",
+        "SPAN-c254fe53",
+        "SPAN-d1f5ab75",
+        "SPAN-ee94e1c2"
+      ],
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "II Related Work",
+        "block_id": null,
+        "page_number": 2,
+        "toc_id": "s2",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      },
+      "token_cost": 46,
+      "expansion_handle": "EXP-d6ffbe12e4cd",
+      "verification_handle": "VER-d6ffbe12e4cd"
+    },
+    {
+      "item_id": "ENT-48ba44aa",
+      "record_id": "ENT-48ba44aa",
+      "record_hash": "be3fb98cb251a052ea0d58ccb3b697441200506f616faa50b8c1df5834dc3a85",
+      "kind": "entity",
+      "layer": "entity",
+      "summary": "QuadricSLAMf (system)",
+      "detail": "A variant of QuadricSLAM evaluated using Fovis as the visual odometry source.",
+      "title": "QuadricSLAMf (system)",
+      "text": "A variant of QuadricSLAM evaluated using Fovis as the visual odometry source.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-8797f26f"
+      ],
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "VI Experiments and Evaluation",
+        "block_id": null,
+        "page_number": 5,
+        "toc_id": "s17",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      },
+      "token_cost": 26,
+      "expansion_handle": "EXP-bfa8ebbcaae5",
+      "verification_handle": "VER-bfa8ebbcaae5"
+    },
+    {
+      "item_id": "SPAN-071d9929",
+      "record_id": "SPAN-071d9929",
+      "record_hash": "6a92ba418de812a6683e17a86e368f8b44c64785106df46a663aaf0e48573c7d",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "2.2. 한계점",
+      "detail": "- **Positivie Semi-Definite (PSD) 조건**\n1. Absolute Dual Quadric $Q^*_{\\infty}$는 Euclidean 공간에서 $\\tilde{I} = \\operatorname{diag}(1, 1, 1, 0)$의 형태를 가지며, 임의의 사영 변환 $H$에 대해 $Q^*_{\\infty} = H\\tilde{I}H^{T}$ 형태로 표현됩니다. $\\tilde{I}$가 PSD 행렬이므로, congruence 변환 관계에 의해 복원된 $Q^{\\ast}_{\\infty}$ 역시 반드시 PSD 조건(모든 고윳값 $\\geq 0$)을 만족해야 합니다.\n2. 단순히 선형 계산을 수행한 뒤 SVD를 통해 가장 작은 특이값 하나를 0으로 만들어 랭크를 3으로 낮추더라도, 남은 세 고윳값의 부호가 양수와 음수로 혼합되어 있으면 PSD 조건이 위배됩니다.\n3. PSD 조건이 깨지면 카메라 내부 파라미터 행렬 $K$를 복원하기 위한 Cholesky 분해($\\omega^* = KK^{T}$)를 수행할 수 없게 되므로, 물리적으로 유효한 내부 파라미터 값을 얻을 수 없습니다.\n- **$\\pi_{\\infty}$의 기하학적 왜곡 발생 (장면 관통 현상)**\n1. Absolute Dual Quadric $Q^*_{\\infty}$는 랭크가 반드시 3이어야 하며, $\\det(Q^*_{\\infty}) = 0$ 및 $Q^*_{\\infty} \\pi_{\\infty} = \\mathbf{0}$을 만족해야 합니다. 즉, $Q^{\\ast}_{\\infty}$의 영공간(Null space)은 무한대 평면 $\\pi_{\\infty}$를 유일하게 결정합니다.\n2. 이미지 노이즈가 존재하는 상태에서 단순한 대수적 SVD 투영으로 랭크만 낮추게 되면, 구해진 무한대 평면 $\\pi_{\\infty}$의 위치가 기하학적으로 심하게 왜곡됩니다.\n3. 이로 인해 사영 공간에서 복원된 3D 장면의 점들 한가운데를 무한대 평면 $\\pi_{\\infty}$가 관통하는 치명적인 오류가 생길 수 있습니다. 실제 물리적 공간(Euclidean 공간)에서 무한대 평면은 모든 유한한 점들의 바깥에 존재해야 하므로, 이 평면이 장면을 관통하면 평면을 경계로 일부 점들이 카메라 뒤쪽(무한대 너머)으로 뒤집히는 기하학적 모순(Chirality 위배)이 발생합니다.",
+      "title": "2.2. 한계점",
+      "text": "- **Positivie Semi-Definite (PSD) 조건**\n1. Absolute Dual Quadric $Q^*_{\\infty}$는 Euclidean 공간에서 $\\tilde{I} = \\operatorname{diag}(1, 1, 1, 0)$의 형태를 가지며, 임의의 사영 변환 $H$에 대해 $Q^*_{\\infty} = H\\tilde{I}H^{T}$ 형태로 표현됩니다. $\\tilde{I}$가 PSD 행렬이므로, congruence 변환 관계에 의해 복원된 $Q^{\\ast}_{\\infty}$ 역시 반드시 PSD 조건(모든 고윳값 $\\geq 0$)을 만족해야 합니다.\n2. 단순히 선형 계산을 수행한 뒤 SVD를 통해 가장 작은 특이값 하나를 0으로 만들어 랭크를 3으로 낮추더라도, 남은 세 고윳값의 부호가 양수와 음수로 혼합되어 있으면 PSD 조건이 위배됩니다.\n3. PSD 조건이 깨지면 카메라 내부 파라미터 행렬 $K$를 복원하기 위한 Cholesky 분해($\\omega^* = KK^{T}$)를 수행할 수 없게 되므로, 물리적으로 유효한 내부 파라미터 값을 얻을 수 없습니다.\n- **$\\pi_{\\infty}$의 기하학적 왜곡 발생 (장면 관통 현상)**\n1. Absolute Dual Quadric $Q^*_{\\infty}$는 랭크가 반드시 3이어야 하며, $\\det(Q^*_{\\infty}) = 0$ 및 $Q^*_{\\infty} \\pi_{\\infty} = \\mathbf{0}$을 만족해야 합니다. 즉, $Q^{\\ast}_{\\infty}$의 영공간(Null space)은 무한대 평면 $\\pi_{\\infty}$를 유일하게 결정합니다.\n2. 이미지 노이즈가 존재하는 상태에서 단순한 대수적 SVD 투영으로 랭크만 낮추게 되면, 구해진 무한대 평면 $\\pi_{\\infty}$의 위치가 기하학적으로 심하게 왜곡됩니다.\n3. 이로 인해 사영 공간에서 복원된 3D 장면의 점들 한가운데를 무한대 평면 $\\pi_{\\infty}$가 관통하는 치명적인 오류가 생길 수 있습니다. 실제 물리적 공간(Euclidean 공간)에서 무한대 평면은 모든 유한한 점들의 바깥에 존재해야 하므로, 이 평면이 장면을 관통하면 평면을 경계로 일부 점들이 카메라 뒤쪽(무한대 너머)으로 뒤집히는 기하학적 모순(Chirality 위배)이 발생합니다.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-071d9929"
+      ],
+      "locator": {
+        "source_id": 26,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Vision/Auto Calibration.md",
+        "heading": "2.2. 한계점",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s3",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 679,
+      "expansion_handle": "EXP-4c1461ceddac",
+      "verification_handle": "VER-4c1461ceddac"
+    },
+    {
+      "item_id": "SPAN-0dadd5bc",
+      "record_id": "SPAN-0dadd5bc",
+      "record_hash": "83d59040c7d4e5910667b220d91bd2b9f8dbcb1f89edbd057f74a81fda0cda35",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "II Related Work",
+      "detail": "In its general form, a dual quadric can represent both closed surfaces such as spheres and ellipsoids and non-closed surfaces such as paraboloids or hyperboloids. As only the former are meaningful representations of object landmarks, we use a constrained dual quadric representation that ensures the represented surface is an ellipsoid or sphere.",
+      "title": "II Related Work",
+      "text": "In its general form, a dual quadric can represent both closed surfaces such as spheres and ellipsoids and non-closed surfaces such as paraboloids or hyperboloids. As only the former are meaningful representations of object landmarks, we use a constrained dual quadric representation that ensures the represented surface is an ellipsoid or sphere.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-0dadd5bc"
+      ],
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "II Related Work",
+        "block_id": null,
+        "page_number": 2,
+        "toc_id": "s2",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      },
+      "token_cost": 116,
+      "expansion_handle": "EXP-3f38afdfe855",
+      "verification_handle": "VER-3f38afdfe855"
+    },
+    {
+      "item_id": "SPAN-264d23e9",
+      "record_id": "SPAN-264d23e9",
+      "record_hash": "be6c500d48c76187bb614ac64cb46a8f0a00b39195eea33e4e3ef5cc194db64c",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "5.4.2 Pose 추정의 모호성(Ambiguity)과 해소",
+      "detail": "> [!SUMMARY] **핵심 요약: 왜 Apparent Contour로 Pose를 찾을 수 있는가?**\n>\n> 1. **$C^* = P Q^* P^T$** (1절): Apparent Contour는 Quadric의 3D 정보를 이미지 평면으로 \"운반\"하는 기하학적 통로입니다. 관측된 $C$와 기지의 $Q$ 사이의 이 대수적 관계가 $P$에 대한 직접적인 제약을 제공합니다.\n> 2. **${L^*}^T \\tilde{\\mathcal{M}}(Q) L^* = 0$** (3.3절): 실루엣 경계의 각 점은 Quadric에 접하는 3D 광선을 정의하며, 충분한 수의 광선은 $Q$와 카메라 포즈의 동시 추정을 가능하게 합니다.\n> 3. **$\\omega^* = P Q_{\\infty}^* P^T$** (4절): 내부 파라미터 $K$가 미지인 경우에도 $Q_{\\infty}^*$를 통해 Auto-Calibration이 가능하며, 이는 카메라 포즈 추정의 전제 조건을 충족시킵니다.\n> 4. **$\\mathbf{X}_{\\infty} = Q_{\\infty}^* \\boldsymbol{\\pi}$** (5.3절): 평면과 법선 방향 사이의 대수적 대응은 카메라의 방향(회전) 성분을 평면 제약으로부터 직접 추출할 수 있는 이론적 근거를 제공합니다.",
+      "title": "5.4.2 Pose 추정의 모호성(Ambiguity)과 해소",
+      "text": "> [!SUMMARY] **핵심 요약: 왜 Apparent Contour로 Pose를 찾을 수 있는가?**\n>\n> 1. **$C^* = P Q^* P^T$** (1절): Apparent Contour는 Quadric의 3D 정보를 이미지 평면으로 \"운반\"하는 기하학적 통로입니다. 관측된 $C$와 기지의 $Q$ 사이의 이 대수적 관계가 $P$에 대한 직접적인 제약을 제공합니다.\n> 2. **${L^*}^T \\tilde{\\mathcal{M}}(Q) L^* = 0$** (3.3절): 실루엣 경계의 각 점은 Quadric에 접하는 3D 광선을 정의하며, 충분한 수의 광선은 $Q$와 카메라 포즈의 동시 추정을 가능하게 합니다.\n> 3. **$\\omega^* = P Q_{\\infty}^* P^T$** (4절): 내부 파라미터 $K$가 미지인 경우에도 $Q_{\\infty}^*$를 통해 Auto-Calibration이 가능하며, 이는 카메라 포즈 추정의 전제 조건을 충족시킵니다.\n> 4. **$\\mathbf{X}_{\\infty} = Q_{\\infty}^* \\boldsymbol{\\pi}$** (5.3절): 평면과 법선 방향 사이의 대수적 대응은 카메라의 방향(회전) 성분을 평면 제약으로부터 직접 추출할 수 있는 이론적 근거를 제공합니다.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-264d23e9"
+      ],
+      "locator": {
+        "source_id": 25,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Vision/Silhouette Based Reconstruction.md",
+        "heading": "5.4.2 Pose 추정의 모호성(Ambiguity)과 해소",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s28",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 358,
+      "expansion_handle": "EXP-59473e8a8bf6",
+      "verification_handle": "VER-59473e8a8bf6"
+    },
+    {
+      "item_id": "SPAN-2f44479c",
+      "record_id": "SPAN-2f44479c",
+      "record_hash": "885bda8848783896b7aee09454a0b5564887705ce60c86bfacf1aa902d60c3b8",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "5.3 $Q_{\\infty}^*$의 대수적 매핑 성질과 Auto-Calibration 연결",
+      "detail": "> [!IMPORTANT] **$Q_{\\infty}^*$의 특이성(Singularity)과 대수적 매핑 성질**\n> * **랭크 3의 특이 행렬**: Absolute Dual Quadric $Q_{\\infty}^*$는 랭크가 3인 특이 행렬(singular matrix)이며, 무한대 평면 $\\boldsymbol{\\pi}_{\\infty}$를 null space로 가집니다 ($\\mathbf{0} = Q_{\\infty}^* \\boldsymbol{\\pi}_{\\infty}$).\n> * **평면에서 극(Pole)으로의 사상**: 임의의 평면 $\\boldsymbol{\\pi}$ (무한대 평면 $\\boldsymbol{\\pi}_{\\infty}$ 제외)가 주어지면, 그 극(Pole)에 해당하는 무한원점 $\\mathbf{X}_{\\infty}$는 다음과 같이 고유하게 정의됩니다:\n>",
+      "title": "5.3 $Q_{\\infty}^*$의 대수적 매핑 성질과 Auto-Calibration 연결",
+      "text": "> [!IMPORTANT] **$Q_{\\infty}^*$의 특이성(Singularity)과 대수적 매핑 성질**\n> * **랭크 3의 특이 행렬**: Absolute Dual Quadric $Q_{\\infty}^*$는 랭크가 3인 특이 행렬(singular matrix)이며, 무한대 평면 $\\boldsymbol{\\pi}_{\\infty}$를 null space로 가집니다 ($\\mathbf{0} = Q_{\\infty}^* \\boldsymbol{\\pi}_{\\infty}$).\n> * **평면에서 극(Pole)으로의 사상**: 임의의 평면 $\\boldsymbol{\\pi}$ (무한대 평면 $\\boldsymbol{\\pi}_{\\infty}$ 제외)가 주어지면, 그 극(Pole)에 해당하는 무한원점 $\\mathbf{X}_{\\infty}$는 다음과 같이 고유하게 정의됩니다:\n>",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-2f44479c"
+      ],
+      "locator": {
+        "source_id": 25,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Vision/Silhouette Based Reconstruction.md",
+        "heading": "5.3 $Q_{\\infty}^*$의 대수적 매핑 성질과 Auto-Calibration 연결",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s25",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 206,
+      "expansion_handle": "EXP-b7dbc9ae67e6",
+      "verification_handle": "VER-b7dbc9ae67e6"
+    },
+    {
+      "item_id": "SPAN-31477ea5",
+      "record_id": "SPAN-31477ea5",
+      "record_hash": "e9748331dc2268b47652b18a07913eeeab3763b73728709bbceb4e1029369b9a",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "II Related Work",
+      "detail": "We explored initial ideas of using dual quadrics as landmarks in factor-graph SLAM in [16]. This unpublished preliminary work proposed an algebraic error formulation that proved to be not robust in situations where object landmarks are only partially visible. We overcome this problem by a novel geometric error formulation in this paper. In contrast to [16], we constrain the quadric landmarks to be ellipsoids, initialize them correctly, and present a large-scale evaluation in a high-fidelity simulation environment and on real-world image sequences.",
+      "title": "II Related Work",
+      "text": "We explored initial ideas of using dual quadrics as landmarks in factor-graph SLAM in [16]. This unpublished preliminary work proposed an algebraic error formulation that proved to be not robust in situations where object landmarks are only partially visible. We overcome this problem by a novel geometric error formulation in this paper. In contrast to [16], we constrain the quadric landmarks to be ellipsoids, initialize them correctly, and present a large-scale evaluation in a high-fidelity simulation environment and on real-world image sequences.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-31477ea5"
+      ],
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "II Related Work",
+        "block_id": null,
+        "page_number": 2,
+        "toc_id": "s2",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      },
+      "token_cost": 185,
+      "expansion_handle": "EXP-cb2f201f288d",
+      "verification_handle": "VER-cb2f201f288d"
+    },
+    {
+      "item_id": "SPAN-3249e8ff",
+      "record_id": "SPAN-3249e8ff",
+      "record_hash": "77b0f44765b1424230c4dac73d53ae26ec3f70f295790c77b11a34b749a8161e",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "VI Experiments and Evaluation",
+      "detail": "We evaluate the use of quadric landmarks on a number of sequences from the publicly available TUM RGB-D [13] dataset, and compare the localization performance against state-of-theart techniques. These real world image sequences demonstrate the effectiveness of our method under realistic conditions. We further evaluate the quality of the constructed landmarks in a high-fidelity simulation environment with ground truth 3D object shapes and positions.",
+      "title": "VI Experiments and Evaluation",
+      "text": "We evaluate the use of quadric landmarks on a number of sequences from the publicly available TUM RGB-D [13] dataset, and compare the localization performance against state-of-theart techniques. These real world image sequences demonstrate the effectiveness of our method under realistic conditions. We further evaluate the quality of the constructed landmarks in a high-fidelity simulation environment with ground truth 3D object shapes and positions.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-3249e8ff"
+      ],
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "VI Experiments and Evaluation",
+        "block_id": null,
+        "page_number": 5,
+        "toc_id": "s17",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      },
+      "token_cost": 151,
+      "expansion_handle": "EXP-f7952496fbe1",
+      "verification_handle": "VER-f7952496fbe1"
+    },
+    {
+      "item_id": "SPAN-40d7121e",
+      "record_id": "SPAN-40d7121e",
+      "record_hash": "9e1fcdc96877029062d98521b67b9cd79182e0a70a161335dabc158399e6d4fe",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "VI Experiments and Evaluation",
+      "detail": "Real world datasets provide an excellent opportunity to expose quadric landmarks to an array of challenges. Image noise, motion blur, poor focus, dynamic lighting, occlusions, and moving objects are just some of the difficulties we face in the real world. We use 4 sequences from the TUM RGB-D[2] dataset (fr1 desk, fr1 desk2, fr2 desk, fr3 office) to evaluate the estimated camera trajectory under realistic conditions. In these experiments, we compare the Absolute Trajectory Error (ATE) of the estimated camera poses against ORBSLAM2 [18], as well as our sources of odometry measurements.",
+      "title": "VI Experiments and Evaluation",
+      "text": "Real world datasets provide an excellent opportunity to expose quadric landmarks to an array of challenges. Image noise, motion blur, poor focus, dynamic lighting, occlusions, and moving objects are just some of the difficulties we face in the real world. We use 4 sequences from the TUM RGB-D[2] dataset (fr1 desk, fr1 desk2, fr2 desk, fr3 office) to evaluate the estimated camera trajectory under realistic conditions. In these experiments, we compare the Absolute Trajectory Error (ATE) of the estimated camera poses against ORBSLAM2 [18], as well as our sources of odometry measurements.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-40d7121e"
+      ],
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "VI Experiments and Evaluation",
+        "block_id": null,
+        "page_number": 5,
+        "toc_id": "s17",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      },
+      "token_cost": 197,
+      "expansion_handle": "EXP-54db8ec35bfd",
+      "verification_handle": "VER-54db8ec35bfd"
+    },
+    {
+      "item_id": "SPAN-45ecf7b0",
+      "record_id": "SPAN-45ecf7b0",
+      "record_hash": "e1e10a279b7430ad3cf49684c2c080ff458db9605d011f7a34808e2bd08cc516",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "1. Absolute Quadric $Q_{\\infty}^{\\ast}$를 통해 Calibration 하는 방법",
+      "detail": "$$\\omega^{\\ast}=PQ_{\\infty}^{\\ast}P^{T}=KK^{T} $$",
+      "title": "1. Absolute Quadric $Q_{\\infty}^{\\ast}$를 통해 Calibration 하는 방법",
+      "text": "$$\\omega^{\\ast}=PQ_{\\infty}^{\\ast}P^{T}=KK^{T} $$",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-45ecf7b0"
+      ],
+      "locator": {
+        "source_id": 26,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Vision/Auto Calibration.md",
+        "heading": "1. Absolute Quadric $Q_{\\infty}^{\\ast}$를 통해 Calibration 하는 방법",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s1",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 17,
+      "expansion_handle": "EXP-e748e0c63a43",
+      "verification_handle": "VER-e748e0c63a43"
+    },
+    {
+      "item_id": "SPAN-46b0a2f5",
+      "record_id": "SPAN-46b0a2f5",
+      "record_hash": "1a4b1d1adff5d0dfb6547db5a84313b9213515fcfd92e2ab710d9dc40593a3f0",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "VII Conclusions and Future Work",
+      "detail": "In conclusion, QuadricSLAM combines state-of-the-art object detection and SLAM techniques in order to simultaneously estimate the optimal camera position and a 3D landmark representation of objects within the environment. The introduction of object based landmarks, such as dual quadrics, is _essential_ to the development of semantically meaningful, object-oriented robotic maps.",
+      "title": "VII Conclusions and Future Work",
+      "text": "In conclusion, QuadricSLAM combines state-of-the-art object detection and SLAM techniques in order to simultaneously estimate the optimal camera position and a 3D landmark representation of objects within the environment. The introduction of object based landmarks, such as dual quadrics, is _essential_ to the development of semantically meaningful, object-oriented robotic maps.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-46b0a2f5"
+      ],
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "VII Conclusions and Future Work",
+        "block_id": null,
+        "page_number": 7,
+        "toc_id": "s22",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      },
+      "token_cost": 127,
+      "expansion_handle": "EXP-c4997a83c6c7",
+      "verification_handle": "VER-c4997a83c6c7"
+    },
+    {
+      "item_id": "SPAN-59492192",
+      "record_id": "SPAN-59492192",
+      "record_hash": "6385a8ed503cd2cfd9270da5a6eb9beac57e885a6dc5d02a4162ef58bf553148",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "1. Notations",
+      "detail": "- **Quadric** $Q$ ^quadric - Rank에 따른 Quadric의 분류 (Classification by Rank) - $4 \\times 4$ 대칭 행렬 $Q$가 주어졌을 때, 이 행렬의 **rank**는 해당 **quadric**의 기하학적 형태를 결정짓는 가장 중요한 척도입니다. - Non-singular quadric (Rank = ",
+      "title": "1. Notations",
+      "text": "- **Quadric** $Q$ ^quadric - Rank에 따른 Quadric의 분류 (Classification by Rank) - $4 \\times 4$ 대칭 행렬 $Q$가 주어졌을 때, 이 행렬의 **rank**는 해당 **quadric**의 기하학적 형태를 결정짓는 가장 중요한 척도입니다. - Non-singular quadric (Rank = ",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "stale",
+      "source_span_ids": [
+        "SPAN-59492192"
+      ],
+      "locator": {
+        "source_id": 27,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Vision/MultipleViewGeometry.md",
+        "heading": "1. Notations",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s3",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 97,
+      "expansion_handle": "EXP-5485e866add1",
+      "verification_handle": "VER-5485e866add1"
+    },
+    {
+      "item_id": "SPAN-5a4590d1",
+      "record_id": "SPAN-5a4590d1",
+      "record_hash": "cf0fde41c640027a2ae7260aa23cb2ca466c6ed71f3797c8b4e059c8b18936d1",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "VI Experiments and Evaluation",
+      "detail": "We implement the SLAM problem (7), coined QuadricSLAM, as a factor graph using GTSAM [32]. The robot poses and dual quadrics, _X[∗]_ and _Q[∗]_ , populate the latent variables of the graph, connected with odometry factors _U_ , and 2D bounding box factors _B_ . As a rough approximation",
+      "title": "VI Experiments and Evaluation",
+      "text": "We implement the SLAM problem (7), coined QuadricSLAM, as a factor graph using GTSAM [32]. The robot poses and dual quadrics, _X[∗]_ and _Q[∗]_ , populate the latent variables of the graph, connected with odometry factors _U_ , and 2D bounding box factors _B_ . As a rough approximation",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-5a4590d1"
+      ],
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "VI Experiments and Evaluation",
+        "block_id": null,
+        "page_number": 5,
+        "toc_id": "s17",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      },
+      "token_cost": 97,
+      "expansion_handle": "EXP-1c6b9029a481",
+      "verification_handle": "VER-1c6b9029a481"
+    },
+    {
+      "item_id": "SPAN-621716b9",
+      "record_id": "SPAN-621716b9",
+      "record_hash": "3fc9f837f1cada976f9e88dbce2a76a2c731e54ff40c65ee6180232715655d96",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "II Related Work",
+      "detail": "graphic camera [15], or used an _algebraic_ error that proved to be invalid when landmarks are only partially visible [16]. In this new work we perform full SLAM, i.e. Simultaneous Localization _And_ Mapping, with a general _perspective_ camera and a more robust _geometric_ error. Furthermore, previous work [14], [15] required ellipse fitting as a pre-processing step: here we show that dual quadrics can be estimated in SLAM directly from bounding boxes.",
+      "title": "II Related Work",
+      "text": "graphic camera [15], or used an _algebraic_ error that proved to be invalid when landmarks are only partially visible [16]. In this new work we perform full SLAM, i.e. Simultaneous Localization _And_ Mapping, with a general _perspective_ camera and a more robust _geometric_ error. Furthermore, previous work [14], [15] required ellipse fitting as a pre-processing step: here we show that dual quadrics can be estimated in SLAM directly from bounding boxes.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-621716b9"
+      ],
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "II Related Work",
+        "block_id": null,
+        "page_number": 2,
+        "toc_id": "s2",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      },
+      "token_cost": 153,
+      "expansion_handle": "EXP-5b8d07959536",
+      "verification_handle": "VER-5b8d07959536"
+    },
+    {
+      "item_id": "SPAN-63d75811",
+      "record_id": "SPAN-63d75811",
+      "record_hash": "cbafd657a7be4e712e03ba683b61c5d845b5923ca894704179eba67db09e1381",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "3.3 Dual Plücker Line으로의 확장과 그 이유",
+      "detail": "- **주요 특징**: 1. **Plücker line coordinates를 이용한 Dual Quadric 형태**: Plücker 공간 상에서 곡면과의 접선 조건을 만족하는 dual quadric의 역할을 합니다. 2. **6D 대칭 행렬의 자유도**: 명목상 $6 \\times 6$ 대칭 행렬로서 21개의 독립 성분(20 DoF, scale factor",
+      "title": "3.3 Dual Plücker Line으로의 확장과 그 이유",
+      "text": "- **주요 특징**: 1. **Plücker line coordinates를 이용한 Dual Quadric 형태**: Plücker 공간 상에서 곡면과의 접선 조건을 만족하는 dual quadric의 역할을 합니다. 2. **6D 대칭 행렬의 자유도**: 명목상 $6 \\times 6$ 대칭 행렬로서 21개의 독립 성분(20 DoF, scale factor",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "stale",
+      "source_span_ids": [
+        "SPAN-63d75811"
+      ],
+      "locator": {
+        "source_id": 25,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Vision/Silhouette Based Reconstruction.md",
+        "heading": "3.3 Dual Plücker Line으로의 확장과 그 이유",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s8",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 106,
+      "expansion_handle": "EXP-b10601369f62",
+      "verification_handle": "VER-b10601369f62"
+    },
+    {
+      "item_id": "SPAN-642b4fae",
+      "record_id": "SPAN-642b4fae",
+      "record_hash": "d664bf8365dc16c2655dea86a9f5cbdd8ea460c96052fb3c40d07f644c8f72ec",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "VII Conclusions and Future Work",
+      "detail": "The results show that quadric landmarks significantly improve the quality of the robot trajectory and the estimated map, providing accurate high level information about the shape and position of objects within the environment. Explicitly, the geometric error gains a 65.2% improvement on trajectory error and a 70.4%, 26.7% and 30.6% improvement on landmark position, shape and quality. The correcting effect of the quadric landmarks on the estimated trajectory is a result of reobserving the landmarks between frames, helping to mitigate accumulated odometry errors.",
+      "title": "VII Conclusions and Future Work",
+      "text": "The results show that quadric landmarks significantly improve the quality of the robot trajectory and the estimated map, providing accurate high level information about the shape and position of objects within the environment. Explicitly, the geometric error gains a 65.2% improvement on trajectory error and a 70.4%, 26.7% and 30.6% improvement on landmark position, shape and quality. The correcting effect of the quadric landmarks on the estimated trajectory is a result of reobserving the landmarks between frames, helping to mitigate accumulated odometry errors.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-642b4fae"
+      ],
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "VII Conclusions and Future Work",
+        "block_id": null,
+        "page_number": 7,
+        "toc_id": "s22",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      },
+      "token_cost": 189,
+      "expansion_handle": "EXP-01deea059968",
+      "verification_handle": "VER-01deea059968"
+    },
+    {
+      "item_id": "SPAN-8797f26f",
+      "record_id": "SPAN-8797f26f",
+      "record_hash": "e445a130bba0543aecf3268b945eba16c5d8e5c283f794eab77cbe020da232b5",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "VI Experiments and Evaluation",
+      "detail": "We evaluate the localization performance of our method given two sources of visual odometry. Fovis [31] (QuadricSLAMf) and ORB-SLAM2 with loop closures disabled (QuadricSLAMo). Object detections have been generated using the YOLOv3 [12] detector with pretrained weights, and associations between individual detections and distinct physical objects have been provided by a set of manual annotations.",
+      "title": "VI Experiments and Evaluation",
+      "text": "We evaluate the localization performance of our method given two sources of visual odometry. Fovis [31] (QuadricSLAMf) and ORB-SLAM2 with loop closures disabled (QuadricSLAMo). Object detections have been generated using the YOLOv3 [12] detector with pretrained weights, and associations between individual detections and distinct physical objects have been provided by a set of manual annotations.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-8797f26f"
+      ],
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "VI Experiments and Evaluation",
+        "block_id": null,
+        "page_number": 5,
+        "toc_id": "s17",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      },
+      "token_cost": 133,
+      "expansion_handle": "EXP-d3af95771766",
+      "verification_handle": "VER-d3af95771766"
+    },
+    {
+      "item_id": "SPAN-9399afb9",
+      "record_id": "SPAN-9399afb9",
+      "record_hash": "acbd8ff482f5525fc617f75797d2b5d2cccfdc39533887d29aa209fa1edbf8e3",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "VI Experiments and Evaluation",
+      "detail": "The quantitative results of our experiments on the TUM sequences can be found in Table I. These results clearly show an improvement in trajectory quality over the foviz visual odometry, but display a slight decrease in performance when compared to ORB-SLAM2. This performance loss is expected to be caused by a combination of poor constant noise estimates for the non-Gaussian bounding box measurements, and object occlusions, which create significantly smaller bounding boxes and negatively impact the estimated trajectory.",
+      "title": "VI Experiments and Evaluation",
+      "text": "The quantitative results of our experiments on the TUM sequences can be found in Table I. These results clearly show an improvement in trajectory quality over the foviz visual odometry, but display a slight decrease in performance when compared to ORB-SLAM2. This performance loss is expected to be caused by a combination of poor constant noise estimates for the non-Gaussian bounding box measurements, and object occlusions, which create significantly smaller bounding boxes and negatively impact the estimated trajectory.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-9399afb9"
+      ],
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "VI Experiments and Evaluation",
+        "block_id": null,
+        "page_number": 5,
+        "toc_id": "s17",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      },
+      "token_cost": 175,
+      "expansion_handle": "EXP-e0cf0a30b64a",
+      "verification_handle": "VER-e0cf0a30b64a"
+    },
+    {
+      "item_id": "SPAN-a73420e9",
+      "record_id": "SPAN-a73420e9",
+      "record_hash": "aa2fdb8ad53d2ffad04fbde19ac93d7704aca01b00095e0843c2907d9fc0c55b",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "2.4. Ambiguities",
+      "detail": "Kruppa 방정식이 3개 이상의 뷰에서 다른 방법들보다 WEAK CONSTRAINTS를 제공하는 (즉, 모호한 가짜 해가 더 많이 발생하는) 구체적인 물리적 이유는 다음과 같다.\n1. View-pair 단위의 한계: Kruppa 제약조건은 여러 카메라 뷰 전체의 기하학적 일관성을 한번에 고려하지 못하고, 오직 두 뷰 사이의 dual 관계만을 다룬다.\n2. **Common support plane 강제 불가**: 3D 공간에서 Absolute conic은 오직 하나의 plane at infinity 위에만 존재한다. 하지만 Kruppa 방정식은 여러 뷰에 걸쳐 이 평면이 단 하나로 통일되도록 강제하지 못한다.\n3. Degenerate 조건 누락: 3D Dual Quadric이 평면 위의 Absolute conic으로 올바르게 degenerate되어야 하는데, 이 성질을 수식적으로 보장하지 못함.",
+      "title": "2.4. Ambiguities",
+      "text": "Kruppa 방정식이 3개 이상의 뷰에서 다른 방법들보다 WEAK CONSTRAINTS를 제공하는 (즉, 모호한 가짜 해가 더 많이 발생하는) 구체적인 물리적 이유는 다음과 같다.\n1. View-pair 단위의 한계: Kruppa 제약조건은 여러 카메라 뷰 전체의 기하학적 일관성을 한번에 고려하지 못하고, 오직 두 뷰 사이의 dual 관계만을 다룬다.\n2. **Common support plane 강제 불가**: 3D 공간에서 Absolute conic은 오직 하나의 plane at infinity 위에만 존재한다. 하지만 Kruppa 방정식은 여러 뷰에 걸쳐 이 평면이 단 하나로 통일되도록 강제하지 못한다.\n3. Degenerate 조건 누락: 3D Dual Quadric이 평면 위의 Absolute conic으로 올바르게 degenerate되어야 하는데, 이 성질을 수식적으로 보장하지 못함.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-a73420e9"
+      ],
+      "locator": {
+        "source_id": 26,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Vision/Auto Calibration.md",
+        "heading": "2.4. Ambiguities",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s14",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 280,
+      "expansion_handle": "EXP-072a8a6be275",
+      "verification_handle": "VER-072a8a6be275"
+    },
+    {
+      "item_id": "SPAN-be8a3706",
+      "record_id": "SPAN-be8a3706",
+      "record_hash": "3e115046cdc380a9fa29346f23b2ff4c09dbf9ab4f025c5e16ef0b441d1415b4",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "💡 Review & Synthesis",
+      "detail": "> [!info] Core Contribution\n> {% persist \"Core Contribution\" %}\n> - **Problem:** 카메라 자기보정(Autocalibration) 과정에서 유클리드 구조(Euclidean upgrade)를 복원하기 위해 절대 원추선(Absolute Conic)을 구해야 하지만, 절대 원추선은 3차원 공간에서 여차원(codimension)이 $2$인 객체로 직접적인 선형 추정이 불안정함. 쌍대 절대 이차곡면(DAQ)은 여차원이 $1$이지만 복잡한 표현적 한계가 존재함.\n> - **Methodology:** 투영 공간 $\\mathbb{P}^3$ 상의 모든 직선(lines)을 바이벡터(bivectors) 혹은 바이코벡터(bicovectors)로 표현하여 절대 원추선과 교차하는 모든 직선들의 기하학적 궤적을 설명하는 여차원 $1$의 객체인 **절대 선 이차곡면(Absolute Line Quadric, ALQ)** $\\tilde{Q}$를 도입하고, 외대수(Exterior algebra)를 통해 수학적으로 공식화함.\n> - [!example] Prerequisites (Foundations)\n> - 외대수(Exterior Algebra, Wedge Product, Contraction)\n> - 그라스만 다양체($G(1,3) \\subset P(\\Lambda^2 V)$) 및 클라인 이차곡면(Klein Quadric $\\Omega$)\n> - 쌍대 절대 이차곡면(Dual Absolute Quadric, DAQ $Q$)\n> - [!math] Mathematical Rigor\n> - **Key Formulation:**\n> DAQ $Q: V^* \\to V$로부터 유도되는 ALQ $\\tilde{Q}: \\Lambda^2 V^* \\to \\Lambda^2 V$의 정의:\n>",
+      "title": "💡 Review & Synthesis",
+      "text": "> [!info] Core Contribution\n> {% persist \"Core Contribution\" %}\n> - **Problem:** 카메라 자기보정(Autocalibration) 과정에서 유클리드 구조(Euclidean upgrade)를 복원하기 위해 절대 원추선(Absolute Conic)을 구해야 하지만, 절대 원추선은 3차원 공간에서 여차원(codimension)이 $2$인 객체로 직접적인 선형 추정이 불안정함. 쌍대 절대 이차곡면(DAQ)은 여차원이 $1$이지만 복잡한 표현적 한계가 존재함.\n> - **Methodology:** 투영 공간 $\\mathbb{P}^3$ 상의 모든 직선(lines)을 바이벡터(bivectors) 혹은 바이코벡터(bicovectors)로 표현하여 절대 원추선과 교차하는 모든 직선들의 기하학적 궤적을 설명하는 여차원 $1$의 객체인 **절대 선 이차곡면(Absolute Line Quadric, ALQ)** $\\tilde{Q}$를 도입하고, 외대수(Exterior algebra)를 통해 수학적으로 공식화함.\n> - [!example] Prerequisites (Foundations)\n> - 외대수(Exterior Algebra, Wedge Product, Contraction)\n> - 그라스만 다양체($G(1,3) \\subset P(\\Lambda^2 V)$) 및 클라인 이차곡면(Klein Quadric $\\Omega$)\n> - 쌍대 절대 이차곡면(Dual Absolute Quadric, DAQ $Q$)\n> - [!math] Mathematical Rigor\n> - **Key Formulation:**\n> DAQ $Q: V^* \\to V$로부터 유도되는 ALQ $\\tilde{Q}: \\Lambda^2 V^* \\to \\Lambda^2 V$의 정의:\n>",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-be8a3706"
+      ],
+      "locator": {
+        "source_id": 20,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Papers/PoseEst/The Absolute Line Quadric and Camera Autocalibration.md",
+        "heading": "💡 Review & Synthesis",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s1",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 448,
+      "expansion_handle": "EXP-2dca10153b1d",
+      "verification_handle": "VER-2dca10153b1d"
+    },
+    {
+      "item_id": "SPAN-c254fe53",
+      "record_id": "SPAN-c254fe53",
+      "record_hash": "70f413322449533443e7dd2255c21655572dc699fd7de331669cffc3c47fd485",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "I Introduction",
+      "detail": "In this paper we make the following contributions. We first show how to parametrize object landmarks in SLAM as _constrained dual quadrics_ . We then demonstrate that visual object detection systems such as YOLOv3 [12] can be used as _sensors_ in SLAM, and that their observations – the bounding boxes around objects – can directly constrain dual quadric parameters via our novel _geometric_ error formulation. To incorporate quadrics into SLAM, we derive a factor graph-based SLAM formulation that jointly estimates the dual quadric and robot pose parameters assuming solved data association. We provide a large-scale evaluation using 250 indoor trajectories through a high-fidelity simulation environment in combination with real world experiments on the TUM RGB-D [13] dataset to show how object detections and dual quadric parametrization aid the SLAM solution.",
+      "title": "I Introduction",
+      "text": "In this paper we make the following contributions. We first show how to parametrize object landmarks in SLAM as _constrained dual quadrics_ . We then demonstrate that visual object detection systems such as YOLOv3 [12] can be used as _sensors_ in SLAM, and that their observations – the bounding boxes around objects – can directly constrain dual quadric parameters via our novel _geometric_ error formulation. To incorporate quadrics into SLAM, we derive a factor graph-based SLAM formulation that jointly estimates the dual quadric and robot pose parameters assuming solved data association. We provide a large-scale evaluation using 250 indoor trajectories through a high-fidelity simulation environment in combination with real world experiments on the TUM RGB-D [13] dataset to show how object detections and dual quadric parametrization aid the SLAM solution.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-c254fe53"
+      ],
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "I Introduction",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s1",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      },
+      "token_cost": 290,
+      "expansion_handle": "EXP-eb833c1f71bd",
+      "verification_handle": "VER-eb833c1f71bd"
+    },
+    {
+      "item_id": "SPAN-c6513d07",
+      "record_id": "SPAN-c6513d07",
+      "record_hash": "1bad82b6df5a5d0a0397a22c6428ad542f2c6d3bfe382e0dbf56a6aa6e719800",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "4. Auto Calibration 연결 고리: Apparent Contour와 Absolute Conic의 관계",
+      "detail": "1. **공간 상의 대응**: 무한대 평면 $\\boldsymbol{\\pi}_{\\infty}$ 위에 존재하는 **Absolute Conic** $\\Omega_{\\infty}$의 dual 표현이 바로 **Absolute Dual Quadric** $Q_{\\infty}^*$입니다. $\\Omega_{\\infty}$가 무한대 평면 $\\boldsymbol{\\pi}_{\\infty}$ 위에 놓인 점들의 집합(rank 3 Primal conic)이라면, $Q_{\\infty}^*$는 그에 대응하는 degenerate dual quadric(rank 3)으로서 직선과 평면의 직교성(orthogonality) 정보를 인코딩합니다.\n2. **투영 관계 (DIAC)**: $Q_{\\infty}^*$를 카메라 투영 행렬 $P$를 통해 이미지 평면으로 투영하면, 그 Apparent Contour에 해당하는 DIAC $\\omega^*$를 얻게 됩니다. 이는 Apparent Contour 공식과 완전히 동일한 구조를 공유합니다.",
+      "title": "4. Auto Calibration 연결 고리: Apparent Contour와 Absolute Conic의 관계",
+      "text": "1. **공간 상의 대응**: 무한대 평면 $\\boldsymbol{\\pi}_{\\infty}$ 위에 존재하는 **Absolute Conic** $\\Omega_{\\infty}$의 dual 표현이 바로 **Absolute Dual Quadric** $Q_{\\infty}^*$입니다. $\\Omega_{\\infty}$가 무한대 평면 $\\boldsymbol{\\pi}_{\\infty}$ 위에 놓인 점들의 집합(rank 3 Primal conic)이라면, $Q_{\\infty}^*$는 그에 대응하는 degenerate dual quadric(rank 3)으로서 직선과 평면의 직교성(orthogonality) 정보를 인코딩합니다.\n2. **투영 관계 (DIAC)**: $Q_{\\infty}^*$를 카메라 투영 행렬 $P$를 통해 이미지 평면으로 투영하면, 그 Apparent Contour에 해당하는 DIAC $\\omega^*$를 얻게 됩니다. 이는 Apparent Contour 공식과 완전히 동일한 구조를 공유합니다.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-c6513d07"
+      ],
+      "locator": {
+        "source_id": 25,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Vision/Silhouette Based Reconstruction.md",
+        "heading": "4. Auto Calibration 연결 고리: Apparent Contour와 Absolute Conic의 관계",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s19",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 255,
+      "expansion_handle": "EXP-6fe78085883c",
+      "verification_handle": "VER-6fe78085883c"
+    },
+    {
+      "item_id": "SPAN-d1f5ab75",
+      "record_id": "SPAN-d1f5ab75",
+      "record_hash": "9f6a10e320b3c889e780bf02f2167cd2d1f6cb6c5d386be367bb6efbe2dc0d6b",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "VI Experiments and Evaluation",
+      "detail": "This is supported by further experiments that demonstrated it was possible to improve the trajectory error compared to ORB-SLAM2 on a number of sequences by rejecting objects with high bounding box variance. Explicitly, by rejecting objects with a bounding box width or height standard deviation of greater than 50 pixels and 30 pixels, we were able to achieve a trajectory error of 0.0239 meters and 0.0087 meters on sequences fr1 desk2 and fr3 office respectively.",
+      "title": "VI Experiments and Evaluation",
+      "text": "This is supported by further experiments that demonstrated it was possible to improve the trajectory error compared to ORB-SLAM2 on a number of sequences by rejecting objects with high bounding box variance. Explicitly, by rejecting objects with a bounding box width or height standard deviation of greater than 50 pixels and 30 pixels, we were able to achieve a trajectory error of 0.0239 meters and 0.0087 meters on sequences fr1 desk2 and fr3 office respectively.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-d1f5ab75"
+      ],
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "VI Experiments and Evaluation",
+        "block_id": null,
+        "page_number": 5,
+        "toc_id": "s17",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      },
+      "token_cost": 156,
+      "expansion_handle": "EXP-de74403dfeee",
+      "verification_handle": "VER-de74403dfeee"
+    },
+    {
+      "item_id": "SPAN-e190cb04",
+      "record_id": "SPAN-e190cb04",
+      "record_hash": "6a7b6744068129eed7a8ee9664d045051480aa23b50dd43c1cf8c5e89560655d",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "4. Auto Calibration 연결 고리: Apparent Contour와 Absolute Conic의 관계",
+      "detail": "일반 Quadric $Q$의 Apparent Contour 공식인 $C^* = P Q^* P^T$는, $Q^*$ 자리에 Absolute Dual Quadric $Q_{\\infty}^*$를 대입함으로써 카메라 내부 파라미터(Intrinsic parameters)와 직결되는 DIAC(Dual Image of the Absolute Conic) 공식으로 자연스럽게 연결됩니다.",
+      "title": "4. Auto Calibration 연결 고리: Apparent Contour와 Absolute Conic의 관계",
+      "text": "일반 Quadric $Q$의 Apparent Contour 공식인 $C^* = P Q^* P^T$는, $Q^*$ 자리에 Absolute Dual Quadric $Q_{\\infty}^*$를 대입함으로써 카메라 내부 파라미터(Intrinsic parameters)와 직결되는 DIAC(Dual Image of the Absolute Conic) 공식으로 자연스럽게 연결됩니다.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-e190cb04"
+      ],
+      "locator": {
+        "source_id": 25,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Vision/Silhouette Based Reconstruction.md",
+        "heading": "4. Auto Calibration 연결 고리: Apparent Contour와 Absolute Conic의 관계",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s19",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 100,
+      "expansion_handle": "EXP-eeeda122e75c",
+      "verification_handle": "VER-eeeda122e75c"
+    },
+    {
+      "item_id": "SPAN-e2bd549c",
+      "record_id": "SPAN-e2bd549c",
+      "record_hash": "820257052250198ffdb80a15af4fbcd79aa20a21786d239b3ffd8a3ff911fefe",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "2.1. Cost function 설계",
+      "detail": "$$\\sum_{i} \\lVert K_{i}K_{i}^{T} - P_{i}Q^{\\ast}_{\\infty}P_{i}^{T} \\rVert^{2}_{F}$$",
+      "title": "2.1. Cost function 설계",
+      "text": "$$\\sum_{i} \\lVert K_{i}K_{i}^{T} - P_{i}Q^{\\ast}_{\\infty}P_{i}^{T} \\rVert^{2}_{F}$$",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-e2bd549c"
+      ],
+      "locator": {
+        "source_id": 26,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Vision/Auto Calibration.md",
+        "heading": "2.1. Cost function 설계",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s2",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 28,
+      "expansion_handle": "EXP-16bc6d10a557",
+      "verification_handle": "VER-16bc6d10a557"
+    },
+    {
+      "item_id": "SPAN-ee94e1c2",
+      "record_id": "SPAN-ee94e1c2",
+      "record_hash": "e68c354f62150f867e68df95234d050f6de8b783939965f193d08bb6294d3a1b",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "I Introduction",
+      "detail": "_**Abstract**_ **—In this paper, we use 2D object detections from multiple views to simultaneously estimate a 3D quadric surface for each object and localize the camera position. We derive a SLAM formulation that uses dual quadrics as 3D landmark representations, exploiting their ability to compactly represent the size, position and orientation of an object, and show how 2D object detections can directly constrain the quadric parameters via a novel geometric error formulation. We develop a sensor model for object detectors that addresses the challenge of partially visible objects, and demonstrate how to jointly estimate the camera pose and constrained dual quadric parameters in factor graph based SLAM with a general perspective camera.**",
+      "title": "I Introduction",
+      "text": "_**Abstract**_ **—In this paper, we use 2D object detections from multiple views to simultaneously estimate a 3D quadric surface for each object and localize the camera position. We derive a SLAM formulation that uses dual quadrics as 3D landmark representations, exploiting their ability to compactly represent the size, position and orientation of an object, and show how 2D object detections can directly constrain the quadric parameters via a novel geometric error formulation. We develop a sensor model for object detectors that addresses the challenge of partially visible objects, and demonstrate how to jointly estimate the camera pose and constrained dual quadric parameters in factor graph based SLAM with a general perspective camera.**",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-ee94e1c2"
+      ],
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "I Introduction",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s1",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      },
+      "token_cost": 250,
+      "expansion_handle": "EXP-1d1228d6699e",
+      "verification_handle": "VER-1d1228d6699e"
+    },
+    {
+      "item_id": "SPAN-efb61c6a",
+      "record_id": "SPAN-efb61c6a",
+      "record_hash": "86aad7b8a8f911fcb327ff4a420b94d71614eeca55709473fbe94b1a95f95fc2",
+      "kind": "source_span",
+      "layer": "source_span",
+      "summary": "5.4.1 단계별 상세",
+      "detail": "**Step 2c — Auto-Calibration ($K$ 미지 시)**:\n- $\\omega^* = K K^T = P Q_{\\infty}^* P^T$ 관계와 다중 뷰 간 $K$ 불변 조건을 이용합니다.\n- $Q_{\\infty}^* = \\begin{bmatrix} K K^T & -K K^T \\mathbf{t} \\\\ -\\mathbf{t}^T K K^T & \\mathbf{t}^T K K^T \\mathbf{t} \\end{bmatrix}$ 또는 보다 직접적으로, 여러 뷰의 $\\omega_i^*$가 동일한 $K K^T$로 수렴하도록 최적화하여 $K$를 추정합니다.\n- $K$를 구한 후에는 시나리오 1(기지 $K$)로 진입하여 $R, \\mathbf{t}$를 추정합니다.",
+      "title": "5.4.1 단계별 상세",
+      "text": "**Step 2c — Auto-Calibration ($K$ 미지 시)**:\n- $\\omega^* = K K^T = P Q_{\\infty}^* P^T$ 관계와 다중 뷰 간 $K$ 불변 조건을 이용합니다.\n- $Q_{\\infty}^* = \\begin{bmatrix} K K^T & -K K^T \\mathbf{t} \\\\ -\\mathbf{t}^T K K^T & \\mathbf{t}^T K K^T \\mathbf{t} \\end{bmatrix}$ 또는 보다 직접적으로, 여러 뷰의 $\\omega_i^*$가 동일한 $K K^T$로 수렴하도록 최적화하여 $K$를 추정합니다.\n- $K$를 구한 후에는 시나리오 1(기지 $K$)로 진입하여 $R, \\mathbf{t}$를 추정합니다.",
+      "score": 0.0,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-efb61c6a"
+      ],
+      "locator": {
+        "source_id": 25,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Vision/Silhouette Based Reconstruction.md",
+        "heading": "5.4.1 단계별 상세",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s27",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 176,
+      "expansion_handle": "EXP-6ffc0642c7ed",
+      "verification_handle": "VER-6ffc0642c7ed"
+    },
+    {
+      "item_id": "graph_entity/ENT-955b26af",
+      "record_id": "graph_entity/ENT-955b26af",
+      "record_hash": "087f3d236032a03ac1db888b0d868af0302737b88999e22232d6e0fcd0c90ea7",
+      "kind": "search_hit",
+      "layer": "search_hit",
+      "summary": "generic quadric surface",
+      "detail": "A quadric surface obtained via SVD that is not constrained to be an ellipsoid.",
+      "title": "generic quadric surface",
+      "text": "A quadric surface obtained via SVD that is not constrained to be an ellipsoid.",
+      "score": 0.02459016393442623,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-a986e637"
+      ],
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "V-B Building and Solving a Factor Graph Representation",
+        "block_id": null,
+        "page_number": 4,
+        "toc_id": "s14",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      },
+      "token_cost": 26,
+      "expansion_handle": "EXP-b8999925681a",
+      "verification_handle": "VER-b8999925681a"
+    },
+    {
+      "item_id": "02_Atoms/ATM-2982af2e.md",
+      "record_id": "02_Atoms/ATM-2982af2e.md",
+      "record_hash": "7adc41b19e3f776252636409309c53f9ab5c74661b5ef4b05f696da83d5bd24a",
+      "kind": "search_hit",
+      "layer": "search_hit",
+      "summary": "Ellipsoid constraint for landmark representation",
+      "detail": "Dual quadric landmarks in SLAM are constrained to represent closed surfaces, such as ellipsoids or spheres, to represent objects.",
+      "title": "Ellipsoid constraint for landmark representation",
+      "text": "Dual quadric landmarks in SLAM are constrained to represent closed surfaces, such as ellipsoids or spheres, to represent objects.",
+      "score": 0.016129032258064516,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-0dadd5bc"
+      ],
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "II Related Work",
+        "block_id": null,
+        "page_number": 2,
+        "toc_id": "s2",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      },
+      "token_cost": 43,
+      "expansion_handle": "EXP-2ea039eacdae",
+      "verification_handle": "VER-2ea039eacdae"
+    },
+    {
+      "item_id": "02_Atoms/ATM-7376dfac.md",
+      "record_id": "02_Atoms/ATM-7376dfac.md",
+      "record_hash": "381daf82c604c1389a4acf6b263fee16209882a0ca2adbfe45d8d2d14102b491",
+      "kind": "search_hit",
+      "layer": "search_hit",
+      "summary": "ellipsoid_constraint_initialization",
+      "detail": "Landmarks are initialized by finding the SVD solution over the complete set of detections and then constraining the estimated generic quadrics to be ellipsoids.",
+      "title": "ellipsoid_constraint_initialization",
+      "text": "Landmarks are initialized by finding the SVD solution over the complete set of detections and then constraining the estimated generic quadrics to be ellipsoids.",
+      "score": 0.015873015873015872,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-43a9b904"
+      ],
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "VI Experiments and Evaluation",
+        "block_id": null,
+        "page_number": 5,
+        "toc_id": "s17",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      },
+      "token_cost": 54,
+      "expansion_handle": "EXP-a94a18254867",
+      "verification_handle": "VER-a94a18254867"
+    },
+    {
+      "item_id": "02_Atoms/ATM-19a5364a.md",
+      "record_id": "02_Atoms/ATM-19a5364a.md",
+      "record_hash": "d97326aa795f184b9fa9fa81ad8253a666e38db0a06ab7e25df212c48f06d6f9",
+      "kind": "search_hit",
+      "layer": "search_hit",
+      "summary": "Generic Quadric Surface SVD Output",
+      "detail": "The solution obtained via SVD represents a generic quadric surface and is not constrained to be an ellipsoid.",
+      "title": "Generic Quadric Surface SVD Output",
+      "text": "The solution obtained via SVD represents a generic quadric surface and is not constrained to be an ellipsoid.",
+      "score": 0.015625,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-a986e637"
+      ],
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "V-B Building and Solving a Factor Graph Representation",
+        "block_id": null,
+        "page_number": 4,
+        "toc_id": "s14",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      },
+      "token_cost": 37,
+      "expansion_handle": "EXP-e1433913a185",
+      "verification_handle": "VER-e1433913a185"
+    },
+    {
+      "item_id": "graph_entity/ENT-38349bdd",
+      "record_id": "graph_entity/ENT-38349bdd",
+      "record_hash": "b03ee3987351d98304f1ef3879d2f315fac5cfa717b6a1ee7d58065d466f9e8a",
+      "kind": "search_hit",
+      "layer": "search_hit",
+      "summary": "quadrics",
+      "detail": "3D surfaces such as ellipsoids that represent the size, position, and orientation of objects.",
+      "title": "quadrics",
+      "text": "3D surfaces such as ellipsoids that represent the size, position, and orientation of objects.",
+      "score": 0.015384615384615385,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-b43e6642"
+      ],
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "I Introduction",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s1",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      },
+      "token_cost": 31,
+      "expansion_handle": "EXP-ad67af10bc80",
+      "verification_handle": "VER-ad67af10bc80"
+    },
+    {
+      "item_id": "02_Atoms/ATM-bc8d0b9f.md",
+      "record_id": "02_Atoms/ATM-bc8d0b9f.md",
+      "record_hash": "c4b0e94919d4ef83d770a9815ce2980200d0bec267e2d18bbdf5a9919fffb522",
+      "kind": "search_hit",
+      "layer": "search_hit",
+      "summary": "svd_solution_quadric_representation",
+      "detail": "The solution obtained from the SVD represents a generic quadric surface and is not constrained to be an ellipsoid.",
+      "title": "svd_solution_quadric_representation",
+      "text": "The solution obtained from the SVD represents a generic quadric surface and is not constrained to be an ellipsoid.",
+      "score": 0.015151515151515152,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-a986e637"
+      ],
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "V-B Building and Solving a Factor Graph Representation",
+        "block_id": null,
+        "page_number": 4,
+        "toc_id": "s14",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      },
+      "token_cost": 38,
+      "expansion_handle": "EXP-75a4998b3237",
+      "verification_handle": "VER-75a4998b3237"
+    },
+    {
+      "item_id": "01_Contexts/CTX-02fa746f.md",
+      "record_id": "01_Contexts/CTX-02fa746f.md",
+      "record_hash": "f008a19621279286c0de0dd358263508d240502fa7864d1dd1f5ec6cfb1fe115",
+      "kind": "search_hit",
+      "layer": "search_hit",
+      "summary": "2.19. Absolute Dual Quadric 은 정규화된 conic 형태를 보인다. Homography 행렬의 최종 종착지.",
+      "detail": "{% persist \"RL356J25\" %}{% endpersist %}",
+      "title": "2.19. Absolute Dual Quadric 은 정규화된 conic 형태를 보인다. Homography 행렬의 최종 종착지.",
+      "text": "{% persist \"RL356J25\" %}{% endpersist %}",
+      "score": 0.014925373134328358,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-f7e2c8e3"
+      ],
+      "locator": {
+        "source_id": 27,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Vision/MultipleViewGeometry.md",
+        "heading": "2.19. Absolute Dual Quadric 은 정규화된 conic 형태를 보인다. Homography 행렬의 최종 종착지.",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s42",
+        "external_uri": null,
+        "locator_status": "exact"
+      },
+      "token_cost": 14,
+      "expansion_handle": "EXP-88e748966638",
+      "verification_handle": "VER-88e748966638"
+    },
+    {
+      "item_id": "02_Atoms/ATM-f1724918.md",
+      "record_id": "02_Atoms/ATM-f1724918.md",
+      "record_hash": "b80289fc6e5968aa16cc1c87ca3420a3fe83f449390749c4814ca7e1bc8ff18c",
+      "kind": "search_hit",
+      "layer": "search_hit",
+      "summary": "Ellipsoid representation of 3D objects",
+      "detail": "Three-dimensional quadric surfaces projected into the image plane from estimated camera positions show that ellipsoids accurately capture the geometric shape of the objects in the scene.",
+      "title": "Ellipsoid representation of 3D objects",
+      "text": "Three-dimensional quadric surfaces projected into the image plane from estimated camera positions show that ellipsoids accurately capture the geometric shape of the objects in the scene.",
+      "score": 0.014705882352941176,
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "authority_state": "derived",
+      "truth_state": "source_supported",
+      "freshness_state": "ok",
+      "source_span_ids": [
+        "SPAN-f77a59f3"
+      ],
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "VI Experiments and Evaluation",
+        "block_id": null,
+        "page_number": 5,
+        "toc_id": "s17",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      },
+      "token_cost": 62,
+      "expansion_handle": "EXP-1aaa947abb89",
+      "verification_handle": "VER-1aaa947abb89"
+    }
+  ],
+  "evidence": [
+    {
+      "id": "ENT-197903f1",
+      "kind": "entity",
+      "title": "ellipsoids (concept)",
+      "text": "Closed 3D surfaces used as constrained landmark representations in SLAM.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-0dadd5bc"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "II Related Work",
+        "block_id": null,
+        "page_number": 2,
+        "toc_id": "s2",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "ENT-ab9e5e19",
+      "kind": "entity",
+      "title": "Absolute Dual Quadric (concept)",
+      "text": "A degenerate dual quadric in projective 3D space represented by a rank 3 homogeneous symmetric matrix.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-071d9929",
+        "SPAN-264d23e9",
+        "SPAN-2f44479c",
+        "SPAN-45ecf7b0",
+        "SPAN-59492192",
+        "SPAN-a73420e9",
+        "SPAN-c6513d07",
+        "SPAN-e190cb04",
+        "SPAN-e2bd549c",
+        "SPAN-efb61c6a"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 26,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Vision/Auto Calibration.md",
+        "heading": "2.2. 한계점",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s3",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "ENT-2551b1b9",
+      "kind": "entity",
+      "title": "Absolute Line Quadric (concept)",
+      "text": "A codimension 1 object in projective space that represents the geometric locus of all lines intersecting the absolute conic.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-be8a3706"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 20,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Papers/PoseEst/The Absolute Line Quadric and Camera Autocalibration.md",
+        "heading": "💡 Review & Synthesis",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s1",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "ENT-3246e195",
+      "kind": "entity",
+      "title": "Klein Quadric (concept)",
+      "text": "A specific quadric surface in 5D projective space upon which all 3D lines are mapped.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-63d75811"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 25,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Vision/Silhouette Based Reconstruction.md",
+        "heading": "3.3 Dual Plücker Line으로의 확장과 그 이유",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s8",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "ENT-79a5664d",
+      "kind": "entity",
+      "title": "QuadricSLAM (system)",
+      "text": "A system that combines object detection and SLAM to simultaneously estimate camera positions and 3D landmark representations of objects.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-31477ea5",
+        "SPAN-3249e8ff",
+        "SPAN-40d7121e",
+        "SPAN-46b0a2f5",
+        "SPAN-5a4590d1",
+        "SPAN-621716b9",
+        "SPAN-642b4fae",
+        "SPAN-8797f26f",
+        "SPAN-9399afb9",
+        "SPAN-c254fe53",
+        "SPAN-d1f5ab75",
+        "SPAN-ee94e1c2"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "II Related Work",
+        "block_id": null,
+        "page_number": 2,
+        "toc_id": "s2",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "ENT-48ba44aa",
+      "kind": "entity",
+      "title": "QuadricSLAMf (system)",
+      "text": "A variant of QuadricSLAM evaluated using Fovis as the visual odometry source.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-8797f26f"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "VI Experiments and Evaluation",
+        "block_id": null,
+        "page_number": 5,
+        "toc_id": "s17",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-071d9929",
+      "kind": "source_span",
+      "title": "2.2. 한계점",
+      "text": "- **Positivie Semi-Definite (PSD) 조건**\n1. Absolute Dual Quadric $Q^*_{\\infty}$는 Euclidean 공간에서 $\\tilde{I} = \\operatorname{diag}(1, 1, 1, 0)$의 형태를 가지며, 임의의 사영 변환 $H$에 대해 $Q^*_{\\infty} = H\\tilde{I}H^{T}$ 형태로 표현됩니다. $\\tilde{I}$가 PSD 행렬이므로, congruence 변환 관계에 의해 복원된 $Q^{\\ast}_{\\infty}$ 역시 반드시 PSD 조건(모든 고윳값 $\\geq 0$)을 만족해야 합니다.\n2. 단순히 선형 계산을 수행한 뒤 SVD를 통해 가장 작은 특이값 하나를 0으로 만들어 랭크를 3으로 낮추더라도, 남은 세 고윳값의 부호가 양수와 음수로 혼합되어 있으면 PSD 조건이 위배됩니다.\n3. PSD 조건이 깨지면 카메라 내부 파라미터 행렬 $K$를 복원하기 위한 Cholesky 분해($\\omega^* = KK^{T}$)를 수행할 수 없게 되므로, 물리적으로 유효한 내부 파라미터 값을 얻을 수 없습니다.\n- **$\\pi_{\\infty}$의 기하학적 왜곡 발생 (장면 관통 현상)**\n1. Absolute Dual Quadric $Q^*_{\\infty}$는 랭크가 반드시 3이어야 하며, $\\det(Q^*_{\\infty}) = 0$ 및 $Q^*_{\\infty} \\pi_{\\infty} = \\mathbf{0}$을 만족해야 합니다. 즉, $Q^{\\ast}_{\\infty}$의 영공간(Null space)은 무한대 평면 $\\pi_{\\infty}$를 유일하게 결정합니다.\n2. 이미지 노이즈가 존재하는 상태에서 단순한 대수적 SVD 투영으로 랭크만 낮추게 되면, 구해진 무한대 평면 $\\pi_{\\infty}$의 위치가 기하학적으로 심하게 왜곡됩니다.\n3. 이로 인해 사영 공간에서 복원된 3D 장면의 점들 한가운데를 무한대 평면 $\\pi_{\\infty}$가 관통하는 치명적인 오류가 생길 수 있습니다. 실제 물리적 공간(Euclidean 공간)에서 무한대 평면은 모든 유한한 점들의 바깥에 존재해야 하므로, 이 평면이 장면을 관통하면 평면을 경계로 일부 점들이 카메라 뒤쪽(무한대 너머)으로 뒤집히는 기하학적 모순(Chirality 위배)이 발생합니다.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-071d9929"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 26,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Vision/Auto Calibration.md",
+        "heading": "2.2. 한계점",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s3",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-0dadd5bc",
+      "kind": "source_span",
+      "title": "II Related Work",
+      "text": "In its general form, a dual quadric can represent both closed surfaces such as spheres and ellipsoids and non-closed surfaces such as paraboloids or hyperboloids. As only the former are meaningful representations of object landmarks, we use a constrained dual quadric representation that ensures the represented surface is an ellipsoid or sphere.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-0dadd5bc"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "II Related Work",
+        "block_id": null,
+        "page_number": 2,
+        "toc_id": "s2",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-264d23e9",
+      "kind": "source_span",
+      "title": "5.4.2 Pose 추정의 모호성(Ambiguity)과 해소",
+      "text": "> [!SUMMARY] **핵심 요약: 왜 Apparent Contour로 Pose를 찾을 수 있는가?**\n>\n> 1. **$C^* = P Q^* P^T$** (1절): Apparent Contour는 Quadric의 3D 정보를 이미지 평면으로 \"운반\"하는 기하학적 통로입니다. 관측된 $C$와 기지의 $Q$ 사이의 이 대수적 관계가 $P$에 대한 직접적인 제약을 제공합니다.\n> 2. **${L^*}^T \\tilde{\\mathcal{M}}(Q) L^* = 0$** (3.3절): 실루엣 경계의 각 점은 Quadric에 접하는 3D 광선을 정의하며, 충분한 수의 광선은 $Q$와 카메라 포즈의 동시 추정을 가능하게 합니다.\n> 3. **$\\omega^* = P Q_{\\infty}^* P^T$** (4절): 내부 파라미터 $K$가 미지인 경우에도 $Q_{\\infty}^*$를 통해 Auto-Calibration이 가능하며, 이는 카메라 포즈 추정의 전제 조건을 충족시킵니다.\n> 4. **$\\mathbf{X}_{\\infty} = Q_{\\infty}^* \\boldsymbol{\\pi}$** (5.3절): 평면과 법선 방향 사이의 대수적 대응은 카메라의 방향(회전) 성분을 평면 제약으로부터 직접 추출할 수 있는 이론적 근거를 제공합니다.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-264d23e9"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 25,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Vision/Silhouette Based Reconstruction.md",
+        "heading": "5.4.2 Pose 추정의 모호성(Ambiguity)과 해소",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s28",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-2f44479c",
+      "kind": "source_span",
+      "title": "5.3 $Q_{\\infty}^*$의 대수적 매핑 성질과 Auto-Calibration 연결",
+      "text": "> [!IMPORTANT] **$Q_{\\infty}^*$의 특이성(Singularity)과 대수적 매핑 성질**\n> * **랭크 3의 특이 행렬**: Absolute Dual Quadric $Q_{\\infty}^*$는 랭크가 3인 특이 행렬(singular matrix)이며, 무한대 평면 $\\boldsymbol{\\pi}_{\\infty}$를 null space로 가집니다 ($\\mathbf{0} = Q_{\\infty}^* \\boldsymbol{\\pi}_{\\infty}$).\n> * **평면에서 극(Pole)으로의 사상**: 임의의 평면 $\\boldsymbol{\\pi}$ (무한대 평면 $\\boldsymbol{\\pi}_{\\infty}$ 제외)가 주어지면, 그 극(Pole)에 해당하는 무한원점 $\\mathbf{X}_{\\infty}$는 다음과 같이 고유하게 정의됩니다:\n>",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-2f44479c"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 25,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Vision/Silhouette Based Reconstruction.md",
+        "heading": "5.3 $Q_{\\infty}^*$의 대수적 매핑 성질과 Auto-Calibration 연결",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s25",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-31477ea5",
+      "kind": "source_span",
+      "title": "II Related Work",
+      "text": "We explored initial ideas of using dual quadrics as landmarks in factor-graph SLAM in [16]. This unpublished preliminary work proposed an algebraic error formulation that proved to be not robust in situations where object landmarks are only partially visible. We overcome this problem by a novel geometric error formulation in this paper. In contrast to [16], we constrain the quadric landmarks to be ellipsoids, initialize them correctly, and present a large-scale evaluation in a high-fidelity simulation environment and on real-world image sequences.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-31477ea5"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "II Related Work",
+        "block_id": null,
+        "page_number": 2,
+        "toc_id": "s2",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-3249e8ff",
+      "kind": "source_span",
+      "title": "VI Experiments and Evaluation",
+      "text": "We evaluate the use of quadric landmarks on a number of sequences from the publicly available TUM RGB-D [13] dataset, and compare the localization performance against state-of-theart techniques. These real world image sequences demonstrate the effectiveness of our method under realistic conditions. We further evaluate the quality of the constructed landmarks in a high-fidelity simulation environment with ground truth 3D object shapes and positions.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-3249e8ff"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "VI Experiments and Evaluation",
+        "block_id": null,
+        "page_number": 5,
+        "toc_id": "s17",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-40d7121e",
+      "kind": "source_span",
+      "title": "VI Experiments and Evaluation",
+      "text": "Real world datasets provide an excellent opportunity to expose quadric landmarks to an array of challenges. Image noise, motion blur, poor focus, dynamic lighting, occlusions, and moving objects are just some of the difficulties we face in the real world. We use 4 sequences from the TUM RGB-D[2] dataset (fr1 desk, fr1 desk2, fr2 desk, fr3 office) to evaluate the estimated camera trajectory under realistic conditions. In these experiments, we compare the Absolute Trajectory Error (ATE) of the estimated camera poses against ORBSLAM2 [18], as well as our sources of odometry measurements.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-40d7121e"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "VI Experiments and Evaluation",
+        "block_id": null,
+        "page_number": 5,
+        "toc_id": "s17",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-45ecf7b0",
+      "kind": "source_span",
+      "title": "1. Absolute Quadric $Q_{\\infty}^{\\ast}$를 통해 Calibration 하는 방법",
+      "text": "$$\\omega^{\\ast}=PQ_{\\infty}^{\\ast}P^{T}=KK^{T} $$",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-45ecf7b0"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 26,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Vision/Auto Calibration.md",
+        "heading": "1. Absolute Quadric $Q_{\\infty}^{\\ast}$를 통해 Calibration 하는 방법",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s1",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-46b0a2f5",
+      "kind": "source_span",
+      "title": "VII Conclusions and Future Work",
+      "text": "In conclusion, QuadricSLAM combines state-of-the-art object detection and SLAM techniques in order to simultaneously estimate the optimal camera position and a 3D landmark representation of objects within the environment. The introduction of object based landmarks, such as dual quadrics, is _essential_ to the development of semantically meaningful, object-oriented robotic maps.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-46b0a2f5"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "VII Conclusions and Future Work",
+        "block_id": null,
+        "page_number": 7,
+        "toc_id": "s22",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-59492192",
+      "kind": "source_span",
+      "title": "1. Notations",
+      "text": "- **Quadric** $Q$ ^quadric - Rank에 따른 Quadric의 분류 (Classification by Rank) - $4 \\times 4$ 대칭 행렬 $Q$가 주어졌을 때, 이 행렬의 **rank**는 해당 **quadric**의 기하학적 형태를 결정짓는 가장 중요한 척도입니다. - Non-singular quadric (Rank = ",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-59492192"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 27,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Vision/MultipleViewGeometry.md",
+        "heading": "1. Notations",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s3",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-5a4590d1",
+      "kind": "source_span",
+      "title": "VI Experiments and Evaluation",
+      "text": "We implement the SLAM problem (7), coined QuadricSLAM, as a factor graph using GTSAM [32]. The robot poses and dual quadrics, _X[∗]_ and _Q[∗]_ , populate the latent variables of the graph, connected with odometry factors _U_ , and 2D bounding box factors _B_ . As a rough approximation",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-5a4590d1"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "VI Experiments and Evaluation",
+        "block_id": null,
+        "page_number": 5,
+        "toc_id": "s17",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-621716b9",
+      "kind": "source_span",
+      "title": "II Related Work",
+      "text": "graphic camera [15], or used an _algebraic_ error that proved to be invalid when landmarks are only partially visible [16]. In this new work we perform full SLAM, i.e. Simultaneous Localization _And_ Mapping, with a general _perspective_ camera and a more robust _geometric_ error. Furthermore, previous work [14], [15] required ellipse fitting as a pre-processing step: here we show that dual quadrics can be estimated in SLAM directly from bounding boxes.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-621716b9"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "II Related Work",
+        "block_id": null,
+        "page_number": 2,
+        "toc_id": "s2",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-63d75811",
+      "kind": "source_span",
+      "title": "3.3 Dual Plücker Line으로의 확장과 그 이유",
+      "text": "- **주요 특징**: 1. **Plücker line coordinates를 이용한 Dual Quadric 형태**: Plücker 공간 상에서 곡면과의 접선 조건을 만족하는 dual quadric의 역할을 합니다. 2. **6D 대칭 행렬의 자유도**: 명목상 $6 \\times 6$ 대칭 행렬로서 21개의 독립 성분(20 DoF, scale factor",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-63d75811"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 25,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Vision/Silhouette Based Reconstruction.md",
+        "heading": "3.3 Dual Plücker Line으로의 확장과 그 이유",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s8",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-642b4fae",
+      "kind": "source_span",
+      "title": "VII Conclusions and Future Work",
+      "text": "The results show that quadric landmarks significantly improve the quality of the robot trajectory and the estimated map, providing accurate high level information about the shape and position of objects within the environment. Explicitly, the geometric error gains a 65.2% improvement on trajectory error and a 70.4%, 26.7% and 30.6% improvement on landmark position, shape and quality. The correcting effect of the quadric landmarks on the estimated trajectory is a result of reobserving the landmarks between frames, helping to mitigate accumulated odometry errors.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-642b4fae"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "VII Conclusions and Future Work",
+        "block_id": null,
+        "page_number": 7,
+        "toc_id": "s22",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-8797f26f",
+      "kind": "source_span",
+      "title": "VI Experiments and Evaluation",
+      "text": "We evaluate the localization performance of our method given two sources of visual odometry. Fovis [31] (QuadricSLAMf) and ORB-SLAM2 with loop closures disabled (QuadricSLAMo). Object detections have been generated using the YOLOv3 [12] detector with pretrained weights, and associations between individual detections and distinct physical objects have been provided by a set of manual annotations.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-8797f26f"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "VI Experiments and Evaluation",
+        "block_id": null,
+        "page_number": 5,
+        "toc_id": "s17",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-9399afb9",
+      "kind": "source_span",
+      "title": "VI Experiments and Evaluation",
+      "text": "The quantitative results of our experiments on the TUM sequences can be found in Table I. These results clearly show an improvement in trajectory quality over the foviz visual odometry, but display a slight decrease in performance when compared to ORB-SLAM2. This performance loss is expected to be caused by a combination of poor constant noise estimates for the non-Gaussian bounding box measurements, and object occlusions, which create significantly smaller bounding boxes and negatively impact the estimated trajectory.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-9399afb9"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "VI Experiments and Evaluation",
+        "block_id": null,
+        "page_number": 5,
+        "toc_id": "s17",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-a73420e9",
+      "kind": "source_span",
+      "title": "2.4. Ambiguities",
+      "text": "Kruppa 방정식이 3개 이상의 뷰에서 다른 방법들보다 WEAK CONSTRAINTS를 제공하는 (즉, 모호한 가짜 해가 더 많이 발생하는) 구체적인 물리적 이유는 다음과 같다.\n1. View-pair 단위의 한계: Kruppa 제약조건은 여러 카메라 뷰 전체의 기하학적 일관성을 한번에 고려하지 못하고, 오직 두 뷰 사이의 dual 관계만을 다룬다.\n2. **Common support plane 강제 불가**: 3D 공간에서 Absolute conic은 오직 하나의 plane at infinity 위에만 존재한다. 하지만 Kruppa 방정식은 여러 뷰에 걸쳐 이 평면이 단 하나로 통일되도록 강제하지 못한다.\n3. Degenerate 조건 누락: 3D Dual Quadric이 평면 위의 Absolute conic으로 올바르게 degenerate되어야 하는데, 이 성질을 수식적으로 보장하지 못함.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-a73420e9"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 26,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Vision/Auto Calibration.md",
+        "heading": "2.4. Ambiguities",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s14",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-be8a3706",
+      "kind": "source_span",
+      "title": "💡 Review & Synthesis",
+      "text": "> [!info] Core Contribution\n> {% persist \"Core Contribution\" %}\n> - **Problem:** 카메라 자기보정(Autocalibration) 과정에서 유클리드 구조(Euclidean upgrade)를 복원하기 위해 절대 원추선(Absolute Conic)을 구해야 하지만, 절대 원추선은 3차원 공간에서 여차원(codimension)이 $2$인 객체로 직접적인 선형 추정이 불안정함. 쌍대 절대 이차곡면(DAQ)은 여차원이 $1$이지만 복잡한 표현적 한계가 존재함.\n> - **Methodology:** 투영 공간 $\\mathbb{P}^3$ 상의 모든 직선(lines)을 바이벡터(bivectors) 혹은 바이코벡터(bicovectors)로 표현하여 절대 원추선과 교차하는 모든 직선들의 기하학적 궤적을 설명하는 여차원 $1$의 객체인 **절대 선 이차곡면(Absolute Line Quadric, ALQ)** $\\tilde{Q}$를 도입하고, 외대수(Exterior algebra)를 통해 수학적으로 공식화함.\n> - [!example] Prerequisites (Foundations)\n> - 외대수(Exterior Algebra, Wedge Product, Contraction)\n> - 그라스만 다양체($G(1,3) \\subset P(\\Lambda^2 V)$) 및 클라인 이차곡면(Klein Quadric $\\Omega$)\n> - 쌍대 절대 이차곡면(Dual Absolute Quadric, DAQ $Q$)\n> - [!math] Mathematical Rigor\n> - **Key Formulation:**\n> DAQ $Q: V^* \\to V$로부터 유도되는 ALQ $\\tilde{Q}: \\Lambda^2 V^* \\to \\Lambda^2 V$의 정의:\n>",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-be8a3706"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 20,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Papers/PoseEst/The Absolute Line Quadric and Camera Autocalibration.md",
+        "heading": "💡 Review & Synthesis",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s1",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-c254fe53",
+      "kind": "source_span",
+      "title": "I Introduction",
+      "text": "In this paper we make the following contributions. We first show how to parametrize object landmarks in SLAM as _constrained dual quadrics_ . We then demonstrate that visual object detection systems such as YOLOv3 [12] can be used as _sensors_ in SLAM, and that their observations – the bounding boxes around objects – can directly constrain dual quadric parameters via our novel _geometric_ error formulation. To incorporate quadrics into SLAM, we derive a factor graph-based SLAM formulation that jointly estimates the dual quadric and robot pose parameters assuming solved data association. We provide a large-scale evaluation using 250 indoor trajectories through a high-fidelity simulation environment in combination with real world experiments on the TUM RGB-D [13] dataset to show how object detections and dual quadric parametrization aid the SLAM solution.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-c254fe53"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "I Introduction",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s1",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-c6513d07",
+      "kind": "source_span",
+      "title": "4. Auto Calibration 연결 고리: Apparent Contour와 Absolute Conic의 관계",
+      "text": "1. **공간 상의 대응**: 무한대 평면 $\\boldsymbol{\\pi}_{\\infty}$ 위에 존재하는 **Absolute Conic** $\\Omega_{\\infty}$의 dual 표현이 바로 **Absolute Dual Quadric** $Q_{\\infty}^*$입니다. $\\Omega_{\\infty}$가 무한대 평면 $\\boldsymbol{\\pi}_{\\infty}$ 위에 놓인 점들의 집합(rank 3 Primal conic)이라면, $Q_{\\infty}^*$는 그에 대응하는 degenerate dual quadric(rank 3)으로서 직선과 평면의 직교성(orthogonality) 정보를 인코딩합니다.\n2. **투영 관계 (DIAC)**: $Q_{\\infty}^*$를 카메라 투영 행렬 $P$를 통해 이미지 평면으로 투영하면, 그 Apparent Contour에 해당하는 DIAC $\\omega^*$를 얻게 됩니다. 이는 Apparent Contour 공식과 완전히 동일한 구조를 공유합니다.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-c6513d07"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 25,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Vision/Silhouette Based Reconstruction.md",
+        "heading": "4. Auto Calibration 연결 고리: Apparent Contour와 Absolute Conic의 관계",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s19",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-d1f5ab75",
+      "kind": "source_span",
+      "title": "VI Experiments and Evaluation",
+      "text": "This is supported by further experiments that demonstrated it was possible to improve the trajectory error compared to ORB-SLAM2 on a number of sequences by rejecting objects with high bounding box variance. Explicitly, by rejecting objects with a bounding box width or height standard deviation of greater than 50 pixels and 30 pixels, we were able to achieve a trajectory error of 0.0239 meters and 0.0087 meters on sequences fr1 desk2 and fr3 office respectively.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-d1f5ab75"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "VI Experiments and Evaluation",
+        "block_id": null,
+        "page_number": 5,
+        "toc_id": "s17",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-e190cb04",
+      "kind": "source_span",
+      "title": "4. Auto Calibration 연결 고리: Apparent Contour와 Absolute Conic의 관계",
+      "text": "일반 Quadric $Q$의 Apparent Contour 공식인 $C^* = P Q^* P^T$는, $Q^*$ 자리에 Absolute Dual Quadric $Q_{\\infty}^*$를 대입함으로써 카메라 내부 파라미터(Intrinsic parameters)와 직결되는 DIAC(Dual Image of the Absolute Conic) 공식으로 자연스럽게 연결됩니다.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-e190cb04"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 25,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Vision/Silhouette Based Reconstruction.md",
+        "heading": "4. Auto Calibration 연결 고리: Apparent Contour와 Absolute Conic의 관계",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s19",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-e2bd549c",
+      "kind": "source_span",
+      "title": "2.1. Cost function 설계",
+      "text": "$$\\sum_{i} \\lVert K_{i}K_{i}^{T} - P_{i}Q^{\\ast}_{\\infty}P_{i}^{T} \\rVert^{2}_{F}$$",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-e2bd549c"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 26,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Vision/Auto Calibration.md",
+        "heading": "2.1. Cost function 설계",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s2",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-ee94e1c2",
+      "kind": "source_span",
+      "title": "I Introduction",
+      "text": "_**Abstract**_ **—In this paper, we use 2D object detections from multiple views to simultaneously estimate a 3D quadric surface for each object and localize the camera position. We derive a SLAM formulation that uses dual quadrics as 3D landmark representations, exploiting their ability to compactly represent the size, position and orientation of an object, and show how 2D object detections can directly constrain the quadric parameters via a novel geometric error formulation. We develop a sensor model for object detectors that addresses the challenge of partially visible objects, and demonstrate how to jointly estimate the camera pose and constrained dual quadric parameters in factor graph based SLAM with a general perspective camera.**",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-ee94e1c2"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "I Introduction",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s1",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "SPAN-efb61c6a",
+      "kind": "source_span",
+      "title": "5.4.1 단계별 상세",
+      "text": "**Step 2c — Auto-Calibration ($K$ 미지 시)**:\n- $\\omega^* = K K^T = P Q_{\\infty}^* P^T$ 관계와 다중 뷰 간 $K$ 불변 조건을 이용합니다.\n- $Q_{\\infty}^* = \\begin{bmatrix} K K^T & -K K^T \\mathbf{t} \\\\ -\\mathbf{t}^T K K^T & \\mathbf{t}^T K K^T \\mathbf{t} \\end{bmatrix}$ 또는 보다 직접적으로, 여러 뷰의 $\\omega_i^*$가 동일한 $K K^T$로 수렴하도록 최적화하여 $K$를 추정합니다.\n- $K$를 구한 후에는 시나리오 1(기지 $K$)로 진입하여 $R, \\mathbf{t}$를 추정합니다.",
+      "score": 0.0,
+      "source_span_ids": [
+        "SPAN-efb61c6a"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 25,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Vision/Silhouette Based Reconstruction.md",
+        "heading": "5.4.1 단계별 상세",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s27",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "graph_entity/ENT-955b26af",
+      "kind": "search_hit",
+      "title": "generic quadric surface",
+      "text": "A quadric surface obtained via SVD that is not constrained to be an ellipsoid.",
+      "score": 0.02459016393442623,
+      "source_span_ids": [
+        "SPAN-a986e637"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "V-B Building and Solving a Factor Graph Representation",
+        "block_id": null,
+        "page_number": 4,
+        "toc_id": "s14",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "02_Atoms/ATM-2982af2e.md",
+      "kind": "search_hit",
+      "title": "Ellipsoid constraint for landmark representation",
+      "text": "Dual quadric landmarks in SLAM are constrained to represent closed surfaces, such as ellipsoids or spheres, to represent objects.",
+      "score": 0.016129032258064516,
+      "source_span_ids": [
+        "SPAN-0dadd5bc"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "II Related Work",
+        "block_id": null,
+        "page_number": 2,
+        "toc_id": "s2",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "02_Atoms/ATM-7376dfac.md",
+      "kind": "search_hit",
+      "title": "ellipsoid_constraint_initialization",
+      "text": "Landmarks are initialized by finding the SVD solution over the complete set of detections and then constraining the estimated generic quadrics to be ellipsoids.",
+      "score": 0.015873015873015872,
+      "source_span_ids": [
+        "SPAN-43a9b904"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "VI Experiments and Evaluation",
+        "block_id": null,
+        "page_number": 5,
+        "toc_id": "s17",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "02_Atoms/ATM-19a5364a.md",
+      "kind": "search_hit",
+      "title": "Generic Quadric Surface SVD Output",
+      "text": "The solution obtained via SVD represents a generic quadric surface and is not constrained to be an ellipsoid.",
+      "score": 0.015625,
+      "source_span_ids": [
+        "SPAN-a986e637"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "V-B Building and Solving a Factor Graph Representation",
+        "block_id": null,
+        "page_number": 4,
+        "toc_id": "s14",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "graph_entity/ENT-38349bdd",
+      "kind": "search_hit",
+      "title": "quadrics",
+      "text": "3D surfaces such as ellipsoids that represent the size, position, and orientation of objects.",
+      "score": 0.015384615384615385,
+      "source_span_ids": [
+        "SPAN-b43e6642"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "I Introduction",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s1",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "02_Atoms/ATM-bc8d0b9f.md",
+      "kind": "search_hit",
+      "title": "svd_solution_quadric_representation",
+      "text": "The solution obtained from the SVD represents a generic quadric surface and is not constrained to be an ellipsoid.",
+      "score": 0.015151515151515152,
+      "source_span_ids": [
+        "SPAN-a986e637"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "V-B Building and Solving a Factor Graph Representation",
+        "block_id": null,
+        "page_number": 4,
+        "toc_id": "s14",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "01_Contexts/CTX-02fa746f.md",
+      "kind": "search_hit",
+      "title": "2.19. Absolute Dual Quadric 은 정규화된 conic 형태를 보인다. Homography 행렬의 최종 종착지.",
+      "text": "{% persist \"RL356J25\" %}{% endpersist %}",
+      "score": 0.014925373134328358,
+      "source_span_ids": [
+        "SPAN-f7e2c8e3"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 27,
+        "source_kind": "vault_markdown",
+        "relpath": "03_Notes/Vision/MultipleViewGeometry.md",
+        "heading": "2.19. Absolute Dual Quadric 은 정규화된 conic 형태를 보인다. Homography 행렬의 최종 종착지.",
+        "block_id": null,
+        "page_number": 1,
+        "toc_id": "s42",
+        "external_uri": null,
+        "locator_status": "exact"
+      }
+    },
+    {
+      "id": "02_Atoms/ATM-f1724918.md",
+      "kind": "search_hit",
+      "title": "Ellipsoid representation of 3D objects",
+      "text": "Three-dimensional quadric surfaces projected into the image plane from estimated camera positions show that ellipsoids accurately capture the geometric shape of the objects in the scene.",
+      "score": 0.014705882352941176,
+      "source_span_ids": [
+        "SPAN-f77a59f3"
+      ],
+      "community_report_id": "",
+      "synthesis_node_id": "",
+      "memory_path_id": "",
+      "locator": {
+        "source_id": 34,
+        "source_kind": "vault_pdf",
+        "relpath": "04_Resources/References/QuadricSLAM Dual Quadrics from Object Detections as Landmarks in Object-oriented SLAM2018 - Nicholson et al. - .md",
+        "heading": "VI Experiments and Evaluation",
+        "block_id": null,
+        "page_number": 5,
+        "toc_id": "s17",
+        "external_uri": "zotero://open-pdf/library/items/PX9UPAV2",
+        "locator_status": "exact"
+      }
+    }
+  ],
+  "source_span_ids": [
+    "SPAN-0dadd5bc",
+    "SPAN-071d9929",
+    "SPAN-264d23e9",
+    "SPAN-2f44479c",
+    "SPAN-45ecf7b0",
+    "SPAN-59492192",
+    "SPAN-a73420e9",
+    "SPAN-c6513d07",
+    "SPAN-e190cb04",
+    "SPAN-e2bd549c",
+    "SPAN-efb61c6a",
+    "SPAN-be8a3706",
+    "SPAN-63d75811",
+    "SPAN-31477ea5",
+    "SPAN-3249e8ff",
+    "SPAN-40d7121e",
+    "SPAN-46b0a2f5",
+    "SPAN-5a4590d1",
+    "SPAN-621716b9",
+    "SPAN-642b4fae",
+    "SPAN-8797f26f",
+    "SPAN-9399afb9",
+    "SPAN-c254fe53",
+    "SPAN-d1f5ab75",
+    "SPAN-ee94e1c2",
+    "SPAN-a986e637",
+    "SPAN-43a9b904",
+    "SPAN-b43e6642",
+    "SPAN-f7e2c8e3",
+    "SPAN-f77a59f3"
+  ],
+  "community_report_ids": [],
+  "synthesis_node_ids": [],
+  "memory_path_ids": [],
+  "warnings": [
+    "vector_unavailable: no embedder configured (FTS5-only)",
+    "no reranker configured: returned RRF order"
+  ],
+  "next": []
+}
