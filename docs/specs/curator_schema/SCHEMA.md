@@ -1918,13 +1918,23 @@ Invariants:
 
 - Additive and non-authoritative. `loss` never gates indexing, never changes
   `support_status` or `formula_status`, and never removes a span.
-- Written at span creation for new ingests, and by an explicit one-shot backfill
-  for spans that predate the field. Because `upsert_source_span` returns the
-  existing row for an unchanged `(source_id, content_hash)`, a re-parse does not
-  refresh `loss` — the backfill is the only path for existing rows.
+- Written at span creation, and only there. Because `upsert_source_span` returns
+  the existing row for an unchanged `(source_id, content_hash)`, a re-parse does
+  NOT refresh `loss`, so spans ingested before this field exists never acquire
+  one. There is deliberately **no backfill and no migration**: re-ingesting to
+  obtain the record would mean `wiki add --force`, which sets `l2_status` back
+  to `pending` and lets the next default `wiki build` selection trigger a full,
+  expensive L2/L3 rebuild across every source.
+- Because of that, a reader MUST NOT treat a missing `loss` key as proof that
+  nothing was lost. Reporting surfaces recognize a pre-existing loss by the
+  parser placeholder still present in `source_spans.text_preview`, and the
+  stored record is the authoritative signal only for spans written since this
+  field existed. Both signals describe the same span and must be counted once.
 - `page_number` on a span is a section index, not a physical page. It must not
   be used to locate the lost region in the source document.
-- A `metadata` write must survive cross-device import. See §20.6a.
+- A `metadata` write must survive cross-device import; `source_spans` has no
+  `updated_at`, so its LWW revision is derived rather than read from a column.
+  See SYSTEM_BEHAVIOR §26.2c.
 
 ### 20.5 Compiler Audit Contract (Schema-Level)
 

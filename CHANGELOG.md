@@ -21,7 +21,7 @@ All notable changes to Incurator are documented here.
   - `wiki lint` gains an `extraction_loss` check — one line per source with the
     count and sections, never one per span, and silent for sources that lost
     nothing. `wiki add` reports the same at ingest time.
-  - The L1 projection keeps a `[image not extracted]` marker where the region
+  - The L1 projection keeps a `[image-not-extracted]` marker where the region
     was. `_section_preview` had been eliding it to whitespace, and for an
     `on_demand` source that preview **is** the CTX body that
     `_durable_l1_projection` serves as the plugin's chat context — so the one
@@ -43,9 +43,17 @@ All notable changes to Incurator are documented here.
   has mutated `metadata` since v0.8.0.
 
   The LWW clock for `source_spans` is now derived from `created_at` plus the
-  timestamps inside `metadata`, applied identically to both sides of the
-  comparison and to the export gate. No new column — this codebase has no
-  `ALTER TABLE` path, so an existing vault could not have received one.
+  timestamps inside `metadata`, applied at every site that ranks a span by time:
+  both sides of the `_lw_upsert` comparison, the `_local_max_ts` export gate,
+  the tombstone-vs-edit check (an edit newer than a delete must resurrect the
+  row, not be silently blocked), and the `wiki db export --since` filter. No new
+  column — this codebase has no `ALTER TABLE` path, so an existing vault could
+  not have received one.
+
+  `_local_max_ts` scans only rows that carry metadata, falling back to the
+  indexed `MAX(created_at)` for the rest: it runs once per ingest job on a
+  default-on path, so a full table scan would make a batch ingest
+  O(jobs × total_spans).
 
 ### Notes
 - This release makes formula loss **observable**; it does not recover a single

@@ -2398,7 +2398,7 @@ ever created from it. The system's duty there is to record the loss and say so
 - **The loss record lives on the span, not the claim.** `formula_status` is a
   property of a claim and has no value meaning "no claim exists". A region the
   parser could not read is a property of the SPAN. It is recorded as
-  `source_spans.metadata.loss` (SCHEMA §20.6), reusing the §26.2 verdict
+  `source_spans.metadata.loss` (SCHEMA §20.4a), reusing the §26.2 verdict
   vocabulary (`image_only | fragmented | parser_omitted`).
 - **A rasterized region is `image_only`.** When a PDF parser emits a
   picture-omitted placeholder in place of a region, the span carrying that
@@ -2427,6 +2427,42 @@ ever created from it. The system's duty there is to record the loss and say so
   a region, schedules a provider call, or changes any `formula_status`. It makes
   an existing silent loss observable. Recovery remains §26.2, gated as written
   there.
+- **Existing spans are reported without a migration.** A span already in the DB
+  never acquires a stored record — `upsert_source_span` returns the existing row
+  for an unchanged `(source_id, content_hash)`, so a re-parse does not refresh
+  metadata. Reporting surfaces therefore ALSO recognize the parser placeholder
+  still present in `text_preview`, and count a span carrying both signals once.
+  Forcing a re-ingest to obtain the stored record is explicitly rejected:
+  `wiki add --force` sets `l2_status` back to `pending`, which the next default
+  `wiki build` selection picks up as a full L2/L3 rebuild of every source — an
+  expensive, surprising consequence of asking to see a warning.
+
+### 26.2c Derived LWW Revision For Mutable-Metadata Tables (v0.49.0)
+
+Cross-device merge (§ sync) ranks two versions of a row by a per-table
+last-write-wins column. That model assumes the column moves whenever the row
+changes. `source_spans` breaks the assumption: it has **no `updated_at`**, its
+`created_at` is immutable, and yet its `metadata` IS mutated in place — by
+§26.2b loss records and by §26.2 formula-recovery candidates.
+
+- **A table whose only clock column is immutable MUST derive its revision.**
+  For `source_spans` the effective revision is the newest of `created_at` and
+  every timestamp stored inside `metadata` (loss `classified_at`, each recovery
+  candidate's `created_at`). Comparing the raw column instead makes two versions
+  tie; the merge keeps the local row on a strict `>` comparison and the write is
+  discarded with no error and no report.
+- **The same derivation must be applied to BOTH sides of the comparison and to
+  the export gate.** Deriving only the remote side ranks local and remote by
+  different rules. Leaving the export gate on the raw column is equally fatal in
+  the other direction: the writing device concludes it has nothing new and never
+  offers the change, so the drop is invisible from both ends.
+- **No schema change is permitted for this.** There is no runtime `ALTER TABLE`
+  path, so an existing vault cannot receive a new column; a derived revision is
+  the only mechanism that reaches vaults already in the field.
+- **Ordinary rows are unaffected.** A span with no metadata derives exactly its
+  `created_at`, so tables and rows without mutable metadata keep their previous
+  behavior, and last-write-wins still applies — an older remote metadata write
+  must not overwrite a newer local one.
 
 ### 26.1.1 Entity Descriptions Carry Meaning, Not The Name Again
 
