@@ -354,6 +354,28 @@ in flight ("Cannot use the same canvas during multiple render() operations").
 - A cancelled task rejects with PDF.js's cancellation exception. That rejection
   is the expected outcome and MUST NOT be surfaced as a render failure.
 
+### Distant Equation References (v0.48.1)
+
+Numbered-equation references are probed at `currentPage ±2` first, because that
+neighbourhood covers the common case (an equation continuing onto the next
+physical page) at one page fetch each.
+
+When that probe fails the resolver performs a **whole-document lookup** through
+the backend, which indexes every page of a tracked PDF and returns a page number
+per hit, and fetches the located page(s).
+
+Without this step a reference to an equation far from the reading position fails
+closed, no resolved-references block is attached, and the provider must find the
+page itself. A headless CLI provider cannot prompt for tool permission, so the
+turn produces **no output at all** rather than a degraded answer — the failure is
+total and its message names a permission rather than the missing reference.
+
+Bounds, all required:
+- the document-wide lookup runs only after the adjacent probe fails;
+- at most 3 located pages are fetched per reference;
+- a locator error preserves fail-closed behaviour — a resolved-looking reference
+  with no content is worse than an unresolved one.
+
 ### Vault File Events (v0.46.0)
 
 The plugin subscribes to `vault.on("rename")` and `vault.on("delete")`. Before

@@ -1835,6 +1835,21 @@ export class ChatSidebarView extends ItemView {
             });
             this.logContextTiming("backend_pdf_reference", startedAt, docLabel);
             return targetCtx?.pages.find((page) => page.pageNum === pageNum)?.text;
+          },
+          // Whole-document locator. The adjacent probe only reaches +/-2 pages,
+          // so asking about a formula 20+ pages away used to leave the
+          // reference unresolved and force the provider to find it with its own
+          // tool call — which a headless CLI provider cannot run.
+          async (label) => {
+            if (!client.available || !sourcePath) return [];
+            const hits = await client.getPdfRagHits({
+              query: label,
+              sourcePath,
+              topK: 4,
+            });
+            return hits
+              .map((hit) => hit.pageNum)
+              .filter((pageNum): pageNum is number => typeof pageNum === "number" && pageNum > 0);
           }
         );
       }
