@@ -100,3 +100,37 @@ class TestPreviewKeepsTheGapVisible:
         preview = _section_preview(PLACEHOLDER)
         assert preview.strip() != "", "a placeholder-only section previewed as empty"
         assert "[image" in preview
+
+
+def test_marker_is_never_cut_in_half_by_truncation() -> None:
+    """The marker is one token so word-boundary truncation drops it whole.
+
+    A multi-word marker could be sliced to a dangling `[image not`, which reads
+    as ordinary truncated prose rather than a flagged loss — defeating the point
+    of showing it at all.
+    """
+    # Force the cut to land inside the marker for a range of budgets.
+    prefix = "word " * 40
+    text = f"{prefix}{PLACEHOLDER} tail"
+    for max_chars in range(190, 230):
+        preview = _section_preview(text, max_chars=max_chars)
+        stripped = preview.rstrip(".")
+        assert "[image-not" not in stripped or "[image-not-extracted]" in stripped, (
+            f"marker was cut mid-token at max_chars={max_chars}: {preview[-40:]!r}"
+        )
+
+
+def test_loss_verdict_matches_the_formula_recovery_vocabulary() -> None:
+    """SCHEMA §20.4a claims the two share a vocabulary — enforce it.
+
+    `source_spans` deliberately does not import `formula_recovery` (that would
+    drag `claim_support` onto the instant-L1 path), so nothing at runtime keeps
+    the strings aligned. A rename on either side must fail here.
+    """
+    from curator.pipeline.formula_recovery import LOSS_VERDICTS
+
+    verdict = classify_span_loss(PLACEHOLDER)["verdict"]
+    assert verdict in LOSS_VERDICTS, (
+        f"{verdict!r} is not a formula_recovery loss verdict; SCHEMA §20.4a and "
+        "§20.4 have diverged"
+    )

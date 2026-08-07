@@ -158,12 +158,47 @@ def _source_span_revision(row: dict) -> str:
     return max(stamps, key=_timestamp_key)
 
 
-# Tables whose LWW clock is not a plain column. Applied to BOTH sides of the
-# comparison and to the export gate, so local and remote are always ranked the
-# same way.
+# Tables whose LWW clock is not a plain column.
+#
+# NEVER read `_UPDATED_AT_COL` directly to rank two versions of a row — go
+# through `row_revision()` below. Every site that compares timestamps must use
+# the same rule, or local and remote get ranked differently and a write is
+# dropped on one path while surviving on another. The sites are: the
+# `_lw_upsert` comparison, `_local_max_ts` (the export gate), the `--since`
+# export filter, `_row_is_blocked_by_tombstone`, `_apply_tombstone`, and
+# `clear_row_tombstone_on_connection`.
 _REVISION_FN: dict[str, _Callable[[dict], str]] = {
     "source_spans": _source_span_revision,
 }
+
+
+def row_revision(table_name: str, row: Mapping[str, Any] | dict) -> str:
+    """The timestamp that ranks this row against another version of it.
+
+    The single entry point for "how new is this row". For most tables that is
+    just `_UPDATED_AT_COL`; for tables in `_REVISION_FN` the column is immutable
+    and the real clock is derived (see `_source_span_revision`).
+    """
+    revision_fn = _REVISION_FN.get(table_name)
+    if revision_fn is not None:
+        return revision_fn(dict(row))
+    remote_ts_fn = _REMOTE_TS_FN.get(table_name)
+    if remote_ts_fn is not None:
+        return remote_ts_fn(dict(row))
+    updated_col = _UPDATED_AT_COL.get(table_name)
+    if updated_col is None:
+        return ""
+    return str(_row_value(row, updated_col, None) or "")
+
+
+def revision_select_columns(table_name: str) -> str:
+    """Columns a query must SELECT for `row_revision` to work on its rows."""
+    updated_col = _UPDATED_AT_COL.get(table_name)
+    if _REVISION_FN.get(table_name) is not None:
+        # Derived clocks read `metadata`, so a bare `SELECT {updated_col}` is
+        # not enough to rank the row.
+        return "*"
+    return updated_col or "*"
 
 # Scalar transport key per table. Composite tables use their full PRAGMA-derived
 # primary key for row merge and the closed portable-key registry for tombstones.
@@ -560,7 +595,7 @@ def clear_row_tombstone_on_connection(
         return
     where = " AND ".join(f"{column} IS ?" for column in key_columns)
     current = conn.execute(
-        f"SELECT {updated_col} FROM {table_name} WHERE {where}",
+        f"SELECT {revision_select_columns(table_name)} FROM {table_name} WHERE {where}",
         key_values,
     ).fetchone()
     if current is None:
@@ -569,12 +604,15 @@ def clear_row_tombstone_on_connection(
         tombstone["deleted_at"],
         context=f"Tombstone for {table_name!r} deleted_at",
     )
-    row_revision = _require_timestamp(
-        current[updated_col],
+    current_revision = _require_timestamp(
+        row_revision(table_name, dict(current)),
         context=f"Table {table_name!r} row revision",
     )
-    if _timestamp_key(deleted_at) >= _timestamp_key(row_revision):
-        successor = db.strict_successor_timestamp(deleted_at, row_revision)
+    if _timestamp_key(deleted_at) >= _timestamp_key(current_revision):
+        # The row must end up strictly newer than the tombstone that cleared it.
+        # For a derived clock the write still lands on the physical column; the
+        # derivation takes the max, so bumping it is enough to win.
+        successor = db.strict_successor_timestamp(deleted_at, current_revision)
         conn.execute(
             f"UPDATE {table_name} SET {updated_col} = ? WHERE {where}",
             (successor, *key_values),
@@ -787,7 +825,19 @@ def export_knowledge(
                     if tbl not in existing_tables:
                         continue
                     updated_col = _UPDATED_AT_COL.get(tbl)
-                    if since and updated_col:
+                    if since and updated_col and _REVISION_FN.get(tbl) is not None:
+                        # `wiki db export --since` is user-facing. Filtering on
+                        # the raw column would exclude a span whose metadata was
+                        # edited after `since` but whose immutable `created_at`
+                        # predates it — silently omitting exactly the writes
+                        # this table's derived revision exists to carry.
+                        since_key = _timestamp_key(since)
+                        rows = [
+                            row
+                            for row in conn.execute(f"SELECT * FROM {tbl}").fetchall()
+                            if _timestamp_key(row_revision(tbl, dict(row))) >= since_key
+                        ]
+                    elif since and updated_col:
                         rows = conn.execute(
                             f"SELECT * FROM {tbl} WHERE {updated_col} >= ?", (since,)
                         ).fetchall()
@@ -1204,13 +1254,17 @@ def _apply_tombstone(
     )
     where = " AND ".join(f"{column} IS ?" for column in key_columns)
     if key_values is not None and updated_col:
+        # A locally-newer row survives an incoming delete. Ranking a span by its
+        # immutable `created_at` here would let a tombstone destroy a metadata
+        # edit made after the delete — on the default `wiki db import` path.
         local_record = conn.execute(
-            f"SELECT {updated_col} FROM {table_name} WHERE {where}",
+            f"SELECT {revision_select_columns(table_name)} FROM {table_name} "
+            f"WHERE {where}",
             key_values,
         ).fetchone()
-        if local_record and _timestamp_key(local_record[0]) > _timestamp_key(
-            deleted_at
-        ):
+        if local_record and _timestamp_key(
+            row_revision(table_name, dict(local_record))
+        ) > _timestamp_key(deleted_at):
             return False
 
     if not dry_run:
@@ -1292,17 +1346,14 @@ def _row_is_blocked_by_tombstone(
     updated_col = _UPDATED_AT_COL.get(table_name)
     if updated_col is None:
         return True
-    remote_ts_fn = _REMOTE_TS_FN.get(table_name)
-    row_revision = (
-        remote_ts_fn(dict(row))
-        if remote_ts_fn is not None
-        else _row_value(row, updated_col, None)
-    )
-    row_revision = _require_timestamp(
-        row_revision,
+    # Tombstone-vs-edit is LWW too: an edit genuinely newer than the delete must
+    # resurrect the row. Ranking a span by its immutable `created_at` would make
+    # every later metadata edit look older than any tombstone.
+    incoming_revision = _require_timestamp(
+        row_revision(table_name, dict(row)),
         context=f"Table {table_name!r} row revision",
     )
-    if _timestamp_key(deleted_at) >= _timestamp_key(row_revision):
+    if _timestamp_key(deleted_at) >= _timestamp_key(incoming_revision):
         return True
     if not dry_run:
         conn.execute(
@@ -1410,18 +1461,9 @@ def _lw_upsert(
             return "inserted"
 
         if updated_col:
-            revision_fn = _REVISION_FN.get(table_name)
-            if revision_fn is not None:
-                # Same function on both sides: the column alone is not the clock
-                # for this table (see _source_span_revision).
-                local_ts = revision_fn(dict(existing))
-                remote_ts = revision_fn(row)
-            else:
-                local_ts = existing[updated_col] or ""
-                remote_ts_fn = _REMOTE_TS_FN.get(table_name)
-                remote_ts = (
-                    remote_ts_fn(row) if remote_ts_fn else (row.get(updated_col) or "")
-                )
+            # One rule, both sides — see row_revision().
+            local_ts = row_revision(table_name, dict(existing))
+            remote_ts = row_revision(table_name, row)
             if _timestamp_key(remote_ts) > _timestamp_key(local_ts):
                 if not dry_run:
                     _preserve_device_local(conn, table_name, row)
@@ -1712,8 +1754,20 @@ def _local_max_ts(db_path: Path) -> str:
             if revision_fn is not None:
                 # MAX(col) cannot see a clock that lives inside a JSON column,
                 # so the export gate would never fire for a metadata-only write.
-                for span in conn.execute(f"SELECT * FROM {tbl}"):
-                    stamp = revision_fn(dict(span))
+                #
+                # Scan ONLY the rows that carry metadata. This runs on a hot,
+                # default-on path — `maybe_auto_export` calls it once per ingest
+                # job — so materializing and JSON-decoding every span would make
+                # a batch ingest O(jobs x total_spans). Rows without metadata
+                # derive exactly `created_at`, which the indexed MAX below
+                # already covers.
+                row = conn.execute(f"SELECT MAX({col}) FROM {tbl}").fetchone()
+                if row and row[0] and _timestamp_key(row[0]) > _timestamp_key(newest):
+                    newest = row[0]
+                for span in conn.execute(
+                    f"SELECT * FROM {tbl} WHERE metadata IS NOT NULL"
+                ):
+                    stamp = row_revision(tbl, dict(span))
                     if stamp and _timestamp_key(stamp) > _timestamp_key(newest):
                         newest = stamp
                 continue

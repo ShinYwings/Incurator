@@ -28,6 +28,14 @@ _CODE_BLOCK = re.compile(r"```.*?```", re.DOTALL)
 _EQUATION_BLOCK = re.compile(r"\$\$.*?\$\$", re.DOTALL)
 _PREVIEW_CHARS = 200
 
+# SCHEMA §20.4a states this verdict shares `formula_recovery.LOSS_VERDICTS`'s
+# vocabulary. It is NOT imported from there: `formula_recovery` pulls in
+# `claim_support`, and this module is on the instant-L1 path that must stay
+# free of the compiler's imports. The documented equivalence is enforced by
+# `test_loss_verdict_matches_the_formula_recovery_vocabulary` instead, so a
+# rename on either side fails a test rather than drifting silently.
+_IMAGE_ONLY = "image_only"
+
 # What a PDF parser leaves behind where it could not read a rendered region.
 # Geometry is optional: some emitters state `[W x H]`, some state nothing.
 _PICTURE_OMITTED = re.compile(
@@ -54,7 +62,7 @@ def classify_span_loss(text: str) -> dict[str, Any] | None:
         return None
 
     loss: dict[str, Any] = {
-        "verdict": "image_only",
+        "verdict": _IMAGE_ONLY,
         "classified_at": datetime.now(timezone.utc).isoformat(),
     }
     width, height = match.group(1), match.group(2)

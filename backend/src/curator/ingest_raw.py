@@ -1098,8 +1098,15 @@ def _section_preview(text: str, *, max_chars: int = 260) -> str:
     # actually sees, leaving prose that stops mid-sentence with no explanation.
     # The marker is compact and free of parser noise; the machine-readable
     # record lives in `source_spans.metadata.loss`.
+    #
+    # It is deliberately ONE hyphenated token. This preview is interpolated into
+    # the CTX body as `Preview: ...`, which a model reads as a quotation of the
+    # source, so the marker has to be unmistakably an annotation rather than
+    # prose. Being a single token also survives the word-boundary truncation
+    # below: `rsplit(" ", 1)` drops a partial trailing token whole, where a
+    # multi-word marker could be cut to a dangling `[image not`.
     cleaned = re.sub(
-        r"\*\*==>.*?intentionally omitted.*?<==\*\*", "[image not extracted]", cleaned
+        r"\*\*==>.*?intentionally omitted.*?<==\*\*", "[image-not-extracted]", cleaned
     )
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     if not cleaned:

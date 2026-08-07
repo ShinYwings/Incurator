@@ -818,7 +818,7 @@ Now the loss is visible in three places:
 - **`wiki lint` reports affected sources**, one line each with the count and the
   sections involved. A paper with 95 unreadable regions produces one line, not
   95.
-- **The L1 page keeps a `[image not extracted]` marker** where the region was,
+- **The L1 page keeps a `[image-not-extracted]` marker** where the region was,
   so a reader — you or the assistant — can tell "nothing was there" from
   "something was there and could not be read". Previously the gap was closed to
   whitespace and the surrounding prose just stopped mid-sentence.

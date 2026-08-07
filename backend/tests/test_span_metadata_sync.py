@@ -171,3 +171,66 @@ def test_span_without_metadata_still_syncs_on_created_at(tmp_path: Path) -> None
             "SELECT id FROM source_spans WHERE id = ?", (span_id,)
         ).fetchone()
     assert row is not None, "a plain span failed to reach the peer at all"
+
+
+def test_since_filtered_export_includes_a_metadata_only_edit(tmp_path: Path) -> None:
+    """`wiki db export --since` is user-facing and filtered on the raw column.
+
+    A span whose metadata was edited after `since` but whose immutable
+    `created_at` predates it would be silently omitted.
+    """
+    device_a = _make_vault(tmp_path, "a")
+    _, span_id = _seed_span(device_a)
+    _set_loss(device_a, span_id, "2027-06-01T00:00:00+00:00")
+
+    export = tmp_path / "since.jsonl"
+    db_sync.export_knowledge(device_a, export, since="2027-01-01T00:00:00+00:00")
+
+    body = export.read_text()
+    assert span_id in body, (
+        "the --since export dropped a span whose metadata was edited after the "
+        "cutoff, because it filtered on the immutable created_at"
+    )
+
+
+def test_since_filtered_export_still_excludes_untouched_rows(tmp_path: Path) -> None:
+    """The derived revision must not make --since export everything."""
+    device_a = _make_vault(tmp_path, "a")
+    _, span_id = _seed_span(device_a)  # created now, no metadata
+
+    export = tmp_path / "since.jsonl"
+    db_sync.export_knowledge(device_a, export, since="2099-01-01T00:00:00+00:00")
+    assert span_id not in export.read_text()
+
+
+def test_a_newer_metadata_edit_survives_an_older_tombstone(tmp_path: Path) -> None:
+    """Tombstone-vs-edit is LWW too: a genuinely newer edit must not be blocked.
+
+    Ranking a span by its immutable `created_at` made every later metadata edit
+    look older than any tombstone, so it was always blocked and dropped.
+    """
+    device_a, device_b, span_id = _synced_pair(tmp_path)
+
+    # B deletes the span; A edits its metadata strictly later.
+    with db.connect(device_b) as conn:
+        row = conn.execute(
+            "SELECT source_id FROM source_spans WHERE id = ?", (span_id,)
+        ).fetchone()
+        assert row is not None
+    with db.connect(device_b) as conn:
+        db_sync.record_tombstone_on_connection(
+            conn, "source_spans", span_id, deleted_at="2026-09-01T00:00:00+00:00"
+        )
+        conn.execute("DELETE FROM source_spans WHERE id = ?", (span_id,))
+
+    _set_loss(device_a, span_id, "2027-01-01T00:00:00+00:00")  # newer than the delete
+
+    export = tmp_path / "a.jsonl"
+    db_sync.export_knowledge(device_a, export)
+    db_sync.import_knowledge(device_b, export)
+
+    meta = _read_meta(device_b, span_id)
+    assert meta.get("loss", {}).get("verdict") == "image_only", (
+        "a metadata edit newer than the tombstone was blocked, because the "
+        "tombstone check ranked the span by its immutable created_at"
+    )

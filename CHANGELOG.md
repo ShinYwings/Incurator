@@ -2,6 +2,57 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.49.1] - 2026-08-08
+### Fixed
+- **The v0.49.0 Sync Clock Was Applied At Two Sites And Missed Four**
+  v0.49.0 derived a `source_spans` LWW revision from `created_at` plus the
+  timestamps inside `metadata`, but only wired it into the `_lw_upsert`
+  comparison and the `_local_max_ts` export gate. Four other places still ranked
+  a span by the immutable column:
+
+  - `_row_is_blocked_by_tombstone` and `_apply_tombstone` — on the **default**
+    `wiki db import` path. Every metadata edit looked older than any tombstone,
+    so an edit made *after* a delete was silently discarded instead of
+    resurrecting the row, and an incoming delete destroyed a locally-newer edit.
+  - `clear_row_tombstone_on_connection`.
+  - `wiki db export --since`, which filtered on the raw column and so omitted
+    exactly the metadata-only writes the derived clock exists to carry.
+
+  Rather than patch a fifth site later, `row_revision()` is now the single entry
+  point for "how new is this row", and `_UPDATED_AT_COL` carries a comment
+  saying never to rank rows by it directly.
+
+- **`_local_max_ts` Scanned Every Span On A Default-On Path**
+  It materialized and JSON-decoded the whole `source_spans` table, and runs once
+  per ingest job via `maybe_auto_export` — making a batch ingest
+  O(jobs × total_spans). It now scans only rows carrying metadata and keeps the
+  indexed `MAX(created_at)` for the rest.
+
+- **The L1 Marker Could Be Cut In Half**
+  `[image not extracted]` was three whitespace-delimited tokens, so
+  `_section_preview`'s pre-existing word-boundary truncation could leave a
+  dangling `[image not` — which reads as ordinary cut-off prose rather than a
+  flagged loss, defeating the point of showing it. It is now the single token
+  `[image-not-extracted]`, which `rsplit(" ", 1)` drops whole. Being one
+  bracketed token also reads as an annotation rather than prose, which matters
+  because this preview is quoted to the model as source text.
+
+- **Spec Corrections**
+  SCHEMA §20.4a described a "one-shot backfill … the only path for existing
+  rows". No backfill was ever built — the shipped mechanism is a `text_preview`
+  fallback at read time, exactly as the v0.49.0 CHANGELOG described. §20.4a now
+  documents what exists, including that a *missing* `loss` key is not proof
+  nothing was lost. Two dangling cross-references are fixed (§20.4a pointed at a
+  nonexistent §20.6a; §26.2b cited the unrelated §20.6), and the v0.49.0 sync
+  change — a runtime behavior change that had no spec entry at all — is now
+  SYSTEM_BEHAVIOR §26.2c.
+
+- **An Unenforced Vocabulary Claim**
+  SCHEMA §20.4a states the loss verdict shares
+  `formula_recovery.LOSS_VERDICTS`. Nothing checked it. `source_spans` cannot
+  import that module without dragging `claim_support` onto the instant-L1 path,
+  so a test now enforces the equivalence and a rename on either side fails.
+
 ## [0.49.0] - 2026-08-08
 ### Added
 - **Unreadable PDF Regions Are Reported Instead of Silently Dropped**
