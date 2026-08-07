@@ -253,10 +253,7 @@ export class ChatSidebarView extends ItemView {
     this.sessionDrawerEl.createDiv("ai-agent-session-drawer-list");
 
     // Start status polling
-    // 5s, not 2s: this now spawns a backend process per poll (~0.2s each)
-    // instead of reading a local file. Fast enough that a queued job still
-    // appears promptly, slow enough not to churn processes while idle.
-    this.statusPollInterval = setInterval(() => void this.updateStatusBar(), 5000) as any;
+    this.statusPollInterval = setInterval(() => void this.updateStatusBar(), 2000) as any;
     void this.updateStatusBar();
 
     // ── Messages area ──
@@ -468,36 +465,36 @@ export class ChatSidebarView extends ItemView {
   }
 
   /**
-   * Job indicator, read from the LIVE backend rather than an on-disk snapshot.
+   * Job indicator, read from the runtime snapshot at its REAL location.
    *
-   * This used to read `<vault>/.curator/runtime/jobs.json` directly. Runtime
-   * snapshots moved to the repo-local cache in 2026-07 and nothing migrated or
-   * rewrote the vault-side copies, so the file froze — on the reporting vault it
-   * sat at 2026-07-04 with `running: []` while the live snapshot showed a job
-   * running. The indicator therefore rendered nothing at all and looked like it
-   * had been removed.
+   * This used to read `<vault>/.curator/runtime/jobs.json`. Runtime snapshots
+   * moved to the repo-local cache in 2026-07 and nothing migrated or rewrites
+   * the vault-side copies, so that file froze — on the reporting vault it sat
+   * at 2026-07-04 with `running: []` while the live snapshot showed a job
+   * running. The indicator rendered nothing, indistinguishable from having been
+   * removed.
    *
-   * `incuratorDashboardModal` already solved this and says why in its own
-   * comment: read backend info from the live command, "never from the on-disk
-   * snapshot file", so it cannot show stale data left behind when a backend
-   * change forgets to regenerate the snapshot. The sidebar never got the same
-   * treatment. Correcting the path would not have worked either — the cache
-   * directory is keyed by a hash of the vault root that the plugin has no way
-   * to compute, and duplicating that derivation here would create a second
-   * place to keep in sync.
+   * `plugin.readRuntimeJson` already resolves the correct hash-keyed cache
+   * directory (`vaultMachineCacheDir`, which mirrors the backend's
+   * `get_vault_cache_dir` exactly) and is used in production by the main status
+   * bar. Reusing it keeps this a free file read: `b9a49a1` deliberately left
+   * the sidebar on the snapshot rather than the live CLI, because unlike the
+   * dashboard's once-per-render fetch this polls for the lifetime of the view.
    */
   private async updateStatusBar(): Promise<void> {
     if (!this.statusBarEl) return;
-    if (this.statusPollInFlight) return; // never stack CLI calls
+    if (this.statusPollInFlight) return;
     this.statusPollInFlight = true;
     try {
-      const client = this.getIncuratorClient();
-      if (!client.available) return;
-      const jobs = await client.getJobsSnapshot();
-      if (!this.statusBarEl) return; // view closed while awaiting
+      const jobs = await this.plugin.readRuntimeJson("jobs");
+      // A missing or unreadable snapshot is NOT "no jobs". Leave whatever is on
+      // screen rather than blanking it, so a transient read failure does not
+      // reproduce the very symptom this fixes.
+      if (!jobs) return;
+      if (!this.statusBarEl) return;
 
-      const running = Array.isArray(jobs?.running) ? jobs.running.length : 0;
-      const queued = Array.isArray(jobs?.queued) ? jobs.queued.length : 0;
+      const running = Array.isArray(jobs.running) ? jobs.running.length : 0;
+      const queued = Array.isArray(jobs.queued) ? jobs.queued.length : 0;
 
       this.statusBarEl.empty();
       if (running > 0) {
@@ -510,9 +507,7 @@ export class ChatSidebarView extends ItemView {
         this.statusBarEl.createSpan({ text: ` ${queued} queued` });
       }
     } catch {
-      // Fail silent: a transient backend hiccup must not disturb the chat, and
-      // the next poll recovers. The previous render is left in place rather
-      // than blanked, so a blip does not look like "nothing is running".
+      // Same rule as above: never blank on failure.
     } finally {
       this.statusPollInFlight = false;
     }

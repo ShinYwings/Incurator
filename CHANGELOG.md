@@ -7,28 +7,30 @@ All notable changes to Incurator are documented here.
 - **The Sidechat Job Indicator Disappeared**
   The spinner and "N running / N queued" badge in the sidechat header stopped
   appearing entirely. `updateStatusBar` read
-  `<vault>/.curator/runtime/jobs.json` directly. Runtime snapshots moved to the
+  `<vault>/.curator/runtime/jobs.json`. Runtime snapshots moved to the
   repo-local cache in 2026-07 and nothing migrated or rewrites the vault-side
   copies, so that file froze: on the reporting vault it sat at 2026-07-04 with
-  `running: []` while the live snapshot showed a job actively running. The
-  indicator therefore rendered nothing, indistinguishable from having been
-  removed.
+  `running: []` while the live snapshot showed a job actively running. With an
+  empty `running` list the render block is skipped and nothing is drawn, which
+  is indistinguishable from the feature having been removed.
 
-  It now reads the live `wiki status --json` payload. `incuratorDashboardModal`
-  already solved this and documents why in its own comment — read backend info
-  from the live command, "never from the on-disk snapshot file", so it cannot
-  show stale data left behind when a backend change forgets to regenerate a
-  snapshot. The sidebar had never received the same treatment.
+  It now reads the snapshot at its real location through
+  `plugin.readRuntimeJson("jobs")`, which resolves the hash-keyed cache
+  directory (`vaultMachineCacheDir`, mirroring the backend's
+  `get_vault_cache_dir`) and is already used in production by the main status
+  bar. This stays a cheap file read: `b9a49a1` deliberately left the sidebar on
+  the snapshot rather than the live CLI, because unlike the dashboard's
+  once-per-render fetch this polls for the lifetime of the view. Polling stays
+  at 2 s.
 
-  Correcting the path would not have worked: the cache directory is keyed by a
-  hash of the vault root that the plugin cannot compute, and duplicating that
-  derivation in the plugin would create a second place to keep in sync.
+  A missing or unreadable snapshot is treated as "unknown", not "no jobs" —
+  whatever is on screen is left alone. Blanking on a read failure would
+  reproduce the exact symptom being fixed from a different cause.
 
-  Polling drops from 2 s to 5 s because each poll is now a backend process
-  (~0.2 s) rather than a local file read, and overlapping polls are suppressed.
-  A failed poll leaves the previous render in place instead of blanking it, so a
-  transient hiccup does not read as "nothing is running". A source-level test
-  now fails if any file-path read is reintroduced into `updateStatusBar`.
+  Two source-level tests guard the invariants that let this hide for a month:
+  that the poll resolves the hash-keyed path rather than any `.curator` vault
+  path, and that the not-readable early return sits before the element is
+  emptied.
 
 ## [0.48.1] - 2026-08-07
 ### Fixed
