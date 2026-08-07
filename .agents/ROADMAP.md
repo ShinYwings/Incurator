@@ -27,14 +27,31 @@ belong in Git history, not the active workspace. New raw reports enter through
    - Plan: `.agents/plans/03_system_integrity_consolidation.md`
    - Arena record: `.agents/plans/system_defect_audit_arena/`
 
-2. **Retrieval reaches the distilled layers** (new, from the v0.43.0 follow-up)
-   - The `local` route never consults L4/L3 — it goes entities → L1 spans → flat
-     search, so the layer split delivers none of its intended cost benefit and
-     bibliography lines outrank equations.
-   - Formula availability is a retrieval-ranking problem, not the L2 support
-     gate: all 105 equation spans are already indexed.
-   - **Sequenced after the current build**: both need a repopulated L3/L4 to be
-     judged. Re-measure first with `/tmp/measure_after_build.sh`.
+2. **The knowledge system does not serve real questions** (2026-08-07, from the
+   knowledge-value Arena — supersedes and absorbs the old "retrieval reaches the
+   distilled layers" item)
+   - **[P1] 61% of knowledge never enters the search index.** 1,701 of 2,799
+     live `knowledge_units` are absent from `search_documents`. Chain: PDF spans
+     lack `$…$` → formula match fails → `support_status` stays `unchecked` →
+     `materializer.py:237` gates indexing on `verified`. No route or reranker
+     can retrieve them. **`recover_formula()` (SYSTEM_BEHAVIOR §26.2) is fully
+     implemented with 0 production call sites and 14 test call sites** — wiring
+     it up is the highest-leverage fix in the audit.
+   - **[P1] Route selection is ASCII-regex-only** (`router.py:20-29`), so a
+     Korean question can never reach `global`/`explore` while its English
+     translation can. The registered LLM router is never called. `global` itself
+     works — forcing it on Q3 returned 10/233 reports + 4/4 synthesis.
+   - **[P1] `about.md` §5.2's "refined essence" claim is not met** — L3 is
+     0/233 through any path; raw L1 is 55–90% of every pack.
+   - **[P1] The chat sidebar never passes a workspace** (`ChatSidebarView.ts:1904`),
+     so `curate.yml` and the vault persona reach no answer the user reads. The
+     lens itself works when a workspace IS passed (verified). = CAND-06 / B6.
+   - **[P2]** Circular entity descriptions (35% of pack entities; ~10% DB-wide);
+     the extraction prompt has no description contract.
+   - **[P2]** Span segmentation isolates single-word fragments.
+   - Evidence: `.agents/plans/knowledge_value_arena/` (4 proposals, 2 critiques,
+     synthesis, and the four raw evidence packs `q1.json`–`q4.json`).
+   - Acceptance test: re-run the same four questions with embedder + reranker on.
 
 3. **`.curator` state audit findings** (new, 2026-08-06, from the artifact-first Arena)
    - **[P1] The chat sidebar's job/status indicator has been dead since
