@@ -1,8 +1,29 @@
 # v0.42.2 → v0.46.0 System Integrity Consolidation — Master Implementation Plan
 
-Date: 2026-08-04
-Status: **AWAITING USER APPROVAL** — Arena debate concluded; blocking decisions
-in §8 are unanswered. No code may be written until they are.
+Date: 2026-08-04 | Status last verified against the code: 2026-08-08
+Status: **PARTIALLY EXECUTED** — approved and in progress, not awaiting approval.
+
+The original line read "AWAITING USER APPROVAL … No code may be written until
+they are." That has been false since v0.44.0. Shipped from this milestone:
+
+- **B4** — v0.44.0
+- **B3 P1–P4** — v0.45.0
+
+Still open, and the reason this plan stays in the workspace:
+
+- **B2** — cross-device sync integrity, the last P1 in the milestone.
+- **B3 P5** synthesis dep-hash freeze · **P6** delete the dead L2
+  checkpoint-resume (table migration) · **P7** record a reason on legitimate
+  skips (needs a decision: `layer_error` is named for errors, `error_reason`
+  already exists).
+- **B5 / B7** — each requires its own Arena plan.
+
+Note for B2: the formula-recovery Arena independently found a live cross-device
+sync defect in this same area — `source_spans` has no `updated_at`, and
+`db_sync.py:87` uses the immutable `created_at` as its LWW clock, so any
+`metadata` mutation (which shipped `recover_formula()` already performs) is
+silently dropped by a peer on import. Fold that into B2 rather than solving it
+twice.
 
 Supersedes on closure: `.agents/plans/01_system_stability_overhaul.md` and
 `.agents/plans/02_v032_regression_audit.md` (ROADMAP items 1 and 2).
