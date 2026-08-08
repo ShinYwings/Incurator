@@ -32,6 +32,12 @@ export interface DbAutosyncResult {
   inserted?: number;
   updated?: number;
   deleted?: number;
+  /**
+   * Rows the backend refused — a truncated or malformed peer export. They are
+   * NOT in this vault. Omitting this from the UI would report a silent loss as
+   * a clean sync, which is what the backend counter exists to prevent.
+   */
+  rejected?: number;
   importedFiles?: number;
   conflicts?: string[];
   exported?: string | null;
@@ -396,6 +402,7 @@ export class IncuratorClient {
       inserted: (r.inserted as number) ?? 0,
       updated: (r.updated as number) ?? 0,
       deleted: (r.deleted as number) ?? 0,
+      rejected: (r.rejected as number) ?? 0,
       importedFiles: (r.imported_files as number) ?? 0,
       conflicts: Array.isArray(r.conflicts) ? (r.conflicts as string[]) : [],
       exported: (r.exported as string | null) ?? null,

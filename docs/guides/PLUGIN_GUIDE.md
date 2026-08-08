@@ -1120,6 +1120,13 @@ no manual export/import.
   device's snapshot (`.curator/sync/dev-<id>.jsonl`), merges any Syncthing
   `*.sync-conflict-*` files, then writes this device's own snapshot if anything changed.
   All heavy work runs in the backend subprocess, so the Obsidian UI never freezes.
+- **Refused rows are always reported (v0.50.0)**: if a peer's snapshot is
+  truncated or malformed, the database refuses those rows. They are counted
+  separately and never as "new", and the plugin raises a notice naming the
+  count — **even when sync notifications are turned off**, because this is data
+  that did not arrive rather than routine progress. The rest of the file still
+  imports, so one bad row cannot wedge syncing on that device; re-export from
+  the other device to resolve it.
 - **Merge safety**: portable source keys remap replica-local numeric ids;
   row-level monotonic Last-Write-Wins + tombstones preserve concurrent reads and
   disjoint-source edits. Composite primary keys are compared as complete keys,

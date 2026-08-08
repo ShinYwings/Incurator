@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.49.0)
+# Incurator - System Behavior (v0.50.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -1269,6 +1269,50 @@ If the same logical row is edited on both devices, the row with the newer
 timestamp wins; a delete wins when its `deleted_at` is newer than or equal to
 the competing edit. Import preserves the source row's timestamp and never
 stamps `now()`.
+
+**An import never reports a row it did not store (v0.50.0).** Peer rows are
+written with `INSERT OR IGNORE`, but NOT because devices race: callers look the
+row up by transport key first, so an identical row never reaches the INSERT
+twice. What it absorbs is a UNIQUE constraint the key lookup cannot see —
+`graph_entities(canonical_name, entity_type)`, `source_spans(source_id,
+content_hash)`, `sources.relpath` — which is what two devices that
+independently produce the same thing under different surrogate ids collide on.
+That is convergence and MUST NOT be reported as loss: the ids never reconcile,
+so a warning there would repeat on every sync forever and teach the user to
+ignore the counter.
+
+An import must therefore separate three outcomes — stored, already present
+under another identity, and refused — and MUST NOT count a refused row as
+`inserted`. Classification asks the schema which UNIQUE index the row collides
+with, and must mirror SQLite's own semantics: NULLs are DISTINCT in a unique
+index, and a partial index constrains only rows matching its predicate. Where
+that cannot be decided, report the row as refused — over-reporting a loss is
+recoverable, under-reporting one is the silence this rule exists to prevent.
+Refused rows are counted as `rejected` and surfaced to the user, naming the
+peer export as the likely cause; claiming a clean import over a silent loss is
+worse than the loss, because it removes the only signal that anything is wrong.
+A refused row does not abort the pass: the remaining rows in that file still
+import, so one bad row cannot wedge a device's sync. This binds every table —
+including `sources`, whose merge runs first and remaps every child row's
+`source_id`. Raising there is worse than mis-reporting: nothing catches per row,
+so the transaction rolls back every well-formed row already applied and the
+peer's checkpoint is never recorded, leaving the same file to fail again on
+every retry. A refused source yields no local id, so its child rows cannot be attached to
+anything and are counted as refused too — never as skipped. Reporting one
+rejected source while silently dropping its five hundred spans understates the
+loss by five hundred.
+
+Every surface that reports an import must report refusals, including the
+hands-off ones. `wiki db autosync` and the plugin's background pass are where a
+silent loss does the most damage, because nobody is watching the output; a green
+result with rejected rows behind it is the failure this rule exists to prevent.
+
+**`last_export_ts` describes when the snapshot was READ (v0.49.3).** Anything
+older than that stamp is treated as already exported, so stamping after the
+export completes silently swallows every row mutated while the export was
+running — a window that widens with the vault. The stamp is taken before the
+snapshot is read and recorded only after the export succeeds, so a failed
+export never claims to have shipped anything.
 
 Schema v13 gives every synchronized composite-primary-key row one portable
 tombstone identity. Scalar keys keep their raw token; composite keys use the

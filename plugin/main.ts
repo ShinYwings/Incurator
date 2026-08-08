@@ -2442,6 +2442,15 @@ export default class ObsidianAIAgent extends Plugin {
           `Knowledge sync: ${res.inserted ?? 0} new, ${res.updated ?? 0} updated, ${res.deleted ?? 0} removed.`
         );
       }
+      if ((res.rejected ?? 0) > 0) {
+        // Always notify, regardless of autoSyncNotify: this is data that did
+        // NOT arrive, not routine progress the user opted out of.
+        new Notice(
+          `Knowledge sync: ${res.rejected} row(s) were refused and are NOT in ` +
+            `this vault. A peer's export is likely truncated or malformed; ` +
+            `re-export from that device.`
+        );
+      }
       if ((res.conflicts?.length ?? 0) > 0) {
         new Notice(
           `Merged ${res.conflicts!.length} Syncthing conflict file(s) (LWW). ` +

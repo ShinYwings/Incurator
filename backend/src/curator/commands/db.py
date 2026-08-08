@@ -79,6 +79,7 @@ def db_import(
         "updated": stats.updated,
         "skipped": stats.skipped,
         "deleted": stats.deleted,
+        "rejected": stats.rejected,
     }
 
     if json_output:
@@ -89,7 +90,18 @@ def db_import(
             f"[green]{tag}Import complete:[/green] "
             f"+{stats.inserted} inserted, ~{stats.updated} updated, "
             f"{stats.skipped} skipped, {stats.deleted} deleted"
+            + (
+                f", [red]{stats.rejected} rejected[/red]"
+                if stats.rejected
+                else ""
+            )
         )
+        if stats.rejected:
+            console.print(
+                f"[yellow]{stats.rejected} row(s) were refused by the database "
+                f"and are NOT in this vault.[/yellow] The peer export is likely "
+                f"truncated or malformed; re-export from that device."
+            )
 
     if not dry_run and not skip_reindex:
         console.print("[dim]Running wiki reindex…[/dim]")
@@ -123,6 +135,7 @@ def db_autosync(
         "dry_run": res.dry_run,
         "imported_files": len(res.imported),
         "inserted": sum(s.inserted for s in res.imported.values()),
+        "rejected": sum(s.rejected for s in res.imported.values()),
         "updated": sum(s.updated for s in res.imported.values()),
         "deleted": sum(s.deleted for s in res.imported.values()),
         "conflicts": res.conflicts,
@@ -138,7 +151,20 @@ def db_autosync(
             f"[green]{tag}Auto-sync:[/green] "
             f"+{summary['inserted']} inserted, ~{summary['updated']} updated, "
             f"{summary['deleted']} deleted from {summary['imported_files']} peer file(s)"
+            + (
+                f", [red]{summary['rejected']} rejected[/red]"
+                if summary["rejected"]
+                else ""
+            )
         )
+        if summary["rejected"]:
+            # autosync is the hands-off default, so a silent loss here is the
+            # one this feature exists to prevent. Never let it print green only.
+            console.print(
+                f"[yellow]{summary['rejected']} row(s) were refused by the "
+                f"database and are NOT in this vault.[/yellow] A peer export is "
+                f"likely truncated or malformed; re-export from that device."
+            )
         if res.conflicts:
             console.print(f"[yellow]Merged {len(res.conflicts)} Syncthing conflict file(s).[/yellow]")
         if res.exported:
