@@ -917,6 +917,16 @@ Recommended files:
 Rules:
 
 - Backend code is the single writer for repo-cache `runtime/*.json`.
+- **Every job state transition re-derives `runtime/jobs.json`, terminal ones
+  included** (v0.52.1). A snapshot written only while a job runs becomes a
+  permanent lie the moment that job ends: `run_next_job` writes it from a
+  `finally` block so `done`, `failed`, `requeued`, and an unexpected exception
+  are all covered, and `IngestWorker.run` writes one after `recover_stale_jobs`
+  clears jobs a crashed process left marked `running`. Passive plugin surfaces
+  poll this file and nothing else, so a stale `running` entry is a progress
+  indicator that never stops while `wiki jobs list` — which queries the DB —
+  correctly reports nothing. Snapshot writes are best-effort and must never
+  fail a job whose DB state is already committed.
 - The plugin may read these files directly through the Obsidian vault adapter
   only after giving the local backend a chance to refresh them.
 - The plugin must treat missing or stale snapshots as "unknown/waiting", not as
@@ -2347,7 +2357,27 @@ rendered page instead.
     transcribe prompt asks for exactly one `<transcription>...</transcription>`
     block; the backend normalizes the result by extracting that block when present
     and stripping common explanatory prose, labels, and fences before returning
-    JSON to the plugin. For an explicit extraction slot, the backend selects
+    JSON to the plugin. **The block's contents are authoritative (v0.52.1):** the
+    agentic-CLI banner filter — which drops standalone `codex`/`tokens used`/
+    digits-only lines — applies only OUTSIDE the block, because a banner cannot
+    occur inside one. Applying it within deleted real content: a lone equation
+    number, a table cell, or a page number vanished from a faithful transcription,
+    and an all-numeric selection normalized to nothing at all. When the model
+    emits no block, the whole text stays subject to the filter, since a banner may
+    then appear anywhere.
+  - **The plugin sanitizes a PDF selection before it crosses the process
+    boundary (v0.52.1).** pdf.js emits U+0000 for glyphs whose embedded font has
+    no usable ToUnicode mapping — exactly the rasterized regions a reader most
+    wants transcribed. Node's `spawn` rejects an argv entry containing a null
+    byte with a synchronous `TypeError`, so such a selection never reached the
+    backend. Control characters (C0 except tab/LF/CR, DEL, C1) are stripped at
+    the selection reader; a selection that is entirely artifacts reports an
+    unreadable image region rather than failing silently.
+  - **Failure reporting MUST name the actual cause.** Reporting a transcription
+    that came back empty, or a refused clipboard write, as an LLM-provider
+    misconfiguration sends the user to fix working config. The four outcomes —
+    backend/provider failure, empty transcription, refused clipboard write,
+    success — each get their own message. For an explicit extraction slot, the backend selects
     `low` only when the resolved model declares it and otherwise omits effort;
     the final main-model fallback keeps its user-selected effort. For
     Antigravity, it passes the full prompt directly as the `agy --print` value,

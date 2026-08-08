@@ -671,6 +671,26 @@ separate from your main chat model. Two rows:
   vision-capable — that model now reads the crop image directly (faster, no double
   round-trip). This light model still applies when the chat model is text-only.
 
+**Convert to LaTeX — what the messages mean (v0.52.1).** Earlier versions showed
+one message, "Check Incurator Dashboard → LLM Provider", for every failure, which
+often sent you to fix a provider that was working. Each outcome now says what
+actually happened:
+
+| Message | What it means | What to do |
+|---|---|---|
+| `LaTeX copied to clipboard.` | Success. | — |
+| `This region has no readable text layer — it is an image.` | The PDF stores that region as a picture, so there are no characters to convert. | Snip it (**Cmd+Shift+X**) so a vision model reads the image, or run `wiki lint` to list unreadable regions. |
+| `The model returned an empty transcription for this selection.` | The backend ran fine; the model gave nothing usable back. | Retry, or widen the selection so it carries more context. |
+| `Converted, but the clipboard write was refused: …` | The transcription succeeded and only the clipboard step failed (usually a focus issue). | Click into the window and retry. |
+| `LaTeX conversion failed: <detail> …` | A real backend or provider failure, with the underlying error included. | Read the detail; check the LLM Provider card if it names the provider. |
+
+Two related fixes landed with those messages. Selections are stripped of control
+characters before being sent — PDF text layers emit stray null bytes for glyphs
+with no Unicode mapping, and a single one used to abort the conversion before it
+started. And numeric-only lines (an equation number, a table cell, a page number)
+are no longer dropped from the transcription, so a selection that is entirely
+numbers converts instead of coming back empty.
+
 Ingest vision runs on your existing provider's **CLI subscription** (Ollama, or the
 `claude`/`agy`/`codex` CLIs) — **no extra API keys**. Only vision-capable models
 appear in the dropdowns. This replaces the v0.21.0 `latexModel` plugin setting.

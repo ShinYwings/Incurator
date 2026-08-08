@@ -594,6 +594,25 @@ Settings 화면에서는 선택된 model의 context window를 별도 항목으�
   더 이상 이 경로를 타지 않습니다 — 그 모델이 크롭 이미지를 직접 읽습니다(더
   빠르고 이중 왕복이 없음). 이 경량 모델은 채팅 모델이 text-only일 때만 적용됩니다.
 
+**Convert to LaTeX — 메시지의 의미 (v0.52.1).** 이전 버전은 모든 실패에 대해
+"Check Incurator Dashboard → LLM Provider"라는 하나의 메시지만 표시했고, 그 때문에
+멀쩡한 제공자를 고치러 가게 만드는 경우가 많았습니다. 이제 각 결과가 실제로 무슨
+일이 있었는지 말합니다:
+
+| 메시지 | 의미 | 조치 |
+|---|---|---|
+| `LaTeX copied to clipboard.` | 성공. | — |
+| `This region has no readable text layer — it is an image.` | PDF가 해당 영역을 그림으로 저장하고 있어 변환할 문자가 없습니다. | 스닙(**Cmd+Shift+X**)해서 비전 모델이 이미지를 읽게 하거나, `wiki lint`로 읽을 수 없는 영역 목록을 확인하세요. |
+| `The model returned an empty transcription for this selection.` | 백엔드는 정상 동작했고, 모델이 쓸 만한 결과를 주지 않았습니다. | 다시 시도하거나, 선택 범위를 넓혀 문맥을 더 포함시키세요. |
+| `Converted, but the clipboard write was refused: …` | 변환은 성공했고 클립보드 쓰기만 실패했습니다(보통 포커스 문제). | 창을 클릭한 뒤 다시 시도하세요. |
+| `LaTeX conversion failed: <detail> …` | 실제 백엔드/제공자 실패이며, 원인 오류가 함께 표시됩니다. | 상세 내용을 확인하고, 제공자를 지목하면 LLM Provider 카드를 점검하세요. |
+
+이 메시지와 함께 두 가지 수정이 같이 반영되었습니다. 선택 영역은 백엔드로 보내기
+전에 제어 문자가 제거됩니다 — PDF 텍스트 레이어는 유니코드 매핑이 없는 글리프에
+대해 널 바이트를 내보내는데, 이전에는 그 문자 하나 때문에 변환이 시작조차 되지
+못했습니다. 그리고 숫자만 있는 줄(수식 번호, 표 셀, 페이지 번호)이 더 이상 변환
+결과에서 삭제되지 않으므로, 전부 숫자인 선택 영역도 빈 결과 대신 정상 변환됩니다.
+
 ingest 비전은 기존 제공자의 **CLI 구독**(Ollama, 또는 `claude`/`agy`/`codex` CLI)으로
 동작 — **추가 API 키 불필요**. 드롭다운에는 비전 가능 모델만 표시됩니다. v0.21.0의
 `latexModel` 플러그인 설정을 대체합니다.
