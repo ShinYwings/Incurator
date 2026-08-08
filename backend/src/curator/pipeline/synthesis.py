@@ -40,7 +40,7 @@ def layer_dependency_hash(dep_hash: str, node_count: int) -> str:
     """The value stored in ``synthesis_nodes.dependency_hash``.
 
     The corpus hash alone cannot distinguish a complete layer from a truncated
-    one. `build_synthesis` regenerates wholesale — clear, then write N nodes each
+    one. `generate_synthesis` regenerates wholesale — clear, then write N nodes each
     stamped with the current hash — so a crash between the clear and the last
     write leaves a partial layer whose every surviving node carries the *current*
     hash. The idempotency guard then reads it as complete and no later build ever

@@ -1,4 +1,4 @@
-# Incurator - Schema & Operating Conventions (v0.50.0)
+# Incurator - Schema & Operating Conventions (v0.51.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -1210,9 +1210,11 @@ Rules:
   validators) and records the originating community reports in
   `community_report_ids`.
 - `dependency_hash` is the content-addressed hash of the **entire community-report
-  corpus**. The synthesis layer is regenerated **wholesale**: when the hash is
-  unchanged the layer is skipped (no LLM cost); when any report changes the whole
-  layer is cleared and rewritten.
+  corpus**, suffixed with the layer's intended node count — see §20.4b, which
+  defines the exact format and why the cardinality is carried here. The synthesis
+  layer is regenerated **wholesale**: when the hash AND the node count match the
+  layer is skipped (no LLM cost); when any report changes, or the layer is
+  incomplete, the whole layer is cleared and rewritten.
 - Synthesis nodes are authoritative in the DB and **projected** to
   `.curator/Collections/04_Synthesis/SYN-*.md` as a disposable Obsidian
   projection (`type: synthesis`); the markdown is emitted, never edited as truth

@@ -1,6 +1,6 @@
 """A truncated L4 layer must never be accepted as complete (B3 P5 / CP-2a).
 
-`build_synthesis` regenerates wholesale: clear the layer, then write N nodes each
+`generate_synthesis` regenerates wholesale: clear the layer, then write N nodes each
 stamped with the current dependency hash. A crash between the clear and the last
 write leaves a truncated but self-consistent-looking layer — and the idempotency
 guard then sees every surviving node carrying the current hash and returns them
@@ -91,3 +91,26 @@ def test_a_mixed_layer_is_not_current(db_path: Path) -> None:
     _write(db_path, 1, syn.layer_dependency_hash("dep-other", 3))
     nodes = db.list_synthesis_nodes(db_path)
     assert syn.layer_is_current(nodes, DEP) is False
+
+
+def test_the_audit_compares_only_the_corpus_hash_for_a_synthesis_node(
+    db_path: Path,
+) -> None:
+    """An edge records the corpus hash; the node records hash + cardinality.
+
+    Comparing them whole would report every such dependency stale forever,
+    drowning the real ones. Nothing writes a `synthesis_node` edge today, but
+    the comparison must not be a trap for whoever does.
+    """
+    from curator.inspection import synthesis_audit
+
+    _write(db_path, 6, syn.layer_dependency_hash(DEP, 6))
+    node_id = db.list_synthesis_nodes(db_path)[0]["id"]
+
+    current = synthesis_audit._current_dependency_hash(
+        db_path, "synthesis_node", node_id
+    )
+    assert current == DEP, (
+        f"the audit sees {current!r}; an edge stores {DEP!r}, so every such "
+        f"dependency would read as stale forever"
+    )
