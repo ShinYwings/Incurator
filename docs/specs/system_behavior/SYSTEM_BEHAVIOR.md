@@ -1318,6 +1318,12 @@ sections could each write a key over the other's, forgetting a peer checkpoint
 (so that peer's whole snapshot re-imports) or the export stamp (so the gate
 re-fires). A failed pass leaves the file exactly as it was.
 
+Locking is re-entrant: a nested acquisition on the same file must neither block
+against itself (`flock` is per descriptor, so a second one deadlocks the
+process) nor start a competing copy of the state — a nested transaction shares
+the outer's, and only the outermost commits. Both are reachable, because
+identity minting is itself a transaction and runs inside the peer-import pass.
+
 On platforms without `fcntl` the lock degrades to a thread lock, so separate
 processes are not serialized there. That gap is recorded rather than assumed
 away; it is strictly narrower than the unlocked behavior it replaces.

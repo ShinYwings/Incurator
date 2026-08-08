@@ -34,6 +34,26 @@ All notable changes to Incurator are documented here.
   processes are not serialized there. Recorded rather than assumed away — it is
   strictly narrower than the unlocked behavior it replaces.
 
+- **Nested State Locking Deadlocked, Then Lost Writes**
+  Found while reviewing the change above; both were introduced by it.
+
+  `durable_io.locked_path` was not re-entrant. `flock` is per file descriptor,
+  so a nested acquisition opened a second descriptor and `LOCK_EX` blocked
+  against the first — from the same process, forever. A hang, not an error, and
+  reachable: `_peer_files` calls `get_device_id` (now a transaction) whenever no
+  id is passed, and is itself called from inside `import_all_peers`' transaction.
+  It survived only because that one call site happens to pass the id.
+
+  Making the lock re-entrant then exposed a second fault: a nested
+  `sync_state_transaction` read its own copy of the state, and the outer
+  transaction overwrote it on exit with the snapshot taken before nesting —
+  discarding a freshly minted `device_id` and failing validation. That is the
+  lost update this whole change exists to prevent, reintroduced by nesting.
+
+  The lock now tracks re-entrancy depth per thread and path, taking `flock` only
+  at the outermost acquisition; and a nested transaction shares the outer
+  state dict, with the outermost `with` committing once.
+
 ## [0.50.1] - 2026-08-08
 ### Fixed
 - **`SCHEMA_SQL`'s `sources_set_sync_key` Was A No-Op** (B2 / sync_db-2)

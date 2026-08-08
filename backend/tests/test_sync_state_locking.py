@@ -107,3 +107,82 @@ def test_a_failed_transaction_leaves_state_untouched(internal: Path) -> None:
 def test_device_id_is_stable_across_calls(internal: Path) -> None:
     first = db_sync.get_device_id(internal)
     assert db_sync.get_device_id(internal) == first
+
+
+def test_the_state_lock_is_reentrant(internal: Path) -> None:
+    """A nested acquisition must not deadlock against itself.
+
+    `flock` is per file descriptor, so a nested `locked_path` opens a SECOND
+    descriptor and `LOCK_EX` blocks against the first — from the same process,
+    forever. That is a hang, not an error, and it is reachable: `_peer_files`
+    calls `get_device_id` (which now locks) whenever no id is passed, and it is
+    itself called from inside a state transaction.
+    """
+    import threading
+
+    from curator import durable_io
+
+    done = threading.Event()
+
+    def nested() -> None:
+        path = db_sync._sync_state_path(internal)
+        with durable_io.locked_path(path):
+            with durable_io.locked_path(path):
+                done.set()
+
+    t = threading.Thread(target=nested, daemon=True)
+    t.start()
+    t.join(timeout=5)
+    assert done.is_set(), "nested acquisition of the state lock deadlocked"
+
+
+def test_get_device_id_works_inside_a_transaction(internal: Path) -> None:
+    """The concrete reachable case, end to end."""
+    import threading
+
+    done: list[str] = []
+
+    def run() -> None:
+        with db_sync.sync_state_transaction(internal) as state:
+            state["last_export_ts"] = "2099-01-01T00:00:00Z"
+            done.append(db_sync.get_device_id(internal))
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    t.join(timeout=5)
+    assert done, "get_device_id deadlocked when called inside a transaction"
+
+
+def test_a_nested_transaction_does_not_lose_the_inner_write(internal: Path) -> None:
+    """The outer must not overwrite what the inner committed.
+
+    A nested transaction that read its own copy would have its work discarded
+    when the outer wrote its pre-nesting snapshot — the same lost update the
+    lock exists to prevent, reintroduced by nesting. Reachable in production:
+    `_peer_files` calls `get_device_id` (a transaction) and is itself called
+    from inside `import_all_peers`' transaction.
+    """
+    db_sync.write_sync_state(internal, {"device_id": "dev1"})
+
+    with db_sync.sync_state_transaction(internal) as outer:
+        outer["last_export_ts"] = "2099-01-01T00:00:00Z"
+        with db_sync.sync_state_transaction(internal) as inner:
+            inner["peers"] = {"dev-x.jsonl": {"last_export_id": "e1"}}
+
+    state = db_sync.read_sync_state(internal)
+    assert state["last_export_ts"] == "2099-01-01T00:00:00Z"
+    assert "peers" in state, "the nested write was discarded by the outer commit"
+    assert state["device_id"] == "dev1"
+
+
+def test_a_first_run_device_id_survives_a_surrounding_transaction(
+    internal: Path,
+) -> None:
+    """The concrete production shape: mint an id inside an open transaction."""
+    with db_sync.sync_state_transaction(internal) as state:
+        state["last_export_ts"] = "2099-01-01T00:00:00Z"
+        device_id = db_sync.get_device_id(internal)
+
+    persisted = db_sync.read_sync_state(internal)
+    assert persisted["device_id"] == device_id
+    assert persisted["last_export_ts"] == "2099-01-01T00:00:00Z"

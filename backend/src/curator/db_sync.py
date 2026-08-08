@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import shutil
+import threading
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -758,6 +759,11 @@ def write_sync_state(internal_dir: Path, state: dict) -> None:
     durable_io.atomic_write_text(p, json.dumps(state, indent=2))
 
 
+#: The state dict of the innermost open transaction per path, so a nested
+#: acquisition shares it instead of starting a competing copy.
+_active_transactions = threading.local()
+
+
 @contextmanager
 def sync_state_transaction(internal_dir: Path) -> "Iterator[dict]":
     """Serialize one read-modify-write of this device's sync state.
@@ -784,10 +790,30 @@ def sync_state_transaction(internal_dir: Path) -> "Iterator[dict]":
     a real gap, not an oversight — it is recorded rather than papered over, and
     it is strictly better than the unlocked read-modify-write it replaces.
     """
-    with durable_io.locked_path(_sync_state_path(internal_dir)):
+    path = _sync_state_path(internal_dir)
+    key = str(path)
+    active = getattr(_active_transactions, "states", None)
+    if active is None:
+        active = {}
+        _active_transactions.states = active
+
+    if key in active:
+        # Already inside a transaction on this file. Share the OUTER dict rather
+        # than reading a second copy: an inner transaction that read and wrote
+        # independently would have its work overwritten by the outer's stale
+        # snapshot on exit — the same lost update this function exists to
+        # prevent, reintroduced by nesting. The outermost `with` commits once.
+        yield active[key]
+        return
+
+    with durable_io.locked_path(path):
         state = read_sync_state(internal_dir)
-        yield state
-        write_sync_state(internal_dir, state)
+        active[key] = state
+        try:
+            yield state
+            write_sync_state(internal_dir, state)
+        finally:
+            active.pop(key, None)
 
 
 def get_device_id(internal_dir: Path) -> str:

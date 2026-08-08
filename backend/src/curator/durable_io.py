@@ -20,6 +20,11 @@ class DurableStateError(RuntimeError):
 
 _lock_guard = threading.Lock()
 _path_locks: dict[str, threading.RLock] = {}
+#: Re-entrancy depth per (thread, path). The thread RLock below already permits
+#: re-entry, but `flock` is per file descriptor: a nested acquisition opens a
+#: SECOND descriptor and `LOCK_EX` on it blocks against the first, from the same
+#: process, forever. Only the outermost acquisition may take the file lock.
+_lock_depth = threading.local()
 _fcntl = importlib.import_module("fcntl") if os.name != "nt" else None
 
 
@@ -41,14 +46,30 @@ def _lock_file(path: Path) -> Path:
 def locked_path(path: Path) -> Iterator[None]:
     """Serialize read-modify-write operations for one resolved target path."""
 
+    key = str(path.expanduser().resolve(strict=False))
+    depths: dict[str, int] = getattr(_lock_depth, "depths", None) or {}
+    _lock_depth.depths = depths
+
     with _thread_lock(path):
+        if depths.get(key, 0):
+            # Already held further up this call stack. Re-entering is safe;
+            # taking `flock` again would deadlock against ourselves.
+            depths[key] += 1
+            try:
+                yield
+            finally:
+                depths[key] -= 1
+            return
+
         lock_file = _lock_file(path)
         with lock_file.open("a+b") as handle:
             if _fcntl is not None:
                 _fcntl.flock(handle.fileno(), _fcntl.LOCK_EX)
+            depths[key] = 1
             try:
                 yield
             finally:
+                depths[key] = 0
                 if _fcntl is not None:
                     _fcntl.flock(handle.fileno(), _fcntl.LOCK_UN)
 
