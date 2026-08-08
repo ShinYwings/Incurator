@@ -10,6 +10,13 @@ export.
 
 These tests pin the round trip, not the mechanism, so a future clock redesign
 stays free to change how the revision is derived.
+
+Timestamps here are FAR-FUTURE / FAR-PAST sentinels, never wall-clock dates. The
+derived revision is `max(created_at, metadata stamps)`, and `created_at` is
+`now` — so a "newer" stamp written as a real date silently stops being newer the
+moment the clock passes it. The first version of this file hardcoded
+`2026-08-08T00:00:00Z`, which was in the future when written and in the past a
+day later; the suite went red on a calendar boundary with no code change.
 """
 
 from __future__ import annotations
@@ -20,6 +27,16 @@ from pathlib import Path
 import pytest
 
 from curator import db, db_sync
+
+# Comfortably beyond any `created_at` a test run can produce.
+NEWER = "2099-01-01T00:00:00+00:00"
+NEWEST = "2099-12-31T00:00:00+00:00"
+BEFORE_ANY_EXPORT = "2000-01-01T00:00:00+00:00"
+
+# Comfortably beyond any `created_at` a test run can produce.
+NEWER = "2099-01-01T00:00:00+00:00"
+NEWEST = "2099-12-31T00:00:00+00:00"
+BEFORE_ANY_EXPORT = "2000-01-01T00:00:00+00:00"
 
 
 def _make_vault(tmp_path: Path, name: str) -> Path:
@@ -111,7 +128,7 @@ def test_metadata_loss_write_reaches_a_peer_that_already_has_the_span(
     """The reported defect: both devices have the span, one records a loss."""
     device_a, device_b, span_id = _synced_pair(tmp_path)
 
-    _set_loss(device_a, span_id, "2026-08-08T00:00:00+00:00")
+    _set_loss(device_a, span_id, NEWER)
 
     export = tmp_path / "a.jsonl"
     db_sync.export_knowledge(device_a, export)
@@ -130,7 +147,7 @@ def test_export_gate_detects_a_metadata_only_change(tmp_path: Path) -> None:
     _, span_id = _seed_span(device_a)
 
     before = db_sync._local_max_ts(device_a)
-    _set_loss(device_a, span_id, "2027-01-01T00:00:00+00:00")
+    _set_loss(device_a, span_id, NEWER)
     after = db_sync._local_max_ts(device_a)
 
     assert db_sync._timestamp_key(after) > db_sync._timestamp_key(before), (
@@ -143,15 +160,15 @@ def test_older_metadata_write_does_not_clobber_a_newer_one(tmp_path: Path) -> No
     """LWW still applies — the fix must not make metadata writes unconditional."""
     device_a, device_b, span_id = _synced_pair(tmp_path)
 
-    _set_loss(device_a, span_id, "2026-01-01T00:00:00+00:00")  # older
-    _set_loss(device_b, span_id, "2026-12-31T00:00:00+00:00")  # newer, local
+    _set_loss(device_a, span_id, NEWER)   # older of the two
+    _set_loss(device_b, span_id, NEWEST)  # newer, and local
 
     export = tmp_path / "a.jsonl"
     db_sync.export_knowledge(device_a, export)
     db_sync.import_knowledge(device_b, export)
 
     meta = _read_meta(device_b, span_id)
-    assert meta["loss"]["classified_at"] == "2026-12-31T00:00:00+00:00", (
+    assert meta["loss"]["classified_at"] == NEWEST, (
         "an older remote metadata write overwrote a newer local one"
     )
 
@@ -181,10 +198,10 @@ def test_since_filtered_export_includes_a_metadata_only_edit(tmp_path: Path) -> 
     """
     device_a = _make_vault(tmp_path, "a")
     _, span_id = _seed_span(device_a)
-    _set_loss(device_a, span_id, "2027-06-01T00:00:00+00:00")
+    _set_loss(device_a, span_id, NEWER)
 
     export = tmp_path / "since.jsonl"
-    db_sync.export_knowledge(device_a, export, since="2027-01-01T00:00:00+00:00")
+    db_sync.export_knowledge(device_a, export, since="2098-01-01T00:00:00+00:00")
 
     body = export.read_text()
     assert span_id in body, (
@@ -199,7 +216,7 @@ def test_since_filtered_export_still_excludes_untouched_rows(tmp_path: Path) -> 
     _, span_id = _seed_span(device_a)  # created now, no metadata
 
     export = tmp_path / "since.jsonl"
-    db_sync.export_knowledge(device_a, export, since="2099-01-01T00:00:00+00:00")
+    db_sync.export_knowledge(device_a, export, since=NEWEST)
     assert span_id not in export.read_text()
 
 
@@ -219,11 +236,11 @@ def test_a_newer_metadata_edit_survives_an_older_tombstone(tmp_path: Path) -> No
         assert row is not None
     with db.connect(device_b) as conn:
         db_sync.record_tombstone_on_connection(
-            conn, "source_spans", span_id, deleted_at="2026-09-01T00:00:00+00:00"
+            conn, "source_spans", span_id, deleted_at=NEWER
         )
         conn.execute("DELETE FROM source_spans WHERE id = ?", (span_id,))
 
-    _set_loss(device_a, span_id, "2027-01-01T00:00:00+00:00")  # newer than the delete
+    _set_loss(device_a, span_id, NEWEST)  # strictly newer than the delete
 
     export = tmp_path / "a.jsonl"
     db_sync.export_knowledge(device_a, export)

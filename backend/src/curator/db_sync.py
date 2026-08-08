@@ -11,6 +11,7 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -1810,7 +1811,20 @@ def maybe_auto_export(paths) -> Path | None:
 
 def _archive_conflict(cf: Path, internal_dir: Path) -> None:
     """Move a merged conflict file out of the synced dir into local runtime storage,
-    so it stops re-triggering the conflict notice and is not re-synced."""
+    so it stops re-triggering the conflict notice and is not re-synced.
+
+    Source and destination are different trees BY DESIGN — the vault lives on
+    synced storage (iCloud, Syncthing, a network mount), the cache is
+    repo-local — so they are routinely on different filesystems. `Path.rename`
+    raises `OSError(EXDEV)` there, `autosync` turns that into an
+    `AutosyncError`, and the file stays put: every later run re-imports the same
+    conflict and fails again. One un-archivable file wedges sync for that vault
+    permanently. `shutil.move` falls back to copy+unlink across filesystems.
+
+    The destination name is made unique rather than overwritten. A conflict file
+    holds data that has not been merged anywhere else; silently replacing one
+    with another of the same name destroys it.
+    """
     from . import config as cfg
 
     archive = (
@@ -1819,7 +1833,16 @@ def _archive_conflict(cf: Path, internal_dir: Path) -> None:
         / "sync_conflicts"
     )
     archive.mkdir(parents=True, exist_ok=True)
-    cf.rename(archive / cf.name)
+
+    target = archive / cf.name
+    if target.exists():
+        stem, suffix = cf.stem, cf.suffix
+        index = 2
+        while target.exists():
+            target = archive / f"{stem}.{index}{suffix}"
+            index += 1
+
+    shutil.move(str(cf), str(target))
 
 
 @dataclass
