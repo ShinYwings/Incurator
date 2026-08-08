@@ -2,6 +2,21 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.49.3] - 2026-08-08
+### Fixed
+- **Rows Written During An Export Were Recorded As Already Exported** (B2 / sync_db-3)
+  `export_for_device` stamped `last_export_ts` AFTER `export_knowledge` returned.
+  `local_has_unexported_changes` treats anything older than that stamp as
+  already shipped, so a row mutated while the export was running — not in the
+  snapshot, but with a `created_at` earlier than the stamp — was silently
+  considered exported. No peer would ever be offered it until an unrelated later
+  mutation happened to move the clock past the stamp.
+
+  The window is the export's own duration, so it widens with the vault: it is
+  largest exactly when there is most to lose. The stamp is now taken before the
+  snapshot is read and written only after a successful export, so a failure does
+  not claim to have shipped anything.
+
 ## [0.49.2] - 2026-08-08
 ### Fixed
 - **One Un-archivable Conflict File Wedged Sync Permanently** (B2 / CAND-03)
