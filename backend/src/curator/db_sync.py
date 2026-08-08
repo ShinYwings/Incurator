@@ -12,13 +12,16 @@ import json
 import logging
 import os
 import shutil
+import threading
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from collections.abc import Iterator
 from typing import IO, Any, Callable as _Callable, Mapping
 
-from . import db
+from . import db, durable_io
 
 logger = logging.getLogger(__name__)
 
@@ -753,24 +756,74 @@ def write_sync_state(internal_dir: Path, state: dict) -> None:
     """Persist this device's local sync bookkeeping."""
     p = _sync_state_path(internal_dir)
     _validate_sync_state(state, p)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_name(f".{p.name}.{uuid.uuid4().hex}.tmp")
-    try:
-        tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
-        os.replace(tmp, p)
-    finally:
-        tmp.unlink(missing_ok=True)
+    durable_io.atomic_write_text(p, json.dumps(state, indent=2))
+
+
+#: The state dict of the innermost open transaction per path, so a nested
+#: acquisition shares it instead of starting a competing copy.
+_active_transactions = threading.local()
+
+
+@contextmanager
+def sync_state_transaction(internal_dir: Path) -> "Iterator[dict]":
+    """Serialize one read-modify-write of this device's sync state.
+
+    Every mutation of the state file must go through here. Reading, mutating and
+    writing without a lock let two passes interleave, with two measured
+    consequences:
+
+    * **Split device identity.** `get_device_id` mints an id when none exists.
+      Two racing callers each minted a different one; only one was persisted,
+      and the loser went on to write `dev-<its-id>.jsonl` into the synced
+      directory. Every other device then imports a peer that exists only as that
+      filename and never exports again — a permanently stale phantom.
+    * **Lost update.** Two sections read the same base and the last writer won,
+      silently dropping the other's key. Losing `peers` forgets a checkpoint and
+      re-imports that peer's entire snapshot; losing `last_export_ts` re-fires
+      the export gate.
+
+    The state is re-read INSIDE the lock, so a caller can never act on a copy
+    captured before it was acquired, and it is written only on a clean exit.
+
+    Windows caveat: `durable_io.locked_path` degrades to a thread lock there
+    (no `fcntl`), so this serializes threads but not separate processes. That is
+    a real gap, not an oversight — it is recorded rather than papered over, and
+    it is strictly better than the unlocked read-modify-write it replaces.
+    """
+    path = _sync_state_path(internal_dir)
+    key = str(path)
+    active = getattr(_active_transactions, "states", None)
+    if active is None:
+        active = {}
+        _active_transactions.states = active
+
+    if key in active:
+        # Already inside a transaction on this file. Share the OUTER dict rather
+        # than reading a second copy: an inner transaction that read and wrote
+        # independently would have its work overwritten by the outer's stale
+        # snapshot on exit — the same lost update this function exists to
+        # prevent, reintroduced by nesting. The outermost `with` commits once.
+        yield active[key]
+        return
+
+    with durable_io.locked_path(path):
+        state = read_sync_state(internal_dir)
+        active[key] = state
+        try:
+            yield state
+            write_sync_state(internal_dir, state)
+        finally:
+            active.pop(key, None)
 
 
 def get_device_id(internal_dir: Path) -> str:
     """Return this device's stable id, generating + persisting one on first use."""
-    state = read_sync_state(internal_dir)
-    device_id = state.get("device_id")
-    if not device_id:
-        device_id = uuid.uuid4().hex[:12]
-        state["device_id"] = device_id
-        write_sync_state(internal_dir, state)
-    return device_id
+    with sync_state_transaction(internal_dir) as state:
+        device_id = state.get("device_id")
+        if not device_id:
+            device_id = uuid.uuid4().hex[:12]
+            state["device_id"] = device_id
+    return str(device_id)
 
 
 def export_knowledge(
@@ -1740,9 +1793,8 @@ def export_for_device(
     )
     export_knowledge(db_path, out)
 
-    state = read_sync_state(internal_dir)
-    state["last_export_ts"] = snapshot_ts
-    write_sync_state(internal_dir, state)
+    with sync_state_transaction(internal_dir) as state:
+        state["last_export_ts"] = snapshot_ts
     return out
 
 
@@ -1831,35 +1883,39 @@ def import_all_peers(
     late-arriving Syncthing delivery is picked up exactly once.
     """
     results: dict[str, ImportStats] = {}
-    # Initialize identity before taking the mutable state snapshot. Otherwise a
-    # first-run `_peer_files()` call can persist an id after `state` was read as
-    # `{}`, and the final peer checkpoint write would overwrite that new id.
     own_device_id = get_device_id(internal_dir)
-    state = read_sync_state(internal_dir)
-    peers: dict = state.setdefault("peers", {})
 
-    for f in _peer_files(
-        internal_dir, dir_name=dir_name, own_device_id=own_device_id
-    ):
-        export_id = _read_export_id(f)
-        if export_id is None:
-            # Legacy or incompatible peer file — skip until peer re-exports.
-            continue
-        rec = peers.get(f.name, {})
-        if rec.get("last_export_id") == export_id:
-            continue
-        try:
-            stats = import_knowledge(db_path, f, dry_run=dry_run)
-        except Exception as exc:
-            raise AutosyncError(
-                f"Peer snapshot {f.name} import failed: {exc}"
-            ) from exc
-        results[f.name] = stats
-        if not dry_run:
-            peers[f.name] = {"last_export_id": export_id}
+    # One transaction for the whole pass. It is re-read inside the lock, so the
+    # identity minted just above is always visible here — the old code had to
+    # order these two calls carefully to avoid clobbering a first-run device_id,
+    # and that hazard is now structural rather than remembered.
+    with sync_state_transaction(internal_dir) as state:
+        peers: dict = state.setdefault("peers", {})
 
-    if not dry_run:
-        write_sync_state(internal_dir, state)
+        for f in _peer_files(
+            internal_dir, dir_name=dir_name, own_device_id=own_device_id
+        ):
+            export_id = _read_export_id(f)
+            if export_id is None:
+                # Legacy or incompatible peer file — skip until peer re-exports.
+                continue
+            rec = peers.get(f.name, {})
+            if rec.get("last_export_id") == export_id:
+                continue
+            try:
+                stats = import_knowledge(db_path, f, dry_run=dry_run)
+            except Exception as exc:
+                raise AutosyncError(
+                    f"Peer snapshot {f.name} import failed: {exc}"
+                ) from exc
+            results[f.name] = stats
+            if not dry_run:
+                peers[f.name] = {"last_export_id": export_id}
+
+        if dry_run:
+            # Leave the file untouched; a preview must not record checkpoints.
+            state.clear()
+            state.update(read_sync_state(internal_dir))
     return results
 
 
