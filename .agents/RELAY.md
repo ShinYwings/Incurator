@@ -149,3 +149,45 @@ test. Do that first, not after review asks.
 After B2: B3 P5–P7, then the `.curator` state items (ROADMAP item 4). B5/B7 each
 need their own Arena. ROADMAP item 1 (formula recovery) stays blocked on three
 prerequisites — do not plan it as if `recover_formula()` can be called today.
+
+---
+
+### Update (2026-08-09, Claude Code) — three user-reported bugs, all measured
+
+Shipped as **v0.52.1** on `fix/v0.52.1-job-snapshot-latex-notice`
+(PR #145). Landed separately by fast-forward: the nanoid lockfile bump, the
+three USER_REPORT entries, and a widened fast-forward rule.
+
+**Method note, because it held for a third straight run:** in all three cases
+the reported cause was not the real one, and the real one came from running the
+system rather than reading it against the spec.
+
+- The spinner bug was *not* the v0.48.2 never-blank rule (my first hypothesis).
+  That rule has no staleness bound and is a real secondary weakness, but the
+  file here was perfectly readable and simply **stale**: no terminal job
+  transition rewrote `runtime/jobs.json`. `_write_dashboard` looked like the
+  writer and writes the markdown page instead — its docstring says "called at
+  job start, completion, and failure", which is true of the markdown and false
+  of the JSON the plugin actually polls. Read the docstring, verify the body.
+- The LaTeX-copy bug was *not* a provider problem despite the message saying so.
+  It was three defects: a pdf.js NUL byte aborting `spawn`, the CLI banner
+  filter eating digits-only lines inside the `<transcription>` block, and one
+  `catch` reporting all causes as provider misconfiguration. **The user found
+  the NUL case themselves** after I had already diagnosed the other two — worth
+  remembering that "why do bugs keep happening here" usually means several
+  distinct defects share one error message.
+- `npm audit fix` ENOLOCK was not a regression at all: there is no
+  `package.json` at the repo root, the npm project is entirely under `plugin/`.
+
+**Rule change (user directive):** the fast-forward rule now has two classes —
+agent bookkeeping, and mechanical chores that change no source and no version
+(lockfiles including `plugin/package-lock.json`, CI/linter config, ignore
+files). A PR exists for a human to review a decision; a tool-determined change
+carries none. I mis-routed the nanoid bump into a PR (#144, closed) by asking
+"is it a build manifest" instead of "is anything here reviewable".
+CLAUDE.md and AGENTS.md carry the block verbatim.
+
+**Still open from the same reports:** the never-blank indicator rule wants a
+max-age bound (a persistently unreadable snapshot still cannot clear the
+spinner); ROADMAP item 8 (job progress unobservable) and item 4 (vault
+rename/cache-key) are untouched.
