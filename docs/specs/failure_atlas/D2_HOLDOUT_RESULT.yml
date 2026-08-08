@@ -58,6 +58,20 @@ evaluated_code:
       not change retrieval documents, FTS ranking, fusion, projection, chunking,
       or the Q06 fixture corpus. The consumed holdout cannot be rerun after
       run_count=3; these hashes re-arm its existing code-drift tripwire.
+  trigger_single_source_v0501_rearm:
+    date: '2026-08-08'
+    prior_schema_sha256: c4d16ac42cf24d75ef8032f2392b9129c3229d46534a985f966965f940455be8
+    reason: B2/sync_db-2 gives the three managed triggers ONE definition
+      (TRIGGER_BODIES) rendered into both SCHEMA_SQL and _refresh_current_triggers,
+      and makes _triggers_need_refresh compare the rendered body instead of a
+      substring allowlist. Non-impact is proven by construction, not asserted -
+      building a database from SCHEMA_SQL plus the refresh before and after the
+      change yields 140 objects on both sides with zero added, zero removed and
+      zero differing SQL in sqlite_master, so the realized schema the holdout ran
+      against is byte-identical and only the Python assembly changed. No
+      retrieval, FTS ranking, fusion, projection, chunk materialization or
+      citation path is touched. The consumed holdout cannot be rerun after
+      run_count=3; procedure, queries and frozen_inputs are unchanged.
   plan_b_p6_rearm:
     date: '2026-06-13'
     prior_db_sha256: 21554038b3b98e7301a6974151737fbd3767ea4855d5ca465540e05e008cc3de
@@ -456,7 +470,7 @@ evaluated_code:
     backend/src/curator/retrieval/embedding.py: 0829ac7c7a870879b3f164687cf21a22e347e508bfdba15a4430b2e8b11e3db1
     backend/src/curator/retrieval/chunking.py: 8c45af7ba7457f5930fc05c0a3f0de10eb6cc424c4b70b722510dd2decd59255
     backend/src/curator/db/__init__.py: 9d9b18355372e1f77534aef353a07c3ee1f3e9ce3413ffec7d8030da86a4a16c
-    backend/src/curator/db/schema.py: c4d16ac42cf24d75ef8032f2392b9129c3229d46534a985f966965f940455be8
+    backend/src/curator/db/schema.py: 7e252d2df16f9176d26f3f6ffb3b8036b95d81b68267881663a545e7e6596717
     backend/src/curator/db/_entities.py: f16c661f4d5cc2fa767895707085823529e6a9ef3ce8d7557d686b7f5835fe28
     backend/src/curator/db/jobs.py: 068d2111bcfab902d56ea6ded90e1c29db77abc6331ad1427f9ec9f2433f1dfc
     backend/src/curator/db/sources.py: 757367c191485a137e0e50e633eb6db79728e5133630b116c10e39886666cda8

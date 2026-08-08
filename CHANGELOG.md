@@ -2,6 +2,36 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.50.1] - 2026-08-08
+### Fixed
+- **`SCHEMA_SQL`'s `sources_set_sync_key` Was A No-Op** (B2 / sync_db-2)
+  The trigger was written twice — once inline in `SCHEMA_SQL`, once in
+  `_refresh_current_triggers` — and the two drifted. The `SCHEMA_SQL` copy spelled
+  the path separator `'\'` inside a non-raw Python string, so the escape ate the
+  backslash and the body became `replace(NEW.relpath, '', '/')`. Replacing an
+  empty string is a no-op, so a Windows-style path was never normalized.
+
+  `_triggers_need_refresh` could not catch it: it matched a substring
+  (`NEW.sync_key IS NULL OR NEW.sync_key = ''`) that the BROKEN body also
+  contains, so a database carrying the no-op reported "current" and kept it.
+  Verified: a database built from raw `SCHEMA_SQL`, then reopened through
+  `db.connect()`, still held the no-op.
+
+  `sync_key` is the cross-device transport identity, so a source registered
+  under that body gets `vault:04_Resources\win\a.md` instead of `.../win/a.md`
+  and can never match its counterpart on another OS — and only the trigger
+  self-heals on reopen, never the rows.
+
+  The three managed triggers now have ONE definition (`TRIGGER_BODIES`) rendered
+  into both install paths, with the separator built from `chr(92)` so no escape
+  can eat it again, and `_triggers_need_refresh` compares the rendered body
+  instead of a substring allowlist.
+
+  No vault is affected in practice: `init_db` calls `_refresh_current_triggers`
+  unconditionally, so every vault created the normal way already had the correct
+  trigger. The reporting vault has it, with 0 of 36 sources carrying a backslash
+  in `sync_key`.
+
 ## [0.50.0] - 2026-08-08
 ### Fixed
 - **An Import Reported Rows It Had Silently Dropped** (B2 / sync_db-1)

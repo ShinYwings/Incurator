@@ -102,6 +102,81 @@ _QUARANTINE_REEVAL_TRIGGERS = {
 # re-deriving that partition.
 _RELATION_CORROBORATION_THRESHOLD = 1
 
+# ---------------------------------------------------------------------------
+# Trigger bodies — ONE definition, rendered into both install paths.
+#
+# These used to be written twice: once inline in SCHEMA_SQL, once inside
+# `_refresh_current_triggers`. They drifted. The SCHEMA_SQL copy wrote the path
+# separator as `'\'` inside a NON-raw string, so Python's escape handling ate
+# the backslash and the body became `replace(NEW.relpath, '', '/')` — replacing
+# an empty string, i.e. a no-op that never normalized a Windows path. Because
+# `sync_key` is the cross-device transport identity, a source registered under
+# that body could never match its counterpart on another OS.
+#
+# `_SEP` is built from `chr(92)` so no escape can silently eat it again, and the
+# refresh detector compares against these rendered bodies rather than a
+# substring allowlist — the old allowlist matched text the BROKEN body also
+# contained, so it reported "no refresh needed" and the no-op survived forever.
+# ---------------------------------------------------------------------------
+
+_SEP = chr(92)  # a single backslash; never write this as a string escape
+
+_BUMP_UPDATED_AT = """
+    SET updated_at = CASE
+        WHEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') > OLD.updated_at
+        THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+        ELSE strftime(
+            '%Y-%m-%dT%H:%M:%fZ',
+            julianday(OLD.updated_at) + (1.0 / 86400000.0)
+        )
+    END
+    WHERE id = NEW.id;"""
+
+TRIGGER_BODIES: dict[str, str] = {
+    "sources_set_sync_key": f"""
+AFTER INSERT ON sources
+FOR EACH ROW
+WHEN NEW.sync_key IS NULL OR NEW.sync_key = ''
+BEGIN
+    UPDATE sources SET sync_key = 'vault:' || replace(NEW.relpath, '{_SEP}', '/') WHERE id = NEW.id;
+END;""",
+    "sources_touch_updated_at": f"""
+AFTER UPDATE ON sources
+FOR EACH ROW
+WHEN NEW.updated_at = OLD.updated_at AND NEW.sync_key IS OLD.sync_key
+BEGIN
+    UPDATE sources{_BUMP_UPDATED_AT}
+END;""",
+    "compiler_generations_touch_updated_at": f"""
+AFTER UPDATE ON compiler_generations
+FOR EACH ROW
+WHEN NEW.updated_at = OLD.updated_at
+BEGIN
+    UPDATE compiler_generations{_BUMP_UPDATED_AT}
+END;""",
+}
+
+
+def _normalize_sql(text: str) -> str:
+    """Whitespace-insensitive form for comparing an installed trigger.
+
+    SQLite stores a trigger in `sqlite_master.sql` WITHOUT its terminating
+    semicolon, so the rendered body (which needs one to be executable) must be
+    compared with it stripped — otherwise every trigger looks stale forever and
+    the refresh runs on every open, which deadlocks a connection that already
+    holds a transaction.
+    """
+    return " ".join(str(text or "").split()).rstrip(";").rstrip()
+
+
+def _TRIGGER_SQL() -> str:
+    """The trigger DDL as SCHEMA_SQL embeds it (idempotent CREATE IF NOT EXISTS)."""
+    return "\n\n".join(
+        f"CREATE TRIGGER IF NOT EXISTS {name}{body}"
+        for name, body in TRIGGER_BODIES.items()
+    )
+
+
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY
@@ -748,47 +823,7 @@ CREATE TABLE IF NOT EXISTS l2_checkpoints (
     PRIMARY KEY (source_id, batch_hash)
 );
 
-CREATE TRIGGER IF NOT EXISTS sources_set_sync_key
-AFTER INSERT ON sources
-FOR EACH ROW
-WHEN NEW.sync_key IS NULL OR NEW.sync_key = ''
-BEGIN
-    UPDATE sources SET sync_key = 'vault:' || replace(NEW.relpath, '\', '/') WHERE id = NEW.id;
-END;
-
-CREATE TRIGGER IF NOT EXISTS sources_touch_updated_at
-AFTER UPDATE ON sources
-FOR EACH ROW
-WHEN NEW.updated_at = OLD.updated_at AND NEW.sync_key IS OLD.sync_key
-BEGIN
-    UPDATE sources
-    SET updated_at = CASE
-        WHEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') > OLD.updated_at
-        THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-        ELSE strftime(
-            '%Y-%m-%dT%H:%M:%fZ',
-            julianday(OLD.updated_at) + (1.0 / 86400000.0)
-        )
-    END
-    WHERE id = NEW.id;
-END;
-
-CREATE TRIGGER IF NOT EXISTS compiler_generations_touch_updated_at
-AFTER UPDATE ON compiler_generations
-FOR EACH ROW
-WHEN NEW.updated_at = OLD.updated_at
-BEGIN
-    UPDATE compiler_generations
-    SET updated_at = CASE
-        WHEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') > OLD.updated_at
-        THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-        ELSE strftime(
-            '%Y-%m-%dT%H:%M:%fZ',
-            julianday(OLD.updated_at) + (1.0 / 86400000.0)
-        )
-    END
-    WHERE id = NEW.id;
-END;
+""" + _TRIGGER_SQL() + """
 """
 
 
@@ -823,85 +858,41 @@ def _stamp_schema_version(conn: sqlite3.Connection) -> None:
 
 
 def _refresh_current_triggers(conn: sqlite3.Connection) -> None:
-    """Replace trigger bodies that CREATE IF NOT EXISTS cannot update."""
-    conn.executescript(
-        """
-        DROP TRIGGER IF EXISTS sources_set_sync_key;
-        DROP TRIGGER IF EXISTS sources_touch_updated_at;
-        DROP TRIGGER IF EXISTS compiler_generations_touch_updated_at;
+    """Replace trigger bodies that CREATE IF NOT EXISTS cannot update.
 
-        CREATE TRIGGER sources_set_sync_key
-        AFTER INSERT ON sources
-        FOR EACH ROW
-        WHEN NEW.sync_key IS NULL OR NEW.sync_key = ''
-        BEGIN
-            UPDATE sources SET sync_key = 'vault:' || replace(NEW.relpath, '\\', '/') WHERE id = NEW.id;
-        END;
-
-        CREATE TRIGGER sources_touch_updated_at
-        AFTER UPDATE ON sources
-        FOR EACH ROW
-        WHEN NEW.updated_at = OLD.updated_at AND NEW.sync_key IS OLD.sync_key
-        BEGIN
-            UPDATE sources
-            SET updated_at = CASE
-                WHEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') > OLD.updated_at
-                THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                ELSE strftime(
-                    '%Y-%m-%dT%H:%M:%fZ',
-                    julianday(OLD.updated_at) + (1.0 / 86400000.0)
-                )
-            END
-            WHERE id = NEW.id;
-        END;
-
-        CREATE TRIGGER compiler_generations_touch_updated_at
-        AFTER UPDATE ON compiler_generations
-        FOR EACH ROW
-        WHEN NEW.updated_at = OLD.updated_at
-        BEGIN
-            UPDATE compiler_generations
-            SET updated_at = CASE
-                WHEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') > OLD.updated_at
-                THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                ELSE strftime(
-                    '%Y-%m-%dT%H:%M:%fZ',
-                    julianday(OLD.updated_at) + (1.0 / 86400000.0)
-                )
-            END
-            WHERE id = NEW.id;
-        END;
-        """
-    )
-
+    Renders from `TRIGGER_BODIES`, the same source SCHEMA_SQL composes, so the
+    two install paths cannot drift apart again.
+    """
+    statements = ["DROP TRIGGER IF EXISTS " + name + ";" for name in TRIGGER_BODIES]
+    statements += [
+        f"CREATE TRIGGER {name}{body}" for name, body in TRIGGER_BODIES.items()
+    ]
+    conn.executescript("\n".join(statements))
 
 def _triggers_need_refresh(conn: sqlite3.Connection) -> bool:
-    rows = conn.execute(
-        """
-        SELECT name, sql FROM sqlite_master
-        WHERE type = 'trigger'
-          AND name IN (
-            'sources_set_sync_key',
-            'sources_touch_updated_at',
-            'compiler_generations_touch_updated_at'
-          )
-        """
-    ).fetchall()
-    triggers = {str(row[0]): str(row[1] or "") for row in rows}
-    if set(triggers) != {
-        "sources_set_sync_key",
-        "sources_touch_updated_at",
-        "compiler_generations_touch_updated_at",
-    }:
-        return True
-    return not (
-        "NEW.sync_key IS NULL OR NEW.sync_key = ''" in triggers["sources_set_sync_key"]
-        and "NEW.sync_key IS OLD.sync_key" in triggers["sources_touch_updated_at"]
-        and "julianday(OLD.updated_at) + (1.0 / 86400000.0)" in triggers["sources_touch_updated_at"]
-        and "julianday(OLD.updated_at) + (1.0 / 86400000.0)"
-        in triggers["compiler_generations_touch_updated_at"]
-    )
+    """True when any managed trigger is missing or its body is not current.
 
+    Compares the INSTALLED body against the rendered one. The previous version
+    tested for a handful of substrings, which the historical broken
+    `sources_set_sync_key` body also contained — so a database carrying a no-op
+    trigger reported "current" and kept it forever.
+    """
+    installed = {
+        str(row[0]): str(row[1] or "")
+        for row in conn.execute(
+            "SELECT name, sql FROM sqlite_master WHERE type = 'trigger'"
+        ).fetchall()
+    }
+    for name, body in TRIGGER_BODIES.items():
+        current = installed.get(name)
+        if current is None:
+            return True
+        # `CREATE TRIGGER` vs `CREATE TRIGGER IF NOT EXISTS` is not drift.
+        want = _normalize_sql(f"CREATE TRIGGER {name}{body}")
+        have = _normalize_sql(current).replace("CREATE TRIGGER IF NOT EXISTS ", "CREATE TRIGGER ")
+        if have != want:
+            return True
+    return False
 
 def init_db(db_path: Path) -> None:
     """Create the state database and apply the schema. Idempotent."""
