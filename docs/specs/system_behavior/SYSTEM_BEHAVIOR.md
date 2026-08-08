@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.49.0)
+# Incurator - System Behavior (v0.50.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -1269,6 +1269,24 @@ If the same logical row is edited on both devices, the row with the newer
 timestamp wins; a delete wins when its `deleted_at` is newer than or equal to
 the competing edit. Import preserves the source row's timestamp and never
 stamps `now()`.
+
+**An import never reports a row it did not store (v0.50.0).** Peer rows are
+written with `INSERT OR IGNORE`, because two devices racing to insert the same
+row is ordinary and must not raise. That also swallows a genuine constraint
+violation — a truncated or malformed peer export — so an import must
+distinguish the two cases and MUST NOT count a refused row as `inserted`.
+Refused rows are counted as `rejected` and surfaced to the user, naming the
+peer export as the likely cause; claiming a clean import over a silent loss is
+worse than the loss, because it removes the only signal that anything is wrong.
+A refused row does not abort the pass: the remaining rows in that file still
+import, so one bad row cannot wedge a device's sync.
+
+**`last_export_ts` describes when the snapshot was READ (v0.49.3).** Anything
+older than that stamp is treated as already exported, so stamping after the
+export completes silently swallows every row mutated while the export was
+running — a window that widens with the vault. The stamp is taken before the
+snapshot is read and recorded only after the export succeeds, so a failed
+export never claims to have shipped anything.
 
 Schema v13 gives every synchronized composite-primary-key row one portable
 tombstone identity. Scalar keys keep their raw token; composite keys use the

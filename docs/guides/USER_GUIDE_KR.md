@@ -932,6 +932,25 @@ wiki db import ~/Desktop/kb.jsonl --skip-reindex  # reindex 없이 가져오기�
 > `.curator/settings.yml`에 해당 block이 남아 있으면 backend가 무시하므로
 > macOS 경로가 Linux 경로를 덮거나 그 반대가 발생하지 않습니다.
 
+요약 줄은 실제로 저장된 것만 셉니다.
+
+```
+Import complete: +12 inserted, ~3 updated, 40 skipped, 0 deleted
+```
+
+peer의 파일이 잘렸거나 손상되면 일부 row는 데이터베이스가 거부합니다. 그런
+row는 별도로 보고되며 **절대** inserted로 세지 않습니다.
+
+```
+Import complete: +11 inserted, ~3 updated, 40 skipped, 0 deleted, 1 rejected
+1 row(s) were refused by the database and are NOT in this vault. The peer
+export is likely truncated or malformed; re-export from that device.
+```
+
+거부된 row가 있어도 가져오기는 중단되지 않고 나머지 파일은 그대로 저장되므로,
+잘못된 row 하나가 그 기기의 동기화를 막지 못합니다. 해결 방법은 다른 기기에서
+다시 export한 뒤 가져오는 것입니다.
+
 ### `wiki db autosync` — Syncthing 기반 자동 동기화
 
 이미 vault 폴더를 **Syncthing**으로 동기화하고 있다면, `wiki db autosync`가 위의 수동 내보내기/가져오기를 손댈 필요 없는 Zotero급 흐름으로 바꿔 줍니다.

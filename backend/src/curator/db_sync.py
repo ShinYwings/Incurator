@@ -500,6 +500,10 @@ class ImportStats:
     updated: int = 0
     skipped: int = 0
     deleted: int = 0
+    #: Rows the database refused (malformed or truncated peer export). Counted
+    #: separately because reporting them as `inserted` claims data arrived that
+    #: was silently dropped (B2).
+    rejected: int = 0
     dry_run: bool = False
 
 
@@ -998,6 +1002,8 @@ def import_knowledge(
                         stats.inserted += 1
                     elif result == "updated":
                         stats.updated += 1
+                    elif result == "rejected":
+                        stats.rejected += 1
                     else:
                         stats.skipped += 1
                 else:
@@ -1038,6 +1044,8 @@ def import_knowledge(
                         stats.inserted += 1
                     elif result == "updated":
                         stats.updated += 1
+                    elif result == "rejected":
+                        stats.rejected += 1
                     else:
                         stats.skipped += 1
             if not dry_run:
@@ -1457,8 +1465,10 @@ def _lw_upsert(
         ).fetchone()
 
         if existing is None:
-            if not dry_run:
-                _do_insert(conn, table_name, row)
+            if not dry_run and not _do_insert(conn, table_name, row):
+                # The row did not exist a moment ago and still does not: the
+                # database refused it. Never call that an insert (B2).
+                return "rejected"
             return "inserted"
 
         if updated_col:
@@ -1515,10 +1525,22 @@ def _lw_upsert(
     return "inserted"
 
 
-def _do_insert(conn: "db.sqlite3.Connection", table: str, row: dict) -> None:
+def _do_insert(conn: "db.sqlite3.Connection", table: str, row: dict) -> bool:
+    """Insert a peer row. Returns False when the database refused it.
+
+    `INSERT OR IGNORE` is deliberate: two devices racing to insert the same row
+    is normal and must not raise. But OR IGNORE also swallows a genuine
+    constraint violation — a truncated or malformed peer export — and the caller
+    used to report that as `inserted`, telling the user data arrived that was
+    silently dropped. `rowcount` distinguishes the two.
+    """
     cols = ", ".join(row.keys())
     placeholders = ", ".join("?" * len(row))
-    conn.execute(f"INSERT OR IGNORE INTO {table} ({cols}) VALUES ({placeholders})", list(row.values()))
+    cursor = conn.execute(
+        f"INSERT OR IGNORE INTO {table} ({cols}) VALUES ({placeholders})",
+        list(row.values()),
+    )
+    return cursor.rowcount > 0
 
 
 def _do_upsert(conn: "db.sqlite3.Connection", table: str, row: dict) -> None:

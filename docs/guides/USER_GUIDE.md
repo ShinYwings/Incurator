@@ -977,6 +977,25 @@ wiki db import ~/Desktop/kb.jsonl --skip-reindex  # import without reindexing
 > blocks appear in synced `.curator/settings.yml`, the backend ignores them so a
 > macOS path cannot override a Linux path, and vice versa.
 
+The summary line counts what actually landed:
+
+```
+Import complete: +12 inserted, ~3 updated, 40 skipped, 0 deleted
+```
+
+If a peer's file is truncated or corrupted, some rows will be refused by the
+database. Those are reported separately and **never** counted as inserted:
+
+```
+Import complete: +11 inserted, ~3 updated, 40 skipped, 0 deleted, 1 rejected
+1 row(s) were refused by the database and are NOT in this vault. The peer
+export is likely truncated or malformed; re-export from that device.
+```
+
+A refused row does not stop the import — the rest of the file still lands — so
+one bad row cannot wedge syncing on that device. Re-exporting from the other
+device and importing again is the fix.
+
 ### `wiki db autosync` — automatic sync over Syncthing
 
 If you already sync your vault folder with **Syncthing**, `wiki db autosync` turns the manual export/import above into a hands-off, Zotero-grade flow.

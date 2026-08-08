@@ -2,6 +2,31 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.50.0] - 2026-08-08
+### Fixed
+- **An Import Reported Rows It Had Silently Dropped** (B2 / sync_db-1)
+  This is B2's stated hard condition, and it was violated. `_do_insert` used
+  `INSERT OR IGNORE`, so a row the database refused — a truncated or malformed
+  peer export — was discarded while `_lw_upsert` still returned `inserted` and
+  the caller incremented `stats.inserted`. Reproduced directly: importing one
+  valid row and one constraint-violating row stored **1** row and reported
+  **2 inserted**.
+
+  `INSERT OR IGNORE` stays, because two devices racing to insert the same row is
+  ordinary and must not raise. The insert now reports whether it actually wrote,
+  and a refused row is counted as `rejected` instead.
+
+### Added
+- **`rejected` In Import Reporting**
+  `ImportStats.rejected`, the `wiki db import` summary and its `--json` output,
+  and the autosync totals. When it is non-zero the CLI says plainly that those
+  rows are NOT in the vault and names the likely cause — a truncated or
+  malformed peer export — because claiming a clean import over a silent loss
+  removes the only signal that anything is wrong.
+
+  A refused row still does not abort the pass: the rest of the file imports, so
+  one bad row cannot wedge a device's sync.
+
 ## [0.49.3] - 2026-08-08
 ### Fixed
 - **Rows Written During An Export Were Recorded As Already Exported** (B2 / sync_db-3)
