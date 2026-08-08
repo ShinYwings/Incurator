@@ -848,6 +848,35 @@ describe("IncuratorClient", () => {
     expect(res.exported).toBe("dev-self.jsonl");
   });
 
+  it("dbAutosync surfaces rejected rows so the UI cannot show a clean sync", async () => {
+    // Rows the backend refused are NOT in the vault. Dropping the field here
+    // would make Obsidian report a silent loss as success — the exact failure
+    // the backend-side counter exists to prevent.
+    const client = new IncuratorClient(settings(), "0.50.0", async () => ({
+      inserted: 3,
+      updated: 0,
+      deleted: 0,
+      rejected: 2,
+      imported_files: 1,
+    }));
+
+    const res = await client.dbAutosync();
+
+    expect(res.ok).toBe(true);
+    expect(res.rejected).toBe(2);
+  });
+
+  it("dbAutosync defaults rejected to 0 when the backend omits it", async () => {
+    const client = new IncuratorClient(settings(), "0.50.0", async () => ({
+      inserted: 1,
+      updated: 0,
+      deleted: 0,
+      imported_files: 1,
+    }));
+    const res = await client.dbAutosync();
+    expect(res.rejected).toBe(0);
+  });
+
   it("dbAutosync maps a structured backend failure without merged stats", async () => {
     const client = new IncuratorClient(settings(), "0.36.2", async () => ({
       ok: false,

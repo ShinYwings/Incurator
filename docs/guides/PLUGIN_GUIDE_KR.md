@@ -995,6 +995,12 @@ Incurator MCP tool discovery 없이 JSON 결과만 받습니다. 이 plugin plum
 
 - **트리거**: Obsidian이 열릴 때 1회(열 때 자동 동기화), Syncthing이 피어 파일을 전달했을 때 실시간 감지(수신 동기화 데이터 감시 — 데스크톱 전용), 60초 안전 폴링, 수동 **Sync Knowledge DB** 리본 버튼. 백엔드가 이 기기의 내보낸 스냅샷 파일명을 알려 준 뒤에는 watcher가 해당 자기 파일을 수신 피어 데이터로 취급하지 않고 무시합니다. 감시 디렉터리가 삭제·이름 변경되거나 접근할 수 없게 되면 플러그인은 처리되지 않은 Electron 예외를 발생시키는 대신 watcher 오류를 로그에 남기며, 60초 폴링이 계속 안전망 역할을 합니다.
 - **한 번의 동기화가 하는 일**: 백엔드에서 `wiki db autosync`를 실행 — 다른 모든 기기의 스냅샷(`.curator/sync/dev-<id>.jsonl`)을 가져오고, Syncthing `*.sync-conflict-*` 파일을 병합한 뒤, 변경이 있으면 자기 스냅샷을 씁니다. 무거운 작업은 모두 백엔드 서브프로세스에서 실행되어 Obsidian UI가 멈추지 않습니다.
+- **거부된 row는 항상 보고됩니다 (v0.50.0)**: peer의 snapshot이 잘렸거나 손상되면
+  데이터베이스가 해당 row를 거부합니다. 이런 row는 별도로 집계되며 절대 "new"로
+  세지 않고, 플러그인이 그 개수를 알리는 notice를 띄웁니다. **sync 알림을 꺼둔
+  경우에도** 표시되는데, 이는 일상적인 진행 상황이 아니라 도착하지 못한
+  데이터이기 때문입니다. 파일의 나머지 row는 그대로 가져오므로 잘못된 row 하나가
+  그 기기의 동기화를 막지 못합니다. 해결하려면 다른 기기에서 다시 export하세요.
 - **병합 안전성**: portable source key로 기기별 숫자 id를 remap하고, 행 단위
   monotonic Last-Write-Wins + tombstone을 사용하므로 동시 읽기와 서로
   다른 source 편집은 안전하고, 동일 record 편집은 더 최신 행으로

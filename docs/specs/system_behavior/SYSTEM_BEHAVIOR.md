@@ -1279,7 +1279,18 @@ Refused rows are counted as `rejected` and surfaced to the user, naming the
 peer export as the likely cause; claiming a clean import over a silent loss is
 worse than the loss, because it removes the only signal that anything is wrong.
 A refused row does not abort the pass: the remaining rows in that file still
-import, so one bad row cannot wedge a device's sync.
+import, so one bad row cannot wedge a device's sync. This binds every table —
+including `sources`, whose merge runs first and remaps every child row's
+`source_id`. Raising there is worse than mis-reporting: nothing catches per row,
+so the transaction rolls back every well-formed row already applied and the
+peer's checkpoint is never recorded, leaving the same file to fail again on
+every retry. A refused source yields no local id, and its child rows are skipped
+rather than reattached to the wrong source.
+
+Every surface that reports an import must report refusals, including the
+hands-off ones. `wiki db autosync` and the plugin's background pass are where a
+silent loss does the most damage, because nobody is watching the output; a green
+result with rejected rows behind it is the failure this rule exists to prevent.
 
 **`last_export_ts` describes when the snapshot was READ (v0.49.3).** Anything
 older than that stamp is treated as already exported, so stamping after the

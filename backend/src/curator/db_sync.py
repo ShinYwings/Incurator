@@ -168,6 +168,9 @@ def _source_span_revision(row: dict) -> str:
 # `_lw_upsert` comparison, `_local_max_ts` (the export gate), the `--since`
 # export filter, `_row_is_blocked_by_tombstone`, `_apply_tombstone`, and
 # `clear_row_tombstone_on_connection`.
+#: PRAGMA results per table; the schema does not change at runtime.
+_UNIQUE_INDEX_CACHE: dict[str, list[tuple[str, ...]]] = {}
+
 _REVISION_FN: dict[str, _Callable[[dict], str]] = {
     "source_spans": _source_span_revision,
 }
@@ -1378,7 +1381,11 @@ def _lw_upsert_source(
     *,
     dry_run: bool = False,
 ) -> tuple[str, int | None]:
-    """Merge a source by portable key while preserving the local integer id."""
+    """Merge a source by portable key while preserving the local integer id.
+
+    Returns the same outcome vocabulary as `_lw_upsert`, including
+    'rejected' with a `None` id when the database refused the row.
+    """
     sync_key = _source_sync_key(row)
     row["sync_key"] = sync_key
     remote_ts = _REMOTE_TS_FN["sources"](row)
@@ -1400,15 +1407,35 @@ def _lw_upsert_source(
         if dry_run:
             return "inserted", int(remote_id or 0)
         insert_row = {key: value for key, value in row.items() if key != "id"}
-        _do_insert(conn, "sources", insert_row)
+        outcome = _do_insert(conn, "sources", insert_row)
+        if outcome == "duplicate":
+            # This relpath is already registered under a different sync_key —
+            # both devices added the same file independently. The source is
+            # present; reuse the local id so the peer's child rows attach to it
+            # instead of being orphaned.
+            local = conn.execute(
+                "SELECT id FROM sources WHERE relpath = ?",
+                (row.get("relpath"),),
+            ).fetchone()
+            if local is not None:
+                return "skipped", int(local[0])
+            return "rejected", None
+        if outcome == "rejected":
+            # The database refused this row — a relpath already taken under a
+            # different sync_key, or a constraint violation from a truncated
+            # peer export. Report it, do not raise: nothing catches per row, so
+            # raising rolls the whole file back and takes every well-formed row
+            # with it, and the peer's checkpoint is never recorded so the same
+            # file re-fails on every retry. That is the wedge B2 exists to
+            # remove. A source with no local id yields `None`, which the caller
+            # already handles by skipping its child rows.
+            return "rejected", None
         inserted = conn.execute(
             "SELECT id FROM sources WHERE sync_key = ?",
             (sync_key,),
         ).fetchone()
         if inserted is None:
-            raise ValueError(
-                f"Source {sync_key!r} conflicts with an existing local relpath"
-            )
+            return "rejected", None
         return "inserted", int(inserted[0])
 
     local_id = int(existing["id"])
@@ -1441,7 +1468,11 @@ def _lw_upsert(
 ) -> str:
     """Insert or update a row using Last-Write-Wins.
 
-    Returns: 'inserted' | 'updated' | 'skipped'
+    Returns: 'inserted' | 'updated' | 'skipped' | 'rejected'
+
+    'rejected' means the database refused the row — it is NOT stored.
+    Callers must never fold it into 'skipped': skipped rows are already
+    present, rejected rows are lost, and only one of those needs saying.
     """
     pk_col = _PK_COL.get(table_name)
     updated_col = _UPDATED_AT_COL.get(table_name)
@@ -1465,10 +1496,14 @@ def _lw_upsert(
         ).fetchone()
 
         if existing is None:
-            if not dry_run and not _do_insert(conn, table_name, row):
-                # The row did not exist a moment ago and still does not: the
-                # database refused it. Never call that an insert (B2).
-                return "rejected"
+            if not dry_run:
+                outcome = _do_insert(conn, table_name, row)
+                if outcome == "duplicate":
+                    # An equivalent row is already here under a different id.
+                    # Present, not lost — see _do_insert.
+                    return "skipped"
+                if outcome == "rejected":
+                    return "rejected"
             return "inserted"
 
         if updated_col:
@@ -1525,14 +1560,23 @@ def _lw_upsert(
     return "inserted"
 
 
-def _do_insert(conn: "db.sqlite3.Connection", table: str, row: dict) -> bool:
-    """Insert a peer row. Returns False when the database refused it.
+def _do_insert(conn: "db.sqlite3.Connection", table: str, row: dict) -> str:
+    """Insert a peer row. Returns 'inserted' | 'duplicate' | 'rejected'.
 
-    `INSERT OR IGNORE` is deliberate: two devices racing to insert the same row
-    is normal and must not raise. But OR IGNORE also swallows a genuine
-    constraint violation — a truncated or malformed peer export — and the caller
-    used to report that as `inserted`, telling the user data arrived that was
-    silently dropped. `rowcount` distinguishes the two.
+    `duplicate` is NOT a loss and must never be reported as one. Several synced
+    tables carry a UNIQUE constraint beyond their transport key —
+    `graph_entities(canonical_name, entity_type)`, `source_spans(source_id,
+    content_hash)`, `sources.relpath` — while the key lookup matches on a
+    surrogate `id`/`sync_key`. Two devices that independently extract the same
+    entity mint different ids, so the peer's row looks new by key and collides
+    on content. The data is already here; the ids simply never converge, so
+    calling that a refusal would fire on every sync forever and train the user
+    to ignore the counter that exists to warn them about real loss.
+
+    The old `INSERT OR IGNORE` collapsed all three outcomes into silence, and
+    the caller reported every one as `inserted` — telling the user data arrived
+    that was dropped. A savepoint plus SQLite's own constraint name separates
+    them without guessing.
     """
     cols = ", ".join(row.keys())
     placeholders = ", ".join("?" * len(row))
@@ -1540,7 +1584,57 @@ def _do_insert(conn: "db.sqlite3.Connection", table: str, row: dict) -> bool:
         f"INSERT OR IGNORE INTO {table} ({cols}) VALUES ({placeholders})",
         list(row.values()),
     )
-    return cursor.rowcount > 0
+    if cursor.rowcount > 0:
+        return "inserted"
+    # OR IGNORE, not a savepoint + IntegrityError: `db.connect` commits only on
+    # a clean exit, and issuing SAVEPOINT opens a transaction whose RELEASE
+    # commits everything before it — which would break the all-or-nothing
+    # rollback a malformed peer file depends on.
+    return "duplicate" if _unique_conflict_exists(conn, table, row) else "rejected"
+
+
+def _unique_index_columns(
+    conn: "db.sqlite3.Connection", table: str
+) -> list[tuple[str, ...]]:
+    """Column tuples of every UNIQUE index on `table`, including the implicit PK."""
+    cached = _UNIQUE_INDEX_CACHE.get(table)
+    if cached is not None:
+        return cached
+    groups: list[tuple[str, ...]] = []
+    for index in conn.execute(f"PRAGMA index_list({table})").fetchall():
+        if not index["unique"]:
+            continue
+        cols = tuple(
+            str(part["name"])
+            for part in conn.execute(f"PRAGMA index_info({index['name']})")
+            if part["name"] is not None
+        )
+        if cols:
+            groups.append(cols)
+    _UNIQUE_INDEX_CACHE[table] = groups
+    return groups
+
+
+def _unique_conflict_exists(
+    conn: "db.sqlite3.Connection", table: str, row: dict
+) -> bool:
+    """True when a row already present collides with `row` on a UNIQUE index.
+
+    Distinguishes "already here under a different surrogate id" from "the
+    database refused this row". Asked of the schema rather than inferred from an
+    exception message, so it stays correct as constraints change.
+    """
+    for cols in _unique_index_columns(conn, table):
+        if any(col not in row for col in cols):
+            continue
+        where = " AND ".join(f"{col} IS ?" for col in cols)
+        found = conn.execute(
+            f"SELECT 1 FROM {table} WHERE {where} LIMIT 1",
+            tuple(row[col] for col in cols),
+        ).fetchone()
+        if found is not None:
+            return True
+    return False
 
 
 def _do_upsert(conn: "db.sqlite3.Connection", table: str, row: dict) -> None:

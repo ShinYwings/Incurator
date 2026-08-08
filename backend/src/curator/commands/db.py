@@ -151,7 +151,20 @@ def db_autosync(
             f"[green]{tag}Auto-sync:[/green] "
             f"+{summary['inserted']} inserted, ~{summary['updated']} updated, "
             f"{summary['deleted']} deleted from {summary['imported_files']} peer file(s)"
+            + (
+                f", [red]{summary['rejected']} rejected[/red]"
+                if summary["rejected"]
+                else ""
+            )
         )
+        if summary["rejected"]:
+            # autosync is the hands-off default, so a silent loss here is the
+            # one this feature exists to prevent. Never let it print green only.
+            console.print(
+                f"[yellow]{summary['rejected']} row(s) were refused by the "
+                f"database and are NOT in this vault.[/yellow] A peer export is "
+                f"likely truncated or malformed; re-export from that device."
+            )
         if res.conflicts:
             console.print(f"[yellow]Merged {len(res.conflicts)} Syncthing conflict file(s).[/yellow]")
         if res.exported:
