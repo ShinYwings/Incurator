@@ -123,7 +123,26 @@ gap. The real fix is a transport identity for both tables plus the id-remap
 plumbing — a schema change touching every referencing column, which is why it
 was left out of v0.50.0 rather than smuggled in.
 
-### 6. Retrieval and projection leftovers
+### 6. Resumable L2 extraction — wanted, needs designing
+
+Removed in v0.51.1 rather than repaired (B3 P6). The old mechanism could never
+run: checkpoints were written only inside the branch that required checkpoints
+to already exist, so `l2_checkpoints` held 0 rows across 36 sources and 2,799
+units. Deleting it changed no behavior.
+
+The cost it was meant to avoid is real. An interrupted L2 build restarts from
+the first batch, so a 40-batch source re-pays every provider round-trip — at the
+measured 8–12 s per CLI round-trip that is 5–8 minutes per retry.
+
+It must be designed, not re-enabled. The removed branch returned
+`list_staged_unit_ids_for_source`, which filters `generation_id IS NULL` and is
+therefore **empty after a successful publish** — a resumed run would have
+attributed zero units to a fresh generation and retired the source's entire
+authoritative unit set under §26.3. Any new design has to decide what a resumed
+run returns, and how a partially-published source is distinguished from an
+unstarted one.
+
+### 7. Retrieval and projection leftovers
 
 - Span segmentation isolates single-word fragments
   (`pipeline/source_spans.py` splits on blank lines with no minimum length).
@@ -132,14 +151,14 @@ was left out of v0.50.0 rather than smuggled in.
 - Retro-repair for vaults carrying a dead source row from a pre-v0.46.0 move;
   `wiki lint` reports them but nothing fixes them.
 
-### 7. Job progress is unobservable
+### 8. Job progress is unobservable
 
 `ingest_worker.py` writes `progress=0.1` once when L2 starts and `0.5` only
 after all of L2 returns; `progress_current/progress_total` stay `0/1` and
 `job_events` gets zero rows. Reference-Mode jobs also display the `.md` stub
 name for a PDF, and a running job cannot be cancelled.
 
-### 8. Drafts not yet planned
+### 9. Drafts not yet planned
 
 - Vault Storage Governance & Quota Visibility —
   `.agents/drafts/vault_storage_governance.md`
