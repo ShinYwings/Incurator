@@ -1,4 +1,4 @@
-# RELAY — v0.49.1 shipped; formula RECOVERY is the live goal
+# RELAY — v0.50.0 shipped; B2 sync integrity is the live goal
 
 ## Goal
 
@@ -61,11 +61,11 @@ and `row_revision()` respectively.
 
 ## Progress Status
 
-Shipped this run: **v0.43.0 → v0.49.1**, 21 merged PRs.
+Shipped this run: **v0.43.0 → v0.50.0**, 24 merged PRs.
 
-- Local gates at HEAD: backend pytest 1485 passed / 6 skipped / 4 xfailed,
-  Ruff clean, mypy clean (127 files), plugin Vitest 921/921 across 86 files,
-  `tsc --noEmit` clean, spec/version sync at v0.49.1.
+- Local gates at HEAD: backend pytest 1504 passed / 6 skipped / 4 xfailed,
+  Ruff clean, mypy clean (127 files), plugin Vitest 923/923 across 86 files,
+  `tsc --noEmit` clean, spec/version sync at v0.50.0.
 - Acceptance test on the real vault, the user's own question
   ("2D GS가 3D보다 …여러 논문을 종합해서 설명해줘"): route `local → global`,
   L4 `0 → 4`, L3 `0 → 10`.
@@ -90,6 +90,11 @@ Shipped this run: **v0.43.0 → v0.49.1**, 21 merged PRs.
 - **There are zero `ALTER TABLE` statements in the backend** (removed in
   `f8b40be`). Editing `SCHEMA_SQL` never reaches an existing vault, so any
   schema idea must work without a new column or accept a full re-ingest.
+- **An import must separate three outcomes**: stored, already present under
+  another identity, refused. Classification asks the schema which UNIQUE index
+  collided and must mirror SQLite — NULLs are DISTINCT, a partial index applies
+  only to matching rows. When undecidable, report refused: over-reporting a loss
+  is recoverable, under-reporting one is silence.
 - **Do not reach for `wiki add --force` to retrofit data.** It sets
   `l2_status='pending'`, which the next default `wiki build` picks up as a full
   L2/L3 rebuild of every source.
@@ -102,14 +107,24 @@ Shipped this run: **v0.43.0 → v0.49.1**, 21 merged PRs.
 
 ## Immediate Next Action
 
-**ROADMAP item 1 is blocked, not unplanned.** Do not write a recovery plan that
-assumes `recover_formula()` can be called today — the Arena already measured
-that at 0–2 of ~48 regions. A recovery milestone must first decide how to
-resolve the three prerequisites in ROADMAP item 1 (acceptance gate asymmetry,
-missing `validator_trace_id` producer, no region locator), each of which is its
-own contract change.
+**B2 is three-fifths done; finish it.** Remaining: **sync_db-2**
+(`sources_set_sync_key` no-op trigger) and **sync_db-4** (locked device-state
+RMW). Then B2 — the milestone's last P1 — closes.
 
-The cheaper unblocked work, in the order the audits ranked it: B2 (which should
-absorb the `source_spans` sync findings), B3 P5–P7, then the `.curator` state
-items — silent empty vault, vault rename, `sessions.json` bloat, journal
-compaction, `wiki sync` false rebuild claims. B5/B7 each need their own Arena.
+Landed: CAND-03 conflict-archive EXDEV (v0.49.2), sync_db-3 export-stamp race
+(v0.49.3), sync_db-1 truthful import outcome (v0.50.0).
+
+**Method that keeps working, stated plainly because it keeps being re-proven:**
+the plan names the item; measuring the running code finds what is actually wrong
+with it. All three B2 items shipped that way, and in each case the defect was
+not what the plan's one-line description implied.
+
+**Method that keeps failing:** shipping a fix without a test verified to fail
+without it. Every review round on #139 found a real hole in the previous round's
+fix, and each hole failed toward silence — a lost row reported as skipped. The
+rounds only became productive once every new behavior had a revert-verified
+test. Do that first, not after review asks.
+
+After B2: B3 P5–P7, then the `.curator` state items (ROADMAP item 4). B5/B7 each
+need their own Arena. ROADMAP item 1 (formula recovery) stays blocked on three
+prerequisites — do not plan it as if `recover_formula()` can be called today.

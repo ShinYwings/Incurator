@@ -11,7 +11,12 @@ they are." That has been false since v0.44.0. Shipped from this milestone:
 
 Still open, and the reason this plan stays in the workspace:
 
-- **B2** — cross-device sync integrity, the last P1 in the milestone.
+- **B2** — cross-device sync integrity, the last P1 in the milestone. Mostly
+  landed: CAND-03 (v0.49.2), sync_db-3 (v0.49.3), sync_db-1 (v0.50.0).
+  **Remaining: sync_db-2** (`sources_set_sync_key` no-op trigger) and
+  **sync_db-4** (locked device-state RMW). Each of the three that shipped was
+  found by measuring the running code, not by reading this plan — the plan named
+  the item, the measurement found what was actually wrong with it.
 - **B3 P5** synthesis dep-hash freeze · **P6** delete the dead L2
   checkpoint-resume (table migration) · **P7** record a reason on legitimate
   skips (needs a decision: `layer_error` is named for errors, `error_reason`

@@ -1,6 +1,6 @@
 # Incurator Active Roadmap
 
-Updated: 2026-08-07
+Updated: 2026-08-08
 
 This file contains only live work. Completed milestones and planning artifacts
 belong in Git history, not the active workspace. New raw reports enter through
@@ -10,7 +10,7 @@ belong in Git history, not the active workspace. New raw reports enter through
 
 Verified against the code on 2026-08-07, not against previous roadmap text.
 
-### Shipped since the audits (v0.43.0 → v0.49.1)
+### Shipped since the audits (v0.43.0 → v0.50.0)
 
 Corroboration gate · B4 · `wiki lint` truthfulness · B3 P1–P4 · vault
 move/delete tracking · the search-index support gate (61% of units were
@@ -19,7 +19,9 @@ English-internal boundary at the backend · the workspace/curation lens on the
 chat surface · entity-description prompt v2 · the sidechat job indicator ·
 add-source state after ingest · Reference-Mode sources resolved by Zotero
 identity · unresolved cross-references named instead of dropped ·
-**image-only extraction loss made visible** (v0.49.0/.1).
+**image-only extraction loss made visible** (v0.49.0/.1) · three of B2's five
+sync-integrity items (v0.49.2 conflict-archive EXDEV, v0.49.3 export-stamp race,
+v0.50.0 truthful import outcome).
 
 Note: v0.48.1 "distant PDF equation references" shipped but was a **no-op** —
 see item 1. It searched neighbouring pages for a label that was never ingested.
@@ -72,7 +74,9 @@ violations only.
 
 ### 3. System Integrity Consolidation — the remainder
 
-- **B2** (cross-device sync integrity) — the last P1 in the milestone.
+- **B2** (cross-device sync integrity) — CAND-03 (v0.49.2), sync_db-3
+  (v0.49.3) and sync_db-1 (v0.50.0) landed; **sync_db-2** (`sources_set_sync_key`
+  no-op trigger) and **sync_db-4** (locked device-state RMW) remain.
 - **B3 P5** synthesis dep-hash freeze · **P6** delete the dead L2
   checkpoint-resume (table migration) · **P7** record a reason on legitimate
   skips (needs a decision: `layer_error` is named for errors, `error_reason`
@@ -99,7 +103,24 @@ violations only.
 - `SYSTEM_BEHAVIOR.md` contradicts itself on where `state.sqlite` lives.
 - Arena record: `.agents/plans/curator_state_arena/`
 
-### 5. Retrieval and projection leftovers
+### 5. `graph_entities` / `source_spans` transport on a surrogate id
+
+Both carry a natural identity — `UNIQUE(canonical_name, entity_type)` and
+`UNIQUE(source_id, content_hash)` — but sync transports them on the surrogate
+`id`, so two devices that independently extract the same thing mint different
+ids. The key lookup misses, the insert collides on content, and convergence has
+to be classified after the fact (v0.50.0 does this via `PRAGMA index_list`).
+`sources` solved the same problem properly with a `sync_key` transport identity,
+so the primary lookup finds converging rows directly and children remap to the
+local id.
+
+Nothing remaps `graph_relations.source_entity_id`/`target_entity_id` when an
+entity converges, so the classifier makes the symptom quiet without closing the
+gap. The real fix is a transport identity for both tables plus the id-remap
+plumbing — a schema change touching every referencing column, which is why it
+was left out of v0.50.0 rather than smuggled in.
+
+### 6. Retrieval and projection leftovers
 
 - Span segmentation isolates single-word fragments
   (`pipeline/source_spans.py` splits on blank lines with no minimum length).
@@ -108,14 +129,14 @@ violations only.
 - Retro-repair for vaults carrying a dead source row from a pre-v0.46.0 move;
   `wiki lint` reports them but nothing fixes them.
 
-### 6. Job progress is unobservable
+### 7. Job progress is unobservable
 
 `ingest_worker.py` writes `progress=0.1` once when L2 starts and `0.5` only
 after all of L2 returns; `progress_current/progress_total` stay `0/1` and
 `job_events` gets zero rows. Reference-Mode jobs also display the `.md` stub
 name for a PDF, and a running job cannot be cancelled.
 
-### 7. Drafts not yet planned
+### 8. Drafts not yet planned
 
 - Vault Storage Governance & Quota Visibility —
   `.agents/drafts/vault_storage_governance.md`
