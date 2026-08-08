@@ -1953,6 +1953,31 @@ Invariants:
   `updated_at`, so its LWW revision is derived rather than read from a column.
   See SYSTEM_BEHAVIOR §26.2c.
 
+### 20.4b `synthesis_nodes.dependency_hash` Records Layer Cardinality (v0.50.3)
+
+L4 is regenerated wholesale — the layer is cleared, then each node is written and
+committed separately. The corpus hash alone therefore cannot tell a complete
+layer from an interrupted one: a crash between the clear and the last write
+leaves surviving nodes all carrying the *current* hash, and the idempotency
+guard reads that as complete. The layer stays truncated until the corpus changes
+enough to move the hash, and nothing reports it.
+
+The stored value is therefore `<corpus-hash>#<intended-node-count>`, and a layer
+counts as current only when every node carries the hash for the corpus AND the
+count equals the number of nodes actually present.
+
+- `#` cannot appear in a hex digest, so the format is unambiguous.
+- A value with no `#` is a legacy row. It reads as **unknown, not current**, so a
+  vault frozen by the earlier behavior regenerates exactly once and repairs
+  itself. This is deliberate: there is no `ALTER TABLE` path in this codebase, so
+  a new column could not reach an existing vault, and a silent migration of the
+  column would erase the only evidence that the layer was ever suspect.
+- `artifact_dependencies.dependency_hash` keeps the bare corpus hash. It is a
+  per-edge record, not a per-layer one, and carries no cardinality claim.
+
+This detects an interrupted write; it does not prevent one. Making the layer
+rebuild atomic is separate and deferred.
+
 ### 20.5 Compiler Audit Contract (Schema-Level)
 
 The compiler audit is the read-only traversal that proves the §20 invariants

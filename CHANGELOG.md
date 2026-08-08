@@ -2,6 +2,31 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.50.3] - 2026-08-08
+### Fixed
+- **A Truncated L4 Layer Was Frozen As Complete, Permanently** (B3 P5 / CP-2a)
+  `build_synthesis` regenerates wholesale: clear the layer, then write N nodes,
+  each committed separately and stamped with the current corpus hash. A crash
+  between the clear and the last write leaves a truncated layer whose every
+  surviving node carries the current hash — so the idempotency guard reads it as
+  complete. Reproduced: 3 nodes of an intended 6 short-circuit the guard, and
+  every later `wiki build` returns them as a finished layer. The vault serves a
+  half-complete synthesis until the corpus changes enough to move the hash, and
+  no surface reports it.
+
+  `synthesis_nodes.dependency_hash` now records the layer's intended cardinality
+  alongside the corpus hash (`<hash>#<count>`), and a layer counts as current
+  only when the hash matches AND the count equals the nodes actually present.
+
+  A vault already frozen by the old behavior repairs itself: its rows carry a
+  bare hash with no cardinality, which reads as unknown rather than current, so
+  the next build regenerates once. That is why the cardinality is encoded in the
+  existing column rather than added as a new one — this codebase has no
+  `ALTER TABLE` path, so a new column could not reach an existing vault at all.
+
+  This detects an interrupted write; it does not prevent one. Making the rebuild
+  atomic is the other half of CP-2 and remains deferred.
+
 ## [0.50.2] - 2026-08-08
 ### Fixed
 - **Device Sync State Was An Unlocked Read-Modify-Write** (B2 / sync_db-4)
