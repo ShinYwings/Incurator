@@ -12,9 +12,31 @@ All notable changes to Incurator are documented here.
   valid row and one constraint-violating row stored **1** row and reported
   **2 inserted**.
 
-  `INSERT OR IGNORE` stays, because two devices racing to insert the same row is
-  ordinary and must not raise. The insert now reports whether it actually wrote,
-  and a refused row is counted as `rejected` instead.
+  `INSERT OR IGNORE` stays, but not for the reason it looks like: callers look
+  the row up by transport key first, so an identical row never reaches the
+  INSERT twice. What it absorbs is a UNIQUE constraint the key lookup cannot
+  see. The insert now reports which of the three happened — stored, already
+  present under another identity, or refused — and only the last is counted as
+  `rejected`.
+
+  That distinction matters more than the original bug. `graph_entities` is
+  UNIQUE on `(canonical_name, entity_type)` and `source_spans` on
+  `(source_id, content_hash)`, while both transport on a surrogate `id`, so two
+  devices that independently extract the same entity mint different ids and
+  collide on content. The row is already present; calling that a refusal would
+  have fired on every sync forever, since the ids never reconcile.
+
+  Classification asks the schema (`PRAGMA index_list`) which UNIQUE index
+  collided, mirroring SQLite's semantics — NULLs are DISTINCT, and a partial
+  index applies only to rows matching its predicate. Where it cannot decide, the
+  row is reported as refused: over-reporting a loss is recoverable,
+  under-reporting one is the silence this feature exists to remove.
+
+  A refused `sources` row no longer raises. It used to, and nothing catches per
+  row, so one malformed source rolled back every well-formed row in the file and
+  never checkpointed the peer — re-failing on every retry. Its child rows are
+  counted as refused too, since nothing can attach them to a parent that is not
+  there.
 
 ### Added
 - **`rejected` In Import Reporting**
@@ -25,7 +47,10 @@ All notable changes to Incurator are documented here.
   removes the only signal that anything is wrong.
 
   A refused row still does not abort the pass: the rest of the file imports, so
-  one bad row cannot wedge a device's sync.
+  one bad row cannot wedge a device's sync. `wiki db autosync` reports refusals
+  in its console output as well as its `--json`, and the Obsidian plugin raises
+  a notice even when sync notifications are off — this is data that did not
+  arrive, not routine progress.
 
 ## [0.49.3] - 2026-08-08
 ### Fixed

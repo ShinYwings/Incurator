@@ -952,6 +952,11 @@ def import_knowledge(
             source_id_map: dict[int, int | None] = {}
             source_sync_keys: dict[int, str] = {}
             planned_source_inserts: set[int] = set()
+            # Sources the database refused. Their child rows are LOST, not
+            # merely skipped: there is no parent to attach them to, so nothing
+            # ever inserts them. Counting 500 orphaned spans as "skipped" while
+            # reporting "1 rejected" understates the loss by 500.
+            rejected_source_ids: set[int] = set()
 
             for line in f:
                 line = line.strip()
@@ -1001,6 +1006,8 @@ def import_knowledge(
                         source_sync_keys[remote_id] = _source_sync_key(row)
                         if dry_run and result == "inserted":
                             planned_source_inserts.add(remote_id)
+                        if result == "rejected":
+                            rejected_source_ids.add(remote_id)
                     if result == "inserted":
                         stats.inserted += 1
                     elif result == "updated":
@@ -1021,7 +1028,12 @@ def import_knowledge(
                             )
                         local_source_id = source_id_map[remote_source_id]
                         if local_source_id is None:
-                            stats.skipped += 1
+                            # A rejected parent means this row is lost too; any
+                            # other None is an ordinary skip (e.g. tombstoned).
+                            if remote_source_id in rejected_source_ids:
+                                stats.rejected += 1
+                            else:
+                                stats.skipped += 1
                             continue
                         source_sync_key = source_sync_keys[remote_source_id]
                         composite_spec = _COMPOSITE_KEY_SPECS.get(tbl)
@@ -1604,6 +1616,14 @@ def _unique_index_columns(
     for index in conn.execute(f"PRAGMA index_list({table})").fetchall():
         if not index["unique"]:
             continue
+        # A PARTIAL unique index only constrains rows matching its WHERE clause,
+        # which cannot be evaluated here. Treating it as unconditional would
+        # blame it for a refusal it could not have caused and report a lost row
+        # as an already-present duplicate — the silent-loss direction. Skipping
+        # it can only make the classifier fall through to `rejected`, which is
+        # the safe way to be wrong.
+        if index["partial"]:
+            continue
         cols = tuple(
             str(part["name"])
             for part in conn.execute(f"PRAGMA index_info({index['name']})")
@@ -1627,7 +1647,14 @@ def _unique_conflict_exists(
     for cols in _unique_index_columns(conn, table):
         if any(col not in row for col in cols):
             continue
-        where = " AND ".join(f"{col} IS ?" for col in cols)
+        # SQLite treats NULLs as DISTINCT in a UNIQUE index, so an index with a
+        # NULL in this row can never be what refused it. Matching NULL to NULL
+        # with `IS` would blame this index and report a genuinely lost row as an
+        # already-present duplicate — a real loss turned into silence, the exact
+        # failure this counter exists to surface. Mirror SQLite, do not guess.
+        if any(row[col] is None for col in cols):
+            continue
+        where = " AND ".join(f"{col} = ?" for col in cols)
         found = conn.execute(
             f"SELECT 1 FROM {table} WHERE {where} LIMIT 1",
             tuple(row[col] for col in cols),

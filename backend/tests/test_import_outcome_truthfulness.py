@@ -306,3 +306,78 @@ def test_a_duplicate_source_relpath_reuses_the_local_id(
     assert stats.rejected == 0, (
         "two devices adding the same file is convergence, not a refusal"
     )
+
+
+ALIAS = {
+    "id": "EA-1",
+    "alias_normalized": "ba",
+    "entity_id": None,
+    "alias_display": "BA",
+    "resolution_status": "pending",
+    "resolution_reason": "",
+    "created_at": TS,
+    "updated_at": TS,
+}
+
+
+def test_a_null_in_a_unique_index_never_excuses_a_rejection(db_path: Path) -> None:
+    """SQLite treats NULLs as DISTINCT in a UNIQUE index.
+
+    `entity_aliases` is UNIQUE(alias_normalized, entity_id, resolution_status)
+    with `entity_id` nullable. Matching NULL to NULL would blame that index for
+    a refusal it could not have caused, reporting a genuinely lost row as an
+    already-present duplicate — a real loss turned into silence, which is worse
+    than the mis-count this feature was written to fix.
+    """
+    with db.connect(db_path) as conn:
+        conn.execute(
+            f"INSERT INTO entity_aliases ({','.join(ALIAS)}) "
+            f"VALUES ({','.join('?' * len(ALIAS))})",
+            list(ALIAS.values()),
+        )
+        # Same NULL-bearing index tuple, but malformed elsewhere (NOT NULL).
+        result = db_sync._lw_upsert(
+            conn,
+            "entity_aliases",
+            {**ALIAS, "id": "EA-2", "alias_display": None},
+            primary_keys=["id"],
+        )
+        stored = int(
+            conn.execute("SELECT COUNT(*) FROM entity_aliases").fetchone()[0]
+        )
+
+    assert result == "rejected", (
+        f"a genuinely refused row was reported as {result!r} because a NULL in a "
+        f"UNIQUE index was treated as a collision"
+    )
+    assert stored == 1
+
+
+def test_child_rows_of_a_rejected_source_are_counted_as_lost(
+    tmp_path: Path, db_path: Path
+) -> None:
+    """A rejected parent loses its children — they must not read as `skipped`.
+
+    Nothing inserts a row whose source was refused, so counting them as skipped
+    reports "1 rejected" when N+1 rows did not land. `_lw_upsert`'s own docstring
+    forbids the conflation: skipped rows are present, rejected rows are lost.
+    """
+    span = {
+        "id": "SPAN-orphan",
+        "source_id": BAD_SOURCE["id"],
+        "relpath": BAD_SOURCE["relpath"],
+        "span_type": "paragraph",
+        "content_hash": "c1",
+        "text_preview": "x",
+        "created_at": TS,
+    }
+    export = _peer_file(tmp_path, ("sources", BAD_SOURCE), ("source_spans", span))
+
+    stats = db_sync.import_knowledge(db_path, export)
+
+    with db.connect(db_path) as conn:
+        stored = int(conn.execute("SELECT COUNT(*) FROM source_spans").fetchone()[0])
+    assert stored == 0
+    assert stats.rejected == 2, (
+        f"the orphaned span was not counted as lost: {stats}"
+    )
