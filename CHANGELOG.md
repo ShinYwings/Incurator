@@ -32,6 +32,12 @@ All notable changes to Incurator are documented here.
   trigger. The reporting vault has it, with 0 of 36 sources carrying a backslash
   in `sync_key`.
 
+  SCHEMA now states what happens to a key that was already derived wrongly: it
+  is **never rewritten**. `sync_key` is the identity peers match on, so a
+  retroactive repair on one device and not another would split the source
+  instead of converging it. The trigger self-heals on open; the rows do not, and
+  correcting them is a deliberate cross-replica action.
+
 ## [0.50.0] - 2026-08-08
 ### Fixed
 - **An Import Reported Rows It Had Silently Dropped** (B2 / sync_db-1)
