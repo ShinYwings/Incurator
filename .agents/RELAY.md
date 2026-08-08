@@ -61,11 +61,11 @@ and `row_revision()` respectively.
 
 ## Progress Status
 
-Shipped this run: **v0.43.0 → v0.50.0**, 24 merged PRs.
+Shipped this run: **v0.43.0 → v0.50.1**, 26 merged PRs.
 
-- Local gates at HEAD: backend pytest 1504 passed / 6 skipped / 4 xfailed,
+- Local gates at HEAD: backend pytest 1509 passed / 6 skipped / 4 xfailed,
   Ruff clean, mypy clean (127 files), plugin Vitest 923/923 across 86 files,
-  `tsc --noEmit` clean, spec/version sync at v0.50.0.
+  `tsc --noEmit` clean, spec/version sync at v0.50.1.
 - Acceptance test on the real vault, the user's own question
   ("2D GS가 3D보다 …여러 논문을 종합해서 설명해줘"): route `local → global`,
   L4 `0 → 4`, L3 `0 → 10`.
@@ -87,6 +87,14 @@ Shipped this run: **v0.43.0 → v0.50.0**, 24 merged PRs.
   `_UPDATED_AT_COL` directly is how v0.49.0 shipped four unfixed sites, two on
   the default import path. `source_spans` has no `updated_at` and its
   `created_at` is immutable, so its clock is derived from `metadata`.
+- **Trigger bodies have ONE definition** (`TRIGGER_BODIES` in `db/schema.py`),
+  rendered into both `SCHEMA_SQL` and `_refresh_current_triggers`. They drifted
+  once and the substring-allowlist detector could not tell. The detector now
+  compares the rendered body; note SQLite stores a trigger WITHOUT its trailing
+  `;` and may reflow the header, so the comparison must stay whitespace- and
+  semicolon-insensitive or it refreshes on every open and deadlocks.
+- **A derived `sync_key` is never rewritten retroactively** (SCHEMA §12). It is
+  the identity peers match on; repairing it on one device only splits the source.
 - **There are zero `ALTER TABLE` statements in the backend** (removed in
   `f8b40be`). Editing `SCHEMA_SQL` never reaches an existing vault, so any
   schema idea must work without a new column or accept a full re-ingest.
@@ -107,12 +115,12 @@ Shipped this run: **v0.43.0 → v0.50.0**, 24 merged PRs.
 
 ## Immediate Next Action
 
-**B2 is three-fifths done; finish it.** Remaining: **sync_db-2**
-(`sources_set_sync_key` no-op trigger) and **sync_db-4** (locked device-state
-RMW). Then B2 — the milestone's last P1 — closes.
+**B2 is four-fifths done; one item left.** Remaining: **sync_db-4** (locked
+device-state RMW). Then B2 — the milestone's last P1 — closes.
 
 Landed: CAND-03 conflict-archive EXDEV (v0.49.2), sync_db-3 export-stamp race
-(v0.49.3), sync_db-1 truthful import outcome (v0.50.0).
+(v0.49.3), sync_db-1 truthful import outcome (v0.50.0), sync_db-2 single-source
+trigger definitions (v0.50.1).
 
 **Method that keeps working, stated plainly because it keeps being re-proven:**
 the plan names the item; measuring the running code finds what is actually wrong
