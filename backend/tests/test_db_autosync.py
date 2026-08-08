@@ -571,10 +571,14 @@ class TestAutosync:
         conflict = sync_dir / "dev-peerARCHIVE.sync-conflict-20260607.jsonl"
         conflict.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
 
-        def deny_rename(_path: Path, _target: Path) -> Path:
+        # Deny the move itself, not `Path.rename` specifically: `_archive_conflict`
+        # uses `shutil.move` so it survives a cross-filesystem archive (the vault
+        # is on synced storage, the cache is repo-local). Patching the old
+        # mechanism would leave this test green while the failure path rotted.
+        def deny_move(_src, _dst) -> None:
             raise PermissionError("archive denied")
 
-        monkeypatch.setattr(Path, "rename", deny_rename)
+        monkeypatch.setattr(db_sync.shutil, "move", deny_move)
 
         with pytest.raises(RuntimeError, match=conflict.name):
             db_sync.autosync(_internal(vault), _db(vault))

@@ -2,6 +2,33 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.49.2] - 2026-08-08
+### Fixed
+- **One Un-archivable Conflict File Wedged Sync Permanently** (B2 / CAND-03)
+  After merging a sync conflict, `_archive_conflict` moved the file out of the
+  synced vault (`<vault>/.curator/sync/`) into the repo-local cache
+  (`<repo>/.cache/vaults/<hash>/runtime/sync_conflicts/`) with `Path.rename`.
+  Those are different trees by design — the vault lives on synced storage
+  (iCloud, Syncthing, a network mount), the cache is local — so they are
+  routinely on different filesystems, where `rename` raises `OSError(EXDEV)`.
+
+  `autosync` turns that into an `AutosyncError`, and the file stays in the sync
+  directory: every later run re-imports the same conflict and fails again. One
+  file wedged sync for that vault forever. It now uses `shutil.move`, which
+  falls back to copy+unlink across filesystems.
+
+  The archive name is also made unique instead of overwritten. A conflict file
+  holds data not merged anywhere else, so silently replacing one with another of
+  the same name destroyed it.
+
+- **A Test That Went Red On A Calendar Boundary**
+  `test_span_metadata_sync.py` (added in v0.49.1) hardcoded
+  `2026-08-08T00:00:00Z` as a "newer than `created_at`" stamp. The derived
+  revision is `max(created_at, metadata stamps)` and `created_at` is `now`, so
+  that value was newer when written and older a day later — the suite went red
+  with no code change. Timestamps there are now far-future sentinels, with the
+  reasoning recorded so the trap is not reset.
+
 ## [0.49.1] - 2026-08-08
 ### Fixed
 - **The v0.49.0 Sync Clock Was Applied At Two Sites And Missed Four**
