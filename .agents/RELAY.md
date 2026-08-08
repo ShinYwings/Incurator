@@ -1,4 +1,4 @@
-# RELAY — B2 complete at v0.50.2; the milestone has no P1 left
+# RELAY — B2 complete and B3 P5 done at v0.51.0; P7 needs a user decision
 
 ## Goal
 
@@ -61,11 +61,11 @@ and `row_revision()` respectively.
 
 ## Progress Status
 
-Shipped this run: **v0.43.0 → v0.50.2**, 28 merged PRs.
+Shipped this run: **v0.43.0 → v0.51.0**, 30 merged PRs.
 
-- Local gates at HEAD: backend pytest 1518 passed / 6 skipped / 4 xfailed,
+- Local gates at HEAD: backend pytest 1527 passed / 6 skipped / 4 xfailed,
   Ruff clean, mypy clean (127 files), plugin Vitest 923/923 across 86 files,
-  `tsc --noEmit` clean, spec/version sync at v0.50.2.
+  `tsc --noEmit` clean, spec/version sync at v0.51.0.
 - Acceptance test on the real vault, the user's own question
   ("2D GS가 3D보다 …여러 논문을 종합해서 설명해줘"): route `local → global`,
   L4 `0 → 4`, L3 `0 → 10`.
@@ -99,6 +99,11 @@ Shipped this run: **v0.43.0 → v0.50.2**, 28 merged PRs.
   copy gets overwritten by the outer's stale snapshot. Every mutation of device
   sync state goes through `sync_state_transaction`; never read-modify-write it
   directly.
+- **A stored hash that gates regeneration must carry cardinality, not just
+  inputs.** `synthesis_nodes.dependency_hash` is `<corpus-hash>#<count>`: the
+  corpus hash alone could not tell a complete layer from one truncated by a
+  crash mid-rebuild, so a partial L4 froze as finished. Legacy bare-hash rows
+  read as unknown, which is what repairs an already-frozen vault.
 - **A derived `sync_key` is never rewritten retroactively** (SCHEMA §12). It is
   the identity peers match on; repairing it on one device only splits the source.
 - **There are zero `ALTER TABLE` statements in the backend** (removed in
@@ -121,10 +126,14 @@ Shipped this run: **v0.43.0 → v0.50.2**, 28 merged PRs.
 
 ## Immediate Next Action
 
-**B2 is COMPLETE** (v0.49.2 → v0.50.2, all five items), so milestone 03 has no
-P1 outstanding. Next by the plan's own ordering: **B3 P5–P7**, then the
-`.curator` state items (ROADMAP item 4). B5 and B7 each still need their own
-Arena.
+**B2 is COMPLETE** (v0.49.2 → v0.50.2) and **B3 P5 shipped** (v0.51.0), so
+milestone 03 has no P1 outstanding.
+
+Next: **B3 P6** — delete the dead L2 checkpoint-resume. Then **B3 P7**, which is
+**blocked on a user decision** and must not be started without it: `layer_error`
+is named for errors and `error_reason` already exists, so which column carries a
+non-error skip reason is a contract choice. After B3: the `.curator` state items
+(ROADMAP item 4). B5 and B7 each still need their own Arena.
 
 **Method that keeps working, stated plainly because it keeps being re-proven:**
 the plan names the item; measuring the running code finds what is actually wrong

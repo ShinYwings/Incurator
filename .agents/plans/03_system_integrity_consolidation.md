@@ -24,10 +24,13 @@ the milestone has no P1 left):
   deadlocked on nested acquisition, and a detector that refreshed on every open
   — so a fix here is not finished until a test has been verified to fail
   without it.
-- **B3 P5** synthesis dep-hash freeze · **P6** delete the dead L2
-  checkpoint-resume (table migration) · **P7** record a reason on legitimate
-  skips (needs a decision: `layer_error` is named for errors, `error_reason`
-  already exists).
+- **B3 P5 — DONE** (v0.51.0). The freeze half of CP-2; the atomicity half
+  stays deferred to ENH-01 as Locked Decision 3 scoped it.
+- **B3 P6** delete the dead L2 checkpoint-resume (table migration).
+- **B3 P7** record a reason on legitimate skips — **blocked on a user decision.**
+  `layer_error` is named for errors and `error_reason` already exists, so which
+  column carries a non-error reason is a contract choice. Do not pick one
+  silently.
 - **B5 / B7** — each requires its own Arena plan.
 
 Note for B2: the formula-recovery Arena independently found a live cross-device
