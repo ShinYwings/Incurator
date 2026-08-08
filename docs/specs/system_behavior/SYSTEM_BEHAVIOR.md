@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.50.0)
+# Incurator - System Behavior (v0.51.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -1990,6 +1990,14 @@ Rules:
   of other LLM wiki repos). It is generated wholesale and content-addressed by the
   report-corpus hash, so it is skipped when nothing changed and regenerated
   entirely when any report changes (`compile_global_l3` → `generate_synthesis`).
+  The skip is gated on the layer being COMPLETE as well as current: the rebuild
+  clears the layer and then writes each node in its own commit, so an
+  interrupted run leaves survivors that all carry the current corpus hash and
+  would otherwise be read as finished forever. The stored hash therefore records
+  the layer's intended cardinality (SCHEMA §20.4b), and a node count that does
+  not match forces regeneration. Rows written before that rule carry no
+  cardinality, which reads as unknown rather than current, so a vault frozen by
+  the earlier behavior regenerates exactly once.
   The per-workspace **Curation lens** sits ABOVE this layer: it selects and
   recombines L3/L4 nodes at query time and is never persisted (see SCHEMA §11.11).
 - L1 (source_spans / CTX) is deterministic structure preservation, not

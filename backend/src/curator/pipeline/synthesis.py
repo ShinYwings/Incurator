@@ -31,6 +31,43 @@ from . import projection
 __all__ = ["corpus_dependency_hash", "generate_synthesis", "reemit_synthesis"]
 
 
+#: Separator between the corpus hash and the layer's node count. `#` cannot occur
+#: in a hex digest, so a stored value either carries a cardinality or is legacy.
+_LAYER_CARDINALITY_SEP = "#"
+
+
+def layer_dependency_hash(dep_hash: str, node_count: int) -> str:
+    """The value stored in ``synthesis_nodes.dependency_hash``.
+
+    The corpus hash alone cannot distinguish a complete layer from a truncated
+    one. `generate_synthesis` regenerates wholesale — clear, then write N nodes each
+    stamped with the current hash — so a crash between the clear and the last
+    write leaves a partial layer whose every surviving node carries the *current*
+    hash. The idempotency guard then reads it as complete and no later build ever
+    regenerates the missing nodes.
+
+    Recording the intended cardinality alongside the hash makes that state
+    detectable with no schema change (this codebase has no `ALTER TABLE` path, so
+    a new column could not reach an existing vault). The value stays opaque and
+    compared only for equality.
+    """
+    return f"{dep_hash}{_LAYER_CARDINALITY_SEP}{node_count}"
+
+
+def layer_is_current(nodes: "list[dict]", dep_hash: str) -> bool:
+    """True when the stored layer is complete AND built from this corpus.
+
+    False for a truncated layer, a layer built from a different corpus, and for
+    legacy rows that carry a bare hash with no cardinality — the last of those
+    reads as unknown rather than current, which is how a vault frozen by the old
+    behavior repairs itself on the next build.
+    """
+    if not nodes:
+        return False
+    expected = layer_dependency_hash(dep_hash, len(nodes))
+    return all(n.get("dependency_hash") == expected for n in nodes)
+
+
 def corpus_dependency_hash(reports: list[dict]) -> str:
     """Content-addressed hash of all community reports feeding the synthesis layer.
 
@@ -111,7 +148,7 @@ def generate_synthesis(
     concept_ids = _concept_ids_for_reports(paths, report_ids, concept_ids_by_report)
 
     existing = db.list_synthesis_nodes(paths.state_db)
-    if existing and all(n.get("dependency_hash") == dep_hash for n in existing):
+    if layer_is_current(existing, dep_hash):
         if any(list(n.get("concept_ids") or []) != concept_ids for n in existing):
             with db.connect(paths.state_db) as conn:
                 conn.execute(
@@ -146,6 +183,9 @@ def generate_synthesis(
     db.clear_synthesis_nodes(paths.state_db)
     node_ids: list[str] = []
     parsed = cast(Any, result.parsed)
+    # Every node records how many the layer is meant to hold, so an interrupted
+    # write is detectable afterwards even though each row commits separately.
+    layer_hash = layer_dependency_hash(dep_hash, len(parsed.syntheses))
     for item in parsed.syntheses:
         item_spans = list(item.source_span_ids) or span_ids
         syn_id = db.upsert_synthesis_node(
@@ -157,7 +197,7 @@ def generate_synthesis(
             concept_ids=concept_ids,
             source_span_ids=item_spans,
             confidence=float(item.confidence),
-            dependency_hash=dep_hash,
+            dependency_hash=layer_hash,
             prompt_run_id=result.trace_id,
         )
         for span_id in item_spans:

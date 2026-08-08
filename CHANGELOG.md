@@ -2,6 +2,40 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.51.0] - 2026-08-08
+### Changed
+- **`synthesis_nodes.dependency_hash` Now Carries The Layer's Node Count**
+  The stored value changes from a bare corpus digest to `<hash>#<count>`. This
+  is a Minor rather than a Patch because the field is exposed: `wiki inspect
+  synthesis SYN-…` and `wiki plugin synthesis show` return it in the audit
+  payload that SCHEMA §11.11.1 describes as stable for CLI and plugin
+  consumers. Anything parsing it as a bare digest should take the portion before
+  `#`. The reason for the change is below.
+
+### Fixed
+- **A Truncated L4 Layer Was Frozen As Complete, Permanently** (B3 P5 / CP-2a)
+  `generate_synthesis` regenerates wholesale: clear the layer, then write N nodes,
+  each committed separately and stamped with the current corpus hash. A crash
+  between the clear and the last write leaves a truncated layer whose every
+  surviving node carries the current hash — so the idempotency guard reads it as
+  complete. Reproduced: 3 nodes of an intended 6 short-circuit the guard, and
+  every later `wiki build` returns them as a finished layer. The vault serves a
+  half-complete synthesis until the corpus changes enough to move the hash, and
+  no surface reports it.
+
+  `synthesis_nodes.dependency_hash` now records the layer's intended cardinality
+  alongside the corpus hash (`<hash>#<count>`), and a layer counts as current
+  only when the hash matches AND the count equals the nodes actually present.
+
+  A vault already frozen by the old behavior repairs itself: its rows carry a
+  bare hash with no cardinality, which reads as unknown rather than current, so
+  the next build regenerates once. That is why the cardinality is encoded in the
+  existing column rather than added as a new one — this codebase has no
+  `ALTER TABLE` path, so a new column could not reach an existing vault at all.
+
+  This detects an interrupted write; it does not prevent one. Making the rebuild
+  atomic is the other half of CP-2 and remains deferred.
+
 ## [0.50.2] - 2026-08-08
 ### Fixed
 - **Device Sync State Was An Unlocked Read-Modify-Write** (B2 / sync_db-4)

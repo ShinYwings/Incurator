@@ -147,3 +147,50 @@ def test_no_reports_yields_no_synthesis(vault) -> None:
             raise AssertionError("must not synthesize without reports")
 
     assert synthesis.generate_synthesis(paths, Boom()) == []
+
+
+def test_generate_synthesis_regenerates_a_truncated_layer(vault) -> None:
+    """B3 P5: the guard must reject an incomplete layer, through the real path.
+
+    The unit tests around `layer_is_current` prove the helper; this proves the
+    guard inside `generate_synthesis` is actually wired to it. Delete a node
+    from a complete layer — simulating a crash between the wholesale clear and
+    the last write — and the next run must call the LLM again instead of
+    returning the survivors as finished.
+    """
+    paths, _ = vault
+    client = SynthFakeClient()
+    synthesis.generate_synthesis(paths, client)
+    assert client.calls == 1
+
+    nodes = db.list_synthesis_nodes(paths.state_db)
+    assert len(nodes) >= 1
+    with db.connect(paths.state_db) as conn:
+        conn.execute("DELETE FROM synthesis_nodes WHERE id = ?", (nodes[0]["id"],))
+
+    synthesis.generate_synthesis(paths, client)
+    assert client.calls == 2, (
+        "a truncated layer was returned as complete; the guard is not consulting "
+        "the recorded cardinality"
+    )
+
+
+def test_generate_synthesis_regenerates_a_legacy_layer_once(vault) -> None:
+    """A vault frozen by the pre-v0.51.0 behavior must repair itself."""
+    paths, _ = vault
+    client = SynthFakeClient()
+    synthesis.generate_synthesis(paths, client)
+    assert client.calls == 1
+
+    # Rewrite the stored hash in the old bare form, as an existing vault holds it.
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "UPDATE synthesis_nodes SET dependency_hash = "
+            "substr(dependency_hash, 1, instr(dependency_hash, '#') - 1)"
+        )
+
+    synthesis.generate_synthesis(paths, client)
+    assert client.calls == 2, "a legacy bare-hash layer was accepted as current"
+    # ...and having regenerated once, it is stable again.
+    synthesis.generate_synthesis(paths, client)
+    assert client.calls == 2

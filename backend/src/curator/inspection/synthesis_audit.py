@@ -185,7 +185,19 @@ def _current_dependency_hash(db_path: Path, depends_on_type: str, depends_on_id:
             f"SELECT {hash_column} FROM {table} WHERE {column} = ?",
             (depends_on_id,),
         ).fetchone()
-    return str(row[hash_column]) if row else None
+    if row is None:
+        return None
+    current = str(row[hash_column])
+    if depends_on_type == "synthesis_node":
+        # `synthesis_nodes.dependency_hash` carries the layer's cardinality as
+        # `<corpus-hash>#<count>` (SCHEMA §20.4b), while an edge records only the
+        # corpus hash. Comparing them whole would report every such dependency
+        # stale forever and drown the real ones. Nothing writes a
+        # `synthesis_node` edge today — it is not even a documented
+        # `depends_on_type` — but the comparison must not be a trap for whoever
+        # does.
+        current = current.split("#", 1)[0]
+    return current
 
 
 def _dependency_warnings(db_path: Path, artifact_id: str) -> list[str]:
