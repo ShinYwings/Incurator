@@ -45,7 +45,8 @@ import {
 } from "../../context/assetSource";
 
 import {
-  isUnreadableSelection,
+  countUnmappedGlyphs,
+  hasUnmappedGlyphs,
   sanitizePdfSelectionText,
 } from "../../utils/pdfSelectionText";
 import { EXTERNAL_PDF_VIEW_TYPE } from "./externalPdfViewType";
@@ -1376,14 +1377,14 @@ export class ExternalPdfView extends ItemView {
 
   private attachPdfSelectionHandlers(pagesEl: HTMLElement): void {
     pagesEl.addEventListener("contextmenu", (e: MouseEvent) => {
-      const text = this.getSelectionTextWithinView();
-      if (!text) return;
+      const raw = this.getRawSelectionWithinView();
+      if (raw === null || !raw.trim()) return;
       const menu = new Menu();
       menu.addItem((item) =>
         item
           .setIcon("sigma")
           .setTitle("Convert to LaTeX (Copy)")
-          .onClick(() => this.convertSelectionToLatex(text))
+          .onClick(() => this.convertSelectionToLatexFromRaw(raw))
       );
       menu.showAtMouseEvent(e);
     });
@@ -1398,22 +1399,115 @@ export class ExternalPdfView extends ItemView {
             const raw = this.getRawSelectionWithinView();
             if (raw === null) return;
             e.preventDefault();
-            // A region whose glyphs are all unmapped is not "nothing selected" —
-            // staying silent there is what made this read as a broken feature.
-            if (isUnreadableSelection(raw)) {
-              new Notice(
-                "This region has no readable text layer — it is an image. " +
-                  "Snip it instead, or run `wiki lint` to see unreadable regions."
-              );
-              return;
-            }
-            const text = sanitizePdfSelectionText(raw);
-            if (!text) return;
-            this.convertSelectionToLatex(text);
+            void this.convertSelectionToLatexFromRaw(raw);
           }
         }
       );
     }
+  }
+
+  /**
+   * Choose the channel that can actually read this selection, then convert.
+   *
+   * A selection whose glyphs the PDF could not map carries no recoverable text:
+   * pdf.js emits U+0000 for each one, so the symbols exist only in the rendered
+   * pixels. Sending the text anyway — with those glyphs stripped, as v0.52.1
+   * did — produces a confidently wrong equation on the clipboard, which is
+   * worse than the crash it replaced. Read the pixels instead.
+   */
+  private async convertSelectionToLatexFromRaw(raw: string): Promise<void> {
+    if (!raw.trim()) return;
+
+    const unmapped = countUnmappedGlyphs(raw);
+    if (unmapped > 0) {
+      const crop = this.cropCurrentSelectionToBase64();
+      if (crop) {
+        await this.convertSelectionCropToLatex(crop, unmapped);
+        return;
+      }
+      // Cropping is the only honest route here, so say why it is unavailable
+      // rather than falling back to text we know is missing its symbols.
+      new Notice(
+        `This selection has ${unmapped} symbol(s) the PDF does not encode as ` +
+          `text (usually Greek letters or operators), and the page image could ` +
+          `not be captured to read them. Scroll the page fully into view and ` +
+          `retry, or snip the region with Cmd+Shift+X.`
+      );
+      return;
+    }
+
+    const text = sanitizePdfSelectionText(raw);
+    if (!text) return;
+    await this.convertSelectionToLatex(text);
+  }
+
+  /** Rasterize the current selection's bounding box from the rendered page. */
+  private cropCurrentSelectionToBase64(): string | null {
+    if (!this.pagesEl) return null;
+    const selection = this.pagesEl.ownerDocument.getSelection();
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null;
+
+    const range = selection.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return null;
+
+    // Anchor to whichever page element actually contains the selection; a
+    // multi-page selection crops the page the range starts on.
+    const anchor =
+      range.startContainer.nodeType === Node.ELEMENT_NODE
+        ? (range.startContainer as HTMLElement)
+        : range.startContainer.parentElement;
+    const pageEl = anchor?.closest<HTMLElement>(".pdf-page");
+    if (!pageEl) return null;
+
+    const pageRect = pageEl.getBoundingClientRect();
+    // A little padding: glyph boxes clip ascenders/descenders, and a tight crop
+    // of an equation loses the very sub/superscripts that carry its meaning.
+    const pad = 6;
+    const left = Math.max(0, rect.left - pageRect.left - pad);
+    const top = Math.max(0, rect.top - pageRect.top - pad);
+    const width = Math.min(pageEl.clientWidth - left, rect.width + pad * 2);
+    const height = Math.min(pageEl.clientHeight - top, rect.height + pad * 2);
+    if (width <= 0 || height <= 0) return null;
+
+    let captured: string | null = null;
+    this.extractCanvasRegion(pageEl, left, top, width, height, (base64) => {
+      captured = base64;
+    });
+    return captured;
+  }
+
+  private async convertSelectionCropToLatex(base64: string, unmapped: number): Promise<void> {
+    if (!this.plugin) {
+      new Notice("Incurator backend not available.");
+      return;
+    }
+    new Notice(
+      `Reading ${unmapped} unencoded symbol(s) from the page image…`
+    );
+    let latex = "";
+    try {
+      const result = await this.plugin.transcribePdfCrop(base64);
+      latex = result?.latex?.trim() || "";
+    } catch (err) {
+      logger.error("LaTeX conversion from crop failed:", err);
+      const detail = err instanceof Error ? err.message : String(err);
+      new Notice(`LaTeX conversion failed: ${detail}`);
+      return;
+    }
+    if (!latex) {
+      // transcribePdfCrop already showed the specific failure notice.
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(latex);
+    } catch (err) {
+      logger.error("LaTeX clipboard write failed:", err);
+      const detail = err instanceof Error ? err.message : String(err);
+      new Notice(`Converted, but the clipboard write was refused: ${detail}`);
+      return;
+    }
+    new Notice("LaTeX copied to clipboard.");
   }
 
   private async convertSelectionToLatex(rawText: string): Promise<void> {

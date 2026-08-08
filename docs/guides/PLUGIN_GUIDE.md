@@ -679,15 +679,33 @@ actually happened:
 | Message | What it means | What to do |
 |---|---|---|
 | `LaTeX copied to clipboard.` | Success. | — |
-| `This region has no readable text layer — it is an image.` | The PDF stores that region as a picture, so there are no characters to convert. | Snip it (**Cmd+Shift+X**) so a vision model reads the image, or run `wiki lint` to list unreadable regions. |
+| `Reading N unencoded symbol(s) from the page image…` | Normal, and usually followed by success. Your selection contains symbols the PDF does not encode as text (see below), so the region is read as an image instead. | Nothing — wait for it. |
+| `This selection has N symbol(s) the PDF does not encode as text …` | Same condition, but the page image could not be captured to read them. | Scroll the page fully into view and retry, or snip with **Cmd+Shift+X**. |
 | `The model returned an empty transcription for this selection.` | The backend ran fine; the model gave nothing usable back. | Retry, or widen the selection so it carries more context. |
 | `Converted, but the clipboard write was refused: …` | The transcription succeeded and only the clipboard step failed (usually a focus issue). | Click into the window and retry. |
 | `LaTeX conversion failed: <detail> …` | A real backend or provider failure, with the underlying error included. | Read the detail; check the LLM Provider card if it names the provider. |
 
-Two related fixes landed with those messages. Selections are stripped of control
-characters before being sent — PDF text layers emit stray null bytes for glyphs
-with no Unicode mapping, and a single one used to abort the conversion before it
-started. And numeric-only lines (an equation number, a table cell, a page number)
+**Why maths sometimes takes the image route (v0.52.3).** A LaTeX paper embeds
+its symbols in Computer Modern font subsets, and those subsets frequently ship
+without a `/ToUnicode` map. When one does, the PDF genuinely does not record
+*which character* a glyph is — only how to draw it — and pdf.js hands back a
+null byte in its place. On `3D Line Mapping Revisited` page 4, the ten lambdas
+of equation (3) all arrive that way.
+
+There is no way to recover those symbols from the text, because they are not in
+the text; they exist only in the rendered pixels. So when your selection
+contains any of them, Convert to LaTeX crops that region from the page and
+sends the **image** to the vision model, which reads the equation as drawn. You
+will see `Reading N unencoded symbol(s) from the page image…` and then the
+normal result.
+
+> [!WARNING]
+> v0.52.1 handled this badly and v0.52.2 still did: it deleted those glyphs so
+> the text could be sent anyway. The model then transcribed an equation with
+> every λ missing, and the wrong result was copied to your clipboard looking
+> perfectly plausible. If you copied maths with v0.52.1 or v0.52.2, re-check it.
+
+Separately, numeric-only lines (an equation number, a table cell, a page number)
 are no longer dropped from the transcription, so a selection that is entirely
 numbers converts instead of coming back empty.
 

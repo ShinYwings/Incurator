@@ -2,6 +2,55 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.52.3] - 2026-08-09
+### Fixed
+- **Convert-to-LaTeX Silently Deleted Every Greek Letter (regression from v0.52.1)**
+  User-reported: the copy produced `$2R^2T A + bT$, s.t. $TQ + qT = 0$.` where it
+  should have produced
+  `$$\min_{\lambda \in \mathbb{R}^2} \lambda^T A \lambda + b^T \lambda \quad
+  \text{s.t.} \quad \lambda^T Q \lambda + q^T \lambda = 0$$`. Every λ is gone,
+  and the remaining text is exactly the input with each λ deleted.
+
+  **A U+0000 in a PDF text layer is not noise — it is a glyph pdf.js could not
+  map.** Measured on `3D Line Mapping Revisited` page 4: its `AAAAAH+CMMI10`
+  subset (the maths italic font that carries λ) declares `MacRomanEncoding` and
+  has **no `/ToUnicode`**, so pdf.js has nothing to resolve the glyph with and
+  emits NUL. Running pdf.js 4.10 against the real file with the plugin's own
+  options returns, for equation (3):
+
+  ```
+  "\0 = (\0 1, \0 2) with a single constraint: min \0 2 R 2 \0 T A \0 + b T \0, ..."
+  control code points: U+0000 x10        real U+03BB: 0
+  ```
+
+  v0.52.1 stripped control characters so `spawn` would stop throwing
+  `TypeError: … must be a string without null bytes`. That silenced the crash
+  and produced something worse: the model received the equation with all ten
+  lambdas deleted, transcribed the wreckage faithfully, and a **confidently
+  wrong equation landed on the clipboard**. A loud failure had become silent
+  corruption — the exact trade this project's rules exist to prevent.
+
+  No text processing can recover the character, because the character is not in
+  the text layer at all. It exists only in the rendered pixels. So:
+
+  - **A selection carrying unmapped glyphs is now read as an image.** The
+    selection's bounding box is cropped from the already-rendered page canvas
+    and sent through the existing `transcribePdfCrop` path, where the vision
+    model reads the equation as drawn. The notice names the count
+    (`Reading 10 unencoded symbol(s) from the page image…`) so the different
+    route is visible rather than mysterious.
+  - **`sanitizePdfSelectionText` removes only U+0000**, the single code point
+    `spawn` actually rejects. v0.52.1 also stripped the rest of C0, DEL, and
+    C1 — none of which break the boundary, all of which may be real content.
+    Removing a character a process boundary would have accepted is data loss
+    with nothing to justify it.
+  - **When the crop cannot be captured, it says so and stops** rather than
+    falling back to text already known to be missing its symbols.
+
+  Verified against the backend: given the text layer *with* λ present, the
+  existing transcribe path already returns exactly the expected LaTeX, which is
+  what isolated the loss to the plugin rather than the model.
+
 ## [0.52.2] - 2026-08-09
 ### Fixed
 - **§26.2b Extraction-Loss Recording Had Never Run On The Existing Corpus**
@@ -54,6 +103,7 @@ All notable changes to Incurator are documented here.
   item 1 and remains blocked on its three prerequisites. What changes is that
   the system now names exactly what is missing and how to obtain it, instead of
   hedging around a gap it could not describe.
+
 
 ## [0.52.1] - 2026-08-09
 ### Fixed
