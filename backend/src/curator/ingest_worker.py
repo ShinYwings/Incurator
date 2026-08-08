@@ -276,6 +276,23 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
                 )
         return {"ok": False, "job": job, "error": error_str}
     finally:
+        # Re-derive the runtime snapshot on EVERY exit path. The two writes above
+        # are mid-run (`running: [this job]`); without one here the last file on
+        # disk keeps this job running forever after it ends, because none of the
+        # terminal transitions — mark_job_done / mark_job_failed /
+        # requeue_job_for_retry — touches it. The plugin's chat status bar polls
+        # this snapshot and nothing else, so a stale `running` is a spinner that
+        # never stops while `wiki jobs list` (which reads the DB) shows nothing.
+        # It belongs in `finally`, not next to each transition: an exception
+        # after the DB write would otherwise leave the same stale file behind.
+        try:
+            from . import runtime_state
+
+            runtime_state.write_runtime_snapshots(paths)
+        except Exception as e:
+            # KEEP broad: the snapshot is best-effort observability and must
+            # never fail a job whose DB state is already committed.
+            _log.debug("Runtime snapshot write on job exit failed (non-fatal): %s", e)
         try:
             from . import db_sync
 
@@ -472,6 +489,18 @@ class IngestWorker(threading.Thread):
 
     def run(self) -> None:
         db.recover_stale_jobs(self.paths.state_db)
+        # `recover_stale_jobs` is itself a terminal transition — it clears jobs a
+        # crashed process left marked `running`. Re-derive the JSON snapshot here
+        # too: `_write_dashboard` below only writes the markdown build-status
+        # page, so without this a crash with no follow-up job leaves the plugin
+        # polling a `running` entry the DB no longer has.
+        try:
+            from . import runtime_state
+
+            runtime_state.write_runtime_snapshots(self.paths)
+        except Exception as e:
+            # KEEP broad: best-effort observability; never block the worker loop.
+            _log.debug("Runtime snapshot write at worker start failed (non-fatal): %s", e)
         self._write_dashboard()
         while not self._stop_event.is_set():
             result = run_next_job(self.paths, self.config_loader())

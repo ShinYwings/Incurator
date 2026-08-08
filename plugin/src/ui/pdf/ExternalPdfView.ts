@@ -44,6 +44,10 @@ import {
   zoteroConfigEpoch,
 } from "../../context/assetSource";
 
+import {
+  isUnreadableSelection,
+  sanitizePdfSelectionText,
+} from "../../utils/pdfSelectionText";
 import { EXTERNAL_PDF_VIEW_TYPE } from "./externalPdfViewType";
 
 export { EXTERNAL_PDF_VIEW_TYPE };
@@ -1351,13 +1355,23 @@ export class ExternalPdfView extends ItemView {
     return { pageContext, items };
   }
 
-  private getSelectionTextWithinView(): string | null {
+  /** Raw selection within this view, before sanitization. `null` = nothing selected. */
+  private getRawSelectionWithinView(): string | null {
     if (!this.pagesEl) return null;
     const selection = this.pagesEl.ownerDocument.getSelection();
     if (!selection || selection.isCollapsed) return null;
     const range = selection.getRangeAt(0);
     if (!this.pagesEl.contains(range.commonAncestorContainer)) return null;
-    return selection.toString().trim() || null;
+    return selection.toString() || null;
+  }
+
+  private getSelectionTextWithinView(): string | null {
+    const raw = this.getRawSelectionWithinView();
+    if (raw === null) return null;
+    // pdf.js emits U+0000 for glyphs with no ToUnicode mapping. Node's `spawn`
+    // rejects an argv entry containing one, so an unsanitized selection never
+    // reaches the backend — every consumer of this text crosses that boundary.
+    return sanitizePdfSelectionText(raw) || null;
   }
 
   private attachPdfSelectionHandlers(pagesEl: HTMLElement): void {
@@ -1381,9 +1395,20 @@ export class ExternalPdfView extends ItemView {
         "keydown",
         (e: KeyboardEvent) => {
           if (e.key === "c" && e.shiftKey && (e.metaKey || e.ctrlKey)) {
-            const text = this.getSelectionTextWithinView();
-            if (!text) return;
+            const raw = this.getRawSelectionWithinView();
+            if (raw === null) return;
             e.preventDefault();
+            // A region whose glyphs are all unmapped is not "nothing selected" —
+            // staying silent there is what made this read as a broken feature.
+            if (isUnreadableSelection(raw)) {
+              new Notice(
+                "This region has no readable text layer — it is an image. " +
+                  "Snip it instead, or run `wiki lint` to see unreadable regions."
+              );
+              return;
+            }
+            const text = sanitizePdfSelectionText(raw);
+            if (!text) return;
             this.convertSelectionToLatex(text);
           }
         }
@@ -1397,18 +1422,41 @@ export class ExternalPdfView extends ItemView {
       return;
     }
     new Notice("Converting to LaTeX…");
+
+    // Four outcomes, four messages. A single catch around the whole operation
+    // used to report all of them as "Check … LLM Provider", so a successful
+    // backend call that returned nothing — and a refused clipboard write — both
+    // read as a misconfigured provider, sending the user to fix what was fine.
+    let latex = "";
     try {
       const result = await this.plugin.incuratorClient.transcribePdfRegion({ text: rawText });
-      const latex = result.latex?.trim() || "";
-      if (!result.ok || !latex) {
-        throw new Error(result.error || "No transcription returned");
+      if (!result.ok) {
+        throw new Error(result.error || "the backend reported a failure with no detail");
       }
-      await navigator.clipboard.writeText(latex);
-      new Notice("LaTeX copied to clipboard.");
+      latex = result.latex?.trim() || "";
     } catch (err) {
       logger.error("LaTeX conversion failed:", err);
-      new Notice("LaTeX conversion failed. Check Incurator Dashboard → LLM Provider.");
+      const detail = err instanceof Error ? err.message : String(err);
+      new Notice(
+        `LaTeX conversion failed: ${detail}\nCheck Incurator Dashboard → LLM Provider.`
+      );
+      return;
     }
+
+    if (!latex) {
+      new Notice("The model returned an empty transcription for this selection.");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(latex);
+    } catch (err) {
+      logger.error("LaTeX clipboard write failed:", err);
+      const detail = err instanceof Error ? err.message : String(err);
+      new Notice(`Converted, but the clipboard write was refused: ${detail}`);
+      return;
+    }
+    new Notice("LaTeX copied to clipboard.");
   }
 
   private createToolbarIcon(

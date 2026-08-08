@@ -110,12 +110,13 @@ _CLI_NOISE_RE = re.compile(
 )
 
 
-def normalize_vision_latex(text: str) -> str:
-    """Strip CLI banners / fences / `$$` wrappers / commentary → clean transcription.
+def _unwrap_fences_and_display_math(text: str, *, drop_cli_noise: bool) -> str:
+    """Shared body: drop fences, optionally drop banner lines, unwrap one ``$$``.
 
-    Agentic CLIs vary: agy wraps lines in ``$$``, codex prepends a banner and a
-    "tokens used" line and may echo unrelated context. Normalize to the actual
-    LaTeX-bearing body. Conservative: only drops clearly-noise lines and fences.
+    ``drop_cli_noise`` exists because the banner filter is only safe where a
+    banner can actually appear. Inside a model's ``<transcription>`` block it
+    cannot, and applying it there deletes real content — see
+    :func:`normalize_interactive_latex_transcription`.
     """
     if not text:
         return ""
@@ -128,7 +129,7 @@ def normalize_vision_latex(text: str) -> str:
         if stripped.startswith("```"):
             continue
         # Drop standalone CLI banner / usage / numeric-only lines.
-        if _CLI_NOISE_RE.match(stripped):
+        if drop_cli_noise and _CLI_NOISE_RE.match(stripped):
             continue
         out.append(line)
     result = "\n".join(out).strip()
@@ -138,6 +139,16 @@ def normalize_vision_latex(text: str) -> str:
         if "$$" not in inner:
             return inner
     return result
+
+
+def normalize_vision_latex(text: str) -> str:
+    """Strip CLI banners / fences / `$$` wrappers / commentary → clean transcription.
+
+    Agentic CLIs vary: agy wraps lines in ``$$``, codex prepends a banner and a
+    "tokens used" line and may echo unrelated context. Normalize to the actual
+    LaTeX-bearing body. Conservative: only drops clearly-noise lines and fences.
+    """
+    return _unwrap_fences_and_display_math(text, drop_cli_noise=True)
 
 
 _TRANSCRIPTION_TAG_RE = re.compile(
@@ -165,10 +176,17 @@ def normalize_interactive_latex_transcription(text: str) -> str:
     """
     if not text:
         return ""
-    normalized = normalize_vision_latex(text)
-    tagged = _TRANSCRIPTION_TAG_RE.search(normalized)
-    if tagged:
-        normalized = tagged.group(1)
+    # Extract the block from the RAW text, before any banner filtering. A CLI
+    # banner is outside the tag by construction, so once the block is found its
+    # contents are authoritative and `_CLI_NOISE_RE` must not touch them: its
+    # digits-only alternative (written for a trailing "tokens used / 12,345")
+    # otherwise deletes an equation number, a table cell, or a page number from
+    # a faithful transcription — and deletes the whole result when the selection
+    # is entirely numeric, which the plugin then reported as a provider fault.
+    tagged = _TRANSCRIPTION_TAG_RE.search(text)
+    trusted = tagged is not None
+    source = tagged.group(1) if tagged else text
+    normalized = _unwrap_fences_and_display_math(source, drop_cli_noise=not trusted)
 
     lines = normalized.replace("\r\n", "\n").split("\n")
     while lines and not lines[0].strip():
@@ -183,7 +201,7 @@ def normalize_interactive_latex_transcription(text: str) -> str:
         lines.pop()
         while lines and not lines[-1].strip():
             lines.pop()
-    return normalize_vision_latex("\n".join(lines))
+    return _unwrap_fences_and_display_math("\n".join(lines), drop_cli_noise=not trusted)
 
 
 def _markdown_destination(raw: str) -> str:

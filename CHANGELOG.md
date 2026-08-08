@@ -2,6 +2,73 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.52.1] - 2026-08-09
+### Fixed
+- **The Job Indicator Spun Forever While `wiki jobs list` Showed Nothing**
+  User-reported. `runtime/jobs.json` is the only thing the chat status bar
+  polls, and no terminal job transition rewrote it. `run_next_job` wrote the
+  snapshot at exactly two mid-run points — after L2 completes and before L3
+  starts, both as `running: [<this job>]` — while `mark_job_done`,
+  `mark_job_failed`, and `requeue_job_for_retry` were each followed by a plain
+  `return`. `IngestWorker._write_dashboard`, called after every job, writes the
+  **markdown** build-status page, not the JSON snapshot, despite a docstring
+  claiming it runs "at job start, completion, and failure". So once the last job
+  of a batch ended, the file froze with that job still running, permanently.
+  The three surfaces then disagreed exactly as reported: the passive indicator
+  read the stale file and spun, while `wiki jobs list` and the dashboard both
+  refresh the snapshot before reading and correctly showed nothing.
+  The snapshot is now re-derived from a `finally` block, so `done`, `failed`,
+  `requeued`, and an unexpected exception are all covered by one write, and
+  `IngestWorker.run` writes one after `recover_stale_jobs` clears jobs a crashed
+  process left marked `running`. Writes stay best-effort and can never fail a
+  job whose DB state is already committed. `build_jobs_snapshot` itself was
+  never wrong — it derives `running`/`queued`/`idle` from a single DB read.
+
+- **Convert-to-LaTeX Blamed The LLM Provider For Three Things That Were Not It**
+  User-reported, recurring. Three independent defects produced one misleading
+  message.
+  1. *A null byte aborted the conversion before the backend ran.* pdf.js emits
+     U+0000 for glyphs whose embedded font carries no usable ToUnicode mapping —
+     exactly the rasterized regions a reader most wants transcribed. Node's
+     `spawn` rejects an argv entry containing one with a synchronous
+     `TypeError: … must be a string without null bytes`, so the selection never
+     left the plugin. PDF selections are now stripped of control characters (C0
+     except tab/LF/CR, DEL, C1) at the selection reader, and a selection that is
+     entirely artifacts reports an unreadable image region instead of failing
+     silently.
+  2. *The normalizer deleted numeric content.* `_CLI_NOISE_RE` carries a
+     digits-only alternative for an agentic CLI's trailing "tokens used /
+     12,345" banner, and `normalize_interactive_latex_transcription` re-applied
+     the whole filter to the text INSIDE the model's `<transcription>` block,
+     where a banner cannot occur. An equation number, a table cell, or a page
+     number on its own line was deleted from a faithful transcription; an
+     all-numeric selection normalized to nothing. Measured:
+     `wiki plugin pdf transcribe --text "1"` returned `ok: true` with
+     `latex: ""`. The block is now extracted from the raw text first and its
+     contents are trusted; untagged output stays subject to the filter.
+  3. *Every failure claimed the provider was misconfigured.* One `try` wrapped
+     the backend call and the clipboard write together, and its `catch` showed a
+     single hardcoded "Check Incurator Dashboard → LLM Provider" while the real
+     error went only to `logger.error`. A **successful** backend call that
+     returned an empty transcription, and a refused `navigator.clipboard.write`,
+     both read as a broken provider. The four outcomes now have four messages,
+     and real failures include the underlying error text.
+
+  The provider was verified working throughout: with `vision_model:
+  antigravity-cli::gemini-3.6-flash` and an empty `latex_extract_model`,
+  `_resolve_extract_client` correctly falls through to the vision slot and live
+  runs returned faithful LaTeX.
+
+- **`npm audit fix` Reported ENOLOCK**
+  Not a lockfile-policy regression. There is no `package.json` at the repo root
+  — the npm project is entirely under `plugin/`, which is where the command must
+  run. `plugin/package-lock.json` is tracked on purpose: Step 10 requires its
+  top-level `version` and `packages[""].version` to match the other manifests,
+  the CI `version-consistency` job blocks the merge otherwise, and
+  `test_spec_sync.py` reads that file directly as the source of truth for the
+  active version. Landed separately: nanoid `3.3.16 → 3.3.18`
+  (GHSA-2v37-7h3g-55p8), after which `npm audit` reports 0 vulnerabilities.
+
 ## [0.52.0] - 2026-08-08
 ### Changed
 - **The `db` Facade Loses Five Helpers, And `l2_checkpoints` Leaves The Schema**
