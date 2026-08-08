@@ -412,17 +412,6 @@ def _decode_unit_row(row: sqlite3.Row) -> dict:
     return data
 
 
-def list_staged_unit_ids_for_source(db_path: Path, source_id: int) -> list[str]:
-    """Return IDs of all staged (unpublished, non-retired) units for this source."""
-    with connect(db_path) as conn:
-        rows = conn.execute(
-            "SELECT id FROM knowledge_units "
-            "WHERE source_id = ? AND generation_id IS NULL AND retired_at IS NULL "
-            "ORDER BY created_at",
-            (source_id,),
-        ).fetchall()
-    return [row["id"] for row in rows]
-
 
 def list_knowledge_units_for_source(db_path: Path, source_id: int) -> list[dict]:
     with connect(db_path) as conn:

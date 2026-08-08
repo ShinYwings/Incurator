@@ -1,4 +1,4 @@
-# Incurator - Schema & Operating Conventions (v0.51.0)
+# Incurator - Schema & Operating Conventions (v0.52.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -1906,7 +1906,7 @@ Rules (Arena decisions 2-4; Plan E FR05 contract candidates):
   marks them stale-by-hash, and they cannot be cited by `support_role='formula'`
   rows until refreshed.
 
-### 20.3b `l2_checkpoints` Removed (v0.51.1)
+### 20.3b `l2_checkpoints` Removed (v0.52.0)
 
 The table and its helpers are gone. L2 extraction is all-or-nothing: staged
 units from an interrupted run are discarded, then units accumulate in memory and
@@ -1919,8 +1919,8 @@ changed no behavior.
 
 Existing vaults keep the table as an empty orphan. `SCHEMA_SQL` only issues
 `CREATE TABLE IF NOT EXISTS` and this codebase has no migration path, so nothing
-drops it; an empty, unreferenced table is inert and is left alone rather than
-justifying a new DROP capability.
+drops it here. Dropping it belongs to the batch that owns schema migration (B7);
+until then an empty, unreferenced table is inert.
 
 Resumable L2 remains worth building. It must be designed rather than re-enabled:
 the removed branch returned the staged-unit list, which is empty after a

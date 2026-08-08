@@ -316,31 +316,58 @@ def test_chunking_large_span_is_split(vault) -> None:
 
 
 def test_an_interrupted_extraction_stages_nothing(vault) -> None:
-    """Extraction is all-or-nothing; a failed run leaves no partial credit.
+    """A failed extraction leaves no partial credit — exactly one call is made.
 
-    This documents the behavior that has always been in force. A
-    checkpoint-resume mechanism existed until v0.51.1 but could never run —
-    checkpoints were written only inside the branch that required checkpoints to
-    already exist — so an interrupted build has always restarted from scratch.
-    Removing it changed no behavior; this pins what remains, so a future
-    resumable implementation has something concrete to change.
+    Documents the behavior that has always been in force. A checkpoint-resume
+    mechanism existed until v0.52.0 but could never run (its only writer sat
+    inside the branch that required checkpoints to already exist), so an
+    interrupted build has always restarted from scratch. Removing it changed no
+    behavior; this pins what remains.
     """
     dbp, spans = vault
 
-    failing = FakeClient([RuntimeError("provider died")] * 8)
+    # One response, because a raised exception is not retried — retry/split
+    # applies to validation failures, not to a provider that errors out.
+    failing = FakeClient([RuntimeError("provider died")])
     first = ku.extract_knowledge_units(
         dbp, failing, source_id=1, source_title="ResNet", spans=spans
     )
     assert first.ok is False
+    assert failing.calls == 1
+    with db.connect(dbp) as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM knowledge_units WHERE source_id = 1"
+        ).fetchone()[0] == 0, "a failed extraction left units behind"
+
+
+def test_a_late_batch_failure_discards_the_earlier_batches(vault) -> None:
+    """The scenario the removal's cost is measured in: batch N of many fails.
+
+    `_persist_units` runs once, after the loop, only when no batch errored — so
+    work from batches 1..N-1 is lost. That is the cost resumable L2 was meant to
+    avoid, and this pins it so a future per-batch persistence change has to face
+    the guarantee it breaks. A single-batch fixture cannot express this.
+    """
+    dbp, spans = vault
+    extra = _add_span(dbp, "Bottleneck blocks cut compute per layer.", "Design")
+    both = [*spans, extra]
+
+    # Small chunk budget forces more than one batch.
+    client = FakeClient(
+        [_units_json(spans[0]["id"]), RuntimeError("died on the second batch")],
+        optimal_chars=80,
+    )
+    result = ku.extract_knowledge_units(
+        dbp, client, source_id=1, source_title="ResNet", spans=both
+    )
+
+    assert result.ok is False
+    assert client.calls >= 2, "the fixture did not actually produce two batches"
     with db.connect(dbp) as conn:
         staged = conn.execute(
             "SELECT COUNT(*) FROM knowledge_units WHERE source_id = 1"
         ).fetchone()[0]
-    assert staged == 0, "a failed extraction left units behind"
-
-    good = FakeClient([_units_json(spans[0]["id"])])
-    second = ku.extract_knowledge_units(
-        dbp, good, source_id=1, source_title="ResNet", spans=spans
+    assert staged == 0, (
+        "units from the batches that succeeded were persisted; extraction is "
+        "supposed to be all-or-nothing"
     )
-    assert second.ok is True
-    assert good.calls >= 1

@@ -28,7 +28,11 @@ _ALLOWLIST_CONSTANTS = {
 # part of the de-facto surface and MUST stay re-exported by the facade.
 _UNDERSCORE_EXTERNALS = {"_maybe_conn", "_now_iso"}
 
-# Captured 2026-06-28 from the pre-refactor db.py (128 names). Do not shrink.
+# Captured 2026-06-28 from the pre-refactor db.py (128 names). Do not shrink
+# casually — the point of this guard is that a drop has to be argued, not that
+# it is impossible. Sanctioned shrink: v0.51.x removed the five helpers orphaned
+# by the L2 checkpoint-resume removal (B3 P6), all of which had zero callers
+# once that unreachable mechanism was deleted.
 EXPECTED_PUBLIC_API = frozenset({
     "FORMULA_STATUSES", "GENERATION_STATUSES", "GRAPH_AUDIT_CODES",
     "MERGE_DECISION_CODES", "QUARANTINE_REASON_CODES", "RESOLUTION_STATUS_CODES",
@@ -56,7 +60,7 @@ EXPECTED_PUBLIC_API = frozenset({
     "list_knowledge_units_for_source", "list_memory_paths",
     "list_prompt_runs_for_query", "list_query_traces", "list_search_chunks_for_doc",
     "list_search_documents", "list_serving_units", "list_source_pages",
-    "list_source_pdf_pages", "list_source_spans", "list_staged_unit_ids_for_source",
+    "list_source_pdf_pages", "list_source_spans",
     "list_synthesis_nodes", "mark_job_done", "mark_job_failed",
     "new_query_trace_id", "propose_entity_merge", "publish_compiler_generation",
     "rebuild_graph_generation", "reconcile_source_change",
@@ -87,7 +91,7 @@ def _current_public_api() -> set[str]:
     return names
 
 
-# Removed in v0.51.1 with the L2 checkpoint-resume mechanism (B3 P6): the four
+# Removed in v0.52.0 with the L2 checkpoint-resume mechanism (B3 P6): the four
 # l2_checkpoint helpers had exactly one writer, inside the branch that required
 # checkpoints to already exist, so the table stayed empty forever. They are gone
 # from this list deliberately — the guard above exists to make a drop explicit,

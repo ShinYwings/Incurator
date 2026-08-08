@@ -135,7 +135,7 @@ def _batch_hash(batch: list[dict]) -> str:
 
 
 def _discard_unpublished_units(db_path: Path, source_id: int) -> None:
-    """Remove source-local units and checkpoints from runs that never reached a generation."""
+    """Remove source-local units from runs that never reached a generation."""
     from ..db_sync import delete_rows_with_tombstones_on_connection
 
     with db.connect(db_path) as conn:
@@ -318,7 +318,7 @@ def extract_knowledge_units(
     are discarded first, then units accumulate in memory and are bulk-persisted
     only on full success. An interrupted run therefore re-processes every batch.
 
-    A checkpoint-resume mechanism used to sit here and was removed in v0.51.1
+    A checkpoint-resume mechanism used to sit here and was removed in v0.52.0
     because it could never run — checkpoints were written only inside the branch
     that required checkpoints to already exist, so the table stayed empty
     forever (verified: 0 rows across 36 sources and 2,799 units). Resumable L2
