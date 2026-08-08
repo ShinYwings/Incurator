@@ -236,37 +236,57 @@ To prevent context fragmentation and hallucinations when switching between AI co
   - **IDLE Cleanup (Feed-Forward Exception)**: When the goal is fully shipped
     (PR merged, no active task), truncate `.agents/RELAY.md` to a minimal IDLE
     stub — do NOT accumulate session history. Git log is the history; RELAY.md
-    is live state only. See the `.agents/`-only fast-forward rule below for how
+    is live state only. See the fast-forward rule below for how
     to land it.
 
-### Agent Bookkeeping Is Fast-Forward, Not PR (user directive, 2026-08-08)
+### Bookkeeping And Mechanical Chores Are Fast-Forward, Not PR (user directive, 2026-08-08, widened 2026-08-09)
 
-Agent bookkeeping is not product code and does NOT get a branch or a Pull
-Request. It covers:
+A Pull Request exists so a human can review a behavioral decision. Work that
+carries no such decision does NOT get a branch or a Pull Request. **Two classes
+qualify.**
+
+**Class 1 — agent bookkeeping.** It covers:
 
 - the `.agents/` tree — `RELAY.md`, `ROADMAP.md`, `USER_REPORT.md`, `plans/`,
   `drafts/`
 - the agent rule files themselves — `CLAUDE.md`, `AGENTS.md`, `GEMINI.md`
 
+**Class 2 — mechanical chores that change no source code and no version.**
+The change is fully determined by a tool, so there is no judgment for a reviewer
+to exercise. It covers:
+
+- dependency lockfile updates produced by a tool — `npm audit fix`,
+  `npm update`, `uv lock`. **`plugin/package-lock.json` is in scope for this
+  class**, even though it is a build manifest, as long as the commit does not
+  touch its `version` / `packages[""].version` fields.
+- CI workflow, linter, formatter, and editor/ignore configuration
+- `.gitignore`, `.stignore`, and equivalent housekeeping files
+
 Commit straight to `master`:
 
 1. `git pull --ff-only origin master`
-2. Verify every pending path is agent bookkeeping (`git status --short`).
-3. One `chore(agents): <what>` commit (or `docs(agents):` for plan/Arena
-   records) directly on `master`.
+2. Verify every pending path qualifies under Class 1 or Class 2
+   (`git status --short`, and for a lockfile check the diff really is
+   dependency-only: `git diff -- <lockfile> | grep '"version"'`).
+3. One commit directly on `master` — `chore(agents):` for Class 1 bookkeeping,
+   `docs(agents):` for plan/Arena records, `chore(<scope>):` for Class 2.
 4. `git push` normally. **Never force-push.**
 
 **Abort and use the normal `chore/*` branch + PR flow if** `master` cannot
-fast-forward, OR any pending path is product code (`backend/`, `plugin/`,
-`docs/`, build manifests). A change that touches bookkeeping *and* product code
-is a normal change — the mixed commit is what the branch/PR flow is for.
+fast-forward, OR any pending path is source code (`backend/src/`,
+`plugin/src/`, `plugin/main.ts`), a doc under `docs/`, or a **version field**
+in any build manifest. A change that mixes a fast-forward class with reviewable
+work is a normal change — the mixed commit is what the branch/PR flow is for.
 
-Do not route a rule change through a PR merely because it edits a root-level
-file. Editing the contract is bookkeeping; shipping code against it is not.
+Do not route a change through a PR merely because it edits a root-level file or
+a build manifest. What decides is whether a human has a decision to review:
+editing the contract, or letting `npm` pick a patch version, is not one.
+Shipping code against the contract is.
 
-This rule covers the bookkeeping only. It does not exempt `.agents/` work from
-being correct: plans still follow `PLAN_TEMPLATE.md`, and a plan that changes a
-stored contract still stops for user approval before implementation.
+This rule covers landing mechanics only. It does not exempt the work from being
+correct: plans still follow `PLAN_TEMPLATE.md`, a plan that changes a stored
+contract still stops for user approval before implementation, and a lockfile
+bump still has to leave `npm audit` and the build green.
 
 ---
 
