@@ -26,6 +26,24 @@ echo "=== Building Incurator Obsidian Plugin (Frontend) ==="
 cd "$ROOT_DIR/plugin"
 if command -v npm &> /dev/null; then
     npm install
+    # Apply semver-compatible security fixes to plugin/package-lock.json on every
+    # setup, so a known-vulnerable transitive dep never quietly rides along in a
+    # build. NEVER `--force`: that pulls breaking major bumps in unreviewed.
+    #
+    # Both `|| true` guards are load-bearing under `set -euo pipefail`:
+    # `npm audit fix` exits non-zero when advisories remain that it cannot fix
+    # semver-compatibly, and `npm audit` exits non-zero whenever any advisory is
+    # open at all. Neither is a reason to abort a developer's setup — an upstream
+    # advisory with no published fix is not something this run can act on.
+    echo "--- Applying semver-compatible npm security fixes ---"
+    npm audit fix || true
+    if npm audit >/dev/null 2>&1; then
+        echo "✓ npm audit: 0 vulnerabilities."
+    else
+        echo "⚠️  npm audit still reports unfixed advisories."
+        echo "    Run 'cd plugin && npm audit' for detail; a major-version bump"
+        echo "    needs a real review, so it is deliberately not applied here."
+    fi
     npm run build
     echo "✓ Plugin build complete."
 
