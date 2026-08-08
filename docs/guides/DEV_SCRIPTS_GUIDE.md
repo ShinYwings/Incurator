@@ -82,6 +82,24 @@ Incurator uses a Monorepo structure containing both the Python backend (`backend
 ### Setup Script
 Run `./setup.sh` at the repository root to automatically install the Python backend dependencies (via `uv`), install Node.js/Ollama, and run `wiki models ensure` for the local DB-native search models. Set `INCURATOR_SKIP_MODELS=1` to skip model provisioning. The Obsidian plugin is now installed interactively when running `wiki init`.
 
+**npm security fixes run automatically (v0.52.1).** Between `npm install` and
+`npm run build`, `setup.sh` runs `npm audit fix` in `plugin/`, so a known-
+vulnerable transitive dependency never quietly rides along in a build. Details
+worth knowing:
+
+- It never passes `--force`. Only semver-compatible fixes are applied; a
+  breaking major bump needs a real review and is deliberately left alone.
+- It may modify `plugin/package-lock.json`. That is expected — commit the
+  change. Lockfile-only commits land on `master` by fast-forward, no PR.
+- Setup never aborts over an advisory. `setup.sh` runs under `set -euo
+  pipefail`, and both `npm audit fix` and `npm audit` exit non-zero when
+  advisories remain open, so both are guarded with `|| true`. If anything is
+  left unfixed, setup prints a warning naming `cd plugin && npm audit` and
+  continues.
+- `npm audit fix` needs a lockfile, so it must run from `plugin/`. There is no
+  `package.json` at the repository root; running npm there fails with
+  `ENOLOCK … This command requires an existing lockfile`.
+
 ### OBSIDIAN_PLUGIN_DIR Override
 To develop the Obsidian plugin locally without manually copying files or creating brittle symlinks, you can use the `OBSIDIAN_PLUGIN_DIR` environment variable.
 When `OBSIDIAN_PLUGIN_DIR` is set (e.g., `export OBSIDIAN_PLUGIN_DIR=/path/to/<vault>/.obsidian/plugins/incurator-plugin`), the plugin's `esbuild.config.mjs` will dynamically override the build output directory (outdir).

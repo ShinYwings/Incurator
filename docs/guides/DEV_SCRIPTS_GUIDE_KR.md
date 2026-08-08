@@ -84,6 +84,22 @@ Incurator는 Python 백엔드(`backend/`)와 Obsidian 플러그인(`plugin/`)을
 ### 설치 스크립트
 저장소 루트에서 `./setup.sh`를 실행하여 Python 백엔드 종속성(`uv` 사용), Node.js/Ollama, 로컬 DB-native 검색 모델(`wiki models ensure`)을 자동으로 설치합니다. 모델 준비를 건너뛰려면 `INCURATOR_SKIP_MODELS=1`을 설정하세요. Obsidian 플러그인은 이제 `wiki init` 실행 시 상호작용 방식으로 설치됩니다.
 
+**npm 보안 수정이 자동으로 실행됩니다 (v0.52.1).** `setup.sh`는 `npm install`과
+`npm run build` 사이에 `plugin/`에서 `npm audit fix`를 실행하므로, 취약점이 알려진
+전이 종속성이 조용히 빌드에 섞여 들어가지 않습니다. 알아둘 점:
+
+- `--force`는 절대 사용하지 않습니다. semver 호환 수정만 적용하며, 호환성을 깨는
+  major 버전 상승은 실제 리뷰가 필요하므로 의도적으로 건드리지 않습니다.
+- `plugin/package-lock.json`이 수정될 수 있습니다. 정상 동작이며 그대로 커밋하세요.
+  lockfile만 바뀐 커밋은 PR 없이 `master`에 fast-forward로 올립니다.
+- 취약점 때문에 setup이 중단되지는 않습니다. `setup.sh`는 `set -euo pipefail`로
+  실행되고 `npm audit fix`와 `npm audit` 모두 해결되지 않은 취약점이 남아 있으면
+  0이 아닌 코드로 종료하므로, 둘 다 `|| true`로 감쌌습니다. 남은 항목이 있으면
+  `cd plugin && npm audit`을 안내하는 경고를 출력하고 계속 진행합니다.
+- `npm audit fix`는 lockfile이 필요하므로 반드시 `plugin/`에서 실행해야 합니다.
+  저장소 루트에는 `package.json`이 없어서, 루트에서 npm을 실행하면
+  `ENOLOCK … This command requires an existing lockfile` 오류가 납니다.
+
 ### OBSIDIAN_PLUGIN_DIR 재정의
 파일을 수동으로 복사하거나 불안정한 심볼릭 링크를 생성하지 않고 로컬에서 Obsidian 플러그인을 개발하려면 `OBSIDIAN_PLUGIN_DIR` 환경 변수를 사용할 수 있습니다.
 `OBSIDIAN_PLUGIN_DIR`이 설정되면 (예: `export OBSIDIAN_PLUGIN_DIR=/path/to/<vault>/.obsidian/plugins/incurator-plugin`), 플러그인의 `esbuild.config.mjs`가 동적으로 빌드 출력 디렉토리(outdir)를 덮어씁니다.
