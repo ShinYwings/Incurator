@@ -2,6 +2,38 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.50.2] - 2026-08-08
+### Fixed
+- **Device Sync State Was An Unlocked Read-Modify-Write** (B2 / sync_db-4)
+  Four sites read the local sync-state file, mutated it, and wrote it back with
+  no lock, so two concurrent passes could interleave. Both consequences were
+  reproduced against the real code:
+
+  - **Split device identity.** `get_device_id` mints an id when none exists.
+    Racing callers each minted a different one — measured: two callers received
+    two ids while only one was persisted. The loser then exports as
+    `dev-<its-id>.jsonl`, and every other device imports a peer that exists only
+    as that filename and never exports again. A permanently stale phantom.
+  - **Lost update.** Two sections read the same base and the last writer wins.
+    Losing `peers` forgets a checkpoint, so that peer's entire snapshot
+    re-imports on the next pass; losing `last_export_ts` re-fires the export
+    gate.
+
+  All mutation now goes through `sync_state_transaction`, which holds
+  `durable_io.locked_path` on the state file, re-reads inside the lock so a
+  caller can never act on a copy captured before acquiring it, and writes once
+  through `atomic_write_text` on a clean exit. A failed pass leaves the file
+  untouched.
+
+  This also removes a hazard that was previously handled by remembering to order
+  two calls: `import_all_peers` had to call `get_device_id` before snapshotting
+  state, or a first-run identity would be clobbered by the checkpoint write. The
+  ordering requirement is now structural.
+
+  On platforms without `fcntl` the lock degrades to a thread lock, so separate
+  processes are not serialized there. Recorded rather than assumed away — it is
+  strictly narrower than the unlocked behavior it replaces.
+
 ## [0.50.1] - 2026-08-08
 ### Fixed
 - **`SCHEMA_SQL`'s `sources_set_sync_key` Was A No-Op** (B2 / sync_db-2)

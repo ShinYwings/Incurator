@@ -1307,6 +1307,21 @@ hands-off ones. `wiki db autosync` and the plugin's background pass are where a
 silent loss does the most damage, because nobody is watching the output; a green
 result with rejected rows behind it is the failure this rule exists to prevent.
 
+**Device sync state is a serialized read-modify-write (v0.50.2).** The local
+bookkeeping file — device identity, `last_export_ts`, per-peer checkpoints — is
+mutated only inside a lock on that file, with the state re-read after the lock
+is held and written once on a clean exit. Reading and writing it unlocked let
+two passes interleave in two ways that a user cannot diagnose from the outside:
+a device could mint two identities and export under the one it did not keep,
+leaving every peer to import a phantom device that never exports again; and two
+sections could each write a key over the other's, forgetting a peer checkpoint
+(so that peer's whole snapshot re-imports) or the export stamp (so the gate
+re-fires). A failed pass leaves the file exactly as it was.
+
+On platforms without `fcntl` the lock degrades to a thread lock, so separate
+processes are not serialized there. That gap is recorded rather than assumed
+away; it is strictly narrower than the unlocked behavior it replaces.
+
 **`last_export_ts` describes when the snapshot was READ (v0.49.3).** Anything
 older than that stamp is treated as already exported, so stamping after the
 export completes silently swallows every row mutated while the export was
