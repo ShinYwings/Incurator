@@ -1584,12 +1584,21 @@ def export_for_device(
     sync_dir = _sync_dir(internal_dir, dir_name=dir_name)
     sync_dir.mkdir(parents=True, exist_ok=True)
     out = sync_dir / f"dev-{device_id}.jsonl"
+
+    # Stamp the moment the snapshot is READ, not the moment it finished being
+    # written. `local_has_unexported_changes` treats anything older than this
+    # stamp as already exported, so stamping afterwards silently swallows every
+    # row mutated while the export was running — a window that widens with the
+    # vault, i.e. exactly when there is most to lose. The value is recorded only
+    # after a successful export, so a failed one does not claim to have shipped
+    # anything.
+    snapshot_ts = (
+        datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+    )
     export_knowledge(db_path, out)
 
     state = read_sync_state(internal_dir)
-    state["last_export_ts"] = datetime.now(timezone.utc).isoformat(
-        timespec="seconds"
-    ).replace("+00:00", "Z")
+    state["last_export_ts"] = snapshot_ts
     write_sync_state(internal_dir, state)
     return out
 
