@@ -412,39 +412,6 @@ def _decode_unit_row(row: sqlite3.Row) -> dict:
     return data
 
 
-def insert_l2_checkpoint(db_path: Path, source_id: int, batch_hash: str) -> None:
-    """Record that a batch (identified by its content hash) was successfully persisted."""
-    with connect(db_path) as conn:
-        conn.execute(
-            "INSERT OR IGNORE INTO l2_checkpoints (source_id, batch_hash) VALUES (?, ?)",
-            (source_id, batch_hash),
-        )
-
-
-def get_l2_checkpoint_hashes(db_path: Path, source_id: int) -> set[str]:
-    """Return the set of batch hashes already checkpointed for this source."""
-    with connect(db_path) as conn:
-        rows = conn.execute(
-            "SELECT batch_hash FROM l2_checkpoints WHERE source_id = ?", (source_id,)
-        ).fetchall()
-    return {row["batch_hash"] for row in rows}
-
-
-def clear_l2_checkpoints(db_path: Path, source_id: int) -> None:
-    """Remove all checkpoint records for a source (called when starting fresh)."""
-    with connect(db_path) as conn:
-        conn.execute("DELETE FROM l2_checkpoints WHERE source_id = ?", (source_id,))
-
-
-def has_l2_checkpoints(db_path: Path, source_id: int) -> bool:
-    """Return True if any checkpoint batches are recorded for this source."""
-    with connect(db_path) as conn:
-        row = conn.execute(
-            "SELECT 1 FROM l2_checkpoints WHERE source_id = ? LIMIT 1", (source_id,)
-        ).fetchone()
-    return row is not None
-
-
 def list_staged_unit_ids_for_source(db_path: Path, source_id: int) -> list[str]:
     """Return IDs of all staged (unpublished, non-retired) units for this source."""
     with connect(db_path) as conn:

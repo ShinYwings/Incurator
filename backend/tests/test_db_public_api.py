@@ -34,7 +34,7 @@ EXPECTED_PUBLIC_API = frozenset({
     "MERGE_DECISION_CODES", "QUARANTINE_REASON_CODES", "RESOLUTION_STATUS_CODES",
     "SCHEMA_SQL", "SCHEMA_VERSION", "SUPPORT_ROLES", "SUPPORT_STATUSES",
     "accept_entity_merge", "accumulate_job_tokens", "cancel_job",
-    "claim_next_job", "clear_l2_checkpoints", "clear_search_corpus",
+    "claim_next_job", "clear_search_corpus",
     "clear_synthesis_nodes", "compile_relation_lifecycle", "connect",
     "connected_components", "count_active_l2_jobs", "create_compiler_generation",
     "create_insight_candidate", "delete_page_hash", "delete_search_document",
@@ -44,13 +44,13 @@ EXPECTED_PUBLIC_API = frozenset({
     "get_authoritative_generation", "get_community_report", "get_curation_plan",
     "get_dag_edges_for_atoms", "get_dag_edges_for_source", "get_graph_entity",
     "get_index_meta", "get_ingest_job", "get_insight_candidate",
-    "get_jobs_done_today", "get_l2_checkpoint_hashes", "get_page_hashes",
+    "get_jobs_done_today", "get_page_hashes",
     "get_pending_count", "get_pending_jobs_for_source", "get_prompt_run",
     "get_query_trace", "get_query_trace_by_context_pack", "get_search_chunk",
     "get_search_document", "get_search_embeddings", "get_source_row",
     "get_source_spans_by_ids", "get_stats", "get_synthesis_node", "graph_audit",
-    "graph_config_hash", "has_l2_checkpoints", "has_search_embeddings", "init_db",
-    "insert_dag_edge", "insert_l2_checkpoint", "insert_query_trace", "json_dumps",
+    "graph_config_hash", "has_search_embeddings", "init_db",
+    "insert_dag_edge", "insert_query_trace", "json_dumps",
     "list_claim_supports", "list_community_reports", "list_eligible_knowledge_units",
     "list_generation_units", "list_ingest_jobs", "list_insight_candidates",
     "list_knowledge_units_for_source", "list_memory_paths",
@@ -85,6 +85,13 @@ def _current_public_api() -> set[str]:
         if (callable(obj) and mod and mod.startswith("curator.db")) or name in _ALLOWLIST_CONSTANTS:
             names.add(name)
     return names
+
+
+# Removed in v0.51.1 with the L2 checkpoint-resume mechanism (B3 P6): the four
+# l2_checkpoint helpers had exactly one writer, inside the branch that required
+# checkpoints to already exist, so the table stayed empty forever. They are gone
+# from this list deliberately — the guard above exists to make a drop explicit,
+# not to make it impossible.
 
 
 def test_db_public_api_superset_preserved():

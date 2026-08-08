@@ -289,120 +289,6 @@ def test_empty_spans_is_noop(vault) -> None:
     assert result.unit_ids == []
 
 
-def test_resume_skips_already_staged_batches(vault) -> None:
-    """resume=True skips batches whose spans are already staged; only new batches run."""
-    dbp, spans = vault
-    spans.append(_add_span(dbp, "Second batch content.", "Second"))
-
-    # First partial run: batch 1 succeeds, batch 2 fails.
-    client_first = FakeClient(
-        [_units_json(spans[0]["id"]), RuntimeError("429 capacity")],
-        optimal_chars=160,
-    )
-    result = ku.extract_knowledge_units(
-        dbp, client_first, source_id=1, source_title="ResNet", spans=spans, resume=True
-    )
-    assert not result.ok
-    assert "capacity" in result.errors[0]
-    # Batch 1 units are staged in DB despite the overall failure.
-    staged = db.list_staged_unit_ids_for_source(dbp, 1)
-    assert len(staged) == 1
-
-    # Second run (resume): batch 1 is skipped, only batch 2 is called.
-    client_resume = FakeClient([_units_json(spans[1]["id"])], optimal_chars=160)
-    result2 = ku.extract_knowledge_units(
-        dbp, client_resume, source_id=1, source_title="ResNet", spans=spans, resume=True
-    )
-    assert result2.ok, result2.errors
-    assert client_resume.calls == 1  # only 1 call — batch 1 was skipped
-    assert len(result2.unit_ids) == 2  # both units present
-
-
-def test_resume_false_discards_staged_units_and_reruns_all(vault) -> None:
-    """resume=False (default) always discards staged units and runs from scratch."""
-    dbp, spans = vault
-    spans.append(_add_span(dbp, "Second batch content.", "Second"))
-
-    # Seed a staged unit for span 0 to simulate a leftover from a previous run.
-    db.upsert_knowledge_unit(
-        dbp,
-        unit_type="claim",
-        canonical_name="Stale checkpoint unit",
-        statement="Left over from a previous partial run.",
-        source_span_ids=[spans[0]["id"]],
-        source_id=1,
-        confidence=0.5,
-        truth_status="source_supported",
-    )
-    assert len(db.list_staged_unit_ids_for_source(dbp, 1)) == 1
-
-    # Non-resume call: staged units are discarded, all batches re-run.
-    client = FakeClient(
-        [_units_json(spans[0]["id"]), _units_json(spans[1]["id"])],
-        optimal_chars=160,
-    )
-    result = ku.extract_knowledge_units(
-        dbp, client, source_id=1, source_title="ResNet", spans=spans
-    )
-    assert result.ok, result.errors
-    assert client.calls == 2  # both batches ran
-    assert len(result.unit_ids) == 2
-
-
-def test_resume_all_batches_already_staged_returns_ok(vault) -> None:
-    """resume=True after a full successful run makes zero LLM calls on second invocation."""
-    dbp, spans = vault
-
-    # First run: succeeds and records checkpoint for the only batch.
-    client_first = FakeClient([_units_json(spans[0]["id"])], optimal_chars=160)
-    result_first = ku.extract_knowledge_units(
-        dbp, client_first, source_id=1, source_title="ResNet", spans=spans, resume=True
-    )
-    assert result_first.ok, result_first.errors
-    assert client_first.calls == 1
-
-    # Second run: checkpoint is present, no LLM calls needed.
-    client_second = FakeClient([], optimal_chars=160)
-    result = ku.extract_knowledge_units(
-        dbp, client_second, source_id=1, source_title="ResNet", spans=spans, resume=True
-    )
-    assert result.ok, result.errors
-    assert client_second.calls == 0  # batch skipped via checkpoint hash
-    assert len(result.unit_ids) == 1
-
-
-def test_resume_checkpoint_tracks_section_title_not_just_span_id(vault) -> None:
-    """Checkpoint key includes section_title so large-span sub-parts are tracked independently."""
-    dbp, spans = vault
-
-    # Simulate a span that gets refined into two sub-parts sharing the same id.
-    part1 = {"id": spans[0]["id"], "section_title": "Intro (Part 1)", "text": "Part one text."}
-    part2 = {"id": spans[0]["id"], "section_title": "Intro (Part 2)", "text": "Part two text."}
-    # Put each part in its own batch.
-    two_part_spans = [part1, part2]
-
-    # First partial run: part1 batch succeeds, part2 batch fails.
-    client_first = FakeClient(
-        [_units_json(spans[0]["id"]), RuntimeError("429 capacity")],
-        optimal_chars=160,
-    )
-    result = ku.extract_knowledge_units(
-        dbp, client_first, source_id=1, source_title="ResNet",
-        spans=two_part_spans, resume=True,
-    )
-    assert not result.ok
-    assert "capacity" in result.errors[0]
-
-    # Second run (resume): part1 hash is in checkpoints, only part2 runs.
-    client_resume = FakeClient([_units_json(spans[0]["id"])], optimal_chars=160)
-    result2 = ku.extract_knowledge_units(
-        dbp, client_resume, source_id=1, source_title="ResNet",
-        spans=two_part_spans, resume=True,
-    )
-    assert result2.ok, result2.errors
-    assert client_resume.calls == 1  # only part2 ran — part1 correctly skipped
-
-
 def test_chunking_large_span_is_split(vault) -> None:
     dbp, spans = vault
     huge_text = "A" * 60000
@@ -426,3 +312,35 @@ def test_chunking_large_span_is_split(vault) -> None:
     assert len(units) > 1
     for u in units:
         assert u["source_span_ids"] == [span_id]
+
+
+
+def test_an_interrupted_extraction_stages_nothing(vault) -> None:
+    """Extraction is all-or-nothing; a failed run leaves no partial credit.
+
+    This documents the behavior that has always been in force. A
+    checkpoint-resume mechanism existed until v0.51.1 but could never run —
+    checkpoints were written only inside the branch that required checkpoints to
+    already exist — so an interrupted build has always restarted from scratch.
+    Removing it changed no behavior; this pins what remains, so a future
+    resumable implementation has something concrete to change.
+    """
+    dbp, spans = vault
+
+    failing = FakeClient([RuntimeError("provider died")] * 8)
+    first = ku.extract_knowledge_units(
+        dbp, failing, source_id=1, source_title="ResNet", spans=spans
+    )
+    assert first.ok is False
+    with db.connect(dbp) as conn:
+        staged = conn.execute(
+            "SELECT COUNT(*) FROM knowledge_units WHERE source_id = 1"
+        ).fetchone()[0]
+    assert staged == 0, "a failed extraction left units behind"
+
+    good = FakeClient([_units_json(spans[0]["id"])])
+    second = ku.extract_knowledge_units(
+        dbp, good, source_id=1, source_title="ResNet", spans=spans
+    )
+    assert second.ok is True
+    assert good.calls >= 1
