@@ -574,3 +574,58 @@ side, not the support gate:
 
 The original Cause 1/2/3 analysis stands as an accurate description of the L2
 gate, but it answers a different question than the one the user asked.
+
+### 2026-08-09 — [P1] Equation 29 is a discarded image, and the answer could not say so
+
+User asked about the 3D Line Mapping Revisited paper (source 37, Reference Mode)
+and got: *"수식 29의 텍스트를 가져올 수 없어, 해당 수식에 대한 직접적인 유도
+과정은 설명해 드리기 어렵습니다"* — then a fallback to equation (3). The user's
+reaction: is this telling me to use it or not.
+
+**Measured, and the answer's hedge was true but useless.** Equation 29 sits at
+`SPAN-5a4b5830` and its stored text is, in full:
+
+```
+**==> picture [185 x 12] intentionally omitted <==**
+```
+
+The surrounding document order shows exactly what the reader lost:
+
+| rowid | span | stored text |
+|---|---|---|
+| 10739 | `SPAN-a0abfeb1` | "Then inserting into (28) we get" |
+| **10740** | **`SPAN-5a4b5830`** | **`picture [185 x 12] intentionally omitted`** ← equation 29 |
+| 10741 | `SPAN-21f8f2bc` | "which is a rational function in _µ_ …" (this one cites "(29)") |
+| 10742 | `SPAN-8cabd326` | "11" (a page number stored as its own span) |
+
+`SPAN-21f8f2bc` carries `section_title = "B.2 . M1. Triangulation with Multiple
+Points"` — the Supplementary Section B the answer guessed at. So retrieval
+reached the right neighbourhood; the equation itself was never ingested.
+
+**The new finding: v0.49.0 visibility does not cover the existing corpus.**
+Vault-wide there are **132 placeholder spans and only 2 carry the `loss`
+metadata** — both on source 37, both `classified_at 2026-08-08T15:18`.
+
+```
+placeholders  loss_tagged
+132           2
+```
+
+The cause is that `classify_span_loss` (`pipeline/source_spans.py:47`) is called
+only from the span *builder* (`:123`, `:134`, `:163`). It runs at span-creation
+time and never backfills. Every span ingested before v0.49.0 therefore carries
+no loss record, which is why the assistant could not say *"equation 29 is an
+image I could not read"* — for that span, no such record exists. The feature
+works; it has simply never run on 130 of the 132 regions it was built for.
+
+Also measured on source 37: `span_type='equation'` count is **0** across 645
+spans, and `MAX(page_number)` is 23 on a 27-page PDF (page_number is a section
+index, confirming ROADMAP item 1's third blocker).
+
+**Cheap and worth doing, separate from recovery.** A backfill needs no LLM call,
+no re-ingest, and no schema change: `classify_span_loss` is a pure function of
+text, and the placeholder text is already stored in `source_spans.text_preview`.
+Running it over existing rows would take the answer from "I cannot get the text"
+to "that region is a 185×12 image the parser discarded — snip it, or set
+`llm.vision_model` and re-add." That is a different, much smaller job than
+ROADMAP item 1 (recovery), which stays blocked on its three prerequisites.
