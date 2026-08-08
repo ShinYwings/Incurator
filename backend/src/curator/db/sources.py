@@ -485,7 +485,6 @@ def _delete_source_on_connection(
     )
     conn.execute("DELETE FROM ingest_jobs WHERE source_id = ?", (source_id,))
     conn.execute("DELETE FROM ingest_runs WHERE source_id = ?", (source_id,))
-    conn.execute("DELETE FROM l2_checkpoints WHERE source_id = ?", (source_id,))
     delete_rows_with_tombstones_on_connection(
         conn,
         "source_pages",

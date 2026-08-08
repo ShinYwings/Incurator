@@ -814,15 +814,6 @@ CREATE TABLE IF NOT EXISTS deleted_records (
 );
 CREATE INDEX IF NOT EXISTS idx_deleted_records_at ON deleted_records(deleted_at);
 
--- Checkpoint records for L2 extraction resume. Each row records one
--- successfully persisted batch (by its deterministic content hash) so that
--- on retry only unfinished batches are re-sent to the LLM.
-CREATE TABLE IF NOT EXISTS l2_checkpoints (
-    source_id  INTEGER NOT NULL,
-    batch_hash TEXT    NOT NULL,
-    PRIMARY KEY (source_id, batch_hash)
-);
-
 """ + _TRIGGER_SQL() + """
 """
 

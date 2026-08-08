@@ -135,7 +135,7 @@ def _batch_hash(batch: list[dict]) -> str:
 
 
 def _discard_unpublished_units(db_path: Path, source_id: int) -> None:
-    """Remove source-local units and checkpoints from runs that never reached a generation."""
+    """Remove source-local units from runs that never reached a generation."""
     from ..db_sync import delete_rows_with_tombstones_on_connection
 
     with db.connect(db_path) as conn:
@@ -152,7 +152,6 @@ def _discard_unpublished_units(db_path: Path, source_id: int) -> None:
             "AND generation_id IS NULL AND retired_at IS NULL",
             (source_id,),
         )
-    db.clear_l2_checkpoints(db_path, source_id)
 
 
 def _run_batch_with_retry(
@@ -308,7 +307,6 @@ def extract_knowledge_units(
     source_title: str,
     spans: list[dict],
     curate_spec_hash: str = "",
-    resume: bool = False,
 ) -> KnowledgeUnitResult:
     """Extract and persist knowledge units from in-memory spans.
 
@@ -316,16 +314,20 @@ def extract_knowledge_units(
     ``section_title`` — the just-stored spans carrying their full text (DB stores
     only previews, so the caller passes full text here).
 
-    When ``resume=True`` the extractor skips batches already recorded in the
-    ``l2_checkpoints`` table (identified by a deterministic content hash of each
-    batch's span-id/section-title pairs). Each newly completed batch is persisted
-    immediately and its checkpoint hash inserted, so the next retry only processes
-    the remaining batches rather than starting from scratch.
-    When ``resume=False`` (default) the extractor discards any staged units and
-    checkpoint records first, then uses the original all-or-nothing bulk-persist.
+    Extraction is all-or-nothing: staged units from a previous interrupted run
+    are discarded first, then units accumulate in memory and are bulk-persisted
+    only on full success. An interrupted run therefore re-processes every batch.
+
+    A checkpoint-resume mechanism used to sit here and was removed in v0.52.0
+    because it could never run — checkpoints were written only inside the branch
+    that required checkpoints to already exist, so the table stayed empty
+    forever (verified: 0 rows across 36 sources and 2,799 units). Resumable L2
+    is still worth having; see the roadmap. It needs designing rather than
+    re-enabling, because the old resume path also returned the staged-unit list,
+    which is empty after a successful publish and would have retired the
+    source's entire authoritative unit set.
     """
-    if not resume:
-        _discard_unpublished_units(db_path, source_id)
+    _discard_unpublished_units(db_path, source_id)
 
     if not spans:
         return KnowledgeUnitResult(ok=True)
@@ -375,47 +377,7 @@ def extract_knowledge_units(
     last_trace_id = ""
     all_errors: list[str] = []
 
-    if resume:
-        # Checkpoint-resume: skip batches already persisted by a previous interrupted run.
-        # Keyed by (span_id, section_title) hash so that sub-spans produced by large-span
-        # refinement (same id, different section_title) are tracked independently.
-        done_hashes = db.get_l2_checkpoint_hashes(db_path, source_id)
-        for index, batch in enumerate(batches, start=1):
-            if _batch_hash(batch) in done_hashes:
-                continue  # fully persisted by a previous run
-            result = _run_batch_with_retry(
-                db_path,
-                client,
-                contract,
-                source_id=source_id,
-                source_title=source_title,
-                batch=batch,
-                label=f"batch {index}/{len(batches)}",
-                curate_spec_hash=curate_spec_hash,
-            )
-            if result.trace_id:
-                last_trace_id = result.trace_id
-            if result.errors:
-                all_errors.extend(result.errors)
-                break
-            _persist_units(db_path, source_id=source_id, pending_units=result.units)
-            db.insert_l2_checkpoint(db_path, source_id, _batch_hash(batch))
-
-        if all_errors:
-            return KnowledgeUnitResult(
-                trace_id=last_trace_id,
-                ok=False,
-                errors=all_errors,
-            )
-
-        all_unit_ids = db.list_staged_unit_ids_for_source(db_path, source_id)
-        return KnowledgeUnitResult(
-            unit_ids=all_unit_ids,
-            trace_id=last_trace_id,
-            ok=True,
-        )
-
-    # Default (non-resume): accumulate in memory, bulk-persist on full success.
+    # Accumulate in memory, bulk-persist on full success.
     pending_units: list[_PendingKnowledgeUnit] = []
     for index, batch in enumerate(batches, start=1):
         result = _run_batch_with_retry(

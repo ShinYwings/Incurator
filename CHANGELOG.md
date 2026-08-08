@@ -2,6 +2,42 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.52.0] - 2026-08-08
+### Changed
+- **The `db` Facade Loses Five Helpers, And `l2_checkpoints` Leaves The Schema**
+  Minor rather than Patch: this removes a schema table and shrinks the guarded
+  `db` public surface, which CLAUDE.md classes as a schema/contract change
+  regardless of consumer count. The five helpers
+  (`insert_l2_checkpoint`, `get_l2_checkpoint_hashes`, `clear_l2_checkpoints`,
+  `has_l2_checkpoints`, `list_staged_unit_ids_for_source`) all had zero callers
+  once the unreachable mechanism below was deleted.
+
+### Removed
+- **The Unreachable L2 Checkpoint-Resume** (B3 P6 / CP-5)
+  `l2_checkpoints`, its four `db` helpers, and the `resume` branch of
+  `extract_knowledge_units` are gone. The mechanism could never run: the only
+  `insert_l2_checkpoint` call sat inside `if resume:`, while `resume` was set
+  from `has_l2_checkpoints` — checkpoints were written only when resuming, and
+  resuming happened only when checkpoints existed. Confirmed by AST inspection
+  and against the reporting vault: **0 rows across 36 sources and 2,799
+  knowledge units**.
+
+  Its four tests passed because they called `extract_knowledge_units(resume=True)`
+  directly, bypassing the gate that production can never open.
+
+  Removing it changes no behavior — an interrupted L2 build has always restarted
+  from the first batch. That cost is real (a 40-batch source re-pays every
+  provider round-trip on retry), so resumable L2 is recorded on the roadmap as
+  wanted. It needs designing rather than re-enabling: the removed branch returned
+  the staged-unit list, which is empty after a successful publish and would have
+  retired the source's entire authoritative unit set.
+
+  Existing vaults keep the now-orphan empty table for now. `SCHEMA_SQL` only
+  issues `CREATE TABLE IF NOT EXISTS` and there is no migration path, so nothing
+  drops it here — which matches the Arena's recorded decision for this item
+  ("delete; drop the table in B7"), B7 being the batch that owns schema
+  migration. An empty, unreferenced table is inert until then.
+
 ## [0.51.0] - 2026-08-08
 ### Changed
 - **`synthesis_nodes.dependency_hash` Now Carries The Layer's Node Count**

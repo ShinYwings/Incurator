@@ -1,4 +1,4 @@
-# Incurator - Schema & Operating Conventions (v0.51.0)
+# Incurator - Schema & Operating Conventions (v0.52.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -1905,6 +1905,27 @@ Rules (Arena decisions 2-4; Plan E FR05 contract candidates):
 - A changed `page_hash` invalidates exactly that page's candidates: the audit
   marks them stale-by-hash, and they cannot be cited by `support_role='formula'`
   rows until refreshed.
+
+### 20.3b `l2_checkpoints` Removed (v0.52.0)
+
+The table and its helpers are gone. L2 extraction is all-or-nothing: staged
+units from an interrupted run are discarded, then units accumulate in memory and
+are bulk-persisted only on full success.
+
+The checkpoint-resume mechanism it served was never reachable — its only writer
+sat inside the branch that required checkpoints to already exist, so the table
+stayed empty (verified: 0 rows across 36 sources and 2,799 units). Removing it
+changed no behavior.
+
+Existing vaults keep the table as an empty orphan. `SCHEMA_SQL` only issues
+`CREATE TABLE IF NOT EXISTS` and this codebase has no migration path, so nothing
+drops it here. Dropping it belongs to the batch that owns schema migration (B7);
+until then an empty, unreferenced table is inert.
+
+Resumable L2 remains worth building. It must be designed rather than re-enabled:
+the removed branch returned the staged-unit list, which is empty after a
+successful publish and would have attributed zero units to a fresh generation,
+retiring the source's entire authoritative unit set under §26.3.
 
 ### 20.4a Span-Level Extraction Loss (`source_spans.metadata.loss`, v0.49.0)
 
