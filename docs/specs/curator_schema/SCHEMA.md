@@ -1604,6 +1604,23 @@ by `sync_key`, preserves the receiving replica's integer id, and remaps every
 synchronized child `source_id` before applying child rows. JSONL import rejects
 `sources` rows without a non-empty `sync_key`.
 
+A `vault:<relpath>` key is normalized to forward slashes when it is derived, so
+the same file yields the same key regardless of the operating system that
+registered it. The derivation happens in the `sources_set_sync_key` trigger and
+only when no key was supplied; an explicitly provided key (a `zotero:` or other
+portable identity) is never rewritten.
+
+**Existing `sync_key` values are never rewritten (v0.50.1).** A key that was
+derived incorrectly — for instance by a historical trigger body that failed to
+normalize separators — stays as it is. `sync_key` is the transport identity that
+peers match on, so rewriting one retroactively would detach a row from whatever
+its counterparts already agreed to call it, and a repair applied on one device
+but not another would split the source rather than converge it. The trigger is
+repaired on open; the rows are not. A vault suspected of holding malformed keys
+should be inspected (`SELECT sync_key FROM sources WHERE sync_key LIKE '%\%'`)
+and corrected deliberately across every replica at once, not silently by a
+migration.
+
 ---
 
 ## 18. Source Truth Protection (Schema-Level)
