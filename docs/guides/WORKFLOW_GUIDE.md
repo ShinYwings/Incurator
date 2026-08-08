@@ -197,6 +197,23 @@ fixtures, and `wiki devices ...` for launcher diagnostics.
 > content_hash scan (~0.6 seconds). Only changed nodes and their downstream are LLM-revalidated.
 > Use `--full` for a complete revalidation.
 
+> **wiki sync records unreadable regions (v0.52.2)**: PDFs that store their
+> equations as pictures lose those regions entirely at ingest — the text never
+> enters the knowledge base. `wiki lint` has reported this since v0.49.0, but
+> only sources ingested after v0.49.0 carried the record itself. `wiki sync`
+> now backfills it for older sources and reports the count
+> (`Recorded 130 unreadable region(s) that predate the extraction-loss check.`).
+> It is deterministic, makes no provider call, re-reads nothing from disk, and
+> is idempotent — run it as often as you like. `--no-fix` and `--dry-run` skip
+> it like any other repair.
+>
+> What changes for you: when a question lands on one of those regions, the
+> answer now says the region is an image, gives its size, and names the two
+> ways to read it — snip it in the PDF viewer, or set `llm.vision_model` in
+> `.curator/settings.yml` and re-add the source. Previously it hedged without
+> saying why. **This still does not recover the equation**; it tells you
+> precisely what is missing and how to get it.
+
 > **Curation-native Queries**:
 > - **Workspace Agent**: When a workspace is specified, queries use the persona
 >   and Knowledge Requirement Spec in `curate.yml`.

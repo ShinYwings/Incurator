@@ -19,7 +19,9 @@ from .. import db
 
 __all__ = [
     "SpanRecord",
+    "backfill_span_loss",
     "classify_span_loss",
+    "describe_span_loss",
     "spans_from_sections",
     "store_source_spans",
 ]
@@ -69,6 +71,78 @@ def classify_span_loss(text: str) -> dict[str, Any] | None:
     if width and height:
         loss["region"] = {"width": int(width), "height": int(height)}
     return loss
+
+
+def describe_span_loss(loss: dict[str, Any]) -> str:
+    """Reader-facing text for a region that could not be read (§26.2b).
+
+    The stored span text is a parser artifact — ``**==> picture [185 x 12]
+    intentionally omitted <==**`` — which means nothing to a reader or a model.
+    Retrieved verbatim it produced answers that hedged without ever saying what
+    was missing or why. This is the single place that wording lives, so the CLI,
+    the projection, and retrieval cannot drift apart.
+
+    States the remedy, because "I could not read this" without "here is what to
+    do" is the same dead end in politer language.
+    """
+    region = loss.get("region") or {}
+    width, height = region.get("width"), region.get("height")
+    geometry = f"{width}x{height} " if width and height else ""
+    return (
+        f"[unreadable region] The source stores this as a {geometry}image, so its "
+        f"text was never extracted and no transcription of it exists in the "
+        f"knowledge base. Do not guess at its contents. To read it: snip the "
+        f"region in the PDF viewer, or set `llm.vision_model` in "
+        f"`.curator/settings.yml` and re-add the source."
+    )
+
+
+def backfill_span_loss(db_path: Path) -> int:
+    """Classify loss on spans stored before §26.2b shipped. Returns rows written.
+
+    `classify_span_loss` is called only by the span *builder*, so it runs at
+    ingest time and never revisits existing rows. Every span ingested before
+    v0.49.0 therefore carries no loss record — measured on the reporting vault
+    as 132 placeholder spans with 2 records between them. The feature worked and
+    had simply never run on the corpus it was built for.
+
+    This needs no LLM call, no re-ingest, and no schema change: the verdict is a
+    pure function of text that is already stored. Idempotent — a span that
+    already carries a `loss` key is left exactly as it is, so a re-run is free
+    and never overwrites a record from ingest.
+    """
+    import json
+
+    written = 0
+    with db.connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT id, text_preview, metadata
+              FROM source_spans
+             WHERE text_preview LIKE '%intentionally omitted%'
+            """
+        ).fetchall()
+        for row in rows:
+            raw = row["metadata"]
+            try:
+                metadata = json.loads(raw) if raw else {}
+            except (TypeError, ValueError):
+                # A span whose metadata is unparseable is not silently replaced:
+                # overwriting it would destroy whatever it holds. Skip and leave
+                # it for `wiki lint`, which detects loss from text regardless.
+                continue
+            if not isinstance(metadata, dict) or metadata.get("loss"):
+                continue
+            loss = classify_span_loss(str(row["text_preview"] or ""))
+            if loss is None:
+                continue
+            metadata["loss"] = loss
+            conn.execute(
+                "UPDATE source_spans SET metadata = ? WHERE id = ?",
+                (json.dumps(metadata, ensure_ascii=False), row["id"]),
+            )
+            written += 1
+    return written
 
 
 @dataclass

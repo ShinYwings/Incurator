@@ -2539,6 +2539,37 @@ ever created from it. The system's duty there is to record the loss and say so
   `wiki add --force` sets `l2_status` back to `pending`, which the next default
   `wiki build` selection picks up as a full L2/L3 rebuild of every source — an
   expensive, surprising consequence of asking to see a warning.
+- **The record is backfilled in place instead (v0.52.2).** Recognizing the
+  placeholder at every reporting surface kept `wiki lint` honest but left the
+  stored record absent, and any consumer that reads the record rather than the
+  raw text saw nothing. Measured on the reporting vault: **132 placeholder spans
+  carrying 2 loss records between them** — the check worked and had never run on
+  the corpus it was built for, because `classify_span_loss` is called only from
+  the span *builder* and never revisits an existing row.
+  `backfill_span_loss` closes this without the rejected re-ingest and without a
+  schema change: the verdict is a pure function of text already stored, so it
+  needs no provider call and no re-parse. It runs with the deterministic
+  structural repairs in `wiki sync` (skipped under `--no-fix` / `--dry-run`),
+  reports how many records it wrote, and is idempotent — a span that already
+  carries a `loss` key is never rewritten, so a record written at ingest always
+  wins over a backfilled one. A span whose `metadata` is unparseable JSON is
+  skipped rather than replaced; destroying an unreadable record to add a
+  readable one is a worse trade than leaving lint to detect it from text.
+- **An unreadable region is served as a statement, never as the artifact
+  (v0.52.2).** Every placeholder span is in the search index and can be
+  retrieved. Before this, it reached the model as the raw parser string
+  (`**==> picture [185 x 12] intentionally omitted <==**`), which conveys
+  nothing, and the resulting answers hedged — *"I cannot retrieve the text of
+  equation 29"* — without naming the cause or the remedy. Evidence assembly now
+  substitutes a description that states what the region is, its geometry when
+  the parser stated one, that no transcription exists, that the model must not
+  guess at its contents, and both remedies (snip it, or configure
+  §26.2a `llm.vision_model` and re-add). This withholds nothing: there is no
+  text in such a span to withhold. The wording has ONE definition
+  (`describe_span_loss`) so the CLI, the projection, and retrieval cannot drift.
+  Retrieval also classifies from the stored text when no record is present, so a
+  vault that has not run `wiki sync` since upgrading still gets a truthful
+  answer rather than the artifact.
 
 ### 26.2c Derived LWW Revision For Mutable-Metadata Tables (v0.49.0)
 
