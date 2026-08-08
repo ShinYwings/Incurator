@@ -5,6 +5,142 @@ This document is a **plain Inbox (backlog) log** that records bugs reported by t
 Agents must check this document and triage the received items into the `To-Do (Queuing)` area or `Icebox` area of `.agents/ROADMAP.md`. Once the triage is complete, **immediately delete** the item from this document.
 
 ## 📝 User Inbox
+
+### 2026-08-08 — [P1] The job spinner keeps running while `wiki jobs list` and the dashboard show nothing
+
+User report: the sidechat job-running indicator spins, but neither
+`wiki jobs list` nor the dashboard's Jobs card shows any such job.
+
+**Root-caused in the worker, not in the plugin.** `runtime/jobs.json` is the
+only thing the passive indicator reads, and **nothing rewrites it on a terminal
+job transition.** Inside `run_next_job` the snapshot is written at exactly two
+points — `ingest_worker.py:199` (after L2 completes) and `:215` (before L3) —
+and both write `running: [<this job>]`. The three terminal transitions write
+nothing: `db.mark_job_done` (`:163`, `:243`), `db.mark_job_failed` (`:272`),
+and `db.requeue_job_for_retry` (`:270`) are each followed by a plain `return`,
+and the `finally` block only does `db_sync.maybe_auto_export` and
+`client.close()`.
+
+The long-lived thread does not close the gap either. `IngestWorker.run()`
+(`:473`) calls `self._write_dashboard()` after every job, but
+`_write_dashboard` (`:330`) writes the **markdown** build-status page
+(`paths.dashboard`) — it never calls `runtime_state.write_runtime_snapshots`.
+Its own docstring claims it is "Called at job start, completion, and failure",
+which is true of the markdown file and false of the JSON snapshot the plugin
+actually polls.
+
+So after the last job of a batch ends, `runtime/jobs.json` stays frozen with
+that job in `running` and `idle: false`, permanently.
+
+**Why the three surfaces disagree, exactly as reported:**
+
+| surface | reads | shows |
+|---|---|---|
+| sidechat indicator (`ChatSidebarView.ts:489`) | `runtime/jobs.json` only, polled | stale `running` → spins forever |
+| `wiki jobs list` (`commands/jobs.py:18-24`) | refreshes the snapshot, then queries the DB | correctly empty |
+| Dashboard Jobs card (`incuratorDashboardModal.ts:649`) | same JSON — but any CLI-backed surface (`jobs.py`, `sources.py`, `core.py`, `config.py`) calls `write_runtime_snapshots` first | refreshed → empty |
+
+`build_jobs_snapshot` (`runtime_state.py:96-118`) is itself correct: it derives
+`running`/`queued`/`idle` from one DB read, so a snapshot is never internally
+inconsistent. The defect is purely that it is not **re-derived** when a job ends.
+
+**Secondary contributor, not the cause.** The never-blank rule shipped in
+v0.48.2 (PR #129) has no staleness bound: `ChatSidebarView.ts:493` does
+`if (!jobs) return;` and the `catch {}` at `:509` is empty, both by design, so
+the indicator also cannot clear itself if the snapshot ever becomes unreadable.
+That is worth a max-age, but it is not what produced this report — the file here
+is perfectly readable and simply stale.
+
+Live state at time of diagnosis (quiescent, so the frozen snapshot has since
+been refreshed by an unrelated command): snapshot `running: []`, `queued: []`;
+DB `ingest_jobs` = 37 `done`, 2 `cancelled`.
+
+### 2026-08-08 — [P1] LaTeX conversion copy fails and blames the LLM provider, which is fine
+
+User report (recurring): copying a PDF selection as LaTeX fails with a notice
+telling them to check the provider. The provider is **not** the problem.
+
+**Two independent defects, both reproduced.**
+
+**(a) Backend — `_CLI_NOISE_RE` deletes any digits-only line from a real
+transcription.** `vision.py:106-110` ends its noise alternation with
+`\d[\d,]*`, added to strip an agentic CLI's "tokens used" count. It is applied
+per line to the model's actual output in `normalize_vision_latex` (`:131`), so
+it also deletes legitimate numeric-only lines — an equation number on its own
+line, a table cell, a page number, a matrix row. Measured end to end against
+the user's real config:
+
+```
+$ wiki plugin pdf transcribe --text "1"
+{ "ok": true, "latex": "", "model": "gemini-3.6-flash" }
+```
+
+and at the normalizer directly:
+
+```
+'<transcription>1</transcription>'   -> ''        # eaten
+'<transcription>$1$</transcription>' -> '$1$'     # survives
+```
+
+The intro/outro strippers are innocent — neither regex matches `1`. When the
+whole selection normalizes to empty the copy fails; when only part of it does,
+content is silently dropped into the clipboard with no failure at all, which is
+the worse half.
+
+**(b) Plugin — every failure is reported as a provider misconfiguration.**
+`ExternalPdfView.ts:1394` `convertSelectionToLatex` wraps the whole operation
+in one `try` and its `catch` shows a single hardcoded string:
+`"LaTeX conversion failed. Check Incurator Dashboard → LLM Provider."` The real
+cause is thrown into `err` and sent only to `logger.error`, never to the user.
+Three distinct causes land on that one message:
+
+1. backend `ok: true` with an empty `latex` (defect (a)) — the guard is
+   `if (!result.ok || !latex) throw new Error(result.error || "No transcription
+   returned")`, so a **successful** backend call is reported as a provider fault;
+2. `navigator.clipboard.writeText(latex)` — also inside the `try`, so a
+   clipboard rejection (e.g. document not focused) reads as a provider fault;
+3. an actual provider/spawn failure — the only case the message is true for.
+
+**The provider was verified working throughout.** `.cache/config/config.yml`
+sets `vision_model: antigravity-cli::gemini-3.6-flash` and
+`latex_extract_model: ''`, so `_resolve_extract_client`
+(`ingest_raw.py:1555-1576`) correctly falls through to the vision slot. Live
+runs returned `ok: true` with faithful output, e.g.
+`"where λ1 and λ2 are the eigenvalues of Σ"` →
+`"where $\lambda_1$ and $\lambda_2$ are the eigenvalues of $\mathbf{\Sigma}$"`.
+
+Fix direction: drop the numeric-only alternative from `_CLI_NOISE_RE` (or scope
+it to lines adjacent to a recognized banner, which is what it was for), and make
+the notice report the actual error, distinguishing "model returned nothing" from
+"clipboard write refused" from "provider unavailable".
+
+### 2026-08-08 — [P3] `npm audit fix` at the repo root fails with ENOLOCK
+
+User report: `npm audit fix` errors with `ENOLOCK … This command requires an
+existing lockfile`, and a suspicion that a previously-agreed lockfile policy
+regressed because the lockfile is now pushed to the remote.
+
+**Not a regression, and the lockfile belongs on the remote.** There is no
+`package.json` and no `package-lock.json` at the repo root — this is a Python
+backend plus an Obsidian plugin, and the entire npm project lives in `plugin/`.
+Run npm from there:
+
+```
+cd plugin && npm audit fix
+```
+
+Tracking `plugin/package-lock.json` is deliberate and load-bearing: the Universal
+Strict Workflow's Step 10 requires its top-level `version` **and**
+`packages[""].version` to agree with `pyproject.toml` / `package.json` /
+`manifest.json`, the CI `version-consistency` job blocks the merge otherwise,
+and `backend/tests/test_spec_sync.py` reads that file directly as the single
+source of truth for the active version. It has been tracked since the plugin was
+imported into the monorepo (`9633497`, 2026-05-28) and has not changed policy.
+
+Side effect to clean up: npm's own suggestion (`npm i --package-lock-only`)
+creates a stray 88-byte `package-lock.json` with `"packages": {}` at the repo
+root. It is meaningless and should be deleted, not committed.
+
 ### 2026-08-06 — [P1] Moving or deleting a vault file after import breaks every stored reference to it
 
 User report: after importing a Zotero item, moving the resulting markdown note
