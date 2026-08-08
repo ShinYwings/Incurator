@@ -9,14 +9,21 @@ they are." That has been false since v0.44.0. Shipped from this milestone:
 - **B4** — v0.44.0
 - **B3 P1–P4** — v0.45.0
 
-Still open, and the reason this plan stays in the workspace:
+Still open, and the reason this plan stays in the workspace (all P2/P3 now —
+the milestone has no P1 left):
 
-- **B2** — cross-device sync integrity, the last P1 in the milestone. Mostly
-  landed: CAND-03 (v0.49.2), sync_db-3 (v0.49.3), sync_db-1 (v0.50.0),
-  sync_db-2 (v0.50.1). **Remaining: sync_db-4** (locked device-state RMW).
-  Each of the four that shipped was
-  found by measuring the running code, not by reading this plan — the plan named
-  the item, the measurement found what was actually wrong with it.
+- **B2 — COMPLETE (v0.49.2 → v0.50.2).** CAND-03 conflict-archive EXDEV,
+  sync_db-3 export-stamp race, sync_db-1 truthful import outcome, sync_db-2
+  single-source trigger definitions, sync_db-4 locked device-state RMW.
+  **Zero P1 items remain in this milestone.**
+
+  Every one was found by measuring the running code, not by reading this plan.
+  The plan named the item; the measurement found what was actually wrong with
+  it, and in all five cases that differed from the one-line description. Two
+  also introduced faults that only a second pass caught — a lock that
+  deadlocked on nested acquisition, and a detector that refreshed on every open
+  — so a fix here is not finished until a test has been verified to fail
+  without it.
 - **B3 P5** synthesis dep-hash freeze · **P6** delete the dead L2
   checkpoint-resume (table migration) · **P7** record a reason on legitimate
   skips (needs a decision: `layer_error` is named for errors, `error_reason`

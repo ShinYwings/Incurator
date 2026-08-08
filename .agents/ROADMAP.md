@@ -10,7 +10,7 @@ belong in Git history, not the active workspace. New raw reports enter through
 
 Verified against the code on 2026-08-07, not against previous roadmap text.
 
-### Shipped since the audits (v0.43.0 → v0.50.1)
+### Shipped since the audits (v0.43.0 → v0.50.2)
 
 Corroboration gate · B4 · `wiki lint` truthfulness · B3 P1–P4 · vault
 move/delete tracking · the search-index support gate (61% of units were
@@ -19,9 +19,10 @@ English-internal boundary at the backend · the workspace/curation lens on the
 chat surface · entity-description prompt v2 · the sidechat job indicator ·
 add-source state after ingest · Reference-Mode sources resolved by Zotero
 identity · unresolved cross-references named instead of dropped ·
-**image-only extraction loss made visible** (v0.49.0/.1) · four of B2's five
-sync-integrity items (v0.49.2 conflict-archive EXDEV, v0.49.3 export-stamp race,
-v0.50.0 truthful import outcome, v0.50.1 single-source trigger definitions).
+**image-only extraction loss made visible** (v0.49.0/.1) · **all five of B2's
+sync-integrity items** (v0.49.2 conflict-archive EXDEV, v0.49.3 export-stamp
+race, v0.50.0 truthful import outcome, v0.50.1 single-source trigger
+definitions, v0.50.2 locked device-state RMW) — B2 is closed.
 
 Note: v0.48.1 "distant PDF equation references" shipped but was a **no-op** —
 see item 1. It searched neighbouring pages for a label that was never ingested.
@@ -74,10 +75,8 @@ violations only.
 
 ### 3. System Integrity Consolidation — the remainder
 
-- **B2** (cross-device sync integrity) — CAND-03 (v0.49.2), sync_db-3
-  (v0.49.3), sync_db-1 (v0.50.0) and sync_db-2 (v0.50.1) landed.
-  **Only sync_db-4** (locked device-state RMW) remains; then B2, the
-  milestone's last P1, closes.
+- **B2 — COMPLETE** (v0.49.2 → v0.50.2, all five items). The milestone has no
+  P1 left; everything below it is P2/P3.
 - **B3 P5** synthesis dep-hash freeze · **P6** delete the dead L2
   checkpoint-resume (table migration) · **P7** record a reason on legitimate
   skips (needs a decision: `layer_error` is named for errors, `error_reason`

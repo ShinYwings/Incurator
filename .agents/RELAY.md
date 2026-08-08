@@ -1,4 +1,4 @@
-# RELAY — v0.50.0 shipped; B2 sync integrity is the live goal
+# RELAY — B2 complete at v0.50.2; the milestone has no P1 left
 
 ## Goal
 
@@ -61,11 +61,11 @@ and `row_revision()` respectively.
 
 ## Progress Status
 
-Shipped this run: **v0.43.0 → v0.50.1**, 26 merged PRs.
+Shipped this run: **v0.43.0 → v0.50.2**, 28 merged PRs.
 
-- Local gates at HEAD: backend pytest 1509 passed / 6 skipped / 4 xfailed,
+- Local gates at HEAD: backend pytest 1518 passed / 6 skipped / 4 xfailed,
   Ruff clean, mypy clean (127 files), plugin Vitest 923/923 across 86 files,
-  `tsc --noEmit` clean, spec/version sync at v0.50.1.
+  `tsc --noEmit` clean, spec/version sync at v0.50.2.
 - Acceptance test on the real vault, the user's own question
   ("2D GS가 3D보다 …여러 논문을 종합해서 설명해줘"): route `local → global`,
   L4 `0 → 4`, L3 `0 → 10`.
@@ -93,6 +93,12 @@ Shipped this run: **v0.43.0 → v0.50.1**, 26 merged PRs.
   compares the rendered body; note SQLite stores a trigger WITHOUT its trailing
   `;` and may reflow the header, so the comparison must stay whitespace- and
   semicolon-insensitive or it refreshes on every open and deadlocks.
+- **`durable_io.locked_path` is re-entrant, and `sync_state_transaction` nests
+  losslessly** — both had to be made so. `flock` is per descriptor, so a nested
+  acquisition deadlocks the process; and a nested transaction that reads its own
+  copy gets overwritten by the outer's stale snapshot. Every mutation of device
+  sync state goes through `sync_state_transaction`; never read-modify-write it
+  directly.
 - **A derived `sync_key` is never rewritten retroactively** (SCHEMA §12). It is
   the identity peers match on; repairing it on one device only splits the source.
 - **There are zero `ALTER TABLE` statements in the backend** (removed in
@@ -115,12 +121,10 @@ Shipped this run: **v0.43.0 → v0.50.1**, 26 merged PRs.
 
 ## Immediate Next Action
 
-**B2 is four-fifths done; one item left.** Remaining: **sync_db-4** (locked
-device-state RMW). Then B2 — the milestone's last P1 — closes.
-
-Landed: CAND-03 conflict-archive EXDEV (v0.49.2), sync_db-3 export-stamp race
-(v0.49.3), sync_db-1 truthful import outcome (v0.50.0), sync_db-2 single-source
-trigger definitions (v0.50.1).
+**B2 is COMPLETE** (v0.49.2 → v0.50.2, all five items), so milestone 03 has no
+P1 outstanding. Next by the plan's own ordering: **B3 P5–P7**, then the
+`.curator` state items (ROADMAP item 4). B5 and B7 each still need their own
+Arena.
 
 **Method that keeps working, stated plainly because it keeps being re-proven:**
 the plan names the item; measuring the running code finds what is actually wrong
