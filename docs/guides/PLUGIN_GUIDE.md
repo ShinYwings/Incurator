@@ -683,7 +683,8 @@ actually happened:
 | `This selection has N symbol(s) the PDF does not encode as text …` | Same condition, but the page image could not be captured to read them. | Scroll the page fully into view and retry, or snip with **Cmd+Shift+X**. |
 | `The model returned an empty transcription for this selection.` | The backend ran fine; the model gave nothing usable back. | Retry, or widen the selection so it carries more context. |
 | `Converted, but the clipboard write was refused: …` | The transcription succeeded and only the clipboard step failed (usually a focus issue). | Click into the window and retry. |
-| `LaTeX conversion failed: <detail> …` | A real backend or provider failure, with the underlying error included. | Read the detail; check the LLM Provider card if it names the provider. |
+| `LaTeX conversion failed: <detail> …` | A real backend or provider failure on the text path, with the underlying error included. | Read the detail; check the LLM Provider card if it names the provider. |
+| `LaTeX conversion failed while reading the page image: <detail>. Nothing was copied.` | The same, on the image path. Stated separately so it is clear the clipboard was left untouched. | As above. |
 
 **Why maths sometimes takes the image route (v0.52.3).** A LaTeX paper embeds
 its symbols in Computer Modern font subsets, and those subsets frequently ship

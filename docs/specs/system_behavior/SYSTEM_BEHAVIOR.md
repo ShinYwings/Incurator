@@ -2365,19 +2365,47 @@ rendered page instead.
     and an all-numeric selection normalized to nothing at all. When the model
     emits no block, the whole text stays subject to the filter, since a banner may
     then appear anywhere.
-  - **The plugin sanitizes a PDF selection before it crosses the process
-    boundary (v0.52.1).** pdf.js emits U+0000 for glyphs whose embedded font has
-    no usable ToUnicode mapping — exactly the rasterized regions a reader most
-    wants transcribed. Node's `spawn` rejects an argv entry containing a null
-    byte with a synchronous `TypeError`, so such a selection never reached the
-    backend. Control characters (C0 except tab/LF/CR, DEL, C1) are stripped at
-    the selection reader; a selection that is entirely artifacts reports an
-    unreadable image region rather than failing silently.
+  - **A U+0000 in a PDF selection is an unmapped glyph, and the region carrying
+    it MUST be read as an image (v0.52.3).** pdf.js emits U+0000 for a glyph
+    whose embedded font has no usable `/ToUnicode` map — routine in LaTeX
+    papers, whose Computer Modern subsets (CMMI/CMSY/MSBM) frequently ship
+    without one. Measured on `3D Line Mapping Revisited` page 4, whose
+    `AAAAAH+CMMI10` subset has no ToUnicode: the text layer for equation (3)
+    contains **10 U+0000 and zero U+03BB** — every one of those is a lambda.
+    The character is therefore not in the text layer at all; it exists only in
+    the rendered pixels, and no text processing can recover it. When a selection
+    carries any unmapped glyph, the plugin crops that region from the rendered
+    page and transcribes the **image**, naming the count so the different route
+    is visible. If the crop cannot be captured it reports that and stops: it
+    MUST NOT fall back to the text, which is known to be missing those symbols.
+  - **Deleting an unmapped glyph is forbidden.** v0.52.1 stripped control
+    characters so `spawn` would stop rejecting the argv entry, which replaced a
+    loud `TypeError` with silent corruption — the model transcribed an equation
+    with every lambda deleted and a confidently wrong result reached the
+    clipboard. Sanitization is now limited to **U+0000 only**, the single code
+    point `spawn` rejects, and applies solely to paths that need prose rather
+    than fidelity. Other C0 characters, DEL, and C1 are preserved: none of them
+    break the process boundary, and removing a character the boundary would have
+    accepted is data loss with nothing to justify it.
+  - **The selection's geometry is measured while the selection is live.** The
+    crop rect is captured at the same moment as the text — at menu-build time
+    for the context menu, synchronously in the handler for the shortcut —
+    because a menu interaction can collapse the DOM selection. Reading the rect
+    when the menu item is clicked would let the routing decision and the
+    captured pixels describe two different moments. Only the line rects whose
+    vertical midpoint falls inside the anchored page are unioned, so a selection
+    running onto the next page does not crop every unselected line down to the
+    page edge.
   - **Failure reporting MUST name the actual cause.** Reporting a transcription
     that came back empty, or a refused clipboard write, as an LLM-provider
     misconfiguration sends the user to fix working config. The four outcomes —
     backend/provider failure, empty transcription, refused clipboard write,
-    success — each get their own message. For an explicit extraction slot, the backend selects
+    success — each get their own message. **A shared transcription helper must
+    not impose one caller's wording on another (v0.52.3):** the crop helper's
+    default failure text ends with "Attached crop fallback", which is true for
+    the chat snip — the image really does stay attached to the message — and
+    false for Convert-to-LaTeX, which attaches nothing and copies to the
+    clipboard. Each caller supplies its own failure wording. For an explicit extraction slot, the backend selects
     `low` only when the resolved model declares it and otherwise omits effort;
     the final main-model fallback keeps its user-selected effort. For
     Antigravity, it passes the full prompt directly as the `agy --print` value,

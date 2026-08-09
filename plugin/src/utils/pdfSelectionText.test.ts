@@ -1,11 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { spawn } from "node:child_process";
-import {
-  countUnmappedGlyphs,
-  hasUnmappedGlyphs,
-  isUnreadableSelection,
-  sanitizePdfSelectionText,
-} from "./pdfSelectionText";
+import { countUnmappedGlyphs, sanitizePdfSelectionText } from "./pdfSelectionText";
 
 const NUL = String.fromCharCode(0);
 
@@ -34,16 +29,6 @@ describe("countUnmappedGlyphs", () => {
 
   it("handles an empty selection", () => {
     expect(countUnmappedGlyphs("")).toBe(0);
-  });
-});
-
-describe("hasUnmappedGlyphs", () => {
-  it("flags the measured equation selection", () => {
-    expect(hasUnmappedGlyphs(EQUATION_3)).toBe(true);
-  });
-
-  it("does not flag prose", () => {
-    expect(hasUnmappedGlyphs("Cheirality tests are applied to all proposals")).toBe(false);
   });
 });
 
@@ -88,21 +73,7 @@ describe("the regression this exists to prevent", () => {
     const stripped = sanitizePdfSelectionText(EQUATION_3);
     expect(stripped).not.toContain("λ");
     expect(stripped).toContain("T A");
-    expect(hasUnmappedGlyphs(EQUATION_3)).toBe(true);
-  });
-});
-
-describe("isUnreadableSelection", () => {
-  it("is true when characters were selected but none survive", () => {
-    expect(isUnreadableSelection(NUL + NUL)).toBe(true);
-  });
-
-  it("is false when nothing was selected", () => {
-    expect(isUnreadableSelection("   ")).toBe(false);
-  });
-
-  it("is false when some readable text survives", () => {
-    expect(isUnreadableSelection(`a${NUL}`)).toBe(false);
+    expect(countUnmappedGlyphs(EQUATION_3)).toBe(10);
   });
 });
 

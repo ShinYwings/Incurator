@@ -606,7 +606,8 @@ Settings 화면에서는 선택된 model의 context window를 별도 항목으�
 | `This selection has N symbol(s) the PDF does not encode as text …` | 같은 상황이지만, 그것을 읽기 위한 페이지 이미지를 캡처하지 못했습니다. | 페이지를 화면에 완전히 보이게 스크롤한 뒤 다시 시도하거나, **Cmd+Shift+X**로 스닙하세요. |
 | `The model returned an empty transcription for this selection.` | 백엔드는 정상 동작했고, 모델이 쓸 만한 결과를 주지 않았습니다. | 다시 시도하거나, 선택 범위를 넓혀 문맥을 더 포함시키세요. |
 | `Converted, but the clipboard write was refused: …` | 변환은 성공했고 클립보드 쓰기만 실패했습니다(보통 포커스 문제). | 창을 클릭한 뒤 다시 시도하세요. |
-| `LaTeX conversion failed: <detail> …` | 실제 백엔드/제공자 실패이며, 원인 오류가 함께 표시됩니다. | 상세 내용을 확인하고, 제공자를 지목하면 LLM Provider 카드를 점검하세요. |
+| `LaTeX conversion failed: <detail> …` | 텍스트 경로에서 발생한 실제 백엔드/제공자 실패이며, 원인 오류가 함께 표시됩니다. | 상세 내용을 확인하고, 제공자를 지목하면 LLM Provider 카드를 점검하세요. |
+| `LaTeX conversion failed while reading the page image: <detail>. Nothing was copied.` | 같은 실패이지만 이미지 경로에서 발생했습니다. 클립보드가 그대로라는 점을 분명히 하려고 따로 표시합니다. | 위와 동일합니다. |
 
 **수식이 때때로 이미지 경로를 타는 이유 (v0.52.3).** LaTeX 논문은 기호를 Computer
 Modern 폰트 서브셋에 담는데, 그 서브셋에는 `/ToUnicode` 맵이 없는 경우가 많습니다.

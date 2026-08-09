@@ -51,6 +51,28 @@ All notable changes to Incurator are documented here.
   existing transcribe path already returns exactly the expected LaTeX, which is
   what isolated the loss to the plugin rather than the model.
 
+  Closing the review of this change (all six findings):
+  - **The selection's geometry is captured while the selection is live**, at the
+    same moment as its text — menu-build time for the context menu, in-handler
+    for the shortcut. Reading the rect when the menu item was clicked let the
+    routing decision and the pixels describe two different moments, and since a
+    menu interaction can collapse the DOM selection, the context-menu route
+    would usually have failed to capture anything at all.
+  - **Only the line rects on the anchored page are unioned.** A selection
+    running onto the next page has a bounding box spanning both pages and the
+    gap, so cropping it swallowed every unselected line down to the page edge
+    while still dropping the overflow.
+  - **`transcribePdfCrop` takes the caller's failure wording.** Its default ends
+    with "Attached crop fallback", which is true for the chat snip and false for
+    a clipboard copy that attaches nothing. The chat message is unchanged.
+  - Dead exports removed (`hasUnmappedGlyphs`, `isUnreadableSelection`) — this
+    change deleted their only call sites.
+  - `SYSTEM_BEHAVIOR.md` §26.2a rewritten; it still described the v0.52.1
+    strip-and-send behavior this release removes.
+  - `externalPdfViewSource.test.ts` now covers the routing, the no-text-fallback
+    rule, live-rect capture, the per-page rect union, and the caller-specific
+    failure wording. Reverting the fix fails them.
+
 ## [0.52.2] - 2026-08-09
 ### Fixed
 - **§26.2b Extraction-Loss Recording Had Never Run On The Existing Corpus**

@@ -25,7 +25,7 @@
  * No text processing can recover the character, because the information is not
  * in the text layer at all — it is only in the rendered pixels. A selection
  * carrying unmapped glyphs must therefore be read as an IMAGE, not repaired as
- * text. That is what `hasUnmappedGlyphs` is for.
+ * text. That is what `countUnmappedGlyphs` is for.
  */
 
 /** The code point pdf.js emits where a glyph has no usable Unicode mapping. */
@@ -44,11 +44,6 @@ export function countUnmappedGlyphs(raw: string): number {
   return n;
 }
 
-/** True when any glyph in the selection lost its identity in the text layer. */
-export function hasUnmappedGlyphs(raw: string): boolean {
-  return countUnmappedGlyphs(raw) > 0;
-}
-
 /**
  * Make a selection safe to pass as an argv entry, removing nothing else.
  *
@@ -59,15 +54,10 @@ export function hasUnmappedGlyphs(raw: string): boolean {
  * reason behind it.
  *
  * Callers that care about fidelity — the LaTeX conversion does — must check
- * `hasUnmappedGlyphs` FIRST and take the image path. This function is the last
- * resort for paths that only need the prose.
+ * `countUnmappedGlyphs` FIRST and take the image path. This function is the
+ * last resort for paths that only need the prose.
  */
 export function sanitizePdfSelectionText(raw: string): string {
   if (!raw) return "";
   return raw.split(UNMAPPED_GLYPH).join("").trim();
-}
-
-/** True when the selection had characters but none survive as readable text. */
-export function isUnreadableSelection(raw: string): boolean {
-  return raw.trim().length > 0 && sanitizePdfSelectionText(raw).length === 0;
 }
