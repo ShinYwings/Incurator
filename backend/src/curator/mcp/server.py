@@ -3494,8 +3494,16 @@ def install_obsidian_mcp_server(paths: cfg.WikiPaths) -> dict[str, Any]:
 
     if action != "unchanged":
         tmp = data_path.with_name(f".{data_path.name}.tmp")
-        tmp.write_text(json.dumps(existing, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        tmp.replace(data_path)
+        try:
+            tmp.write_text(
+                json.dumps(existing, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+            )
+            tmp.replace(data_path)
+        except OSError:
+            # Leave no orphan dotfile beside the user's settings if the rename
+            # fails after the write. `data.json` itself is untouched either way.
+            tmp.unlink(missing_ok=True)
+            raise
 
     return {
         "action": action,

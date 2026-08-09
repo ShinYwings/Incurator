@@ -9,10 +9,15 @@ The **Incurator MCP Server** is the interface through which the Artist (human + 
 
 ## 1. Prerequisites
 
-Ensure you have the MCP dependencies installed:
+`./setup.sh` installs the MCP dependencies into `<repo>/.venv` (v0.53.0).
+To install just that extra into the repo-root venv:
 ```bash
-uv pip install -e './backend[mcp]'
+uv pip install --python "$(git rev-parse --show-toplevel)/.venv/bin/python" \
+  -e "$(git rev-parse --show-toplevel)/backend[mcp]"
 ```
+Naming the interpreter matters: a bare `uv pip install -e './backend[mcp]'`
+installs into whatever environment happens to be active. Every venv in this
+project lives at the repository root (`.venv` runtime, `.venv-dev` checks).
 
 The current server targets the MCP Python SDK 1.x `mcp.server.fastmcp` contract;
 the package metadata excludes MCP 2.x until that major API is migrated.

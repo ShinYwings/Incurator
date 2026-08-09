@@ -9,10 +9,15 @@
 
 ## 1. 사전 요구 사항
 
-MCP 의존성 패키지가 설치되어 있는지 확인하세요.
+`./setup.sh`가 MCP 의존성을 `<repo>/.venv`에 설치합니다 (v0.53.0).
+저장소 루트 venv에 이 extra만 설치하려면:
 ```bash
-uv pip install -e './backend[mcp]'
+uv pip install --python "$(git rev-parse --show-toplevel)/.venv/bin/python" \
+  -e "$(git rev-parse --show-toplevel)/backend[mcp]"
 ```
+인터프리터를 지정하는 것이 중요합니다: `uv pip install -e './backend[mcp]'`처럼
+그냥 실행하면 그때 활성화된 아무 환경에나 설치됩니다. 이 프로젝트의 venv는 모두
+저장소 루트에 있습니다 (`.venv` 런타임, `.venv-dev` 검사용).
 
 현재 서버는 MCP Python SDK 1.x의 `mcp.server.fastmcp` 계약을 사용합니다.
 해당 메이저 API를 마이그레이션하기 전까지 패키지 메타데이터에서 MCP 2.x를 제외합니다.

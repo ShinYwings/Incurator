@@ -613,9 +613,22 @@ Rules:
   stop before credential/provider startup and expose a reload action. The update
   action may offer renderer reload only after every required plugin artifact has
   copied successfully; a partial copy must remain an error and must not reload.
-- `mcpServers` entries are for external/non-Incurator MCP servers. Incurator's
-  own plugin integration must not require MCP tool discovery for static
-  metadata such as model choices.
+- `mcpServers` carries **one Incurator entry plus any external servers**
+  (amended v0.53.0). The original wording said the field was for
+  "external/non-Incurator MCP servers" only, which never matched the plugin:
+  chat has always gated its curator tools on
+  `mcpServers.some(s => s.enabled && s.name.toLowerCase().includes("incurator"))`,
+  so an Incurator-named entry is exactly what enables the knowledge base. The
+  spec is corrected to describe that, and `wiki mcp install obsidian` is the
+  supported way to write it.
+- **The prohibition that remains** is the one the original sentence was really
+  protecting: Incurator's own plugin integration must not require MCP tool
+  discovery for **static metadata such as model choices**. Model lists, provider
+  config, and settings-tab content are read through the backend CLI
+  (`wiki plugin ...`) and must keep working with no MCP server configured. Only
+  knowledge-base retrieval — `curator_query`, `curator_fetch_context`,
+  `search_curator`, `curator_get_pdf_toc`, `curator_get_pdf_context` — may
+  depend on it.
 - On desktop startup and settings save, the plugin may read local Syncthing
   config files and refresh `.cache/config/devices.json` with the current device's
   launcher settings. This removes the need to run `wiki devices sync` for normal

@@ -23,11 +23,14 @@ All notable changes to Incurator are documented here.
   base — not a dev tool, so it belongs in `<repo>/.venv`. Dev-only check tools
   still go to `.venv-dev`.
 - **Install Hints Told Users To Run An Unqualified `uv pip install`**
-  Seven sites printed `uv pip install -e './backend[...]'`, which names no
+  **Eleven** sites printed `uv pip install -e './backend[...]'`, which names no
   target interpreter: it installs into whatever environment happens to be
-  active and can leave artifacts under `backend/`. This project keeps every venv
-  at the repository root. All seven now point at `./setup.sh`, or spell out
-  `--python <repo>/.venv/bin/python` where a targeted extra is genuinely needed.
+  active. This project keeps every venv at the repository root. Seven were in
+  Python source; review caught four more in the guides describing the same
+  repair — including `MCP_USER_GUIDE.md`'s own Prerequisites block, three lines
+  above the section this release added. All eleven now point at `./setup.sh`, or
+  spell out `--python <repo>/.venv/bin/python`, with the extras quoted so a zsh
+  copy-paste does not glob on `[rerank]`.
 
 ### Added
 - **`wiki mcp install obsidian` — Registers The Server The Plugin Chat Requires**

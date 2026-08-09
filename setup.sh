@@ -80,8 +80,11 @@ echo "=== Installing dependencies via uv or pip ==="
 # still belong in .venv-dev, never here.
 #
 # --python pins the target interpreter to the repo-root venv so nothing is ever
-# installed into an ambient environment, and the `-e <root>/backend` path is
-# absolute so no uv.lock or .venv is created under backend/.
+# installed into an ambient environment. Nothing is created under backend/
+# because this is `uv pip install` (the pip-compatible interface) rather than
+# `uv add`/`uv sync`/`uv lock` — those are the project commands that would write
+# a backend/uv.lock and a backend/.venv. The absolute path is for robustness
+# against the caller's cwd, not the reason no lockfile appears.
 if command -v uv &> /dev/null; then
     uv pip install --python "$VIRTUAL_ENV/bin/python" -e "$ROOT_DIR/backend[mcp]"
 else

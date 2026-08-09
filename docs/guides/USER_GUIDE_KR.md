@@ -1104,10 +1104,13 @@ Obsidian 대시보드의 **System** 카드가 현재 embed/reranker 모델 정�
 보여줍니다 — **Embed model** / **Reranker** 행을 클릭하면 재준비할 수 있습니다
 (`wiki plugin models refresh`). 모델이 정상이 된 뒤 벡터 인덱스를 (재)구축하려면
 `wiki reindex --embed`를 실행합니다(plain `wiki reindex`는 FTS5/chunks만
-다시 만듭니다). backend만 수동 복구해야 한다면
-`uv pip install -e './backend[rerank]'`를 실행하세요. 저장소 루트에서
-`uv pip install -e .`를 실행하지 마세요. Python 프로젝트는 `backend/` 아래에
-있습니다.
+다시 만듭니다). backend만 수동 복구해야 한다면 대상 인터프리터를 명시하세요 — 이 프로젝트의
+venv는 모두 저장소 루트에 있습니다:
+`uv pip install --python '<repo>/.venv/bin/python' -e '<repo>/backend[rerank]'`.
+저장소 루트에서 `uv pip install -e .`를 실행하지 마세요(Python 프로젝트는
+`backend/` 아래에 있습니다). 또한 인터프리터를 지정하지 않은
+`-e './backend[rerank]'`도 실행하지 마세요 — 그때 활성화된 아무 환경에나
+설치됩니다.
 
 ### 3. 상태 확인 (`wiki status`)
 보관소의 건강 상태와 AI 엔진의 가동 현황을 입체적으로 진단하는 종합 대시보드입니다. 시스템 운영 중 의문이 생긴다면 가장 먼저 확인해야 할 명령어입니다.

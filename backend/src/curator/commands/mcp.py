@@ -13,9 +13,14 @@ mcp_app = typer.Typer(
     # a bare `wiki mcp` exited 2 with a usage screen instead of serving — which
     # is exactly how every MCP client is documented to launch it
     # (`"command": "wiki", "args": ["mcp"]`). The server was therefore
-    # unstartable by any client since v0.34.0. `mcp_callback` already prints
-    # that same usage text when stdin is a TTY, so interactive users still get
-    # help; a piped client gets a server.
+    # unstartable by any client since v0.34.0 — introduced by the v0.34.0
+    # cli.py decomposition (3c63dde), which also dropped the callback's
+    # `invoke_without_command`; both were present and working before it.
+    # An interactive user is still protected, but by `mcp_callback`'s own
+    # TTY branch, which prints a hand-written orientation block (what this
+    # command is for, how to install it, how to start it for debugging) and
+    # exits 0 — NOT Typer's generated usage screen listing `connect`/`install`,
+    # which is still reachable via `wiki mcp --help`.
     add_completion=False,
     rich_markup_mode="rich",
 )
