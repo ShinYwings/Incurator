@@ -1,193 +1,50 @@
-# RELAY — B2 complete and B3 P5 done at v0.51.0; P7 needs a user decision
+# RELAY — IDLE at v0.53.0
 
-## Goal
+No active goal. Master is at **v0.53.0**, working tree clean, no open PRs.
 
-Make the knowledge system actually serve real questions. The jetski bug — a
-question about an equation that returned no answer at all — is now half closed:
-the system says which region it could not read and why. It still cannot read it.
-That half is ROADMAP item 1, and it is blocked on three concrete prerequisites,
-not on a plan.
+## Shipped this run (v0.52.1 → v0.53.0)
 
-## Plan Reference
+- **v0.52.1** — job snapshot re-derived on terminal transitions (the spinner that
+  never stopped while `wiki jobs list` was empty); truthful Convert-to-LaTeX
+  errors.
+- **v0.52.2** — §26.2b loss records backfilled (2 → 132 on the reporting vault);
+  an unreadable region is served as a statement, not the parser artifact.
+- **v0.52.3** — unmapped PDF glyphs read as an image instead of being deleted.
+  This reverted a regression I shipped in v0.52.1.
+- **v0.53.0** — the MCP server made startable at all, plus
+  `wiki mcp install obsidian`.
 
-- Live queue: `.agents/ROADMAP.md`
-- **Formula Arena** (4 proposals, red-team critique, 2 convener amendments):
-  `.agents/plans/formula_recovery_arena/` — the three recovery blockers are
-  established there with file:line evidence. Read `02_critique_redteam.md`
-  before planning recovery.
-- Knowledge-value Arena: `.agents/plans/knowledge_value_arena/`
-- `.curator` state Arena: `.agents/plans/curator_state_arena/`
-- System integrity milestone: `.agents/plans/03_system_integrity_consolidation.md`
+## Critical context
 
-## Analysis And Reasoning
+- **The MCP server was unstartable by ANY client from v0.34.0 to v0.53.0.**
+  `no_args_is_help=True` and a callback missing `invoke_without_command` were
+  both introduced by the v0.34.0 CLI decomposition (`3c63dde`), whose own plan
+  promised "preserving every observable CLI, MCP, and hidden plugin command
+  contract". Undetected because every MCP test calls `build_server()` in
+  process — none spawns the CLI entry point. `test_mcp_obsidian_install.py` now
+  pins both Typer settings.
+- **The plugin chat reaches the knowledge base ONLY through an `mcpServers`
+  entry named `incurator`.** Tool injection and the system-prompt section are
+  both gated on it (`ChatSidebarView.ts:1391`). The reporting vault had
+  `mcpServers: []`, so every retrieval improvement in v0.43–v0.52 was invisible
+  from the plugin. PLUGIN_SCHEMA had said that field was for "external/
+  non-Incurator" servers — it contradicted shipped behavior and is now corrected.
+- **`pdfFullDocumentIndex` has zero consumers.** The "Background page indexing"
+  toggle writes a value nothing reads, so `search_pdf_anchor` is still limited
+  to already-rendered pages. `fetch_pdf_page` reads any page, so the model can
+  follow a reference it can name but cannot search unread pages. **This is the
+  next item and needs a plan.**
+- Venvs live at the repo root: `.venv` runtime (now carries `[mcp]`),
+  `.venv-dev` checks. Never `backend/.venv`, `backend/uv.lock`, or backend-local
+  caches. Install hints must name `--python` or point at `./setup.sh`.
+- Two time-dependent tests expired mid-session. Use far-future sentinels
+  (2099-01-01), never a plausible near date.
+- A stale pytest assertion-rewrite cache made a correct fix look broken for two
+  full runs. If a fix passes in a copied file but fails in the original, clear
+  `__pycache__` before doubting the fix.
 
-**Measure the artifact, not the code against the spec.** Every high-value
-finding this run came that way, and in each case the code conformed.
+## Immediate next action
 
-**The jetski bug, root-caused.** Two hotfixes coded from the symptom shipped
-no-ops before measuring the stored spans found it in one pass. Source 37
-renders every displayed equation as a rasterized image: 158 discarded picture
-blocks across 27 pages, 95 spans that are nothing but the placeholder, and
-**zero** spans containing `(24)`, `(25)`, or `(26)`. v0.48.1's page locator
-could not have worked — it searched more of the same emptiness.
-
-**Two separable defects, and only one is closed.**
-
-1. *The answer disappeared* — the prompt named neither the target nor the
-   failure, so the model reached for a file-read tool headless auto-denies.
-   Shipped v0.48.4.
-2. *The equation is still missing* — v0.49.0/.1 made the loss visible
-   (130 regions across 4 sources on the reporting vault). Recovery remains
-   unbuilt, deliberately: the Arena measured it at 0–2 of ~48 regions today.
-
-**The Arena overturned its own briefing twice, and the red team then killed the
-route the briefing was built around.** That is the process working. Two
-corrections worth keeping:
-
-- The two formula-loss populations are disjoint by *citation* but adjacent by
-  *document order* — 159/480 vault-wide. The owning claim already exists; what
-  `recover_formula` lacks is a `span_id`, not a `unit_id`.
-- `ingest_raw.py:1094` was not a preview-only helper. For a
-  `source_text_policy: on_demand` source that preview IS the CTX body the
-  plugin reads, so the placeholder was being erased from the one surface a
-  reader sees.
-
-**Review caught defects in both shipped PRs.** v0.48.4's first cut declared a
-page absent while quoting it (a single state carrying two meanings, safe only
-while one was never observed). v0.49.0's sync fix was applied at two sites and
-missed four, two of them on the default `wiki db import` path. Both were fixed
-by removing the ambiguity rather than patching the symptom — `consumedBySibling`
-and `row_revision()` respectively.
-
-## Progress Status
-
-Shipped this run: **v0.43.0 → v0.51.0**, 30 merged PRs.
-
-- Local gates at HEAD: backend pytest 1527 passed / 6 skipped / 4 xfailed,
-  Ruff clean, mypy clean (127 files), plugin Vitest 923/923 across 86 files,
-  `tsc --noEmit` clean, spec/version sync at v0.51.0.
-- Acceptance test on the real vault, the user's own question
-  ("2D GS가 3D보다 …여러 논문을 종합해서 설명해줘"): route `local → global`,
-  L4 `0 → 4`, L3 `0 → 10`.
-- Search index: knowledge units `1,098 → 2,215` (+1,117).
-- `wiki lint` now reports 130 unreadable regions across 4 sources that were
-  previously invisible.
-
-## Critical Context / Blockers
-
-- **The D2 frozen holdout is CONSUMED (`run_count: 3`). Never rerun it.** Its
-  tripwire fires on any change to a fingerprinted file; the documented response
-  is a written non-impact proof plus a hash re-arm. `procedure`, `queries`, and
-  `frozen_inputs` must stay byte-identical; verify with a YAML comparison, do
-  not assert it.
-- **The plugin CAN compute the vault cache key.** `vaultMachineCacheDir()` in
-  `plugin/src/utils/machineCache.ts` mirrors the backend's
-  `get_vault_cache_dir`. An earlier relay entry claimed the opposite.
-- **`row_revision()` is the ONLY way to rank two versions of a row.** Reading
-  `_UPDATED_AT_COL` directly is how v0.49.0 shipped four unfixed sites, two on
-  the default import path. `source_spans` has no `updated_at` and its
-  `created_at` is immutable, so its clock is derived from `metadata`.
-- **Trigger bodies have ONE definition** (`TRIGGER_BODIES` in `db/schema.py`),
-  rendered into both `SCHEMA_SQL` and `_refresh_current_triggers`. They drifted
-  once and the substring-allowlist detector could not tell. The detector now
-  compares the rendered body; note SQLite stores a trigger WITHOUT its trailing
-  `;` and may reflow the header, so the comparison must stay whitespace- and
-  semicolon-insensitive or it refreshes on every open and deadlocks.
-- **`durable_io.locked_path` is re-entrant, and `sync_state_transaction` nests
-  losslessly** — both had to be made so. `flock` is per descriptor, so a nested
-  acquisition deadlocks the process; and a nested transaction that reads its own
-  copy gets overwritten by the outer's stale snapshot. Every mutation of device
-  sync state goes through `sync_state_transaction`; never read-modify-write it
-  directly.
-- **A stored hash that gates regeneration must carry cardinality, not just
-  inputs.** `synthesis_nodes.dependency_hash` is `<corpus-hash>#<count>`: the
-  corpus hash alone could not tell a complete layer from one truncated by a
-  crash mid-rebuild, so a partial L4 froze as finished. Legacy bare-hash rows
-  read as unknown, which is what repairs an already-frozen vault.
-- **A derived `sync_key` is never rewritten retroactively** (SCHEMA §12). It is
-  the identity peers match on; repairing it on one device only splits the source.
-- **There are zero `ALTER TABLE` statements in the backend** (removed in
-  `f8b40be`). Editing `SCHEMA_SQL` never reaches an existing vault, so any
-  schema idea must work without a new column or accept a full re-ingest.
-- **An import must separate three outcomes**: stored, already present under
-  another identity, refused. Classification asks the schema which UNIQUE index
-  collided and must mirror SQLite — NULLs are DISTINCT, a partial index applies
-  only to matching rows. When undecidable, report refused: over-reporting a loss
-  is recoverable, under-reporting one is silence.
-- **Do not reach for `wiki add --force` to retrofit data.** It sets
-  `l2_status='pending'`, which the next default `wiki build` picks up as a full
-  L2/L3 rebuild of every source.
-- Retrieval costs one model call up front to derive the English search query.
-  If it bites, cache by message hash; do not revert the boundary.
-- Runtime venv is `<repo>/.venv`; dev/validation is `<repo>/.venv-dev` via
-  `scripts/backend-check`.
-- `curate.yml` exists ONLY in `01_Workspaces/<project>/`. Vault-scoped config is
-  `.curator/settings.yml`.
-
-## Immediate Next Action
-
-**B2 is COMPLETE** (v0.49.2 → v0.50.2) and **B3 P5 shipped** (v0.51.0), so
-milestone 03 has no P1 outstanding.
-
-Next: **B3 P6** — delete the dead L2 checkpoint-resume. Then **B3 P7**, which is
-**blocked on a user decision** and must not be started without it: `layer_error`
-is named for errors and `error_reason` already exists, so which column carries a
-non-error skip reason is a contract choice. After B3: the `.curator` state items
-(ROADMAP item 4). B5 and B7 each still need their own Arena.
-
-**Method that keeps working, stated plainly because it keeps being re-proven:**
-the plan names the item; measuring the running code finds what is actually wrong
-with it. All three B2 items shipped that way, and in each case the defect was
-not what the plan's one-line description implied.
-
-**Method that keeps failing:** shipping a fix without a test verified to fail
-without it. Every review round on #139 found a real hole in the previous round's
-fix, and each hole failed toward silence — a lost row reported as skipped. The
-rounds only became productive once every new behavior had a revert-verified
-test. Do that first, not after review asks.
-
-After B2: B3 P5–P7, then the `.curator` state items (ROADMAP item 4). B5/B7 each
-need their own Arena. ROADMAP item 1 (formula recovery) stays blocked on three
-prerequisites — do not plan it as if `recover_formula()` can be called today.
-
----
-
-### Update (2026-08-09, Claude Code) — three user-reported bugs, all measured
-
-Shipped as **v0.52.1** on `fix/v0.52.1-job-snapshot-latex-notice`
-(PR #145). Landed separately by fast-forward: the nanoid lockfile bump, the
-three USER_REPORT entries, and a widened fast-forward rule.
-
-**Method note, because it held for a third straight run:** in all three cases
-the reported cause was not the real one, and the real one came from running the
-system rather than reading it against the spec.
-
-- The spinner bug was *not* the v0.48.2 never-blank rule (my first hypothesis).
-  That rule has no staleness bound and is a real secondary weakness, but the
-  file here was perfectly readable and simply **stale**: no terminal job
-  transition rewrote `runtime/jobs.json`. `_write_dashboard` looked like the
-  writer and writes the markdown page instead — its docstring says "called at
-  job start, completion, and failure", which is true of the markdown and false
-  of the JSON the plugin actually polls. Read the docstring, verify the body.
-- The LaTeX-copy bug was *not* a provider problem despite the message saying so.
-  It was three defects: a pdf.js NUL byte aborting `spawn`, the CLI banner
-  filter eating digits-only lines inside the `<transcription>` block, and one
-  `catch` reporting all causes as provider misconfiguration. **The user found
-  the NUL case themselves** after I had already diagnosed the other two — worth
-  remembering that "why do bugs keep happening here" usually means several
-  distinct defects share one error message.
-- `npm audit fix` ENOLOCK was not a regression at all: there is no
-  `package.json` at the repo root, the npm project is entirely under `plugin/`.
-
-**Rule change (user directive):** the fast-forward rule now has two classes —
-agent bookkeeping, and mechanical chores that change no source and no version
-(lockfiles including `plugin/package-lock.json`, CI/linter config, ignore
-files). A PR exists for a human to review a decision; a tool-determined change
-carries none. I mis-routed the nanoid bump into a PR (#144, closed) by asking
-"is it a build manifest" instead of "is anything here reviewable".
-CLAUDE.md and AGENTS.md carry the block verbatim.
-
-**Still open from the same reports:** the never-blank indicator rule wants a
-max-age bound (a persistently unreadable snapshot still cannot clear the
-spinner); ROADMAP item 8 (job progress unobservable) and item 4 (vault
-rename/cache-key) are untouched.
+ROADMAP item 1 (formula recovery) is still blocked on its three prerequisites.
+The live candidate is `pdfFullDocumentIndex` — implement background indexing so
+the chat can search unrendered PDF pages. Needs an Arena plan first.
