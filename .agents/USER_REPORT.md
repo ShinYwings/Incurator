@@ -6,6 +6,84 @@ Agents must check this document and triage the received items into the `To-Do (Q
 
 ## 📝 User Inbox
 
+### 2026-08-09 — [P0] jetski "no output produced": the agy CLI wipes our permission grant on every run
+
+User, correctly angry: *"이거 v30부터 수차례 나온 버그인데 고쳤다고하고 제대로
+검증도 안되고 계속 버그나고"* — reported repeatedly since v0.30, declared fixed
+each time, never verified, still broken.
+
+**Root cause, reproduced deterministically 3/3.** The message comes from the
+Antigravity CLI, not from us. `syncAgyHeadlessReadPermission`
+(`LLMClient.ts:67`, called once at `:2582`) writes
+`permissions.allow = ["$read_file$()"]` into
+`~/.gemini/antigravity-cli/settings.json`. **The agy CLI deletes that key on its
+very next invocation:**
+
+```
+before agy runs : permissions = {'allow': ['$read_file$()']}
+agy --print ... : exit=0
+after agy runs  : permissions = None      <- wiped
+run 1 -> None
+run 2 -> None
+```
+
+So the grant survives exactly zero model calls. Every tool the model reaches for
+in headless mode is auto-denied, producing empty output. Writing the file at
+startup can never work; nothing re-asserts it, and **no test ever checked that
+the value survived a run** — which is precisely the verification gap the user is
+naming.
+
+**Second, independent defect: we grant the wrong permission.** The observed
+denial names the **`command`** permission (`"a tool required the \"command\"
+permission"`), and the CLI's own remedy text suggests `command()`. We only ever
+add `$read_file$()`. Even a grant that survived would not cover this failure.
+
+**Every prior fix was at the wrong layer.** v0.48.4 changed the *prompt* so the
+model would be less likely to reach for a denied tool. That is a mitigation of a
+symptom; the tool is still denied whenever the model does reach for it.
+
+Fix direction: stop treating this as a one-shot settings write. Either re-assert
+the permission immediately before each `agy --print` invocation (and verify it
+survived), or pass the allowance on the command line so no persisted file is
+involved. Whichever is chosen, the test must run a real `agy` call and assert the
+permission is still in effect afterwards — a unit test that only checks we wrote
+the file would have passed every time while the bug shipped.
+
+### 2026-08-09 — [P1/DESIGN] Benchmark Chrome's "Ask Gemini", which already does what we keep failing to build
+
+User, for at least the second time: *"구글 chrome의 ask gemini 기능은 이런거
+바로바로 잘 해주거든? pdf 불러왔을때 지금 렌더링된 페이지 아니더라도 다른
+페이지 정보의 수식같은거 잘 불러와서 설명하는거. 그거 벤치마킹 하자고 했는데
+계속 못하네"* — Chrome's Ask Gemini reads equations from pages that are not
+currently rendered and explains them, immediately. Benchmarking it was requested
+and has not happened.
+
+**The request is right and the v0.54.0 plan took the wrong road.** That plan
+(`.agents/plans/04_pdf_background_index.md`) designs a background BM25 **text**
+index over every page. Chrome does not do that: it hands page images to a
+multimodal model, which reads the page as drawn.
+
+Consequences of having chosen text search:
+
+- It cannot read a rasterized equation at all. Equation 29 of this very paper is
+  `**==> picture [185 x 12] intentionally omitted <==**` — there is no text to
+  index, so a whole-document text index still returns nothing for it.
+- The CMMI10/no-ToUnicode problem (v0.52.3) exists only because we read the text
+  layer. A vision read never encounters it.
+- `source_spans.page_number` being a section index stops mattering.
+- The quadratic `upsertPage`, the idle scheduler, the coverage disclosure, the
+  page cap — all of it is machinery for making text search work.
+
+The capability is already present and unused for this: `fetch_pdf_page` loads any
+page, `extractCanvasRegion` rasterizes a region, `transcribePdfCrop` sends an
+image to the vision model, and `llm.vision_model` is configured. The missing
+piece is a policy that routes "I need a page I do not have" to a **rendered-page
+vision read** instead of a text lookup.
+
+The v0.54.0 plan should be re-opened with this as the primary route and text
+search demoted to a cheap pre-filter, not the mechanism.
+
+
 ### 2026-08-08 — [P1] The job spinner keeps running while `wiki jobs list` and the dashboard show nothing
 
 User report: the sidechat job-running indicator spins, but neither
