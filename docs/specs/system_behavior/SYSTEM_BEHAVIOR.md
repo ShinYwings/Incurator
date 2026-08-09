@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.52.0)
+# Incurator - System Behavior (v0.53.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -1105,6 +1105,27 @@ be hidden from the default help listing:
 
 - `wiki plugin ...` — JSON backend API for the local Obsidian plugin.
 - `wiki mcp ...` — external workspace-agent server and installer.
+  - **A bare `wiki mcp` MUST start the stdio server** (v0.53.0). Every client
+    config launches it as `{"command": "wiki", "args": ["mcp"]}`, so any Typer
+    setting that intercepts a no-subcommand invocation — `no_args_is_help`, or a
+    callback lacking `invoke_without_command` — makes the server unstartable by
+    every client. Both were introduced by the v0.34.0 CLI decomposition and the
+    break went undetected because no test spawns the CLI entry point; the
+    surviving MCP tests all call `build_server()` in process. An interactive TTY
+    still gets an orientation block and exit 0 from the callback's own guard.
+  - **`wiki mcp install <target>` prints for `claude` / `antigravity` / `all`
+    and WRITES for `obsidian`** (v0.53.0). The Obsidian plugin's `data.json` is
+    owned by Obsidian rather than hand-edited, and the plugin gates its curator
+    tools on an enabled `mcpServers` entry whose name contains `incurator`
+    (PLUGIN_SCHEMA §"Settings"), so without one the chat cannot reach the
+    knowledge base at all. The write MUST be idempotent — a stale, differently
+    cased, or disabled Incurator entry is repaired in place, never duplicated —
+    MUST preserve every unrelated setting, and MUST refuse rather than overwrite
+    a `data.json` that is unparseable or not a JSON object, because that file
+    holds provider credentials and Zotero profiles. It registers the repo-root
+    venv's absolute `wiki` path when present, since a GUI app does not reliably
+    inherit the shell `PATH`. The caller is told to reload Obsidian, which
+    otherwise rewrites the file from memory on its next settings save.
 - `wiki testbed ...` — development validation fixtures.
 - `wiki devices ...` — synced-device/backend launcher diagnostics. Running
   `wiki devices` without a subcommand is equivalent to `wiki devices status`.

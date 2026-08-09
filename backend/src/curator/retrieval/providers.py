@@ -278,7 +278,7 @@ class LlamaCppReranker:
     (higher = more relevant). All llama-cpp specifics are guarded — a wrong API
     shape or model error raises, and the engine catches it to fall back to
     ``no_rerank`` rather than failing the query. Live validation requires
-    ``uv pip install -e './backend[rerank]'`` plus the GGUF model file.
+    ``./setup.sh`` (repo root) plus the GGUF model file.
     """
 
     # Qwen3-Reranker instruction template. The instruction-formatted input gives

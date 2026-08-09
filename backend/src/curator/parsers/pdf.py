@@ -139,7 +139,7 @@ def parse(path: Path) -> ParsedDocument:
     except ImportError as e:
         raise ParserError(
             "pymupdf4llm is not installed. Run `./setup.sh` from the repository root, "
-            "or `uv pip install -e './backend` for a backend-only repair."
+            "or, for the backend alone, `uv pip install --python '<repo>/.venv/bin/python' -e '<repo>/backend'`."
         ) from e
 
     try:

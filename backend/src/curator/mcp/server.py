@@ -40,8 +40,8 @@ try:
     from mcp.server.fastmcp import Context, FastMCP
 except ImportError as e:  # pragma: no cover - import-time hint
     raise ImportError(
-        "The `mcp` package is required. Install with: "
-        "uv pip install -e './backend[mcp]'"
+        "The `mcp` package is required. Run ./setup.sh from the repository "
+        "root — it installs the mcp extra into <repo>/.venv."
     ) from e
 
 from .. import config as cfg
@@ -3408,6 +3408,111 @@ ANTIGRAVITY_SNIPPET_TEMPLATE = '''{{
     }}
   }}
 }}'''
+
+
+def resolve_wiki_command() -> str:
+    """Absolute path to the repo-root venv's `wiki`, or the bare name.
+
+    The Obsidian plugin spawns this command itself, and a GUI app inherits the
+    login shell's PATH only sometimes — a bare "wiki" that resolves in the
+    user's terminal frequently does not resolve for the plugin. The repo keeps
+    its runtime venv at <repo>/.venv (never under backend/), so prefer that
+    interpreter's console script and fall back to the bare name only when it is
+    genuinely absent.
+    """
+    root = Path(__file__).resolve().parents[4]
+    candidate = root / ".venv" / "bin" / "wiki"
+    return str(candidate) if candidate.exists() else "wiki"
+
+
+def obsidian_plugin_data_path(paths: cfg.WikiPaths) -> Path:
+    """Where the Obsidian plugin persists its settings for this vault."""
+    return (
+        paths.root
+        / ".obsidian"
+        / "plugins"
+        / "incurator-obsidian-agent"
+        / "data.json"
+    )
+
+
+def install_obsidian_mcp_server(paths: cfg.WikiPaths) -> dict[str, Any]:
+    """Register the incurator MCP server in the Obsidian plugin's settings.
+
+    Unlike the Claude/Antigravity snippets, this WRITES. A plugin's `data.json`
+    is owned by Obsidian and is not something a user can sensibly hand-edit, and
+    without an entry here the sidechat has no curator tools at all: the tool
+    injection and the system-prompt section that describes them are both gated
+    on a configured server whose name contains "incurator".
+
+    Idempotent: an existing incurator entry is updated in place, so a re-run
+    repairs a stale command path instead of adding a duplicate. Every unrelated
+    setting in the file is preserved — the file is read, one key is changed, and
+    it is written back.
+
+    Returns a report: ``{action, path, entry, warning}``.
+    """
+    data_path = obsidian_plugin_data_path(paths)
+    if not data_path.parent.exists():
+        raise FileNotFoundError(
+            f"Obsidian plugin is not installed for this vault: {data_path.parent}"
+        )
+
+    existing: dict[str, Any] = {}
+    if data_path.exists():
+        raw = data_path.read_text(encoding="utf-8")
+        try:
+            loaded = json.loads(raw) if raw.strip() else {}
+        except ValueError as e:
+            # Never overwrite a file we could not parse: it holds the user's
+            # provider keys, Zotero profiles, and scroll state.
+            raise ValueError(f"{data_path} is not valid JSON ({e}); refusing to overwrite") from e
+        if not isinstance(loaded, dict):
+            raise ValueError(f"{data_path} does not contain a settings object; refusing to overwrite")
+        existing = loaded
+
+    entry = {
+        "name": "incurator",
+        "command": resolve_wiki_command(),
+        "args": ["mcp"],
+        "env": {"VAULT_ROOT": str(paths.root.resolve())},
+        "enabled": True,
+    }
+
+    servers = existing.get("mcpServers")
+    if not isinstance(servers, list):
+        servers = []
+    action = "added"
+    for i, server in enumerate(servers):
+        if isinstance(server, dict) and "incurator" in str(server.get("name", "")).lower():
+            action = "unchanged" if server == entry else "updated"
+            servers[i] = entry
+            break
+    else:
+        servers.append(entry)
+    existing["mcpServers"] = servers
+
+    if action != "unchanged":
+        tmp = data_path.with_name(f".{data_path.name}.tmp")
+        try:
+            tmp.write_text(
+                json.dumps(existing, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+            )
+            tmp.replace(data_path)
+        except OSError:
+            # Leave no orphan dotfile beside the user's settings if the rename
+            # fails after the write. `data.json` itself is untouched either way.
+            tmp.unlink(missing_ok=True)
+            raise
+
+    return {
+        "action": action,
+        "path": str(data_path),
+        "entry": entry,
+        # Obsidian holds settings in memory and rewrites this file on the next
+        # settings change, which would drop what we just wrote.
+        "warning": "Reload Obsidian now so it picks this up before saving settings again.",
+    }
 
 
 def render_install_snippets(paths: cfg.WikiPaths) -> dict[str, str]:

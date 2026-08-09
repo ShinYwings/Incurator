@@ -9,14 +9,31 @@ from .common import *
 mcp_app = typer.Typer(
     name="mcp",
     help="Run the Incurator MCP server or print client configuration snippets.",
-    no_args_is_help=True,
+    # NOT `no_args_is_help=True`: Typer applies that BEFORE the callback runs, so
+    # a bare `wiki mcp` exited 2 with a usage screen instead of serving — which
+    # is exactly how every MCP client is documented to launch it
+    # (`"command": "wiki", "args": ["mcp"]`). The server was therefore
+    # unstartable by any client since v0.34.0 — introduced by the v0.34.0
+    # cli.py decomposition (3c63dde), which also dropped the callback's
+    # `invoke_without_command`; both were present and working before it.
+    # An interactive user is still protected, but by `mcp_callback`'s own
+    # TTY branch, which prints a hand-written orientation block (what this
+    # command is for, how to install it, how to start it for debugging) and
+    # exits 0 — NOT Typer's generated usage screen listing `connect`/`install`,
+    # which is still reachable via `wiki mcp --help`.
     add_completion=False,
     rich_markup_mode="rich",
 )
 
-@mcp_app.callback()
+@mcp_app.callback(invoke_without_command=True)
 def mcp_callback(ctx: typer.Context) -> None:
-    """Default `wiki mcp` (no subcommand) starts the stdio server."""
+    """Default `wiki mcp` (no subcommand) starts the stdio server.
+
+    `invoke_without_command=True` is required for that to happen at all: without
+    it Typer rejects a bare `wiki mcp` with "Missing command" before this
+    function runs, so the server could never start from the documented client
+    config (`"args": ["mcp"]`).
+    """
     if ctx.invoked_subcommand is not None:
         return
 
@@ -46,7 +63,10 @@ def mcp_callback(ctx: typer.Context) -> None:
         from ..mcp import server as mcp_server
     except ImportError as e:
         _err(str(e))
-        _hint("Install with: [bold] uv pip install -e './backend[mcp]'[/bold]")
+        _hint(
+            "Run [bold]./setup.sh[/bold] from the repository root — it installs "
+            "the mcp extra into [cyan]<repo>/.venv[/cyan]."
+        )
         raise typer.Exit(code=1)
     mcp_server.serve_stdio()
 
@@ -126,28 +146,55 @@ def mcp_connect_cmd(
 def mcp_install_cmd(
     target: str = typer.Argument(
         "all",
-        help="Which client to print a snippet for: claude | antigravity | all.",
+        help="claude | antigravity | obsidian | all. `obsidian` WRITES; others print.",
     ),
 ) -> None:
-    """Print MCP config snippets to paste into your agent's settings.
+    """Print MCP config snippets, or register the server for the Obsidian plugin.
 
-    Does NOT modify any settings files — copy/paste the printed JSON into
-    your client's configuration manually. Both Claude (Code / Desktop) and
-    Antigravity use the same MCP `mcpServers` format.
+    `claude` / `antigravity` / `all` only PRINT a snippet to paste manually.
+
+    `obsidian` is different and does WRITE: the plugin's `data.json` is owned by
+    Obsidian rather than hand-edited, and without an entry there the sidechat has
+    no curator tools at all — both the tool injection and the system-prompt
+    section describing them are gated on a configured server whose name contains
+    "incurator". The write is idempotent and preserves every other setting.
     """
     paths = _resolve_root_or_die()
     try:
         from ..mcp import server as mcp_server
     except ImportError as e:
         _err(str(e))
-        _hint("Install with: [bold] uv pip install -e './backend[mcp]'[/bold]")
+        _hint(
+            "Run [bold]./setup.sh[/bold] from the repository root — it installs "
+            "the mcp extra into [cyan]<repo>/.venv[/cyan]."
+        )
         raise typer.Exit(code=1)
 
     snippets = mcp_server.render_install_snippets(paths)
     target = target.lower()
-    if target not in (consts.CLOUD_CLAUDE, consts.CLOUD_ANTIGRAVITY, "all"):
-        _err(f"Unknown target '{target}'. Use claude | antigravity | all.")
+    if target not in (consts.CLOUD_CLAUDE, consts.CLOUD_ANTIGRAVITY, "obsidian", "all"):
+        _err(f"Unknown target '{target}'. Use claude | antigravity | obsidian | all.")
         raise typer.Exit(code=1)
+
+    if target == "obsidian":
+        try:
+            report = mcp_server.install_obsidian_mcp_server(paths)
+        except (FileNotFoundError, ValueError) as e:
+            _err(str(e))
+            raise typer.Exit(code=1)
+        console.print()
+        console.rule("[bold]Obsidian plugin[/bold]")
+        verb = {
+            "added": "Registered",
+            "updated": "Updated",
+            "unchanged": "Already registered",
+        }[report["action"]]
+        _ok(f"{verb} the incurator MCP server in [cyan]{report['path']}[/cyan]")
+        console.print(f"  command: [cyan]{report['entry']['command']}[/cyan] mcp")
+        console.print(f"  VAULT_ROOT: [cyan]{report['entry']['env']['VAULT_ROOT']}[/cyan]")
+        console.print()
+        _hint(report["warning"])
+        return
 
     console.print()
     console.print(

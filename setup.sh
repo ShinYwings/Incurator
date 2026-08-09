@@ -73,10 +73,22 @@ echo ""
 echo "=== Installing Incurator backend into the repo-root service/runtime venv ==="
 cd "$ROOT_DIR"
 echo "=== Installing dependencies via uv or pip ==="
+# `[mcp]` is a RUNTIME feature, not a dev tool: it is how the Obsidian plugin's
+# chat and external agents reach the knowledge base at all. Leaving it out made
+# `wiki mcp install` fail on a fresh setup with "The `mcp` package is required",
+# and the sidechat silently had no curator tools to call. Dev-only check tools
+# still belong in .venv-dev, never here.
+#
+# --python pins the target interpreter to the repo-root venv so nothing is ever
+# installed into an ambient environment. Nothing is created under backend/
+# because this is `uv pip install` (the pip-compatible interface) rather than
+# `uv add`/`uv sync`/`uv lock` — those are the project commands that would write
+# a backend/uv.lock and a backend/.venv. The absolute path is for robustness
+# against the caller's cwd, not the reason no lockfile appears.
 if command -v uv &> /dev/null; then
-    uv pip install --python "$VIRTUAL_ENV/bin/python" -e "$ROOT_DIR/backend"
+    uv pip install --python "$VIRTUAL_ENV/bin/python" -e "$ROOT_DIR/backend[mcp]"
 else
-    pip install -e "$ROOT_DIR/backend"
+    pip install -e "$ROOT_DIR/backend[mcp]"
 fi
 
 echo ""

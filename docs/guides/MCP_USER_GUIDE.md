@@ -9,10 +9,15 @@ The **Incurator MCP Server** is the interface through which the Artist (human + 
 
 ## 1. Prerequisites
 
-Ensure you have the MCP dependencies installed:
+`./setup.sh` installs the MCP dependencies into `<repo>/.venv` (v0.53.0).
+To install just that extra into the repo-root venv:
 ```bash
-uv pip install -e './backend[mcp]'
+uv pip install --python "$(git rev-parse --show-toplevel)/.venv/bin/python" \
+  -e "$(git rev-parse --show-toplevel)/backend[mcp]"
 ```
+Naming the interpreter matters: a bare `uv pip install -e './backend[mcp]'`
+installs into whatever environment happens to be active. Every venv in this
+project lives at the repository root (`.venv` runtime, `.venv-dev` checks).
 
 The current server targets the MCP Python SDK 1.x `mcp.server.fastmcp` contract;
 the package metadata excludes MCP 2.x until that major API is migrated.
@@ -29,6 +34,38 @@ Run the following command to get a configuration snippet tailored for your clien
 wiki mcp install
 ```
 You can also specify a client: `wiki mcp install claude` or `wiki mcp install antigravity`.
+
+### Obsidian plugin (v0.53.0)
+
+The Obsidian plugin's settings live in a `data.json` that Obsidian owns, so this
+target **writes** instead of printing a snippet:
+
+```bash
+wiki mcp install obsidian
+```
+
+**This is required for the plugin's chat to reach your knowledge base at all.**
+The sidechat and Quick Query only receive `curator_query`, `curator_fetch_context`,
+`search_curator`, `curator_get_pdf_toc`, and `curator_get_pdf_context` when an
+enabled MCP server whose name contains `incurator` is configured — the tool
+injection *and* the system-prompt section describing those tools are both gated
+on it. With no entry, the chat answers only from the page and files you have
+open, and no amount of `wiki build` / `wiki sync` work is reachable from it.
+
+The command is idempotent: a stale or disabled `incurator` entry is repaired in
+place rather than duplicated, and every unrelated setting in the file is
+preserved. It uses the repo-root venv's absolute `wiki` path, because a GUI app
+does not reliably inherit the shell `PATH` that finds a bare `wiki`.
+
+> [!IMPORTANT]
+> **Reload Obsidian right after running it.** Obsidian keeps settings in memory
+> and rewrites `data.json` on the next settings change, which would discard the
+> entry that was just written.
+
+> [!NOTE]
+> `./setup.sh` installs the `mcp` extra into `<repo>/.venv` (v0.53.0). Before
+> that, a fresh setup left the package out and every MCP command failed with
+> "The `mcp` package is required".
 
 ### Example Configuration (`mcp_config.json` or `settings.json`)
 ```json

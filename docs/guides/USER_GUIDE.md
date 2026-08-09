@@ -1161,10 +1161,12 @@ the Obsidian dashboard's **System** card shows the live embed/reranker model
 identity + health — click the **Embed model** / **Reranker** rows to re-provision
 (`wiki plugin models refresh`). To (re)build the vector index after the models are
 healthy, run `wiki reindex --embed` (plain `wiki reindex` rebuilds FTS5/chunks only).
-If you need a manual backend-only repair, run
-`pip install -e './backend[rerank]'`. Do not run
-`uv pip install -e .` from the repository root; the Python project lives in
-`backend/`.
+If you need a manual backend-only repair, name the target interpreter
+explicitly — every venv in this project lives at the repository root:
+`uv pip install --python '<repo>/.venv/bin/python' -e '<repo>/backend[rerank]'`.
+Do not run `uv pip install -e .` from the repository root (the Python project
+lives in `backend/`), and do not run an unqualified `-e './backend[rerank]'`,
+which installs into whatever environment happens to be active.
 
 ### 3. Status Verification (`wiki status`)
 A comprehensive dashboard that provides a multi-dimensional diagnosis of your vault's health and the operational status of your AI engines. This is the first command you should check whenever you have questions during system operation.
