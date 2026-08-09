@@ -230,7 +230,10 @@ describe("Knowledge Sync watcher resilience", () => {
 describe("Temporary file hygiene", () => {
   it("stores PDF crop transcription temp files under the repo cache", () => {
     const src = mainSource();
-    const methodStart = src.indexOf("async transcribePdfCrop(base64: string)");
+    // Anchor on the name only. Pinning the full parameter list made this test
+    // fail the moment the signature grew a second parameter (v0.52.3), which
+    // silently sliced from index -1 rather than reporting a missing method.
+    const methodStart = src.indexOf("async transcribePdfCrop(");
     const methodEnd = src.indexOf("  private formatPdfExtractionFailure", methodStart);
     const body = src.slice(methodStart, methodEnd);
 

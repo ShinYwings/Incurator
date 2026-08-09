@@ -937,14 +937,28 @@ export default class ObsidianAIAgent extends Plugin {
     }
   }
 
-  async transcribePdfCrop(base64: string): Promise<{ latex: string; model?: string } | null> {
+  /**
+   * Transcribe a PNG crop to LaTeX, reporting failure in the CALLER's terms.
+   *
+   * `formatPdfExtractionFailure` ends with "Attached crop fallback.", which is
+   * true only for the chat snip path — there the crop image stays attached to
+   * the message when transcription fails. A caller that copies to the clipboard
+   * attaches nothing, so it must supply its own wording rather than tell the
+   * user about a fallback that did not happen. The default keeps the chat
+   * path's message byte-for-byte.
+   */
+  async transcribePdfCrop(
+    base64: string,
+    formatFailure: (detail: string) => string = (detail) =>
+      this.formatPdfExtractionFailure(detail),
+  ): Promise<{ latex: string; model?: string } | null> {
     if (!this.vaultRoot) {
-      new Notice(this.formatPdfExtractionFailure("Vault root is unavailable"));
+      new Notice(formatFailure("Vault root is unavailable"));
       return null;
     }
     const repoPath = this.resolveRepoPath();
     if (!repoPath) {
-      new Notice(this.formatPdfExtractionFailure("Incurator repository is unavailable"));
+      new Notice(formatFailure("Incurator repository is unavailable"));
       return null;
     }
     const baseDir = join(
@@ -961,10 +975,10 @@ export default class ObsidianAIAgent extends Plugin {
       if (result.ok && latex) {
         return { latex, model: result.model };
       }
-      new Notice(this.formatPdfExtractionFailure(result.error || "No transcription returned"));
+      new Notice(formatFailure(result.error || "No transcription returned"));
       return null;
     } catch (err) {
-      new Notice(this.formatPdfExtractionFailure(err instanceof Error ? err.message : String(err)));
+      new Notice(formatFailure(err instanceof Error ? err.message : String(err)));
       return null;
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });

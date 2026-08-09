@@ -45,7 +45,7 @@ import {
 } from "../../context/assetSource";
 
 import {
-  isUnreadableSelection,
+  countUnmappedGlyphs,
   sanitizePdfSelectionText,
 } from "../../utils/pdfSelectionText";
 import { EXTERNAL_PDF_VIEW_TYPE } from "./externalPdfViewType";
@@ -105,6 +105,18 @@ interface PdfDocument {
 interface PdfRenderTask {
   promise: Promise<void>;
   cancel: () => void;
+}
+
+/**
+ * A selection measured as a page-relative crop box, captured while the DOM
+ * selection is still live so it survives an intervening menu interaction.
+ */
+interface SelectionCropRect {
+  pageEl: HTMLElement;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
 }
 
 interface PdfPage {
@@ -1376,14 +1388,20 @@ export class ExternalPdfView extends ItemView {
 
   private attachPdfSelectionHandlers(pagesEl: HTMLElement): void {
     pagesEl.addEventListener("contextmenu", (e: MouseEvent) => {
-      const text = this.getSelectionTextWithinView();
-      if (!text) return;
+      // Snapshot the text AND the geometry together, here. The menu item runs
+      // later, and opening/clicking a menu can collapse the DOM selection —
+      // reading the rect at click time would leave the decision (made from this
+      // text) and the pixels (read from a possibly-gone selection) describing
+      // two different moments, and the crop would usually just fail.
+      const raw = this.getRawSelectionWithinView();
+      if (raw === null || !raw.trim()) return;
+      const rect = this.captureSelectionRect();
       const menu = new Menu();
       menu.addItem((item) =>
         item
           .setIcon("sigma")
           .setTitle("Convert to LaTeX (Copy)")
-          .onClick(() => this.convertSelectionToLatex(text))
+          .onClick(() => this.convertSelectionToLatexFromRaw(raw, rect))
       );
       menu.showAtMouseEvent(e);
     });
@@ -1398,22 +1416,163 @@ export class ExternalPdfView extends ItemView {
             const raw = this.getRawSelectionWithinView();
             if (raw === null) return;
             e.preventDefault();
-            // A region whose glyphs are all unmapped is not "nothing selected" —
-            // staying silent there is what made this read as a broken feature.
-            if (isUnreadableSelection(raw)) {
-              new Notice(
-                "This region has no readable text layer — it is an image. " +
-                  "Snip it instead, or run `wiki lint` to see unreadable regions."
-              );
-              return;
-            }
-            const text = sanitizePdfSelectionText(raw);
-            if (!text) return;
-            this.convertSelectionToLatex(text);
+            void this.convertSelectionToLatexFromRaw(raw, this.captureSelectionRect());
           }
         }
       );
     }
+  }
+
+  /**
+   * Choose the channel that can actually read this selection, then convert.
+   *
+   * A selection whose glyphs the PDF could not map carries no recoverable text:
+   * pdf.js emits U+0000 for each one, so the symbols exist only in the rendered
+   * pixels. Sending the text anyway — with those glyphs stripped, as v0.52.1
+   * did — produces a confidently wrong equation on the clipboard, which is
+   * worse than the crash it replaced. Read the pixels instead.
+   */
+  private async convertSelectionToLatexFromRaw(
+    raw: string,
+    rect: SelectionCropRect | null
+  ): Promise<void> {
+    if (!raw.trim()) return;
+
+    const unmapped = countUnmappedGlyphs(raw);
+    if (unmapped > 0) {
+      const crop = rect ? this.cropRectToBase64(rect) : null;
+      if (crop) {
+        await this.convertSelectionCropToLatex(crop, unmapped);
+        return;
+      }
+      // Cropping is the only honest route here, so say why it is unavailable
+      // rather than falling back to text we know is missing its symbols.
+      new Notice(
+        `This selection has ${unmapped} symbol(s) the PDF does not encode as ` +
+          `text (usually Greek letters or operators), and the page image could ` +
+          `not be captured to read them. Scroll the page fully into view and ` +
+          `retry, or snip the region with Cmd+Shift+X.`
+      );
+      return;
+    }
+
+    const text = sanitizePdfSelectionText(raw);
+    if (!text) return;
+    await this.convertSelectionToLatex(text);
+  }
+
+  /**
+   * Measure the current selection as a page-relative crop rect. Cheap: geometry
+   * only, no canvas work — so it is safe to run on every right-click, and it
+   * must run while the selection is still live.
+   */
+  private captureSelectionRect(): SelectionCropRect | null {
+    if (!this.pagesEl) return null;
+    const selection = this.pagesEl.ownerDocument.getSelection();
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null;
+
+    const range = selection.getRangeAt(0);
+
+    // Anchor to whichever page element actually contains the selection's start.
+    const anchor =
+      range.startContainer.nodeType === Node.ELEMENT_NODE
+        ? (range.startContainer as HTMLElement)
+        : range.startContainer.parentElement;
+    const pageEl = anchor?.closest<HTMLElement>(".pdf-page");
+    if (!pageEl) return null;
+
+    const pageRect = pageEl.getBoundingClientRect();
+    // Union the per-line rects that fall on THIS page rather than the range's
+    // overall bounding box. A selection running onto the next page has a
+    // bounding box spanning both pages and the gap between them, so cropping it
+    // would swallow every unselected line down to this page's bottom edge while
+    // still dropping the part that lives on the next page.
+    let minLeft = Infinity;
+    let minTop = Infinity;
+    let maxRight = -Infinity;
+    let maxBottom = -Infinity;
+    for (const r of Array.from(range.getClientRects())) {
+      if (r.width <= 0 || r.height <= 0) continue;
+      // Keep a line rect only if its vertical midpoint sits inside this page.
+      const mid = r.top + r.height / 2;
+      if (mid < pageRect.top || mid > pageRect.bottom) continue;
+      minLeft = Math.min(minLeft, r.left);
+      minTop = Math.min(minTop, r.top);
+      maxRight = Math.max(maxRight, r.right);
+      maxBottom = Math.max(maxBottom, r.bottom);
+    }
+    if (!Number.isFinite(minLeft) || maxRight <= minLeft || maxBottom <= minTop) {
+      return null;
+    }
+
+    // A little padding: glyph boxes clip ascenders/descenders, and a tight crop
+    // of an equation loses the very sub/superscripts that carry its meaning.
+    const pad = 6;
+    const left = Math.max(0, minLeft - pageRect.left - pad);
+    const top = Math.max(0, minTop - pageRect.top - pad);
+    const width = Math.min(pageEl.clientWidth - left, maxRight - minLeft + pad * 2);
+    const height = Math.min(pageEl.clientHeight - top, maxBottom - minTop + pad * 2);
+    if (width <= 0 || height <= 0) return null;
+
+    return { pageEl, left, top, width, height };
+  }
+
+  /** Rasterize a previously measured crop rect from the rendered page canvas. */
+  private cropRectToBase64(rect: SelectionCropRect): string | null {
+    let captured: string | null = null;
+    this.extractCanvasRegion(
+      rect.pageEl,
+      rect.left,
+      rect.top,
+      rect.width,
+      rect.height,
+      (base64) => {
+        captured = base64;
+      }
+    );
+    return captured;
+  }
+
+  private async convertSelectionCropToLatex(base64: string, unmapped: number): Promise<void> {
+    if (!this.plugin) {
+      new Notice("Incurator backend not available.");
+      return;
+    }
+    new Notice(
+      `Reading ${unmapped} unencoded symbol(s) from the page image…`
+    );
+    let latex = "";
+    try {
+      // Supply this path's own failure wording. `transcribePdfCrop`'s default
+      // ends with "Attached crop fallback.", which is true for the chat snip
+      // (the image stays attached to the message) and false here — nothing is
+      // attached when the destination is the clipboard.
+      const result = await this.plugin.transcribePdfCrop(
+        base64,
+        (detail: string) =>
+          `LaTeX conversion failed while reading the page image` +
+          `${detail ? `: ${detail}` : ""}. Nothing was copied.`
+      );
+      latex = result?.latex?.trim() || "";
+    } catch (err) {
+      logger.error("LaTeX conversion from crop failed:", err);
+      const detail = err instanceof Error ? err.message : String(err);
+      new Notice(`LaTeX conversion failed: ${detail}`);
+      return;
+    }
+    if (!latex) {
+      // transcribePdfCrop already showed the specific failure notice.
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(latex);
+    } catch (err) {
+      logger.error("LaTeX clipboard write failed:", err);
+      const detail = err instanceof Error ? err.message : String(err);
+      new Notice(`Converted, but the clipboard write was refused: ${detail}`);
+      return;
+    }
+    new Notice("LaTeX copied to clipboard.");
   }
 
   private async convertSelectionToLatex(rawText: string): Promise<void> {
