@@ -30,6 +30,38 @@ wiki mcp install
 ```
 You can also specify a client: `wiki mcp install claude` or `wiki mcp install antigravity`.
 
+### Obsidian plugin (v0.53.0)
+
+The Obsidian plugin's settings live in a `data.json` that Obsidian owns, so this
+target **writes** instead of printing a snippet:
+
+```bash
+wiki mcp install obsidian
+```
+
+**This is required for the plugin's chat to reach your knowledge base at all.**
+The sidechat and Quick Query only receive `curator_query`, `curator_fetch_context`,
+`search_curator`, `curator_get_pdf_toc`, and `curator_get_pdf_context` when an
+enabled MCP server whose name contains `incurator` is configured — the tool
+injection *and* the system-prompt section describing those tools are both gated
+on it. With no entry, the chat answers only from the page and files you have
+open, and no amount of `wiki build` / `wiki sync` work is reachable from it.
+
+The command is idempotent: a stale or disabled `incurator` entry is repaired in
+place rather than duplicated, and every unrelated setting in the file is
+preserved. It uses the repo-root venv's absolute `wiki` path, because a GUI app
+does not reliably inherit the shell `PATH` that finds a bare `wiki`.
+
+> [!IMPORTANT]
+> **Reload Obsidian right after running it.** Obsidian keeps settings in memory
+> and rewrites `data.json` on the next settings change, which would discard the
+> entry that was just written.
+
+> [!NOTE]
+> `./setup.sh` installs the `mcp` extra into `<repo>/.venv` (v0.53.0). Before
+> that, a fresh setup left the package out and every MCP command failed with
+> "The `mcp` package is required".
+
 ### Example Configuration (`mcp_config.json` or `settings.json`)
 ```json
 {

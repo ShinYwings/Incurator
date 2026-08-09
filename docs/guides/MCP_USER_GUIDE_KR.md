@@ -30,6 +30,37 @@ wiki mcp install
 ```
 특정 클라이언트를 지정할 수도 있습니다: `wiki mcp install claude` 또는 `wiki mcp install antigravity`.
 
+### Obsidian 플러그인 (v0.53.0)
+
+Obsidian 플러그인의 설정은 Obsidian이 소유하는 `data.json`에 저장되므로, 이
+타깃은 스니펫을 출력하는 대신 **직접 기록합니다**:
+
+```bash
+wiki mcp install obsidian
+```
+
+**플러그인 채팅이 지식 베이스에 접근하려면 이 설정이 반드시 필요합니다.**
+사이드챗과 Quick Query는 이름에 `incurator`가 포함된 활성 MCP 서버가 설정되어
+있을 때만 `curator_query`, `curator_fetch_context`, `search_curator`,
+`curator_get_pdf_toc`, `curator_get_pdf_context`를 전달받습니다 — 도구 주입과
+그 도구들을 설명하는 시스템 프롬프트 섹션이 **둘 다** 이 조건에 걸려 있습니다.
+항목이 없으면 채팅은 열려 있는 페이지와 파일만 보고 답하며, `wiki build` /
+`wiki sync`로 쌓은 결과에는 전혀 접근하지 못합니다.
+
+이 명령은 멱등합니다: 오래되었거나 비활성화된 `incurator` 항목은 중복 생성 없이
+제자리에서 수리되고, 파일의 다른 설정은 모두 보존됩니다. GUI 앱은 셸 `PATH`를
+그대로 물려받지 못하는 경우가 많으므로, 저장소 루트 venv의 절대 경로 `wiki`를
+사용합니다.
+
+> [!IMPORTANT]
+> **실행 직후 Obsidian을 리로드하세요.** Obsidian은 설정을 메모리에 들고 있다가
+> 다음 설정 변경 시 `data.json`을 다시 쓰므로, 방금 기록한 항목이 사라질 수 있습니다.
+
+> [!NOTE]
+> `./setup.sh`가 `mcp` extra를 `<repo>/.venv`에 설치합니다 (v0.53.0). 그 전에는
+> 새로 setup한 환경에 이 패키지가 빠져 있어서 모든 MCP 명령이
+> "The `mcp` package is required" 오류로 실패했습니다.
+
 ### 설정 예시 (`mcp_config.json` 또는 `settings.json`)
 ```json
 {

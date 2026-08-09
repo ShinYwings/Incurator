@@ -2,6 +2,57 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.53.0] - 2026-08-09
+### Fixed
+- **The MCP Server Could Not Be Started By Any Client Since v0.34.0**
+  Every documented client config launches it as
+  `{"command": "wiki", "args": ["mcp"]}`. A bare `wiki mcp` exited **2** with a
+  usage screen instead of serving, so no client ever got a session. Two
+  independent Typer settings caused it: `no_args_is_help=True` short-circuits to
+  help before the callback runs, and a callback without
+  `invoke_without_command=True` is rejected earlier still with "Missing
+  command" — the `mcp_callback` written to start the server on a bare invocation
+  was unreachable. Both fixed; the TTY guard inside the callback still prints
+  usage for a human, so only piped clients get a server. Verified end to end: a
+  piped `initialize` now returns a handshake and `tools/list` returns **50**
+  tools.
+- **`./setup.sh` Never Installed The `mcp` Extra**
+  The runtime venv got `-e backend` without `[mcp]`, so a fresh setup failed
+  every MCP command with "The `mcp` package is required". `[mcp]` is a runtime
+  feature — it is how the plugin's chat and external agents reach the knowledge
+  base — not a dev tool, so it belongs in `<repo>/.venv`. Dev-only check tools
+  still go to `.venv-dev`.
+- **Install Hints Told Users To Run An Unqualified `uv pip install`**
+  Seven sites printed `uv pip install -e './backend[...]'`, which names no
+  target interpreter: it installs into whatever environment happens to be
+  active and can leave artifacts under `backend/`. This project keeps every venv
+  at the repository root. All seven now point at `./setup.sh`, or spell out
+  `--python <repo>/.venv/bin/python` where a targeted extra is genuinely needed.
+
+### Added
+- **`wiki mcp install obsidian` — Registers The Server The Plugin Chat Requires**
+  Unlike the `claude` / `antigravity` targets, which print a snippet to paste,
+  this one **writes**: a plugin's `data.json` is owned by Obsidian and is not
+  meaningfully hand-edited.
+
+  It closes a gap that made every retrieval improvement invisible from the
+  plugin. Measured on the reporting vault, `mcpServers` was `[]` — and both the
+  MCP tool injection and the system-prompt section that describes
+  `curator_query` / `curator_fetch_context` / `search_curator` /
+  `curator_get_pdf_context` are gated on an enabled server whose name contains
+  `incurator`. With no entry the sidechat cannot call the knowledge base at all,
+  regardless of how well the backend answers `wiki query`.
+
+  Safety properties, each covered by a test: idempotent (a stale or disabled
+  `incurator` entry is repaired in place, never duplicated); every unrelated
+  setting is preserved; a `data.json` that is unparseable or not an object is
+  refused rather than overwritten, because that file holds provider keys and
+  Zotero profiles; and the registered command is the repo-root venv's absolute
+  `wiki` path, since a GUI app does not reliably inherit the shell `PATH`.
+
+  Minor rather than Patch: this adds a new user-facing CLI capability that
+  mutates client configuration.
+
 ## [0.52.3] - 2026-08-09
 ### Fixed
 - **Convert-to-LaTeX Silently Deleted Every Greek Letter (regression from v0.52.1)**

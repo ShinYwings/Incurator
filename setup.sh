@@ -73,10 +73,19 @@ echo ""
 echo "=== Installing Incurator backend into the repo-root service/runtime venv ==="
 cd "$ROOT_DIR"
 echo "=== Installing dependencies via uv or pip ==="
+# `[mcp]` is a RUNTIME feature, not a dev tool: it is how the Obsidian plugin's
+# chat and external agents reach the knowledge base at all. Leaving it out made
+# `wiki mcp install` fail on a fresh setup with "The `mcp` package is required",
+# and the sidechat silently had no curator tools to call. Dev-only check tools
+# still belong in .venv-dev, never here.
+#
+# --python pins the target interpreter to the repo-root venv so nothing is ever
+# installed into an ambient environment, and the `-e <root>/backend` path is
+# absolute so no uv.lock or .venv is created under backend/.
 if command -v uv &> /dev/null; then
-    uv pip install --python "$VIRTUAL_ENV/bin/python" -e "$ROOT_DIR/backend"
+    uv pip install --python "$VIRTUAL_ENV/bin/python" -e "$ROOT_DIR/backend[mcp]"
 else
-    pip install -e "$ROOT_DIR/backend"
+    pip install -e "$ROOT_DIR/backend[mcp]"
 fi
 
 echo ""
