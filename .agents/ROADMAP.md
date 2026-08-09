@@ -167,6 +167,21 @@ name for a PDF, and a running job cannot be cancelled.
 - Web Search Integration — no current plan; re-plan from current provider,
   privacy, and cost constraints.
 
+### 10. PDF whole-document search — PLANNED, awaiting approval
+
+`pdfFullDocumentIndex` ("Background page indexing") has **0 consumers** — the
+toggle writes a value nothing reads, so `search_pdf_anchor` can only find
+content on pages already rendered. The chat can read any page it can *name*
+(`fetch_pdf_page`) but cannot *locate* one.
+
+Arena concluded: `.agents/plans/pdf_background_index_arena/`
+Master plan: `.agents/plans/04_pdf_background_index.md` (v0.54.0)
+
+Two defects the Arena verified, both of which must be fixed before any walk:
+- `upsertPage` is **quadratic** — 226,801 tokenize calls for 673 pages (337x).
+- A naive `notifyContextChanged()` progress tick cascades into an unconditional
+  main-thread BM25 search + chip rebuild, ~27 times per book open.
+
 ## Blocked / Icebox
 
 - None.
