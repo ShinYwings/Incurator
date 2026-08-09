@@ -404,7 +404,7 @@ class TestReferenceModePreservation:
                 # Far-future sentinel, NOT a plausible date. The peer only wins
                 # if it is newer than the local row, whose `updated_at` the
                 # `sources_touch_updated_at` trigger stamps with *now* on INSERT.
-                # This was "2099-01-01T00:00:00.000Z" and went red at midnight on
+                # This was "2026-08-09T00:00:00.000Z" and went red at midnight on
                 # 2026-08-09, when "now" overtook it and the merge was correctly
                 # refused — the assertion, not the code, was wrong.
                 "updated_at": "2099-01-01T00:00:00.000Z",
