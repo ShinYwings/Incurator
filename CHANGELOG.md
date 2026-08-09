@@ -2,6 +2,59 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.52.2] - 2026-08-09
+### Fixed
+- **§26.2b Extraction-Loss Recording Had Never Run On The Existing Corpus**
+  User-reported through its symptom: a question about equation 29 of "3D Line
+  Mapping Revisited" returned *"수식 29의 텍스트를 가져올 수 없어…"* and then
+  pivoted to a different equation, saying nothing about why.
+
+  Measured, the hedge was true but useless. Equation 29 is `SPAN-5a4b5830`, and
+  its stored text is, in full, `**==> picture [185 x 12] intentionally omitted
+  <==**`. Its neighbours by document order are "Then inserting into (28) we get"
+  and "which is a rational function in _µ_ … Backsubstituting into (29)…", both
+  under `section_title = "B.2 . M1. Triangulation with Multiple Points"` — the
+  Supplementary Section B the answer guessed at. Retrieval reached the right
+  neighbourhood; the equation itself was never ingested.
+
+  Two defects, both closed:
+
+  1. *The record was never written for older spans.* `classify_span_loss` is
+     called only from the span **builder** (`spans_from_sections`), so it runs
+     at ingest time and never revisits an existing row. On the reporting vault
+     that left **132 placeholder spans carrying 2 loss records between them**,
+     both classified the day v0.49.0's check was exercised. The feature worked
+     and had simply never run on the corpus it was built for. New
+     `backfill_span_loss` closes this with no provider call, no re-parse, and no
+     schema change — the verdict is a pure function of text already stored. It
+     runs with the deterministic structural repairs in `wiki sync` (skipped by
+     `--no-fix`/`--dry-run`), reports its count, and is idempotent: a span that
+     already carries a `loss` key is never rewritten, so an ingest-time record
+     always wins. A span whose `metadata` is unparseable JSON is skipped rather
+     than replaced. Measured on a copy of the reporting vault: 2 → 132 records,
+     with a second run writing 0.
+  2. *Nothing in retrieval knew what the placeholder meant.* All 132 placeholder
+     spans are in the search index and can be retrieved, and evidence assembly
+     passed the raw parser string through to the model, where it conveys
+     nothing. `_span_items` now substitutes a description that states the region
+     is an image, its geometry when the parser stated one, that no transcription
+     exists, that the model must not guess at its contents, and both remedies
+     (snip it, or set §26.2a `llm.vision_model` and re-add). This withholds no
+     evidence — there is no text in such a span to withhold. The wording has one
+     definition (`describe_span_loss`) so CLI, projection, and retrieval cannot
+     drift, and retrieval falls back to classifying from stored text so a vault
+     that has not yet run `wiki sync` still gets a truthful answer.
+
+  End-to-end on the real span, equation 29 now serves:
+  `[unreadable region] The source stores this as a 185x12 image, so its text was
+  never extracted … snip the region in the PDF viewer, or set
+  `llm.vision_model` … and re-add the source.`
+
+  **This still does not recover the equation.** Recovery is §26.2 / ROADMAP
+  item 1 and remains blocked on its three prerequisites. What changes is that
+  the system now names exactly what is missing and how to obtain it, instead of
+  hedging around a gap it could not describe.
+
 ## [0.52.1] - 2026-08-09
 ### Fixed
 - **The Job Indicator Spun Forever While `wiki jobs list` Showed Nothing**

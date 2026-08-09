@@ -195,6 +195,22 @@ Obsidian plugin JSON 호출용 `wiki plugin ...`, 외부 에이전트용 `wiki m
 > **wiki sync 기본 동작 변경 (v0.2.1)**: 변경되지 않은 DAG에서 `wiki sync`는 content_hash 검사만 수행합니다(~0.6초).
 > 변경된 노드와 그 하위 노드만 LLM으로 재검증됩니다. 전체 재검증을 원하면 `--full`을 사용하세요.
 
+> **wiki sync가 읽지 못한 영역을 기록합니다 (v0.52.2)**: 수식을 그림으로 저장하는
+> PDF는 ingest 단계에서 해당 영역을 통째로 잃습니다 — 그 텍스트는 지식 베이스에
+> 아예 들어오지 않습니다. `wiki lint`는 v0.49.0부터 이를 보고해 왔지만, 기록 자체는
+> v0.49.0 이후에 ingest된 소스에만 남아 있었습니다. 이제 `wiki sync`가 이전 소스에
+> 대해 이를 backfill하고 개수를 보고합니다
+> (`Recorded 130 unreadable region(s) that predate the extraction-loss check.`).
+> 결정적이며, 제공자 호출이 없고, 디스크를 다시 읽지 않으며, 멱등하므로 몇 번이든
+> 실행해도 됩니다. `--no-fix`와 `--dry-run`은 다른 복구와 마찬가지로 이 단계를
+> 건너뜁니다.
+>
+> 사용자에게 달라지는 점: 질문이 그런 영역에 걸리면, 이제 답변이 해당 영역이
+> 이미지라는 사실과 크기를 알려주고, 그것을 읽는 두 가지 방법 — PDF 뷰어에서 스닙,
+> 또는 `.curator/settings.yml`에 `llm.vision_model`을 설정하고 소스를 다시 add —
+> 을 함께 제시합니다. 이전에는 이유를 말하지 않고 얼버무렸습니다. **이것으로 수식이
+> 복구되지는 않습니다**; 무엇이 없는지와 어떻게 얻는지를 정확히 알려줄 뿐입니다.
+
 > **Curation-native 질의**:
 > - **Workspace Agent**: 워크스페이스가 지정되면 `curate.yml`의 페르소나와
 >   Knowledge Requirement Spec을 사용합니다.

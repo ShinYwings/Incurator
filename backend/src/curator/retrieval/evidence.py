@@ -8,6 +8,7 @@ is incomplete, evidence degrades with a warning.
 
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from pathlib import Path
@@ -15,6 +16,7 @@ from pathlib import Path
 from .. import config as cfg
 from .. import curate_yml, db
 from ..pipeline import memory_paths as mp
+from ..pipeline.source_spans import classify_span_loss, describe_span_loss
 from .models import EvidenceItem, EvidencePack, QueryRequest, StructuredLocator
 
 __all__ = ["build_evidence", "seed_terms"]
@@ -291,17 +293,47 @@ def _span_items(db_path: Path, span_ids: list[str]) -> list[EvidenceItem]:
         text = full.get(span["id"])
         sid = span.get("source_id")
         locator = _build_locator(span, src_meta.get(sid, {}) if sid is not None else {})
+        body = text if text is not None else span.get("text_preview", "")
+        # A region the parser could not read reaches the model as a bare artifact
+        # (`**==> picture [185 x 12] intentionally omitted <==**`) unless we say
+        # what it is. That produced answers that hedged — "I cannot retrieve the
+        # text of equation 29" — without ever naming the cause or the remedy.
+        # Substituting the description does not hide evidence: there is no text
+        # here to hide, and the artifact conveys nothing the description does not.
+        loss = _span_loss(span)
+        if loss is not None:
+            body = describe_span_loss(loss)
         items.append(
             EvidenceItem(
                 id=span["id"], kind="source_span",
                 title=span.get("section_title") or span.get("relpath", ""),
-                text=text if text is not None else span.get("text_preview", ""),
+                text=body,
                 evidence_status="ok" if text is not None else "stale",
                 source_span_ids=[span["id"]],
                 locator=locator,
             )
         )
     return items
+
+
+def _span_loss(span: dict) -> dict | None:
+    """Read a span's §26.2b loss record, tolerating rows never backfilled.
+
+    Falls back to classifying the stored text directly: `backfill_span_loss`
+    fills the record in during `wiki sync`, but a vault that has not synced yet
+    must still get a truthful answer rather than the raw parser artifact.
+    """
+    raw = span.get("metadata")
+    if raw:
+        try:
+            metadata = json.loads(raw) if isinstance(raw, str) else raw
+        except (TypeError, ValueError):
+            metadata = None
+        if isinstance(metadata, dict):
+            loss = metadata.get("loss")
+            if isinstance(loss, dict):
+                return loss
+    return classify_span_loss(str(span.get("text_preview") or ""))
 
 
 def _report_score(rep: dict, query_terms: set[str]) -> float:

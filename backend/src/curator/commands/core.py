@@ -1107,6 +1107,19 @@ def sync(
         structural_fixed = 0
         rebuilt = 0
         if should_fix:
+            # Backfill §26.2b loss records onto spans stored before the check
+            # existed. Deterministic, idempotent, no provider call — it only
+            # re-derives a verdict from text already in the DB, which is why it
+            # belongs with the static repairs rather than behind its own command.
+            from ..pipeline.source_spans import backfill_span_loss
+
+            loss_backfilled = backfill_span_loss(paths.state_db)
+            if loss_backfilled:
+                _ok(
+                    f"Recorded {loss_backfilled} unreadable region(s) that predate "
+                    f"the extraction-loss check."
+                )
+
             console.print("[dim]Applying safe structural lint repairs...[/dim]")
             # Static repairs (deterministic)
             fixed_count = lint_module.apply_fixes(paths, structural_report.issues, progress_callback=cb.on_node_check)
