@@ -1839,24 +1839,40 @@ export class ChatSidebarView extends ItemView {
             pageLabels: pdf.pageLabels,
           },
           async (pageNum) => {
+            // Try backend first (for tracked/indexed PDFs).
             if (
-              !client.available ||
-              (!sourcePath && !sourceStatus?.sourceId && !pdf.fileHash && !pdf.zoteroAttachmentKey)
+              client.available &&
+              (sourcePath || sourceStatus?.sourceId || pdf.fileHash || pdf.zoteroAttachmentKey)
             ) {
-              return undefined;
+              try {
+                const startedAt = performance.now();
+                const targetCtx = await client.getPdfContext({
+                  filePath: sourcePath,
+                  sourceId: sourceStatus?.sourceId,
+                  fileHash: pdf.fileHash,
+                  zoteroAttachmentKey: pdf.zoteroAttachmentKey,
+                  pageNum,
+                  radius: 0,
+                  maxPages: 1,
+                });
+                this.logContextTiming("backend_pdf_reference", startedAt, docLabel);
+                const text = targetCtx?.pages.find((page) => page.pageNum === pageNum)?.text;
+                if (text?.trim()) return text;
+              } catch {
+                // Backend failed; fall through to viewer fallback.
+              }
             }
-            const startedAt = performance.now();
-            const targetCtx = await client.getPdfContext({
-              filePath: sourcePath,
-              sourceId: sourceStatus?.sourceId,
-              fileHash: pdf.fileHash,
-              zoteroAttachmentKey: pdf.zoteroAttachmentKey,
-              pageNum,
-              radius: 0,
-              maxPages: 1,
-            });
-            this.logContextTiming("backend_pdf_reference", startedAt, docLabel);
-            return targetCtx?.pages.find((page) => page.pageNum === pageNum)?.text;
+            // Fallback: read directly from the PDF.js viewer. The viewer
+            // already has the full document in memory (regardless of source:
+            // local file, Zotero cloud, any URL) so this works even when the
+            // backend is offline or the PDF is untracked. Without this
+            // fallback, an unresolved distant reference forced CLI providers
+            // into a shell-command attempt that the headless sandbox denied
+            // ("jetski: no output produced").
+            const pinnedView = this.app.workspace.getActiveViewOfType(ExternalPdfView);
+            if (!pinnedView) return undefined;
+            const fetchedPage = await pinnedView.fetchPage(pageNum);
+            return fetchedPage?.text ?? undefined;
           },
           // Whole-document locator. The adjacent probe only reaches +/-2 pages,
           // so asking about a formula 20+ pages away used to leave the
