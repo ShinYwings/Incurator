@@ -78,8 +78,7 @@ export function boundaryConstraints(profile: SurfaceProfile): string {
         "needed to answer the question, you may supplement your answer with your " +
         "general knowledge. When doing so, you MUST explicitly state that the " +
         "information comes from general knowledge, not from the document " +
-        "(e.g. '문맥에는 해당 내용이 없지만, 일반적으로…' or " +
-        "'The document does not cover this, but based on general knowledge…'). " +
+        "(e.g. 'The document does not cover this, but based on general knowledge…'). " +
         "Never pretend that general knowledge came from the document."
       );
     case "auto":
