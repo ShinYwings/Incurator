@@ -2289,9 +2289,22 @@ the `find_mvg_text.py`-style exploit). This section governs the CLI path.
     are REMOVED. Containment is the OS sandbox (below); agy is REFUSED if it cannot
     be OS-sandboxed. Antigravity CLI 1.1.3+ soft-denies a tool that would require
     an interactive confirmation during `-p`/headless execution. Before launching
-    agy, the plugin MUST atomically merge the single read-only rule
-    `$read_file$()` into `permissions.allow` in the CLI-owned
-    `~/.gemini/antigravity-cli/settings.json`. It MUST preserve unknown top-level
+    agy, the plugin MUST atomically merge its required rules into
+    `permissions.allow` in the CLI-owned
+    `~/.gemini/antigravity-cli/settings.json`: the read-only rule `read_file()`
+    and the scoped spawn rule `command(wiki)`.
+    **Rule syntax is load-bearing (v0.53.1).** Antigravity validates that list,
+    silently prunes entries it does not recognise, and deletes an emptied
+    `permissions` object outright. The `$`-wrapped form `$read_file$()` shipped
+    from the rule's introduction until v0.53.1 is NOT recognised, so the grant
+    survived zero CLI invocations and every headless tool call was auto-denied
+    ("jetski: no output produced"). Measured: `read_file()` and `command(wiki)`
+    survive; `$read_file$()`, `$command$()`, and `run_shell_command()` are
+    pruned. A test MUST pin the rule *format* — asserting only that a string was
+    written is what allowed this to ship undetected.
+    `command(wiki)` exists because spawning the configured MCP server is a
+    command, and is deliberately SCOPED: a bare `command()` is the blanket
+    bypass this section forbids and MUST NOT be written. It MUST preserve unknown top-level
     keys, unknown `permissions` keys, and existing allow entries, and MUST refuse
     to overwrite malformed JSON or a non-array `permissions.allow`. This approval
     does not grant a path: non-ephemeral path visibility remains the separate

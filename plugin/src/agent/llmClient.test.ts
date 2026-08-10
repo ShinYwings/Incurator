@@ -386,18 +386,62 @@ describe("Antigravity headless read permission sync", () => {
     return join(testRoot, ".gemini");
   }
 
-  it("creates the live Antigravity CLI settings with only the narrow read rule", () => {
+  it("creates the live Antigravity CLI settings with the narrow read + scoped command rules", () => {
     const geminiDir = freshGeminiDir();
 
     syncAgyHeadlessReadPermission(geminiDir);
 
     const settingsPath = join(geminiDir, "antigravity-cli", "settings.json");
     expect(JSON.parse(readFileSync(settingsPath, "utf-8"))).toEqual({
-      permissions: { allow: ["$read_file$()"] },
+      permissions: { allow: ["read_file()", "command(wiki)"] },
     });
   });
 
-  it("preserves unknown settings and permission rules while deduplicating read_file", () => {
+  it("never writes a rule Antigravity would prune", () => {
+    // THE REGRESSION THIS FILE MISSED FOR ~20 RELEASES. Antigravity validates
+    // permissions.allow, silently drops entries it does not recognise, and then
+    // removes an emptied `permissions` object entirely. The shipped rule was
+    // `$read_file$()`, which is not a recognised form, so the grant survived
+    // exactly zero CLI invocations and every tool call was auto-denied
+    // ("jetski: no output produced"). The old assertions here passed the whole
+    // time because they only proved we WROTE a string, never that it was valid.
+    //
+    // Measured against the real CLI:
+    //   $read_file$()        -> permissions key deleted
+    //   read_file()          -> survives
+    //   command(wiki)        -> survives
+    //   $command$()          -> pruned
+    //   run_shell_command()  -> pruned
+    const geminiDir = freshGeminiDir();
+    syncAgyHeadlessReadPermission(geminiDir);
+
+    const written = JSON.parse(
+      readFileSync(join(geminiDir, "antigravity-cli", "settings.json"), "utf-8"),
+    ) as { permissions: { allow: string[] } };
+
+    for (const rule of written.permissions.allow) {
+      expect(rule, `"${rule}" uses the $-wrapped form Antigravity prunes`)
+        .not.toMatch(/^\$.*\$\(/);
+      expect(rule).toMatch(/^[a-z_]+\([^)]*\)$/);
+    }
+  });
+
+  it("scopes the command rule instead of granting a blanket bypass", () => {
+    // v0.23.0 posture: NO blanket permission-skip. `command()` would allow the
+    // model to run anything; `command(wiki)` allows only spawning the MCP
+    // server the plugin itself configured.
+    const geminiDir = freshGeminiDir();
+    syncAgyHeadlessReadPermission(geminiDir);
+
+    const { permissions } = JSON.parse(
+      readFileSync(join(geminiDir, "antigravity-cli", "settings.json"), "utf-8"),
+    ) as { permissions: { allow: string[] } };
+
+    expect(permissions.allow).toContain("command(wiki)");
+    expect(permissions.allow).not.toContain("command()");
+  });
+
+  it("preserves unknown settings and permission rules while deduplicating its own", () => {
     const geminiDir = freshGeminiDir();
     const cliDir = join(geminiDir, "antigravity-cli");
     mkdirSync(cliDir, { recursive: true });
@@ -405,8 +449,8 @@ describe("Antigravity headless read permission sync", () => {
       model: "Gemini 3.6 Flash",
       custom: { future: true },
       permissions: {
-        allow: ["$run_command$(git status)", "$read_file$()"],
-        ask: ["$write_file$()"],
+        allow: ["command(git status)", "read_file()", "command(wiki)"],
+        ask: ["write_file()"],
       },
     }));
 
@@ -416,8 +460,8 @@ describe("Antigravity headless read permission sync", () => {
       model: "Gemini 3.6 Flash",
       custom: { future: true },
       permissions: {
-        allow: ["$run_command$(git status)", "$read_file$()"],
-        ask: ["$write_file$()"],
+        allow: ["command(git status)", "read_file()", "command(wiki)"],
+        ask: ["write_file()"],
       },
     });
   });

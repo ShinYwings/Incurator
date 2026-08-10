@@ -2,6 +2,48 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.53.1] - 2026-08-09
+### Fixed
+- **"jetski: no output produced" — The Permission Rule Was Never Valid**
+  Reported repeatedly since v0.30 and declared fixed several times. The real
+  cause is a malformed permission string that Antigravity silently discards.
+
+  The plugin grants the Antigravity CLI a narrow headless read permission by
+  writing `permissions.allow` into `~/.gemini/antigravity-cli/settings.json`.
+  The rule it wrote was `$read_file$()`. **Antigravity validates that list,
+  prunes entries it does not recognise, and then deletes an emptied
+  `permissions` object entirely** — so the grant survived exactly zero CLI
+  invocations. Every tool the model reached for in headless mode was
+  auto-denied, producing empty output. Measured against the real CLI:
+
+  ```
+  $read_file$()        -> permissions key deleted
+  read_file()          -> survives
+  command(wiki)        -> survives
+  $command$()          -> pruned
+  run_shell_command()  -> pruned
+  ```
+
+  The rule is now `read_file()`. The re-assert was never the problem —
+  `syncAgyMcpConfig()` already runs immediately before every `agy` spawn; it was
+  re-writing an invalid rule each time.
+
+  **Why previous fixes missed it.** They reshaped the *prompt* so the model
+  would be less likely to reach for a denied tool — a mitigation of the symptom.
+  And the unit tests asserted the exact broken string (`allow: ["$read_file$()"]`),
+  so they passed on every release while the grant was being discarded. A test
+  that proves we wrote a string is not a test that the string works; the suite
+  now pins the rule *format* and rejects the `$`-wrapped form outright.
+
+- **The MCP Server Could Not Be Spawned From Chat**
+  Calling a curator tool requires Antigravity's `command` permission, because
+  the MCP server is spawned as a command. This became reachable only in v0.53.0,
+  when the Obsidian plugin first got an `incurator` MCP entry — before that the
+  model had no curator tool to call, so the denial never fired on this path.
+  Granted as **`command(wiki)`**, scoped to the one binary the plugin itself
+  configures. A bare `command()` would be the blanket bypass the v0.23.0 posture
+  explicitly forbids, and is asserted against.
+
 ## [0.53.0] - 2026-08-09
 ### Fixed
 - **The MCP Server Could Not Be Started By Any Client Since v0.34.0**

@@ -276,9 +276,21 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
 
   Antigravity 1.1.3 and later also deny tools that need an interactive approval
   when the plugin launches `agy` in headless (`-p`) mode. The plugin therefore
-  preserves your Antigravity CLI settings and adds only the read-only
-  `$read_file$()` rule under `permissions.allow` in
-  `~/.gemini/antigravity-cli/settings.json`. This lets an open PDF or an attached
+  preserves your Antigravity CLI settings and adds two narrow rules under
+  `permissions.allow` in `~/.gemini/antigravity-cli/settings.json`:
+  `read_file()`, and `command(wiki)` so the Incurator MCP server can be started.
+
+> [!IMPORTANT]
+> **If you saw `jetski: no output produced` repeatedly, this was why (fixed in
+> v0.53.1).** The rule shipped until then was written `$read_file$()`, a form
+> Antigravity does not recognise. It prunes unrecognised rules and deletes the
+> emptied `permissions` object, so the permission survived **zero** runs and
+> every tool the model reached for was auto-denied. Nothing you configured was
+> wrong. Update and the grant persists.
+
+  `command(wiki)` is deliberately scoped to the `wiki` binary the plugin itself
+  configures — Incurator never writes a bare `command()`, which would approve
+  running anything. This lets an open PDF or an attached
   image be read without a prompt; it does not approve writes, shell commands,
   network tools, or arbitrary paths. `--add-dir` still determines which vault and
   configured Zotero directories are visible, and the OS sandbox still restricts
