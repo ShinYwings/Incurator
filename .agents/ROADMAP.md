@@ -185,6 +185,14 @@ Two defects the Arena verified, both of which must be fixed before any walk:
 - A naive `notifyContextChanged()` progress tick cascades into an unconditional
   main-thread BM25 search + chip rebuild, ~27 times per book open.
 
+### 11. Popover chat refuses to answer questions outside the current context
+
+User report: when asking about content not present on the current page in the Quick Query popover, the assistant strictly states that the information is missing from the provided context and refuses to answer (e.g., "현재 페이지와 제공된 문맥에는 카메라 투영에 대한 구체적인 수학적 수식이나 투영 행렬이 포함되어 있지 않습니다..."). The user wants the assistant to at least attempt to guess or use its parametric knowledge.
+
+**Diagnosis**: The strict grounding constraints are hardcoded in `promptRegistry.ts` (e.g., "Answer only from the context provided in this request") and `chatContextPriority.ts`. The prompt forces the LLM to act strictly as a reading assistant that only explains visible text, suppressing its parametric memory.
+
+**Drafting required**: Need to design a prompt adjustment that preserves the primary focus on the selected text (preventing hallucinations about what is actually written on the page) while permitting parametric fallback when the requested information is genuinely absent.
+
 ## Blocked / Icebox
 
 - None.

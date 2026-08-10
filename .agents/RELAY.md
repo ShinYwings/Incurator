@@ -1,23 +1,38 @@
-# RELAY — IDLE at v0.53.2
+# RELAY — Active Hotfix: Popover Chat Grounding Relaxation
 
-No active goal. Master is at **v0.53.2**, working tree clean, no open PRs.
+## Active Goal (Hotfix)
+Relax the strict grounding constraints in the Quick Query popover chat. When a user asks about content not present on the current page or context, the assistant should gracefully fall back to its parametric knowledge and offer a general explanation, rather than strictly refusing to answer. 
 
-## Shipped this run (v0.53.1 → v0.53.2)
+Additionally, the popover chat must be expanded to search and utilize the sidechat's pinned sources (purple pins, PDFs, MD files) as background context.
 
-- **v0.53.1** — agy permission-rule fixed (`$read_file$()` was pruned on every
-  run; correct form is `read_file()`). Solved the original "jetski: no output
-  produced" root cause.
-- **v0.53.2** — chat sidebar `fetchPageText` now falls back to the PDF.js viewer
-  when the backend is unavailable or returns nothing. Closes the remaining jetski
-  path for Zotero cloud PDFs and any untracked document.
+## Plan Reference
+- Brief/Draft: `.agents/drafts/11_popover_chat_grounding.md`
+- Master Plan: [Not yet created]
+
+## Progress Status
+- [x] Triage and queue the user's report into `.agents/ROADMAP.md` (Item 11).
+- [x] Author problem brief (`.agents/drafts/11_popover_chat_grounding.md`).
+- [ ] Run Arena debate and synthesize `PLAN_TEMPLATE.md`.
+- [ ] Implement changes via TDD.
+
+## Critical Context/Blockers (Hotfix)
+- Changes to `boundaryConstraints` and `contextPriorityInstruction` may impact the main sidechat surface as well. Ensure any prompt tuning generalizes safely or is scoped explicitly to `POPOVER_PROFILE`.
+- Architectural decision needed: How to inject sidechat pinned sources without breaking `local-only` security boundary.
+
+## Immediate Next Action
+**[EXECUTORS]**: Read `.agents/drafts/11_popover_chat_grounding.md`. Run the Arena debate to synthesize the implementation plan in `.agents/plans/` using the PLAN_TEMPLATE.md. Do not implement code until the plan is approved by the user.
+
+---
+
+# ⏸️ Pending / Paused Goal (Resume after Hotfix)
+
+**Target:** ROADMAP item 10 (`pdfFullDocumentIndex` consumers)
 
 ## Critical context carried forward
-
 - **`pdfFullDocumentIndex` has zero consumers.** The "Background page indexing"
   toggle writes a value nothing reads, so `search_pdf_anchor` is still limited
   to already-rendered pages. `fetch_pdf_page` reads any page the model can name,
   but cannot search unread pages without first knowing their page number.
-  **This is the next planned item (ROADMAP item 10, v0.54.0 target).**
 - Venvs live at the repo root: `.venv` runtime, `.venv-dev` checks. Never
   `backend/.venv`, `backend/uv.lock`, or backend-local caches.
 - Two time-dependent tests expired mid-session. Use far-future sentinels
@@ -26,8 +41,7 @@ No active goal. Master is at **v0.53.2**, working tree clean, no open PRs.
   (acceptance gate, `validator_trace_id` producer, crop geometry) and has an
   Arena record in `.agents/plans/formula_recovery_arena/`.
 
-## Immediate next action
-
+## Suspended Action
 ROADMAP item 10: implement `pdfFullDocumentIndex` consumers so the chat can
 search unrendered PDF pages. Arena record exists at
 `.agents/plans/pdf_background_index_arena/`, master plan at
