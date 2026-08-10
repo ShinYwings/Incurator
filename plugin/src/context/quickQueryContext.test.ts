@@ -185,4 +185,57 @@ describe("quick query context builder", () => {
     expect(String(messages[1].content)).toContain("H is a similarity transform.");
     expect(String(messages[1].content)).toContain("<primary_focus_selection>");
   });
+
+  it("injects sidechat pinned context refs as background when provided (v0.53.2)", () => {
+    const messages = buildQuickQueryMessages({
+      selectedText: "camera projection matrix",
+      question: "이 행렬의 수식은?",
+      pinnedContextRefs: [
+        {
+          type: "file",
+          label: "pinhole_camera.md",
+          content: "# Pinhole Camera\nThe projection matrix P = K[R|t] maps 3D to 2D.",
+          isPinned: true,
+          filePath: "03_Notes/Vision/pinhole_camera.md",
+        },
+        {
+          type: "pdf-page",
+          label: "HZ.pdf p.154",
+          content: "The camera matrix is a 3x4 matrix P = KR[I|-C].",
+          isPinned: true,
+          filePath: "04_Resources/References/HZ.pdf",
+          pageNum: 154,
+        },
+      ],
+    });
+
+    const user = String(messages[1].content);
+    // Pinned sources appear as background context in the user message.
+    expect(user).toContain("<pinned_sources>");
+    expect(user).toContain("pinhole_camera.md");
+    expect(user).toContain("P = K[R|t]");
+    expect(user).toContain("HZ.pdf p.154");
+    expect(user).toContain("P = KR[I|-C]");
+    expect(user).toContain("</pinned_sources>");
+  });
+
+  it("does not inject pinned sources block when none are provided", () => {
+    const messages = buildQuickQueryMessages({
+      selectedText: "some text",
+      question: "explain",
+    });
+
+    const user = String(messages[1].content);
+    expect(user).not.toContain("<pinned_sources>");
+  });
+
+  it("system prompt allows parametric fallback for popover (v0.53.2)", () => {
+    const messages = buildQuickQueryMessages({
+      selectedText: "camera projection",
+      question: "수식 알려줘",
+    });
+    const system = String(messages[0].content);
+    // The system prompt must allow the LLM to use general knowledge as a fallback.
+    expect(system).toContain("general knowledge");
+  });
 });

@@ -192,6 +192,14 @@ export class ChatSidebarView extends ItemView {
     return "bot";
   }
 
+  /** Read-only snapshot of the sidechat's pinned context refs.
+   *  Used by the Quick Query popover to enrich its context (v0.53.2). */
+  getPinnedContextRefs(): ContextRef[] {
+    return this.pendingContextRefs
+      .filter((ref) => ref.isPinned && shouldIncludeContext(ref))
+      .map((ref) => ({ ...ref }));
+  }
+
   async onOpen(): Promise<void> {
     const container = this.containerEl.children[1] as HTMLElement;
     container.empty();

@@ -73,7 +73,14 @@ export function boundaryConstraints(profile: SurfaceProfile): string {
         "folder, file, or directory names. Your ONLY tool is a read-only reader " +
         "for the PDF the user already has open: you may fetch a page of that " +
         "document by number to follow a reference instead of telling the user to " +
-        "navigate there. Answer from the provided context plus any page you fetch."
+        "navigate there. Answer from the provided context plus any page you fetch. " +
+        "If the provided context and fetched pages do NOT contain the information " +
+        "needed to answer the question, you may supplement your answer with your " +
+        "general knowledge. When doing so, you MUST explicitly state that the " +
+        "information comes from general knowledge, not from the document " +
+        "(e.g. '문맥에는 해당 내용이 없지만, 일반적으로…' or " +
+        "'The document does not cover this, but based on general knowledge…'). " +
+        "Never pretend that general knowledge came from the document."
       );
     case "auto":
       return (

@@ -528,6 +528,7 @@ export class QuickQueryPopover {
       activeContext,
       previousTurns: this.turns,
       resolvedReferencesBlock,
+      pinnedContextRefs: this.plugin.getPinnedContextRefs(),
     });
     let raw = "";
 

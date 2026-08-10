@@ -2359,6 +2359,11 @@ export default class ObsidianAIAgent extends Plugin {
     return null;
   }
 
+  /** Read-only snapshot of the sidechat's pinned context refs (v0.53.2). */
+  getPinnedContextRefs(): ContextRef[] {
+    return this.getChatView()?.getPinnedContextRefs() ?? [];
+  }
+
   /**
    * Cross-device knowledge auto-sync over Syncthing (one-writer-per-file).
    * All triggers — Obsidian load, the .curator/sync file watcher, the fallback

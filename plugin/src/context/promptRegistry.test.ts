@@ -18,6 +18,15 @@ describe("boundaryConstraints", () => {
     expect(text).toContain("PDF the user already has open");
   });
 
+  it("includes a parametric-fallback clause for the popover (local-only) surface (v0.53.2)", () => {
+    const text = boundaryConstraints(POPOVER_PROFILE);
+    // The popover must allow parametric knowledge as an explicit last resort
+    // when the provided context does not contain the answer.
+    expect(text).toContain("general knowledge");
+    // But the primary instruction must still prioritize the provided context.
+    expect(text).toContain("Answer from the provided context");
+  });
+
   it("still forbids every tool for a fully tool-free surface", () => {
     const text = boundaryConstraints({ ...POPOVER_PROFILE, toolPolicy: "none" });
     expect(text).toContain("NO tools and NO filesystem access");

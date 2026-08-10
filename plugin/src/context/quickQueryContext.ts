@@ -7,7 +7,7 @@ import {
 import { contextPriorityInstruction } from "./chatContextPriority";
 import { resolveSelectionReferencesBlock } from "./pdfReferenceContext";
 import { boundaryConstraints, buildRecencyAnchor, POPOVER_PROFILE } from "./promptRegistry";
-import type { ActiveContext, LLMMessage } from "../types";
+import type { ActiveContext, ContextRef, LLMMessage } from "../types";
 
 export interface QuickQueryTurn {
   question: string;
@@ -23,6 +23,9 @@ export interface QuickQueryMessageArgs {
   /** Pre-resolved cross-references block (from async resolution with page fetch).
    *  When provided, skips the synchronous inline resolution so the async result is used. */
   resolvedReferencesBlock?: string;
+  /** Pinned context refs from the sidechat (purple pins). Injected as read-only
+   *  background so the popover can search/use them without changing tool policy. */
+  pinnedContextRefs?: ContextRef[];
 }
 
 const DEFAULT_BACKGROUND_LIMIT = 12000;
@@ -117,6 +120,23 @@ export function buildEphemeralFollowupContext(turns: QuickQueryTurn[] | undefine
   return `<quick_query_followups>\n${truncateForProviderContext(body, FOLLOWUP_TEXT_LIMIT)}\n</quick_query_followups>`;
 }
 
+const PINNED_SOURCE_LIMIT = 6000;
+
+/**
+ * Format sidechat pinned context refs as a background block for the popover.
+ * Each pinned source is wrapped with its label so the LLM can cite it.
+ */
+export function buildPinnedSourcesBlock(refs: ContextRef[] | undefined): string {
+  const pinned = (refs ?? []).filter((r) => r.isPinned && r.content?.trim());
+  if (pinned.length === 0) return "";
+  const entries = pinned.map((ref) => {
+    const label = escapeAttribute(ref.label || ref.filePath || "pinned source");
+    const content = truncateForProviderContext(ref.content.trim(), Math.floor(PINNED_SOURCE_LIMIT / pinned.length));
+    return `<pinned_source label="${label}">\n${content}\n</pinned_source>`;
+  });
+  return `<pinned_sources>\n${entries.join("\n")}\n</pinned_sources>`;
+}
+
 export function buildQuickQueryMessages(args: QuickQueryMessageArgs): LLMMessage[] {
   const background = buildActiveBackgroundContext(args.activeContext, {
     selectedText: args.selectedText,
@@ -128,13 +148,18 @@ export function buildQuickQueryMessages(args: QuickQueryMessageArgs): LLMMessage
     args.resolvedReferencesBlock ??
     resolveSelectionReferencesBlock(args.selectedText, args.activeContext?.pdfPage);
 
+  const pinnedBlock = buildPinnedSourcesBlock(args.pinnedContextRefs);
+
   const systemText =
     "You are a reading assistant embedded in Obsidian. The user selected a " +
     "passage while reading and asks a quick question about it. Answer " +
     "concisely and directly, in the same language as the question. The " +
     "primary selected passage is the main focus. Use current page, document " +
-    "outline/ToC, and prior quick-query turns from the same popover only as " +
-    "background to resolve references, equations, and citations. When the " +
+    "outline/ToC, pinned sources from the sidebar, and prior quick-query " +
+    "turns from the same popover as background to resolve references, " +
+    "equations, and citations. If pinned sources (wrapped in " +
+    "<pinned_sources>) are provided, actively use them to enrich your " +
+    "answer. When the " +
     "selection is itself a POINTER (e.g. \"see Section A4.2\", \"Figure 19.1\", " +
     "\"Eq. (3)\"), answer about the referenced TARGET shown in " +
     "<resolved_cross_references>, using the selection only to identify which " +
@@ -155,6 +180,7 @@ export function buildQuickQueryMessages(args: QuickQueryMessageArgs): LLMMessage
     buildPrimarySelectionBlock(args.selectedText),
     resolvedReferencesBlock,
     background ? `<quick_query_background>\n${background}\n</quick_query_background>` : "",
+    pinnedBlock,
     followups,
     `Question: ${args.question}`,
     // Recency anchor emitted LAST so the read-only / selection-focus invariants
