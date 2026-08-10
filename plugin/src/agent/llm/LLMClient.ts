@@ -605,8 +605,17 @@ export class LLMClient {
       tempEnv = {};
     }
 
+    const baseEnv = { ...process.env };
+    // Scrub IDE-injected Antigravity variables so spawned CLIs (like agy)
+    // don't connect to the host IDE daemon and get hijacked by IDE metadata.
+    for (const key of Object.keys(baseEnv)) {
+      if (key.startsWith("ANTIGRAVITY_")) {
+        delete baseEnv[key];
+      }
+    }
+
     return {
-      ...process.env,
+      ...baseEnv,
       ...extraEnv,
       ...tempEnv,
       PATH: newPath,

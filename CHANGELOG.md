@@ -7,6 +7,7 @@ All notable changes to Incurator are documented here.
 ### Fixed
 - **Popover Chat**: Relaxed strict grounding constraints in the Quick Query popover to allow the LLM to use its parametric knowledge as a fallback when the provided context lacks the answer, instead of strictly refusing to answer.
 - **Popover Chat**: Injected the sidechat's pinned sources (e.g. pinned PDF pages, markdown files) into the popover context so it can also search and answer from those sources, while still preserving the popover's `local-only` secure boundary.
+- **Context Hijacking Fix**: Scrubbed `ANTIGRAVITY_*` environment variables when invoking `agy` (the Antigravity CLI) from the Incurator plugin, fundamentally preventing the CLI from connecting to the host IDE's local daemon and receiving irrelevant injected active-tab metadata.
 
 ## [0.53.1] - 2026-08-09
 ### Fixed
