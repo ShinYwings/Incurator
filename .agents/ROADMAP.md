@@ -1,6 +1,6 @@
 # Incurator Active Roadmap
 
-Updated: 2026-08-08
+Updated: 2026-08-10
 
 This file contains only live work. Completed milestones and planning artifacts
 belong in Git history, not the active workspace. New raw reports enter through
@@ -10,7 +10,7 @@ belong in Git history, not the active workspace. New raw reports enter through
 
 Verified against the code on 2026-08-07, not against previous roadmap text.
 
-### Shipped since the audits (v0.43.0 → v0.51.0)
+### Shipped since the audits (v0.43.0 → v0.53.2)
 
 Corroboration gate · B4 · `wiki lint` truthfulness · B3 P1–P4 · vault
 move/delete tracking · the search-index support gate (61% of units were
@@ -23,7 +23,10 @@ identity · unresolved cross-references named instead of dropped ·
 sync-integrity items** (v0.49.2 conflict-archive EXDEV, v0.49.3 export-stamp
 race, v0.50.0 truthful import outcome, v0.50.1 single-source trigger
 definitions, v0.50.2 locked device-state RMW) — B2 is closed — and **B3 P5**
-(v0.51.0 truncated-L4 detection).
+(v0.51.0 truncated-L4 detection) · **v0.53.1** agy permission-rule fix (the
+allow-rule was pruned on every run, causing "jetski: no output produced" on
+headless CLI calls) · **v0.53.2** chat sidebar `fetchPageText` viewer fallback
+(Zotero / untracked PDFs now resolve distant cross-references without backend).
 
 Note: v0.48.1 "distant PDF equation references" shipped but was a **no-op** —
 see item 1. It searched neighbouring pages for a label that was never ingested.
