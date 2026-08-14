@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { buildProvenance, summarizeProvenance } from "./provenance";
 import type { ResolvedReference } from "./crossReferenceResolver";
@@ -126,5 +128,39 @@ describe("summarizeProvenance", () => {
       )
     );
     expect(line).toBe("Eq. (29) — p.11 · [8] — Liu et al., 2023");
+  });
+});
+
+/**
+ * §13.9 says provenance is "displayed from the resolution record" as UI state.
+ *
+ * It shipped, in its first draft, as neither: buildProvenance and
+ * summarizeProvenance had no callers anywhere, so the spec asserted a behaviour
+ * the code did not implement — the same defect class caught on the previous
+ * release. These assertions read the sources rather than the rendered DOM,
+ * which is enough to catch the capability going dead again.
+ */
+describe("provenance is actually wired to a surface", () => {
+  const read = (rel: string): string =>
+    readFileSync(join(__dirname, "..", rel), "utf-8");
+
+  it("the resolver returns the record instead of discarding it", () => {
+    const src = read("context/pdfReferenceContext.ts");
+    expect(src).toContain("resolveSelectionContextAsync");
+    expect(src).toContain("buildProvenance(resolved, citations)");
+  });
+
+  it("the popover consumes it and renders it", () => {
+    const src = read("ui/quickQueryPopover.ts");
+    expect(src).toContain("summarizeProvenance");
+    expect(src).toContain("ai-agent-quick-query-provenance");
+    // Rendered only when something resolved — no empty chrome on an ordinary
+    // question.
+    expect(src).toMatch(/if \(provenanceLine\)/);
+  });
+
+  it("the class it renders into is styled", () => {
+    const css = readFileSync(join(__dirname, "..", "..", "styles.css"), "utf-8");
+    expect(css).toContain(".ai-agent-quick-query-provenance");
   });
 });

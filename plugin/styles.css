@@ -3716,3 +3716,17 @@
 .incurator-trace-promote-btn:hover {
   background: var(--interactive-accent-hover);
 }
+
+/* Provenance line under a quick-query answer (v0.56.0, PLUGIN_SCHEMA §13.9).
+   Deliberately quiet: it tells the reader where each lookup came from, and
+   should never compete with the answer for attention. Absent entirely when
+   nothing was resolved, so an ordinary question shows no chrome. */
+.ai-agent-quick-query-provenance {
+  margin-top: 0.6em;
+  padding-top: 0.4em;
+  border-top: 1px solid var(--background-modifier-border);
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+

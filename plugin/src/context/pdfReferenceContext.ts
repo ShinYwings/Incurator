@@ -9,6 +9,7 @@
  * blocks.
  */
 import { buildCitationsBlock, resolveSelectionCitations } from "./citationContext";
+import { buildProvenance, type ProvenanceRecord } from "./provenance";
 import { PdfDocumentIndexService } from "./pdfDocumentIndex";
 import {
   buildCaptionIndex,
@@ -487,6 +488,25 @@ export async function resolveSelectionReferencesBlockAsync(
   fetchPageText: (pageNum: number) => Promise<string | undefined>,
   locatePages?: (label: string) => Promise<number[]>
 ): Promise<string> {
+  return (await resolveSelectionContextAsync(selectedText, source, fetchPageText, locatePages))
+    .block;
+}
+
+/**
+ * Resolve once, return BOTH the prompt block and the provenance record.
+ *
+ * `resolveSelectionReferencesBlockAsync` above returns only the block, which is
+ * all the prompt needs. But §13.9 requires provenance to be built from the
+ * resolution record rather than recovered from model output, and that record
+ * exists only here — discarding it and reconstructing it later is precisely the
+ * output-scanning design §13.9 rejects. So the record is returned alongside.
+ */
+export async function resolveSelectionContextAsync(
+  selectedText: string,
+  source: PdfReferenceSource | undefined,
+  fetchPageText: (pageNum: number) => Promise<string | undefined>,
+  locatePages?: (label: string) => Promise<number[]>
+): Promise<{ block: string; provenance: ProvenanceRecord }> {
   // Citations resolve alongside the cross-references, in the same pre-turn
   // pass and on the same fetcher, so the model gets both in one prompt and
   // spends no tool rounds chasing either (plan §4.2). Both surfaces funnel
@@ -508,7 +528,8 @@ export async function resolveSelectionReferencesBlockAsync(
       fetchPageText
     ),
   ]);
-  return [buildResolvedReferencesBlock(resolved), buildCitationsBlock(citations)]
+  const block = [buildResolvedReferencesBlock(resolved), buildCitationsBlock(citations)]
     .filter(Boolean)
     .join("\n");
+  return { block, provenance: buildProvenance(resolved, citations) };
 }

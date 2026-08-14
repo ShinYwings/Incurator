@@ -11,7 +11,8 @@ import {
   selectionToTextWithLatex,
   stampMathSourceData,
 } from "../utils/textUtils";
-import { resolveSelectionReferencesBlockAsync } from "../context/pdfReferenceContext";
+import { resolveSelectionContextAsync } from "../context/pdfReferenceContext";
+import { summarizeProvenance, type ProvenanceRecord } from "../context/provenance";
 import { POPOVER_PROFILE } from "../context/promptRegistry";
 
 /**
@@ -492,12 +493,15 @@ export class QuickQueryPopover {
     // building the LLM messages. Falls back to sync inline resolution when the
     // PDF is not open or the fetch returns nothing.
     let resolvedReferencesBlock: string | undefined;
+    // §13.9: provenance is built from the resolution record, here, and shown as
+    // UI state. It is never recovered by scanning the model's answer.
+    let provenance: ProvenanceRecord | undefined;
     if (activeContext?.pdfPage) {
       // Read the identity ONCE, before the first await, and use the same value
       // for the index we write into and for every page fetch below.
       const pinnedDocumentId = this.plugin.getActivePdfDocumentId();
       try {
-        resolvedReferencesBlock = await resolveSelectionReferencesBlockAsync(
+        const resolution = await resolveSelectionContextAsync(
           this.capturedSelection,
           {
             ...activeContext.pdfPage,
@@ -516,6 +520,8 @@ export class QuickQueryPopover {
           (pageNum) =>
             this.plugin.fetchActivePdfPage(pageNum, pinnedDocumentId)
         );
+        resolvedReferencesBlock = resolution.block;
+        provenance = resolution.provenance;
       } catch {
         // Cross-page resolution failed; fall back to sync inline resolution via buildQuickQueryContextMessages.
         resolvedReferencesBlock = undefined;
@@ -617,6 +623,13 @@ export class QuickQueryPopover {
       answerEl.createEl("div", {
         cls: "ai-agent-quick-query-stream",
         text: finalText,
+      });
+    }
+    const provenanceLine = provenance ? summarizeProvenance(provenance) : "";
+    if (provenanceLine) {
+      answerEl.createDiv({
+        cls: "ai-agent-quick-query-provenance",
+        text: provenanceLine,
       });
     }
     this.turns.push({ question, answer: finalText });
