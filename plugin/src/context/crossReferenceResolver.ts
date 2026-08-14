@@ -714,12 +714,12 @@ function escapeAttr(value: string): string {
  * failure this block exists to avoid, relocated from the snippet to the note.
  */
 const UNRESOLVED_NOTE =
-  "The text behind these references could not be retrieved from the material " +
-  "available here (commonly because the equation or figure is a rasterized " +
-  "image, or because it lies outside the pages loaded). Answer from the " +
-  "context already provided, and say plainly that you could not retrieve the " +
-  "referenced item. Do not attempt to open, read, or search the source file " +
-  "yourself.";
+  "The verbatim text behind these references is not in this context (commonly " +
+  "a rasterized equation or figure, or a page outside the loaded range). " +
+  "Describe these targets from what the supplied material establishes about " +
+  "them, working from the blocks given. This note is addressed to you, not " +
+  "to the reader: the answer describes the document, never the context or " +
+  "what it does or does not contain.";
 
 /**
  * Render cross-references as first-class context blocks.
