@@ -42,23 +42,28 @@ function runTool(
   runner: LocalPdfToolRunner | undefined,
   captured: LocalPdfToolContext | undefined,
   budget: number,
-): Promise<{ content: string; pagesFetched: number }> {
-  return (client as never as {
-    runLocalPdfTool: (
-      n: string,
-      a: string,
-      r: LocalPdfToolRunner | undefined,
-      c: LocalPdfToolContext | undefined,
-      b: number,
-    ) => Promise<{ content: string; pagesFetched: number }>;
-  }).runLocalPdfTool(name, rawArgs, runner, captured, budget);
+  imageBudget = 2,
+): Promise<{ content: string; pagesFetched: number; imagesRead: number }> {
+  return (
+    client as never as {
+      runLocalPdfTool: (
+        n: string,
+        a: string,
+        r: LocalPdfToolRunner | undefined,
+        c: LocalPdfToolContext | undefined,
+        b: number,
+        ib: number,
+      ) => Promise<{ content: string; pagesFetched: number; imagesRead: number }>;
+    }
+  ).runLocalPdfTool(name, rawArgs, runner, captured, budget, imageBudget);
 }
 
 function makeRunner(overrides: Partial<LocalPdfToolRunner> = {}): LocalPdfToolRunner {
   return {
     describeContext: () => CONTEXT,
     fetchPage: async (pageNum: number) => `text of page ${pageNum}`,
-    searchAnchor: async () => [],
+    readPageImage: async () => undefined,
+  searchAnchor: async () => [],
     ...overrides,
   };
 }
@@ -175,5 +180,97 @@ describe("runLocalPdfTool", () => {
     expect(result.content).toContain("p.604");
     expect(result.content).toContain("Jacobi's algorithm");
     expect(result.pagesFetched).toBe(0);
+  });
+});
+
+/**
+ * v0.54.0 P2 — per-region pixel routing.
+ *
+ * Measured on the real file this feature exists for ("3D Line Mapping
+ * Revisited", p.11): the page carries 4,193 text characters and 14 image draw
+ * operations, while a prose control page carries 5. Equation 29 lives inside
+ * those image ops and has no text layer at all. Because `isScannedLike` is a
+ * whole-page aggregate, a text-dense page can never trip it — which is exactly
+ * why the pixel path is model-invoked rather than heuristic.
+ */
+describe("read_pdf_page_image", () => {
+  it("transcribes the page image and labels the answer as read from pixels", async () => {
+    const result = await runTool(
+      makeClient(),
+      "read_pdf_page_image",
+      '{"page_number": 11}',
+      makeRunner({
+        readPageImage: async (pageNum: number) =>
+          pageNum === 11 ? "\\mathcal{L}_{29} = \\sum_i w_i" : undefined,
+      }),
+      CONTEXT,
+      6,
+    );
+    expect(result.content).toContain("Page 11, read from the page image:");
+    expect(result.content).toContain("\\mathcal{L}_{29}");
+    expect(result.imagesRead).toBe(1);
+    // Reading pixels must not consume the text-page budget.
+    expect(result.pagesFetched).toBe(0);
+  });
+
+  it("reads a page the user never scrolled to", async () => {
+    const seen: number[] = [];
+    const result = await runTool(
+      makeClient(),
+      "read_pdf_page_image",
+      '{"page_number": 660}',
+      makeRunner({
+        readPageImage: async (pageNum: number) => {
+          seen.push(pageNum);
+          return "figure caption";
+        },
+      }),
+      { ...CONTEXT, currentPage: 3 },
+      6,
+    );
+    expect(seen).toEqual([660]);
+    expect(result.content).toContain("figure caption");
+  });
+
+  it("refuses a page beyond the document instead of rendering a blank canvas", async () => {
+    const result = await runTool(
+      makeClient(),
+      "read_pdf_page_image",
+      '{"page_number": 900}',
+      makeRunner(),
+      CONTEXT,
+      6,
+    );
+    expect(result.content).toContain("Error (");
+    expect(result.imagesRead).toBe(0);
+  });
+
+  it("stops at the image budget so a turn cannot rasterize the whole book", async () => {
+    const result = await runTool(
+      makeClient(),
+      "read_pdf_page_image",
+      '{"page_number": 11}',
+      makeRunner({ readPageImage: async () => "latex" }),
+      CONTEXT,
+      6,
+      0,
+    );
+    expect(result.content).toContain("Error (");
+    expect(result.imagesRead).toBe(0);
+  });
+
+  it("charges the budget for a failed read so a retry loop stays bounded", async () => {
+    const result = await runTool(
+      makeClient(),
+      "read_pdf_page_image",
+      '{"page_number": 11}',
+      makeRunner({ readPageImage: async () => undefined }),
+      CONTEXT,
+      6,
+    );
+    expect(result.content).toContain("Error (");
+    // Charged, not free: an unreadable page fails the same way every time, so
+    // a free failure would let the model retry it for the whole turn.
+    expect(result.imagesRead).toBe(1);
   });
 });

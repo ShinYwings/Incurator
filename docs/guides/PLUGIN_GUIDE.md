@@ -193,25 +193,30 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
   exact section. Theorem-style pointers accept appendix-lettered numbering
   (`Result A4.1`, `Corollary B2.3`), and `Appendix 4` ToC titles answer to
   `A4`-style numbers so appendix anchors resolve too.
-- **When a reference cannot be found (v0.48.4)**: some PDFs render their
+- **When the text layer does not have it (v0.54.0)**: some PDFs render their
   displayed equations and figures as images, so the label never appears in the
-  extracted text and no amount of searching will locate it. The plugin now says
-  so explicitly: unfindable pointers are listed in an
-  `<unresolved_cross_references>` block that tells the model the text is
-  genuinely unavailable, to answer from the context it already has, and not to
-  go opening the file itself. Previously the block was simply omitted, which
-  left the prompt looking as though nothing had been asked — a model running
-  through a headless CLI would then reach for a file-reading tool, the CLI
-  would auto-deny the permission it cannot prompt for, and the answer came back
-  as `no output produced — a tool required the "command" permission that
-  headless mode cannot prompt for, so it was auto-denied`. You should now get a
-  real answer that states which equation or figure it could not retrieve.
+  extracted text and no amount of *text* searching will locate it. The
+  assistant can now look at the page instead of reading it. When the text it
+  fetched does not contain the equation, figure, or scanned insert you asked
+  about, it renders that page and reads the pixels through the same extraction
+  model the manual snip uses — including pages you have never scrolled to, and
+  including your own handwritten margin notes, which no text layer contains.
 
-  The wording is deliberately "could not retrieve", not "does not exist". How
-  hard the plugin looked depends on where you asked from — the drag-to-select
-  popover searches only the pages already loaded, and the whole-document search
-  needs the backend running — so the assistant reports a retrieval failure
-  rather than asserting the equation is absent from the paper.
+  Two consequences worth knowing:
+
+  - **You no longer have to snip an equation to ask about it.** Ask about
+    "equation 29" and the assistant fetches the page, notices the equation is
+    not in the text, and reads it off the page image.
+  - **It is deliberately rationed.** Rendering a page and sending it to a
+    vision model is far more expensive than reading text, so a single question
+    gets a small number of page images. The assistant spends them on the pages
+    that actually need pixels and answers everything else from text.
+
+  Pointers that still cannot be resolved are listed in an
+  `<unresolved_cross_references>` block. That block is addressed to the
+  assistant, not to you: it tells the model to describe the target from what
+  the surrounding material establishes, and the answer you see should be about
+  the paper rather than a report on what the assistant did or did not receive.
 
   A pointer that resolves through a neighbour is not reported as missing. When
   you select something like `(Section 11.1.2, p281)`, the page and the section

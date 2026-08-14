@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.54.0)
+# Incurator Plugin Schema & API Contract (v0.55.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -2445,13 +2445,42 @@ boundary closed by §13.5/§13.6.
   deliberately produces instead of wrong context; and unnumbered/prose
   references that no pattern in the closed regex table matches.
 
-- **Closed tool set.** Exactly two names may ever be exposed:
-  `fetch_pdf_page(page_number)` and `search_pdf_anchor(query)`. They are
-  plugin-executed local tools, NOT MCP tools: they are never registered with an
-  MCP server, never routed through `mcpManager`, and never reach the filesystem,
-  the vault, the Zotero library, or a shell. Execution wraps only the existing
-  page-fetch and document-index accessors, scoped to the PDF the user already
-  has open.
+- **Closed tool set.** Exactly three names may ever be exposed:
+  `fetch_pdf_page(page_number)`, `read_pdf_page_image(page_number)`, and
+  `search_pdf_anchor(query)`. They are plugin-executed local tools, NOT MCP
+  tools: they are never registered with an MCP server, never routed through
+  `mcpManager`, and never reach the filesystem, the vault, the Zotero library,
+  or a shell. Execution wraps only the existing page-fetch, page-render, and
+  document-index accessors, scoped to the PDF the user already has open.
+
+- **`read_pdf_page_image` is the pixel escape hatch (v0.54.0).** A PDF page can
+  carry content that is present to the eye and absent from every text-layer
+  path: a displayed equation emitted as a raster image, a figure whose labels
+  live in the artwork, a scanned insert, and the reader's own handwritten
+  margin notes. `fetch_pdf_page` returns the text layer, so for that content it
+  returns text that is confidently complete and silently missing the answer.
+  This tool renders the requested page off-screen and transcribes the pixels
+  through the same vision model the manual region-snip already uses.
+
+  Three properties are contractual:
+
+  1. **Model-invoked, never heuristic.** Routing MUST NOT be driven by the
+     page-level `isScannedLike` verdict. That verdict is a whole-page aggregate
+     and cannot see a picture region on a text-dense page: measured on the
+     motivating paper, the page carrying the rasterized equation reports 4,193
+     text characters and 14 image draw operations against a prose control
+     page's 5, so any page-aggregate test classifies it as an ordinary text
+     page. The model asking the question is the only party that knows the
+     answer it needs is not in the text it received.
+  2. **Renders off-screen, so any page is reachable.** The render MUST NOT
+     depend on an on-screen page element, which exists only for pages the user
+     has scrolled to. Reading a page the user never opened is the point of the
+     tool, not an edge case.
+  3. **Separately budgeted from text reads.** A render plus a vision
+     round-trip is the escalation of last resort, not a browsing mode. The
+     image budget is charged even when a read fails, because an unreadable page
+     fails identically on every retry and a free failure would let one turn
+     retry it indefinitely.
 
 - **Emission preconditions (fail closed).** Local tools are emitted only when
   the captured request context reports an active PDF, a known positive page
@@ -2467,7 +2496,7 @@ boundary closed by §13.5/§13.6.
   caption index, and outline resolution already run deterministically.
 
 - **Typed failures, never thrown turns.** Out-of-range page numbers,
-  unparseable arguments, an exhausted fetch budget, and a mid-request document
+  unparseable arguments, an exhausted page or image budget, and a mid-request document
   identity change each produce a typed `role: "tool"` error message that the
   model can answer around. No local tool failure may abort the turn, and a
   document identity change MUST NOT be resolved against the new document.
@@ -2497,7 +2526,7 @@ boundary closed by §13.5/§13.6.
 - **Enforcement is behavioral, not textual.** The popover's zero-MCP guarantee
   MUST be locked by tests asserting that MCP injection is refused for the
   popover policy under every combination of MCP-manager presence and CLI
-  routing, and that a popover tool array contains only the two local names
+  routing, and that a popover tool array contains only the three local names
   above. Prompt wording (§13.5 `boundaryConstraints`) documents the boundary;
   it does not enforce it.
 

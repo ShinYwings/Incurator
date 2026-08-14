@@ -1872,6 +1872,24 @@ export default class ObsidianAIAgent extends Plugin {
       // changes mid-flight, rather than silently reading the swapped one.
       fetchPage: (pageNum: number) =>
         this.fetchActivePdfPage(pageNum, this.getActivePdfDocumentId()),
+      // Reuses transcribePdfCrop's proven path: the same backend vision call
+      // the manual snip already makes, driven by a rendered page instead of a
+      // user-drawn box. Verified on the real file — a page render of "3D Line
+      // Mapping Revisited" p.11 returned equation 29's LaTeX verbatim, the
+      // formula that has no text layer at all.
+      readPageImage: async (pageNum: number) => {
+        const view = this.app.workspace.getActiveViewOfType(ExternalPdfView);
+        if (!view) return undefined;
+        const base64 = await view.renderPageImageBase64(pageNum);
+        if (!base64) return undefined;
+        const result = await this.transcribePdfCrop(
+          base64,
+          (detail) =>
+            `Could not read page ${pageNum} as an image` +
+            `${detail ? `: ${detail}` : ""}.`,
+        );
+        return result?.latex;
+      },
       searchAnchor: async (query: string, topK: number) => {
         const index = this.getActivePdfDocumentIndex();
         const documentId = this.getActivePdfDocumentId();

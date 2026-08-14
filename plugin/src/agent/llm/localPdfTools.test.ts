@@ -139,3 +139,49 @@ describe("parseLocalPdfToolCall", () => {
     });
   });
 });
+
+/**
+ * v0.54.0 P2 — the pixel escape hatch is model-invoked, not heuristic.
+ *
+ * The page-level `isScannedLike` verdict cannot route this: on the paper that
+ * motivated the feature, the page holding a rasterized equation reports 4,193
+ * text characters, so any page-aggregate test calls it a text page. The model
+ * is the only party that knows the answer it needs is missing.
+ */
+describe("read_pdf_page_image", () => {
+  it("is offered whenever a page can be fetched at all", () => {
+    const names = buildLocalPdfTools(ACTIVE).map((t) => t.function.name);
+    expect(names).toContain("read_pdf_page_image");
+  });
+
+  it("disappears with the rest of the reader when no PDF is active", () => {
+    const names = buildLocalPdfTools({ ...ACTIVE, hasActivePdf: false }).map(
+      (t) => t.function.name,
+    );
+    expect(names).not.toContain("read_pdf_page_image");
+  });
+
+  it("tells the model when to reach for it, not just that it exists", () => {
+    const tool = buildLocalPdfTools(ACTIVE).find(
+      (t) => t.function.name === "read_pdf_page_image",
+    );
+    // Without a stated trigger the model defaults to the text tool and never
+    // discovers that the equation it needs was never in the text layer.
+    expect(tool?.function.description.toLowerCase()).toMatch(
+      /equation|figure|image|scan/,
+    );
+  });
+
+  it("applies the same page validation as the text reader", () => {
+    expect(
+      parseLocalPdfToolCall("read_pdf_page_image", '{"page_number": 11}', ACTIVE),
+    ).toEqual({ kind: "read_page_image", pageNum: 11 });
+    expect(
+      parseLocalPdfToolCall("read_pdf_page_image", '{"page_number": 9999}', ACTIVE),
+    ).toMatchObject({ kind: "error", code: "out_of_range" });
+    expect(
+      parseLocalPdfToolCall("read_pdf_page_image", '{"page_number": 1.5}', ACTIVE),
+    ).toMatchObject({ kind: "error", code: "invalid_arguments" });
+  });
+});
+

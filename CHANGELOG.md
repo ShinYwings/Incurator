@@ -2,6 +2,49 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.55.0] - 2026-08-14
+### Added
+- **The assistant can look at a PDF page, not just read its text.** Ask about
+  an equation that the PDF draws as a picture and the answer no longer depends
+  on you snipping it first. When the text it fetched does not contain what you
+  asked about, the assistant renders that page off-screen and reads the pixels
+  through the same extraction model the manual `Cmd+Shift+X` snip already uses.
+
+  This reaches three things the text layer structurally cannot hold: displayed
+  equations and figures emitted as raster images, scanned inserts, and **your
+  own handwritten margin notes**.
+
+  Three properties are deliberate, and each is a decision rather than a
+  default:
+
+  - **The model asks for it; no heuristic routes it.** The obvious design is to
+    reuse the existing `isScannedLike` verdict, and it cannot work: that verdict
+    is a whole-page aggregate. Measured on the paper that motivated this
+    feature, the page carrying the rasterized equation reports 4,193 text
+    characters and 14 image draw operations against a prose control page's 5 —
+    text-dense by every page-level measure, and missing the equation entirely.
+    Only the model answering the question knows the answer is not in the text
+    it received.
+  - **It renders off-screen, so any page is reachable.** The existing render
+    path draws into an on-screen element that exists only for pages you have
+    scrolled to. Reading a page you never opened is the point, not an edge
+    case.
+  - **It is rationed separately from text reads.** A render plus a vision
+    round-trip is the escalation of last resort, not a browsing mode, so a
+    turn gets a small number of page images and answers everything else from
+    text. A failed read is charged too: an unreadable page fails identically
+    every time, and a free failure would let one turn retry it indefinitely.
+
+### Changed
+- `PLUGIN_SCHEMA.md` §13.7's closed tool set grows from two names to three;
+  `read_pdf_page_image(page_number)` joins `fetch_pdf_page` and
+  `search_pdf_anchor`. It remains a plugin-executed local tool — never
+  registered with an MCP server, never reaching the filesystem, the vault, or a
+  shell — and is emitted under the same fail-closed preconditions as the rest.
+- The plugin guide's "when a reference cannot be found" section was describing
+  a limitation this release removes ("no amount of searching will locate it")
+  and has been rewritten in both the English and Korean guides.
+
 ## [0.54.1] - 2026-08-14
 ### Fixed
 - **The IDE-context hijack was only half fixed.** v0.53.2 stopped the Obsidian
@@ -35,6 +78,7 @@ All notable changes to Incurator are documented here.
   not override a settled conversation topic now lives on the sidechat profile
   alone — the one surface whose prompt actually carries the line — phrased as
   what to do rather than what to ignore.
+
 
 ## [0.54.0] - 2026-08-14
 ### Changed
