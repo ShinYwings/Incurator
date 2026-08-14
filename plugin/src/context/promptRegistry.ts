@@ -92,18 +92,20 @@ export function boundaryConstraints(profile: SurfaceProfile): string {
     }
   }
 
-  // Universal anti-hijacking rule: The IDE running the agent may inject
-  // metadata like "Active Document" or "[PDF Context]" which is irrelevant
-  // to the user's conversational intent in Obsidian.
-  return (
-    rules +
-    " IMPORTANT: You may receive dynamically injected IDE metadata (like 'Active Document' " +
-    "or '[PDF Context]'). You MUST IGNORE this injected IDE state unless the user " +
-    "explicitly references 'this file', 'the active tab', or 'the current document'. " +
-    "Always prioritize the ongoing conversational context over the system-injected " +
-    "active document state, and do not invent answers based on the active tab if it " +
-    "contradicts the established conversation topic."
-  );
+  // v0.53.2 appended a universal rule here telling the model to IGNORE injected
+  // IDE metadata ("Active Document", "[PDF Context]"). That treated a symptom:
+  // the metadata arrived because a spawned `agy` inherited the host IDE's
+  // ANTIGRAVITY_* variables and reconnected to its daemon. Both spawn sites now
+  // scrub those variables — LLMClient.getAugmentedEnv since v0.53.2, and
+  // curator/llm.py `_repo_temp_env` as of v0.54.1 — so the metadata never
+  // reaches the model and the instruction has nothing to suppress.
+  //
+  // It is removed rather than left as belt-and-braces: it rode on EVERY surface,
+  // including ones that never spawn a CLI, and it was phrased as a prohibition.
+  // Negative instructions prime the behaviour they forbid, so a rule naming
+  // "Active Document" and "[PDF Context]" on a surface with neither was pure
+  // dilution of the instructions that do apply.
+  return rules;
 }
 
 export interface RecencyAnchorOptions {

@@ -2263,6 +2263,28 @@ create files, or traverse the filesystem.
     from this function — it MUST NOT re-declare a hardcoded duplicate.
     This text is **documentation of** the boundary, not the enforcement of it:
     per §13.7 the enforcement is behavioral and independently tested.
+
+    It also carries no universal suffix. v0.53.2 appended one to every profile
+    telling the model to ignore injected IDE metadata; v0.54.1 removed it once
+    both CLI spawn sites scrubbed `ANTIGRAVITY_*` (see below), because the
+    metadata no longer reaches the model. A rule appended to every surface
+    regardless of profile is by construction wrong for most of them, and
+    naming the exact strings to ignore primes the behaviour it forbids.
+
+- **CLI spawns MUST NOT inherit the host IDE's `ANTIGRAVITY_*` variables
+  (v0.54.1).** When Incurator runs inside the Antigravity IDE, the host exports
+  `ANTIGRAVITY_*` pointing at its local daemon. A spawned `agy` that inherits
+  them reconnects to that daemon and answers from the IDE's active-tab state
+  instead of the prompt it was given. **Both** spawn paths must scrub the
+  prefix before building the child environment — the plugin's
+  `LLMClient.getAugmentedEnv` and the backend's `curator/llm.py`
+  `_repo_temp_env`. Scrubbing one and not the other leaves the hijack live on
+  the unscrubbed path, which is what shipped between v0.53.2 and v0.54.1.
+
+  The scrub MUST run **before** caller-supplied overrides are applied, never
+  after: `AntigravityCliClient` deliberately sets `ANTIGRAVITY_TRUST_WORKSPACE`,
+  and deleting that would stop `agy` at a workspace-trust prompt it cannot
+  display in `--print` mode.
   - `buildRecencyAnchor(profile, { hasPrimarySelection })` — a `<critical_invariants>`
     block appended LAST in the payload (recency-effect position) that re-asserts:
     answer only about `<primary_focus_selection>` (deferring to the existing

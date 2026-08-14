@@ -2,6 +2,33 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.54.1] - 2026-08-14
+### Fixed
+- **The IDE-context hijack was only half fixed.** v0.53.2 stopped the Obsidian
+  plugin from handing the host IDE's `ANTIGRAVITY_*` variables to a spawned
+  `agy`, which is what let the CLI reconnect to the IDE daemon and answer from
+  whatever document was open in the IDE instead of the prompt Incurator sent.
+
+  The backend's own CLI clients were never changed. `curator/llm.py`'s
+  `_repo_temp_env` — which builds the environment for every backend `agy`,
+  `claude`, and `codex` spawn — still copied `os.environ` wholesale, so on the
+  backend path the hijack was live the entire time. It now drops `ANTIGRAVITY_*`
+  before `extra` is applied, so a caller that deliberately sets
+  `ANTIGRAVITY_TRUST_WORKSPACE` (as `AntigravityCliClient` does) still gets it.
+
+  The fix had in fact been written; it was sitting uncommitted and shipped to
+  nobody. `test_llm_env_scrub.py` now pins it, and fails without it.
+
+### Removed
+- **The prompt rule that told the model to ignore injected IDE metadata.** It
+  was the workaround for the bug above, appended to *every* surface's boundary
+  constraints — including surfaces that never spawn a CLI and therefore never
+  saw the metadata. With both spawn sites scrubbed the metadata does not reach
+  the model at all, so the instruction had nothing to suppress and was purely
+  diluting the instructions that do apply. It was also phrased as a
+  prohibition naming the exact strings to ignore, which primes the behaviour it
+  forbids.
+
 ## [0.54.0] - 2026-08-14
 ### Changed
 - **The prompt now states what the assistant is for.** The system prompt opened
