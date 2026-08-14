@@ -103,3 +103,50 @@ describe("Convert-to-LaTeX unmapped-glyph routing (v0.52.3)", () => {
     expect(source).toContain("Nothing was copied.");
   });
 });
+
+/**
+ * v0.55.0 off-screen page render.
+ *
+ * `renderPageImageBase64` is what makes `read_pdf_page_image` able to reach a
+ * page the user never scrolled to. The existing `renderPageCanvas` draws into
+ * an on-screen `pageEl` that only exists for visited pages, so if this method
+ * ever regresses to that pattern the tool silently narrows to "pages already
+ * on screen" — which is precisely the limitation it was built to remove, and
+ * nothing in the tool-level tests would notice, because they mock the runner.
+ */
+describe("Off-screen page render (v0.55.0)", () => {
+  const body = source.slice(
+    source.indexOf("async renderPageImageBase64("),
+    source.indexOf("/** Called by main plugin to capture current page")
+  );
+
+  it("exists and renders into a canvas that is never attached to the document", () => {
+    expect(body.length).toBeGreaterThan(0);
+    expect(body).toContain('createElement("canvas")');
+    // The give-away of the on-screen path: looking up an existing page element.
+    expect(body).not.toContain("pageEl");
+    expect(body).not.toContain("appendChild");
+    expect(body).not.toContain("querySelector");
+  });
+
+  it("bounds the page number before touching the document", () => {
+    expect(body).toContain("pageNum < 1 || pageNum > this.totalPages");
+    expect(body.indexOf("pageNum > this.totalPages")).toBeLessThan(
+      body.indexOf("getPage(pageNum)")
+    );
+  });
+
+  it("returns undefined rather than throwing, so the tool loop stays typed", () => {
+    expect(body).toContain("catch (err)");
+    expect(body).toContain("return undefined");
+    expect(body).not.toContain("throw ");
+  });
+
+  it("strips the data-URI prefix so the caller gets bare base64", () => {
+    // transcribePdfCrop does Buffer.from(base64, "base64"); a leaked
+    // "data:image/png;base64," prefix would corrupt every byte after it.
+    expect(body).toContain('toDataURL("image/png")');
+    expect(body).toMatch(/replace\(\s*\/\^data:image/);
+  });
+});
+

@@ -717,9 +717,9 @@ const UNRESOLVED_NOTE =
   "The verbatim text behind these references is not in this context (commonly " +
   "a rasterized equation or figure, or a page outside the loaded range). " +
   "A rasterized target is not missing from the paper, only from its text " +
-  "layer: if a tool for reading a page as an image is available to you, that " +
+  "layer: if `read_pdf_page_image` is among the tools you were given, that " +
   "is what it is for, so call it on the page the reference points to before " +
-  "settling for less. Where no such tool is available, describe these targets " +
+  "settling for less. If you were not given that tool, describe these targets " +
   "from what the supplied material establishes about them. This note is " +
   "addressed to you, not to the reader: the answer describes the document, " +
   "never the context or what it does or does not contain.";

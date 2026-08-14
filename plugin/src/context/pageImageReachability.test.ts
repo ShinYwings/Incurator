@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { boundaryConstraints, POPOVER_PROFILE } from "./promptRegistry";
+import {
+  boundaryConstraints,
+  buildRecencyAnchor,
+  POPOVER_PROFILE,
+} from "./promptRegistry";
 import { contextPriorityInstruction } from "./chatContextPriority";
 import {
   buildResolvedReferencesBlock,
@@ -25,7 +29,9 @@ import {
  * this file's many regex literals.
  */
 
-const MENTIONS_IMAGE_READ = /page as an image|as an image|page image/i;
+// The tool name itself counts: naming it is the strongest form of "the
+// prompt points at this capability".
+const MENTIONS_IMAGE_READ = /read_pdf_page_image|page as an image|as an image/i;
 
 /** An unresolved pointer — the only input that emits UNRESOLVED_NOTE. */
 function unresolvedPointer(): ResolvedReference[] {
@@ -70,6 +76,40 @@ describe("the page-image capability is reachable from the prompt", () => {
     // for scanned documents — and the papers this is for are not scanned.
     const rules = boundaryConstraints(POPOVER_PROFILE);
     expect(rules).toMatch(/equations and figures as pictures|no text|not in that page's text/i);
+  });
+
+  it("the recency anchor — read LAST — points at it too", () => {
+    // This block is emitted last on purpose, at the recency position of
+    // strongest attention. PR #131 already caught a fix that updated the
+    // mid-prompt instruction and left this one stale; the same thing happened
+    // again here. If the final instruction the model reads says to settle for
+    // the supplied blocks, that is the instruction that wins.
+    const anchor = buildRecencyAnchor(POPOVER_PROFILE, { hasPrimarySelection: true });
+    expect(anchor).toMatch(MENTIONS_IMAGE_READ);
+    expect(anchor).not.toMatch(/working from the blocks given/);
+  });
+
+  it("names the actual tool, so a provider without it cannot substitute one", () => {
+    // v0.48.4's "no output produced" bug: a CLI-routed model, told to go get a
+    // rasterized equation, reached for its OWN file-reading tool, and headless
+    // mode auto-denied the permission it could not prompt for.
+    //
+    // shouldInjectLocalTools returns false for every CLI-routed provider, so
+    // those runs get this prompt text and NO local tools — while agy still holds
+    // a persistent read_file() grant. "A tool for reading a page as an image" is
+    // exactly the phrasing that invites substituting that grant. Naming the tool
+    // means a model without it has nothing to match.
+    const sites = [
+      buildResolvedReferencesBlock(unresolvedPointer()),
+      contextPriorityInstruction(true),
+      boundaryConstraints(POPOVER_PROFILE),
+      buildRecencyAnchor(POPOVER_PROFILE, { hasPrimarySelection: true }),
+    ];
+    for (const site of sites) {
+      expect(site).toContain("read_pdf_page_image");
+      // No generic "a tool that can read pages" phrasing left to substitute into.
+      expect(site).not.toMatch(/a (page-reading|tool for reading a page)/i);
+    }
   });
 
   it("keeps the boundary itself intact", () => {

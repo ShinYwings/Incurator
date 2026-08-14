@@ -947,19 +947,33 @@ export default class ObsidianAIAgent extends Plugin {
    * user about a fallback that did not happen. The default keeps the chat
    * path's message byte-for-byte.
    */
+  /**
+   * @param silent Suppress the failure Notice. Every caller until v0.55.0 was a
+   *   user action — a snip, a right-click convert — where a toast is the right
+   *   feedback for something the user just did. The page-image tool is not: the
+   *   model calls it on its own, on a page the user may never have opened, and
+   *   the failure already goes back to the model as a typed tool error. A toast
+   *   there names a page the reader never asked about, up to twice a turn, for
+   *   a condition they cannot act on ("No vision model configured" fires for
+   *   anyone who never set one up).
+   */
   async transcribePdfCrop(
     base64: string,
     formatFailure: (detail: string) => string = (detail) =>
       this.formatPdfExtractionFailure(detail),
+    silent = false,
   ): Promise<{ latex: string; model?: string } | null> {
-    if (!this.vaultRoot) {
-      new Notice(formatFailure("Vault root is unavailable"));
+    const fail = (detail: string): null => {
+      if (!silent) new Notice(formatFailure(detail));
+      else logger.warn(`PDF page transcription failed silently: ${formatFailure(detail)}`);
       return null;
+    };
+    if (!this.vaultRoot) {
+      return fail("Vault root is unavailable");
     }
     const repoPath = this.resolveRepoPath();
     if (!repoPath) {
-      new Notice(formatFailure("Incurator repository is unavailable"));
-      return null;
+      return fail("Incurator repository is unavailable");
     }
     const baseDir = join(
       vaultMachineCacheDir(repoPath, this.vaultRoot),
@@ -975,11 +989,9 @@ export default class ObsidianAIAgent extends Plugin {
       if (result.ok && latex) {
         return { latex, model: result.model };
       }
-      new Notice(formatFailure(result.error || "No transcription returned"));
-      return null;
+      return fail(result.error || "No transcription returned");
     } catch (err) {
-      new Notice(formatFailure(err instanceof Error ? err.message : String(err)));
-      return null;
+      return fail(err instanceof Error ? err.message : String(err));
     } finally {
       await fs.rm(tmpDir, { recursive: true, force: true });
     }
@@ -1901,6 +1913,7 @@ export default class ObsidianAIAgent extends Plugin {
           (detail) =>
             `Could not read page ${pageNum} as an image` +
             `${detail ? `: ${detail}` : ""}.`,
+          true, // model-invoked: the failure returns to the model, not the user
         );
         return result?.latex;
       },

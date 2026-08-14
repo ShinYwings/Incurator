@@ -7,9 +7,15 @@
  * tell the user to navigate there. These tools are the missing actuator.
  *
  * They are NOT MCP tools: they are executed by the plugin against the PDF the
- * user already has open, never reach the filesystem, the vault, the Zotero
- * library, or a shell, and are never registered with an MCP server. The
+ * user already has open, and are never registered with an MCP server. The
  * popover's zero-MCP guarantee (§13.5) is therefore unchanged.
+ *
+ * The security property is that every argument is a page number or a search
+ * string, bounds-checked before execution — no tool takes a path, a command,
+ * or a glob, so nothing the model emits can name a file or leave the open
+ * document. It is NOT that no byte touches disk: `read_pdf_page_image`
+ * transcribes via the same backend round-trip the manual snip uses, which
+ * writes a temp PNG and spawns the `wiki` CLI. Both are built by the plugin.
  *
  * Everything here is pure so the security-relevant gating and bounds are unit
  * testable without a provider, a PDF, or a UI surface. Execution lives behind

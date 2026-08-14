@@ -47,6 +47,30 @@ All notable changes to Incurator are documented here.
   read, conditionally (a CLI-routed provider has no local tools at all), and
   `pageImageReachability.test.ts` fails 4 of 5 without them.
 
+- **The prompt could have sent a CLI-routed model back into "no output
+  produced".** The instruction said to use "a tool for reading a page as an
+  image". CLI-routed providers receive no local tools at all, yet still get this
+  text — and the agy path holds a persistent `read_file()` grant, so a model
+  told to go fetch a rasterized equation could reach for that instead and hit
+  the headless auto-deny that caused the original v0.48.4 failure. Every site
+  now names `read_pdf_page_image` literally: a model that was not handed it has
+  nothing to match. Prompt assembly is still not provider-aware; that is a
+  follow-up, not something this release closes.
+
+- **The last instruction the model read still argued against the tool.**
+  `buildRecencyAnchor` is emitted last, at the recency position, and duplicates
+  the pointer rule — it kept telling the model to work "from the blocks given"
+  while the three sites above had been fixed. A reviewer caught the identical
+  miss on a previous release; the reachability test now covers this site too.
+
+- **A model-invoked failure popped a toast at the user.** `transcribePdfCrop`
+  raises a Notice on every failure, which is right for the two callers it was
+  written for — both user actions. The page-image tool is not one: the model
+  calls it by itself, on a page the reader may never have opened, and the error
+  already goes back to the model as a typed tool result. Anyone without a vision
+  model configured would have gotten an unprompted popup naming a page they did
+  not ask about, up to twice per turn. That path is now silent and logs instead.
+
 - **Reading a page image ignored the document-identity pin.** `readPageImage`
   crosses two awaits — the render and the vision round-trip — and resolved the
   active view at call time with no identity check, while `fetchActivePdfPage`

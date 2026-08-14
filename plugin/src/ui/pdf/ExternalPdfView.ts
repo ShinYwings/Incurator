@@ -553,9 +553,10 @@ export class ExternalPdfView extends ItemView {
    * to. This renders off-screen, which is what makes reading an unvisited
    * page possible at all.
    *
-   * The scale is a deliberate trade: high enough that a subscripted symbol in
-   * a displayed equation survives transcription, low enough to stay inside the
-   * vision model's image limits.
+   * The scale is a deliberate trade, chosen so a subscripted symbol in a
+   * displayed equation should stay legible while the image remains inside the
+   * vision model's limits. Legibility is confirmed by eye on the rendered page;
+   * the transcription leg itself is not yet verified end to end.
    */
   async renderPageImageBase64(pageNum: number, scale = 2.0): Promise<string | undefined> {
     if (!this.cachedPdf || pageNum < 1 || pageNum > this.totalPages) return undefined;

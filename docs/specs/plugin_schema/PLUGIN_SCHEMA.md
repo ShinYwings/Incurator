@@ -2256,8 +2256,9 @@ create files, or traverse the filesystem.
     (`local-only` since v0.41.0, previously `none` / edits-off).
   - `boundaryConstraints(profile)` — the canonical filesystem/tool boundary text.
     For `toolPolicy: "none"` it declares zero tools and zero filesystem access;
-    for `"local-only"` it declares zero MCP tools, zero filesystem access, and
-    the single read-only PDF page reader of §13.7; for `"auto"` it limits access
+    for `"local-only"` it declares zero MCP tools, no model-reachable
+    filesystem or shell surface, and the read-only PDF page reader of §13.7
+    (three tools as of v0.55.0); for `"auto"` it limits access
     to the allowed roots (vault, configured Zotero folder, Zotero library). The
     popover's system prompt sources its boundary line
     from this function — it MUST NOT re-declare a hardcoded duplicate.
@@ -2448,10 +2449,24 @@ boundary closed by §13.5/§13.6.
 - **Closed tool set.** Exactly three names may ever be exposed:
   `fetch_pdf_page(page_number)`, `read_pdf_page_image(page_number)`, and
   `search_pdf_anchor(query)`. They are plugin-executed local tools, NOT MCP
-  tools: they are never registered with an MCP server, never routed through
-  `mcpManager`, and never reach the filesystem, the vault, the Zotero library,
-  or a shell. Execution wraps only the existing page-fetch, page-render, and
+  tools: they are never registered with an MCP server and never routed through
+  `mcpManager`. Execution wraps only the existing page-fetch, page-render, and
   document-index accessors, scoped to the PDF the user already has open.
+
+  **What the model can reach is an integer, not a path.** Every argument in the
+  closed set is a page number or a search string, bounds-checked against the
+  captured context before execution. No tool takes a path, a command, or a
+  glob, so nothing the model emits can name a file, escape the open document,
+  or reach the vault or the Zotero library.
+
+  That is the guarantee — not that no byte touches disk.
+  `read_pdf_page_image` transcribes through the same backend round-trip the
+  manual `Cmd+Shift+X` snip uses, which writes the rendered PNG to a temp
+  directory under the machine cache and spawns the `wiki` CLI to read it. Both
+  the path and the command are constructed entirely by the plugin. Earlier
+  wording here claimed local tools "never reach the filesystem or a shell";
+  that was written for the two text tools and was false the moment the image
+  read landed.
 
 - **`read_pdf_page_image` is the pixel escape hatch (v0.55.0).** A PDF page can
   carry content that is present to the eye and absent from every text-layer
@@ -2490,10 +2505,33 @@ boundary closed by §13.5/§13.6.
      the condition the tool exists for ("commonly a rasterized equation or
      figure"), so a note that ends the search there makes the feature inert in
      its own headline case. Each site must name the image read and must not
-     instruct the model to settle for the supplied blocks. Because tool
-     availability varies (a CLI-routed provider gets no local tools at all,
-     per §13.6), the wording is conditional — "if a tool for reading a page as
-     an image is available to you" — never a promise.
+     instruct the model to settle for the supplied blocks.
+
+     The two *per-turn* sites — `UNRESOLVED_NOTE` and the pointer paragraph —
+     hedge on availability ("if a tool for reading a page as an image is
+     available to you"), because they are emitted alongside context whose tool
+     set varies: a CLI-routed provider gets no local tools at all (§13.6).
+     `boundaryConstraints` does not hedge, matching how it already describes
+     `fetch_pdf_page`: it is static policy prose describing the surface, and a
+     model cannot invoke a function it was never handed regardless of what that
+     prose says.
+
+     **All four sites MUST name `read_pdf_page_image` literally, never "a tool
+     for reading a page as an image".** The generic phrasing is what caused the
+     v0.48.4 `no output produced` failure: a CLI-routed model, told to go fetch
+     a rasterized equation, reached for its *own* file-reading capability, and
+     headless mode auto-denied a permission it could not prompt for. That risk
+     is live — `shouldInjectLocalTools` withholds every local tool from
+     CLI-routed providers (§13.6), while the agy path holds a persistent
+     `read_file()` grant — so those runs see this prompt text with no tool
+     behind it. A named tool has nothing to substitute for; a described
+     capability does. The fourth site is `buildRecencyAnchor`, which is emitted
+     LAST at the recency position and is the easiest to forget precisely
+     because it duplicates the pointer rule.
+
+     Prompt assembly is still not CLI-aware — the text is built before the
+     provider is known. Naming the tool bounds the failure; scoping the
+     instruction to runs that actually receive tools is the open follow-up.
 
 - **Identity pinning covers the image read too (v0.55.0).** The rule below is
   not limited to text fetches. `readPageImage` crosses **two** awaits — the
