@@ -2617,6 +2617,102 @@ boundary closed by §13.5/§13.6.
 
 ---
 
+### 13.8 The Reading Assistant's Role (v0.54.0)
+
+Every rule from §13.1 to §13.7 says what the reading surfaces may not do. None
+of them said what the surfaces are *for*. That omission was not neutral: a model
+given only a boundary optimises for staying inside it, and the measured result
+was a prompt stack in which the assistant's third job had no instructions at
+all.
+
+**The measurement.** Sentences in the assembled prompt, classified by which duty
+they served (`A_prompt_role_audit.md`, 2026-08-09):
+
+| duty | enabling | limiting |
+|---|---|---|
+| 1 — read and explain the document | 32 | 13 |
+| 2 — remind the reader of their own notes | 6 | 3 |
+| 3 — help them find new value | **4** | 0 |
+
+Duty 3's four "enabling" hits were MCP *tool descriptions* — no sentence
+anywhere stated that finding new value is part of the job. Both duty-2
+sentences cancelled themselves inside the same clause ("…connect it to the
+user's existing notes, **but avoid**…"; "…**but you MUST NOT** explain the
+background context itself"), while three unhedged prohibitions elsewhere said
+answer ONLY about the selection. The model obeyed the prohibitions. The user
+reported precisely that behaviour.
+
+- **The prompt MUST open by stating the role, before any constraint.** The
+  three duties, in order: read alongside the reader — papers, books, and PDFs,
+  including pages and figures they have not opened; remind them what they have
+  already written, surfacing their own notes when those bear on the question;
+  and help them get somewhere new — an implication, a tension, a connection
+  they had not stated.
+
+- **Duty 3 is qualified, not mandated.** Answer the question first; add the
+  connection when there is a real one. A manufactured insight is worse than
+  none. A prompt that *requires* an insight per turn produces filler, which is
+  the failure mode opposite to the one being fixed.
+
+- **A duty sentence MUST NOT cancel itself.** "Surface the reader's notes, but
+  avoid…" instructs nothing. Where a genuine limit applies, it belongs in its
+  own sentence, so the duty and the limit can each be read on their own.
+
+- **Prohibitions are written as descriptions of the wanted behaviour.**
+  Negative instructions prime the behaviour they forbid; "do NOT open the file"
+  sat beside a model that would not stop trying to open files. Each constraint
+  states what to do instead. This is a drafting rule, not a ban on the words
+  "not" or "never" — §13.5's boundary language is deliberately absolute and
+  stays that way.
+
+- **The role and its budget are gated by tests, not by review attention.**
+  `promptRoleBudget.test.ts` asserts all three duties are present, caps the
+  assembled prose at **17,000 characters** and **23 negative constructions**,
+  and fails if a narration mandate reappears. The ceilings are budgets, not
+  targets: a prompt that grows without bound dilutes every instruction in it,
+  including the ones that matter. Wording may change freely underneath them;
+  only drift back toward a wall of prohibitions fails.
+
+- **The assistant does not narrate its own retrieval state.** What was or was
+  not loaded, which blocks arrived, and whether something came from the
+  document or from general knowledge are not part of an answer. Three prompt
+  sites once *instructed* the model to announce those things; `noContextNarration.test.ts`
+  now pins their absence. The honest purpose that mandate served — letting the
+  reader tell paper-content from model-knowledge — is met structurally by
+  §13.9, which a model cannot argue itself out of mid-turn.
+
+### 13.9 Provenance Comes From Resolution Results (v0.56.0)
+
+The reader needs to know which part of an answer came from their document,
+which from their own notes, and which from the model's background knowledge.
+There are two ways to produce that, and only one of them works.
+
+- **Provenance MUST be assembled from what the plugin actually resolved**, and
+  MUST NOT be recovered by pattern-matching the model's output. The plugin
+  already holds, per turn, exactly what is needed: which rung of the resolver
+  answered, which physical page it read, which citation matched which
+  bibliography entry, whether a page was read as text or as pixels. That record
+  is ground truth. Model output is a claim about it.
+
+- **Why the output-scanning design was rejected.** The proposal was to check
+  the rendered answer for `[[wikilink]]` citations and warn when none appeared.
+  Measured: `quickQueryContext.ts` contains **zero** occurrences of `[[` — the
+  popover model is never told wikilinks exist, so the check would have fired
+  "no citation" on every popover answer ever produced. A provenance signal that
+  is wrong by construction is worse than none, because the reader learns to
+  ignore it.
+
+- **Provenance is UI state, not prompt text.** It is displayed from the
+  resolution record; it is not requested from the model, and the model is not
+  told to produce it. This keeps it outside the prompt budget of §13.8 and
+  immune to a model that decides mid-turn to answer differently.
+
+- **Absence is reported as unresolved, never as absent from the document.**
+  A pointer the plugin could not resolve means retrieval did not reach it, not
+  that the paper lacks it — the popover searches only loaded pages, and
+  whole-document search needs the backend running. The distinction is
+  contractual because the opposite claim is one the code cannot support.
+
 ## 14. LaTeX-preserving copy (chat sidebar + quick-query popover + note Reading View) (v0.5.4)
 
 Selecting part of a rendered assistant reply (chat sidebar or quick-query
