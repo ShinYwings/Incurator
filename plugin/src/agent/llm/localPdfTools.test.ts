@@ -53,6 +53,34 @@ describe("buildLocalPdfTools", () => {
     expect(buildLocalPdfTools({ ...ACTIVE, documentId: undefined })).toEqual([]);
   });
 
+  /**
+   * PLUGIN_SCHEMA §13.7 says the closed tool set "MUST be locked by tests
+   * asserting ... that a popover tool array contains only the [three] local
+   * names above." Membership alone does not lock it — a fourth name added to
+   * LOCAL_PDF_TOOL_NAMES would satisfy a membership check while silently
+   * widening the surface. This pins the exact set instead.
+   */
+  it("emits exactly the closed set, no more and no fewer", () => {
+    const withOutline = buildLocalPdfTools(ACTIVE).map((t) => t.function.name);
+    expect([...withOutline].sort()).toEqual(
+      ["fetch_pdf_page", "read_pdf_page_image"].sort(),
+    );
+
+    // Outline-less documents additionally get the anchor search, and nothing
+    // beyond it.
+    const outlineless = buildLocalPdfTools({ ...ACTIVE, outlineState: "absent" }).map(
+      (t) => t.function.name,
+    );
+    expect([...outlineless].sort()).toEqual(
+      ["fetch_pdf_page", "read_pdf_page_image", "search_pdf_anchor"].sort(),
+    );
+
+    // And the closed set itself has not grown behind the exposure logic.
+    expect([...LOCAL_PDF_TOOL_NAMES].sort()).toEqual(
+      ["fetch_pdf_page", "read_pdf_page_image", "search_pdf_anchor"].sort(),
+    );
+  });
+
   it("never emits a name outside the closed set", () => {
     for (const state of ["present", "absent", "unknown"] as const) {
       const names = buildLocalPdfTools({ ...ACTIVE, outlineState: state }).map(

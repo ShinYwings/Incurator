@@ -71,10 +71,14 @@ export function boundaryConstraints(profile: SurfaceProfile): string {
       rules =
         "You have NO filesystem access and NO MCP tools. Never list, browse, " +
         "create, or execute files, scripts, or shell commands, and never invent " +
-        "folder, file, or directory names. Your ONLY tool is a read-only reader " +
-        "for the PDF the user already has open: you may fetch a page of that " +
+        "folder, file, or directory names. Your only tools read the PDF the user " +
+        "already has open, and nothing else: you may fetch a page of that " +
         "document by number to follow a reference instead of telling the user to " +
-        "navigate there. Answer from the provided context and any page you fetch " +
+        "navigate there, and you may read a page as an image when what you were " +
+        "asked about is not in that page's text — a typeset paper draws many of " +
+        "its equations and figures as pictures, so the text can read as complete " +
+        "prose while the formula itself is simply absent. Answer from the " +
+        "provided context and any page you fetch or read " +
         "first; where those do not cover the question, answer it from your general " +
         "knowledge of the field rather than stopping. Explain the subject — the " +
         "reader wants the answer, not an account of which sentence came from where.";

@@ -2481,6 +2481,27 @@ boundary closed by §13.5/§13.6.
      image budget is charged even when a read fails, because an unreadable page
      fails identically on every retry and a free failure would let one turn
      retry it indefinitely.
+  4. **The prompt stack MUST NOT argue against it.** Exposing the tool is not
+     the same as making it reachable: a model told to "work from the blocks
+     given" will do that instead of calling it. Three sites carry the
+     obligation — `boundaryConstraints("local-only")`, the pointer paragraph in
+     `contextPriorityInstruction`, and `crossReferenceResolver`'s
+     `UNRESOLVED_NOTE`. The last is the load-bearing one: it fires on exactly
+     the condition the tool exists for ("commonly a rasterized equation or
+     figure"), so a note that ends the search there makes the feature inert in
+     its own headline case. Each site must name the image read and must not
+     instruct the model to settle for the supplied blocks. Because tool
+     availability varies (a CLI-routed provider gets no local tools at all,
+     per §13.6), the wording is conditional — "if a tool for reading a page as
+     an image is available to you" — never a promise.
+
+- **Identity pinning covers the image read too (v0.55.0).** The rule below is
+  not limited to text fetches. `readPageImage` crosses **two** awaits — the
+  page render and the vision round-trip — so it pins the view and its document
+  id before the first await, refuses on mismatch, and re-checks after the
+  render because the vision call is the longer of the two. A pinned view
+  reference alone is insufficient: the same `ExternalPdfView` instance is
+  reused across documents via `setState`.
 
 - **Emission preconditions (fail closed).** Local tools are emitted only when
   the captured request context reports an active PDF, a known positive page

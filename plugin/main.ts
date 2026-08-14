@@ -1872,16 +1872,30 @@ export default class ObsidianAIAgent extends Plugin {
       // changes mid-flight, rather than silently reading the swapped one.
       fetchPage: (pageNum: number) =>
         this.fetchActivePdfPage(pageNum, this.getActivePdfDocumentId()),
-      // Reuses transcribePdfCrop's proven path: the same backend vision call
-      // the manual snip already makes, driven by a rendered page instead of a
-      // user-drawn box. Verified on the real file — a page render of "3D Line
-      // Mapping Revisited" p.11 returned equation 29's LaTeX verbatim, the
-      // formula that has no text layer at all.
+      // Reuses transcribePdfCrop: the same backend vision call the manual snip
+      // already makes, driven by a rendered page instead of a user-drawn box.
+      // The render is verified against the real file (equation 29's page
+      // rasterizes legibly); the transcription leg is the existing snip path
+      // unchanged, not a second implementation.
+      //
+      // Identity is pinned exactly as fetchActivePdfPage does it, and for the
+      // same reason (PLUGIN_SCHEMA §13.7): this crosses TWO awaits — the page
+      // render and the backend vision round-trip — so a tab switch mid-flight
+      // would otherwise rasterize page N of whatever document is now active
+      // and hand it back as page N of the one the model asked about.
       readPageImage: async (pageNum: number) => {
-        const view = this.app.workspace.getActiveViewOfType(ExternalPdfView);
-        if (!view) return undefined;
-        const base64 = await view.renderPageImageBase64(pageNum);
+        const pinnedView = this.app.workspace.getActiveViewOfType(ExternalPdfView);
+        const pinnedDocumentId = pinnedView?.getDocumentId();
+        const expectedDocumentId = this.getActivePdfDocumentId();
+        if (!pinnedView) return undefined;
+        if (expectedDocumentId !== undefined && pinnedDocumentId !== expectedDocumentId) {
+          return undefined;
+        }
+        const base64 = await pinnedView.renderPageImageBase64(pageNum);
         if (!base64) return undefined;
+        // Re-check after the render: the user may have switched tabs while it
+        // ran, and the vision round-trip below is the longer of the two awaits.
+        if (pinnedView.getDocumentId() !== pinnedDocumentId) return undefined;
         const result = await this.transcribePdfCrop(
           base64,
           (detail) =>

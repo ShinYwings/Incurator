@@ -35,6 +35,26 @@ All notable changes to Incurator are documented here.
     text. A failed read is charged too: an unreadable page fails identically
     every time, and a free failure would let one turn retry it indefinitely.
 
+### Fixed
+- **The new tool would have shipped unreachable.** Found reviewing v0.53.0
+  through v0.55.0 before merge. Exposing a tool is not the same as making the
+  model use it: three prompt sites steered away from the page image and none
+  mentioned it. The decisive one was the unresolved-reference note, which fires
+  on *exactly* the condition the tool exists for — "commonly a rasterized
+  equation or figure" — and then told the model to describe the target from
+  what it already had. Asking about equation 29 would have produced the same
+  non-answer as before the feature existed. All three sites now name the image
+  read, conditionally (a CLI-routed provider has no local tools at all), and
+  `pageImageReachability.test.ts` fails 4 of 5 without them.
+
+- **Reading a page image ignored the document-identity pin.** `readPageImage`
+  crosses two awaits — the render and the vision round-trip — and resolved the
+  active view at call time with no identity check, while `fetchActivePdfPage`
+  directly above it pins before its first await and refuses on mismatch.
+  Switching tabs mid-request would have rasterized a page of the *new*
+  document and returned it as a page of the one asked about. It now pins, and
+  re-checks after the render.
+
 ### Changed
 - `PLUGIN_SCHEMA.md` §13.7's closed tool set grows from two names to three;
   `read_pdf_page_image(page_number)` joins `fetch_pdf_page` and
