@@ -19,15 +19,22 @@ All notable changes to Incurator are documented here.
   The fix had in fact been written; it was sitting uncommitted and shipped to
   nobody. `test_llm_env_scrub.py` now pins it, and fails without it.
 
-### Removed
-- **The prompt rule that told the model to ignore injected IDE metadata.** It
-  was the workaround for the bug above, appended to *every* surface's boundary
-  constraints — including surfaces that never spawn a CLI and therefore never
-  saw the metadata. With both spawn sites scrubbed the metadata does not reach
-  the model at all, so the instruction had nothing to suppress and was purely
-  diluting the instructions that do apply. It was also phrased as a
-  prohibition naming the exact strings to ignore, which primes the behaviour it
-  forbids.
+  Removing the workaround is part of the same fix. v0.53.2 also appended a rule
+  to *every* surface's boundary constraints telling the model to ignore injected
+  IDE metadata — including surfaces that never spawn a CLI and therefore never
+  saw it. With both spawn sites scrubbed the metadata does not reach the model
+  at all, so the instruction had nothing to suppress and was purely diluting the
+  instructions that do apply. It was also phrased as a prohibition naming the
+  exact strings to ignore, which primes the behaviour it forbids. No capability
+  is added or removed by this: the prompt stops describing a condition that can
+  no longer occur.
+
+  One clause of that rule is kept, because it was never about IDE metadata: the
+  sidechat states the active file and page itself, on every turn, and the env
+  scrub does nothing about those. The instruction that the open document does
+  not override a settled conversation topic now lives on the sidechat profile
+  alone — the one surface whose prompt actually carries the line — phrased as
+  what to do rather than what to ignore.
 
 ## [0.54.0] - 2026-08-14
 ### Changed

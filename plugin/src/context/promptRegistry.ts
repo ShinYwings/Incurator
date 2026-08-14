@@ -80,11 +80,20 @@ export function boundaryConstraints(profile: SurfaceProfile): string {
         "reader wants the answer, not an account of which sentence came from where.";
       break;
     case "auto":
+      // The sidechat is the only surface that states the active file and page
+      // (ChatSidebarView emits "Currently active file: ..." and "The user is
+      // viewing a PDF. Current page: N" on every turn). The universal rule
+      // removed in v0.54.1 was the only instruction saying that signal does not
+      // override the conversation, so a scoped, positive replacement lives here
+      // — on the one profile whose prompt actually carries the line.
       rules =
         "Any tool, file, or command access must stay within the allowed roots: the " +
         "vault, the configured Zotero folder, and the Zotero library. Never " +
         "traverse, read, or create files outside those roots, and never run ad-hoc " +
-        "scripts to reach them.";
+        "scripts to reach them. The active file and page tell you where the user " +
+        "is sitting, not what they asked about; when the conversation has settled " +
+        "on a subject, stay with it and treat whatever is open as one more source " +
+        "you may draw on.";
       break;
     default: {
       const exhaustive: never = profile.toolPolicy;

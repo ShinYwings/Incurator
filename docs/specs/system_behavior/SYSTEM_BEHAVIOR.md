@@ -2865,6 +2865,34 @@ snapshot. Clean rebuild remains available: source truth under `03_Notes/` /
   provider blocker is documented (this is the only accepted gap).
 - No source or reference file is autonomously edited at any point.
 
+### 26.8 Spawned CLI Environments Are Scrubbed Of Host IDE State (v0.54.1)
+
+Every backend CLI client — `ClaudeCodeClient`, `AntigravityCliClient`,
+`CodexCliClient` — builds its child environment through `_repo_temp_env` in
+`curator/llm.py`. That helper MUST delete every variable named `ANTIGRAVITY_*`
+inherited from the parent process before it applies caller-supplied overrides.
+
+**Why.** When Incurator itself runs inside the Antigravity IDE, the host exports
+`ANTIGRAVITY_*` pointing at its local daemon. A spawned `agy` that inherits them
+reconnects to that daemon and answers from the IDE's active-tab state rather
+than the prompt Incurator sent — the reader gets an answer about whatever file
+happened to be open in the IDE. The Obsidian plugin has scrubbed the same prefix
+since v0.53.2 (`LLMClient.getAugmentedEnv`, PLUGIN_SCHEMA §13.5); the backend was
+left inheriting them until v0.54.1, so the hijack stayed live on every
+`wiki`-driven ingest and synthesis run in that window.
+
+**Ordering is load-bearing.** The scrub runs before the `extra` mapping is
+merged, never after. `AntigravityCliClient` sets `ANTIGRAVITY_TRUST_WORKSPACE`
+for its own non-interactive spawn; a scrub applied last would delete it and stop
+`agy` at a workspace-trust prompt it cannot display under `--print`, converting
+a hijack fix into a silent empty response. `test_llm_env_scrub.py` pins both the
+deletion and the ordering.
+
+**Scope.** This is the backend's trust boundary: a CLI invoked by a `wiki`
+command the user ran against their own vault. It is distinct from the plugin's
+chat-turn spawn, which PLUGIN_SCHEMA §13.6 contains with an OS sandbox and where
+`*_TRUST_WORKSPACE` is removed outright. Neither section licenses the other.
+
 ## 27. Graph Quality: Resolution, Support, Hierarchy, And Grounded Reports (Plan C, v0.9.0)
 
 v0.9.0 is the second Evidence Compiler Integrity release. It compiles the

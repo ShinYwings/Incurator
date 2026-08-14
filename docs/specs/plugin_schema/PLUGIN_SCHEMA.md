@@ -2282,9 +2282,26 @@ create files, or traverse the filesystem.
   the unscrubbed path, which is what shipped between v0.53.2 and v0.54.1.
 
   The scrub MUST run **before** caller-supplied overrides are applied, never
-  after: `AntigravityCliClient` deliberately sets `ANTIGRAVITY_TRUST_WORKSPACE`,
-  and deleting that would stop `agy` at a workspace-trust prompt it cannot
-  display in `--print` mode.
+  after, so that a caller which deliberately sets an `ANTIGRAVITY_*` value still
+  gets it. The backend's `AntigravityCliClient` is such a caller: it sets
+  `ANTIGRAVITY_TRUST_WORKSPACE`, and deleting that would stop `agy` at a
+  workspace-trust prompt it cannot display in `--print` mode.
+
+  **This does not amend §13.6.** The two are different spawn sites with
+  different trust boundaries, and the prohibition below is not being relaxed:
+
+  | | §13.6 (plugin) | here (backend) |
+  |---|---|---|
+  | Spawner | `LLMClient.buildCliCommand`, for the popover/sidechat surfaces | `curator/llm.py` CLI clients, for the ingest/synthesis pipeline |
+  | Trigger | a chat turn, over content the user may not have read | a `wiki` command the user ran on their own vault |
+  | Containment | OS sandbox; agy REFUSED if it cannot be OS-sandboxed | the invoking command's own scope |
+  | `*_TRUST_WORKSPACE` | **REMOVED** — see §13.6 | set by the caller, and predates the v0.23.0 hardening |
+
+  §13.6's removal governs the plugin's spawn only, and MUST NOT be read as
+  permission to reintroduce `*_TRUST_WORKSPACE` there. Conversely, the backend's
+  use of it is not blessed by this section — it is recorded here only because
+  the scrub ordering depends on it. The backend's own trust model belongs in
+  `SYSTEM_BEHAVIOR.md`; see §26.8 there.
   - `buildRecencyAnchor(profile, { hasPrimarySelection })` — a `<critical_invariants>`
     block appended LAST in the payload (recency-effect position) that re-asserts:
     answer only about `<primary_focus_selection>` (deferring to the existing
