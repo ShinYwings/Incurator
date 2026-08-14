@@ -212,11 +212,14 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
     gets a small number of page images. The assistant spends them on the pages
     that actually need pixels and answers everything else from text.
 
-  Pointers that still cannot be resolved are listed in an
+  Pointers whose text cannot be found are listed in an
   `<unresolved_cross_references>` block. That block is addressed to the
-  assistant, not to you: it tells the model to describe the target from what
-  the surrounding material establishes, and the answer you see should be about
-  the paper rather than a report on what the assistant did or did not receive.
+  assistant, not to you: it says a rasterized target is missing from the text
+  layer, not from the paper, and to go read that page as an image before
+  settling for less. Only where no page-reading tool is available does it fall
+  back to describing the target from the surrounding material. Either way the
+  answer you see should be about the paper, not a report on what the assistant
+  did or did not receive.
 
   A pointer that resolves through a neighbour is not reported as missing. When
   you select something like `(Section 11.1.2, p281)`, the page and the section
