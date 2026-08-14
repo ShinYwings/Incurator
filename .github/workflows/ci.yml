@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: ["master", "release/**", "fix/**", "feature/**", "hotfix/**"]
+    branches: ["master", "release/**", "fix/**", "feat/**", "feature/**", "hotfix/**", "chore/**"]
   pull_request:
     branches: ["master"]
 
@@ -10,11 +10,12 @@ jobs:
   version-consistency:
     name: Version Consistency
     runs-on: ubuntu-latest
-    if: |
-      startsWith(github.ref, 'refs/heads/hotfix/') ||
-      startsWith(github.ref, 'refs/heads/release/') ||
-      startsWith(github.ref, 'refs/heads/feature/') ||
-      startsWith(github.ref, 'refs/heads/fix/')
+    # No branch condition. The previous one tested `github.ref` against
+    # `refs/heads/*`, but on a pull_request event github.ref is
+    # `refs/pull/<n>/merge` — so the gate never once ran on a pull request, and
+    # it also skipped any branch prefix missing from the allowlist (`feat/**`
+    # was). v0.53.2 shipped with pyproject at 0.53.1 and the plugin at 0.53.2
+    # straight through it. The check costs five seconds; run it every time.
     steps:
       - uses: actions/checkout@v4
       - name: Check all version files agree
