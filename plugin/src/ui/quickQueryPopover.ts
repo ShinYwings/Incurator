@@ -507,6 +507,15 @@ export class QuickQueryPopover {
             ...activeContext.pdfPage,
             searchIndex: this.plugin.getActivePdfDocumentIndex(),
             searchDocumentId: pinnedDocumentId,
+            // pinnedDocumentId is undefined whenever the active view is not the
+            // custom ExternalPdfView — Obsidian's own PDF viewer populates
+            // activeContext.pdfPage but has no docId, so citations were being
+            // dropped there with no signal.
+            documentKey:
+              activeContext.pdfPage?.fileHash ||
+              activeContext.pdfPage?.zoteroAttachmentKey ||
+              activeContext.pdfPage?.filePath ||
+              undefined,
           },
           // Pin the document identity for the whole resolution. This loop issues
           // several sequential backend round-trips, so a tab switch mid-flight

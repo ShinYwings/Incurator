@@ -508,6 +508,24 @@ describe("resolveSelectionContextAsync — citations and provenance join the blo
     expect(provenance.items).toEqual([]);
   });
 
+  it("resolves citations from documentKey when there is no search index", async () => {
+    // The chat sidebar builds no BM25 index, so it has no searchDocumentId.
+    // Keying the bibliography cache on that alone made citation resolution a
+    // silent no-op on that entire surface.
+    forgetBibliography("hash-abc");
+    const { block } = await resolveSelectionContextAsync(
+      "we build on [8]",
+      {
+        windowPages: [page(1, "we build on [8]")],
+        pageNum: 1,
+        pageCount: 12,
+        documentKey: "hash-abc",
+      },
+      async (pageNum) => (pageNum >= 10 ? BIB : "body")
+    );
+    expect(block).toContain("<resolved_citations");
+  });
+
   it("skips citations when the caller supplied no document identity", async () => {
     // Without searchDocumentId there is no cache key, so citations are skipped
     // rather than cached under a shared bucket where one document's

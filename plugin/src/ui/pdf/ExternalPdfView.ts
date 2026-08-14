@@ -1,4 +1,5 @@
 import { logger } from "../../utils/logger";
+import { forgetBibliography } from "../../context/citationContext";
 import {
   ItemView,
   Menu,
@@ -337,6 +338,11 @@ export class ExternalPdfView extends ItemView {
     this.renderingPages.clear();
     this.pageTextCache.clear();
     this.documentIndex.removeDocument(this.docId);
+    // The parsed bibliography is derived from page text, so it goes out with
+    // the page cache and the index. A reload means the file changed underneath
+    // us; keeping it would serve the OLD document's references under the same
+    // docId, and the reader would never see a reason to doubt them.
+    forgetBibliography(this.docId);
     this.indexBuildToken++;
     this.render();
     new Notice("PDF reloaded");
@@ -518,6 +524,7 @@ export class ExternalPdfView extends ItemView {
     this.pageLabels = null;
     this.indexBuildToken++;
     this.documentIndex.removeDocument(this.docId);
+    forgetBibliography(this.docId);
   }
 
   /** Expose the full document BM25 index (all pages seen so far) for cross-page resolution. */

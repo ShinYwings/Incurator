@@ -86,6 +86,16 @@ describe("extractCitationNumbers", () => {
     expect(extractCitationNumbers("as shown in [8], the method").map((c) => c.num)).toEqual([8]);
   });
 
+  it("truncates an oversized range instead of rejecting it whole", () => {
+    // `[1-25]` used to resolve to NOTHING while `[1,2,...,25]` resolved to its
+    // first 24 — a survey citing a long range got no citations at all, which
+    // inverts the stated intent (capped, not discarded).
+    const wide = extractCitationNumbers("surveyed extensively [1-40]").map((c) => c.num);
+    expect(wide.length).toBeGreaterThan(0);
+    expect(wide.length).toBeLessThanOrEqual(24);
+    expect(wide[0]).toBe(1);
+  });
+
   it("extracts grouped and ranged citations", () => {
     expect(extractCitationNumbers("prior work [8, 9] and [1-3]").map((c) => c.num))
       .toEqual([8, 9, 1, 2, 3]);

@@ -219,8 +219,14 @@ function expandGroup(body: string): number[] {
     if (range) {
       const from = Number(range[1]);
       const to = Number(range[2]);
-      if (to >= from && to - from < MAX_GROUP_EXPANSION) {
-        for (let n = from; n <= to; n += 1) out.push(n);
+      if (to >= from) {
+        // Truncate an oversized range; do NOT reject it. Rejecting made
+        // `[1-25]` resolve to nothing while the equivalent `[1,2,...,25]`
+        // resolved to its first 24 — a survey citing a long range got no
+        // citations at all, which is the opposite of the stated intent
+        // ("capped so a typo cannot flood the resolver").
+        const last = Math.min(to, from + MAX_GROUP_EXPANSION - 1);
+        for (let n = from; n <= last; n += 1) out.push(n);
       }
       continue;
     }
