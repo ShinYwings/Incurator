@@ -10,7 +10,7 @@ belong in Git history, not the active workspace. New raw reports enter through
 
 Verified against the code on 2026-08-07, not against previous roadmap text.
 
-### Shipped since the audits (v0.43.0 → v0.53.2)
+### Shipped since the audits (v0.43.0 → v0.55.0)
 
 Corroboration gate · B4 · `wiki lint` truthfulness · B3 P1–P4 · vault
 move/delete tracking · the search-index support gate (61% of units were
@@ -27,6 +27,37 @@ definitions, v0.50.2 locked device-state RMW) — B2 is closed — and **B3 P5**
 allow-rule was pruned on every run, causing "jetski: no output produced" on
 headless CLI calls) · **v0.53.2** chat sidebar `fetchPageText` viewer fallback
 (Zotero / untracked PDFs now resolve distant cross-references without backend).
+
+**v0.53.2–v0.55.0 — the reading-assistant line** (item 11, now closed, plus the
+prompt defects the same investigation surfaced):
+
+- **v0.53.2** popover grounding relaxed + sidechat pinned sources injected into
+  the popover, within the `local-only` boundary. Shipped straight to master with
+  no PR; reviewed retrospectively during the v0.53.0→v0.55.0 pass, which is
+  where the two defects below came from.
+- **v0.53.3** (#152) the three prompt sites that *instructed* the model to
+  narrate its own retrieval state ("say you could not retrieve the referenced
+  item") are gone. The user was seeing that narration instead of an answer.
+- **v0.54.0** (#153, plan P0) the system prompt now opens with the assistant's
+  three duties — read alongside, remind of prior notes, find new value —
+  instead of a wall of prohibitions. Duty 3 had **zero** instructions anywhere
+  in the stack before this. Budget gated at 17,000 chars / 23 negatives.
+- **v0.54.1** (#155) the `ANTIGRAVITY_*` scrub, which v0.53.2 recorded as
+  shipped "across the entire repo" but had only applied to the plugin. The
+  backend half was written, left uncommitted, and shipped to nobody, so every
+  `wiki`-driven `agy` spawn stayed hijackable by the host IDE daemon.
+- **v0.55.0** (#154, plan P2) `read_pdf_page_image` — renders any page
+  off-screen and reads the pixels, so a rasterized equation answers without the
+  user snipping it. Model-invoked, not heuristic: `isScannedLike` is a
+  whole-page aggregate and the page holding the equation measures 4,193 text
+  chars, so no threshold can see the picture region.
+
+Two master-level defects fixed by fast-forward along the way: hatchling 1.30
+rejecting the backend package metadata (backend CI had gone red with no commit
+causing it), and **the version-consistency gate that had never once run on a
+pull request** — its condition tested `github.ref` against `refs/heads/*`, which
+is never true for a `pull_request` event. That is how v0.53.2 shipped with the
+backend at 0.53.1 and the plugin at 0.53.2.
 
 Note: v0.48.1 "distant PDF equation references" shipped but was a **no-op** —
 see item 1. It searched neighbouring pages for a label that was never ingested.
@@ -184,14 +215,6 @@ Two defects the Arena verified, both of which must be fixed before any walk:
 - `upsertPage` is **quadratic** — 226,801 tokenize calls for 673 pages (337x).
 - A naive `notifyContextChanged()` progress tick cascades into an unconditional
   main-thread BM25 search + chip rebuild, ~27 times per book open.
-
-### 11. Popover chat refuses to answer questions outside the current context
-
-User report: when asking about content not present on the current page in the Quick Query popover, the assistant strictly states that the information is missing from the provided context and refuses to answer (e.g., "현재 페이지와 제공된 문맥에는 카메라 투영에 대한 구체적인 수학적 수식이나 투영 행렬이 포함되어 있지 않습니다..."). The user wants the assistant to at least attempt to guess or use its parametric knowledge.
-
-**Diagnosis**: The strict grounding constraints are hardcoded in `promptRegistry.ts` (e.g., "Answer only from the context provided in this request") and `chatContextPriority.ts`. The prompt forces the LLM to act strictly as a reading assistant that only explains visible text, suppressing its parametric memory.
-
-**Drafting required**: Need to design a prompt adjustment that preserves the primary focus on the selected text (preventing hallucinations about what is actually written on the page) while permitting parametric fallback when the requested information is genuinely absent.
 
 ## Blocked / Icebox
 
