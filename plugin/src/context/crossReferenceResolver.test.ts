@@ -558,6 +558,11 @@ describe("buildResolvedReferencesBlock — unresolved references fail open", () 
     // model state a falsehood confidently.
     expect(block).not.toContain("confirmed");
     expect(block).not.toContain("absent from the extracted document");
-    expect(block).toContain("could not be retrieved");
+    // The note scopes the gap to THIS CONTEXT, never to the document — the
+    // distinction the surrounding assertions exist to protect.
+    expect(block).toContain("not in this context");
+    // v0.53.3: and it must not tell the model to relay the gap to the reader.
+    expect(block).not.toContain("say plainly");
+    expect(block).toContain("addressed to you, not");
   });
 });

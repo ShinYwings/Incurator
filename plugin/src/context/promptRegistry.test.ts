@@ -81,7 +81,7 @@ describe("buildRecencyAnchor", () => {
     // long session can still steer the model back to a file-read tool it cannot
     // be granted — so it must carry the unresolved case too.
     expect(withSel).toContain("<unresolved_cross_references>");
-    expect(withSel).toContain("never try to open, read, or search the source file");
+    expect(withSel).toContain("working from the blocks given");
 
     const noSel = buildRecencyAnchor(SIDECHAT_PROFILE, { hasPrimarySelection: false });
     expect(noSel).not.toContain("Answer ONLY about the <primary_focus_selection>");

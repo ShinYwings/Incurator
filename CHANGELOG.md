@@ -2,12 +2,57 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.53.3] - 2026-08-14
+### Fixed
+- **The Assistant Narrated Its Own Context Instead Of Answering**
+  User-reported, verbatim from the popover:
+
+  > "Sec. C의 보충자료 전문(p.12–13)은 지금 제 현재 컨텍스트에 로드되지 않았어요.
+  > 대신 본문 3.3절(p.5)과 문서 아웃라인을 기준으로…"
+
+  That was not the model being chatty. **Three prompt sites instructed it**, in
+  so many words, to announce the gap: `chatContextPriority.ts` ("say you could
+  not locate the referenced target", "say you could not retrieve the referenced
+  item"), `crossReferenceResolver.ts`'s `UNRESOLVED_NOTE` ("say plainly that you
+  could not retrieve the referenced item"), and `promptRegistry.ts` ("say you
+  could not retrieve it"). All three shipped in v0.48.4 to stop the model
+  reaching for a tool headless mode denies — the narration was the cure's side
+  effect.
+
+  Two findings shaped the rewrite:
+
+  1. Established RAG prompting guidance is that the assistant should **not
+     mention the retrieved context at all** — it is a cheatsheet for answering,
+     not a subject to discuss.
+  2. Negative instructions prime the behaviour they forbid (the "pink elephant"
+     effect); Anthropic's own persona prompts use descriptive statements rather
+     than prohibitions. `"do NOT attempt to open, read, or search the source
+     file"` sat directly beside a model that would not stop talking about what
+     it could not open.
+
+  So each site now states the behaviour wanted instead of the one forbidden:
+  describe the referenced target from what the supplied material establishes,
+  work from the blocks given, and **write for a reader who cannot see the
+  context** — statements about what is loaded, which blocks arrived, or whether
+  something is general knowledge are not part of an answer.
+
+  The honesty floor is unchanged and still tested: the unresolved note scopes a
+  gap to *this context*, never to the document, so the model still cannot claim
+  a verified absence it never established.
+
+  `noContextNarration.test.ts` pins both rules across all three sites, matching
+  only string literals so the explanatory comments do not satisfy it. Verified
+  red-before-green: restoring the old prompts fails 5 of its 8 assertions. Two
+  pre-existing tests that pinned the old wording were updated to assert the
+  invariant rather than the phrasing.
+
 ## [0.53.2] - 2026-08-10
 
 ### Fixed
 - **Popover Chat**: Relaxed strict grounding constraints in the Quick Query popover to allow the LLM to use its parametric knowledge as a fallback when the provided context lacks the answer, instead of strictly refusing to answer.
 - **Popover Chat**: Injected the sidechat's pinned sources (e.g. pinned PDF pages, markdown files) into the popover context so it can also search and answer from those sources, while still preserving the popover's `local-only` secure boundary.
 - **Context Hijacking Fix**: Scrubbed `ANTIGRAVITY_*` environment variables when invoking `agy` (the Antigravity CLI) from the Incurator plugin, fundamentally preventing the CLI from connecting to the host IDE's local daemon and receiving irrelevant injected active-tab metadata.
+
 
 ## [0.53.1] - 2026-08-09
 ### Fixed
