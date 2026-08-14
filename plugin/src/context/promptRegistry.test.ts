@@ -25,6 +25,10 @@ describe("boundaryConstraints", () => {
     expect(text).toContain("general knowledge");
     // But the primary instruction must still prioritize the provided context.
     expect(text).toContain("Answer from the provided context");
+    // v0.54.0: the FALLBACK stays, the ANNOUNCEMENT goes. The user quoted our
+    // own example sentence back at us as noise they did not need to read.
+    expect(text).not.toContain("MUST explicitly state");
+    expect(text).not.toContain("The document does not cover this");
   });
 
   it("still forbids every tool for a fully tool-free surface", () => {
