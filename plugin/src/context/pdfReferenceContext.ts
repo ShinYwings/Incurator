@@ -8,6 +8,7 @@
  * formatted `<resolved_cross_references>` / `<unresolved_cross_references>`
  * blocks.
  */
+import { buildCitationsBlock, resolveSelectionCitations } from "./citationContext";
 import { PdfDocumentIndexService } from "./pdfDocumentIndex";
 import {
   buildCaptionIndex,
@@ -486,11 +487,28 @@ export async function resolveSelectionReferencesBlockAsync(
   fetchPageText: (pageNum: number) => Promise<string | undefined>,
   locatePages?: (label: string) => Promise<number[]>
 ): Promise<string> {
-  const resolved = await resolveSelectionReferencesAsync(
-    selectedText,
-    source,
-    fetchPageText,
-    locatePages
-  );
-  return buildResolvedReferencesBlock(resolved);
+  // Citations resolve alongside the cross-references, in the same pre-turn
+  // pass and on the same fetcher, so the model gets both in one prompt and
+  // spends no tool rounds chasing either (plan §4.2). Both surfaces funnel
+  // through here, so wiring it once wires it everywhere.
+  const [resolved, citations] = await Promise.all([
+    resolveSelectionReferencesAsync(selectedText, source, fetchPageText, locatePages),
+    resolveSelectionCitations(
+      selectedText,
+      source?.searchDocumentId
+        ? {
+            documentId: source.searchDocumentId,
+            pageCount: source.pageCount,
+            knownPages: source.windowPages?.map((page) => ({
+              pageNum: page.pageNum,
+              text: page.text,
+            })),
+          }
+        : undefined,
+      fetchPageText
+    ),
+  ]);
+  return [buildResolvedReferencesBlock(resolved), buildCitationsBlock(citations)]
+    .filter(Boolean)
+    .join("\n");
 }
