@@ -100,6 +100,39 @@ out of by a model mid-turn.
 copy `upsertPage`'s rebuild-per-call shape (measured elsewhere at 331x linear).
 Instead: ingest the missing files so the existing DB-native search covers them.
 
+**AMENDED 2026-08-14 (user decision). "The missing files" is not all 103 of
+them, and the two halves need different mechanisms.**
+
+Measured breakdown of what is unindexed:
+
+| location | files | disposition |
+|---|---|---|
+| `01_Workspaces/<project>/` research notes | 75 | **NOT ingested** |
+| `01_Workspaces/<project>/.agents/` + `CLAUDE.md` | 14 | never — agent scaffolding |
+| `03_Notes/` | 7 | ingest — `[Source]` per the vault contract |
+| `00_System/` | 6 | ingest |
+| `04_Resources/` | 2 | ingest — `[Source]` per the vault contract |
+
+Workspace content does **not** enter the knowledge graph. `01_Workspaces` is the
+Artist Space: project studios holding `curate.yml`, agent scaffolding, and
+working notes bound to one project. Promoting that into a vault-wide DAG mixes
+project-local working state into shared knowledge, which is the separation the
+vault topology exists to maintain — and 14 of those files are agent machinery
+that would be indexed as if the user had written them.
+
+But the reader still wants those notes *consulted* when an answer is being
+composed. That is a retrieval question, not an ingestion one: the agent reads
+workspace files at query time, scoped to the active workspace, without any of it
+becoming L1–L4. Ingestion and consultation are different mechanisms and this
+plan had conflated them.
+
+So P5 splits:
+- **P5a** — ingest `03_Notes`, `00_System`, `04_Resources` (15 files). Needs LLM
+  capacity; blocked while Antigravity returns 429.
+- **P5b** — query-time workspace consultation, scoped to the active workspace,
+  read-only, never written to the DAG. Needs its own design; it is a new
+  retrieval path, not a change to an existing one.
+
 ### 4.8 `[8]` extraction is scoped to reduce collisions
 Bare `[...]` collides with `[^8]` footnotes, `[text][8]` reference links, and
 array indices. Extraction requires a bibliography match to survive: a citation
