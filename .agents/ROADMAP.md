@@ -62,7 +62,26 @@ backend at 0.53.1 and the plugin at 0.53.2.
 Note: v0.48.1 "distant PDF equation references" shipped but was a **no-op** —
 see item 1. It searched neighbouring pages for a label that was never ingested.
 
-### 1. Formula RECOVERY — blocked on three prerequisites, not on a plan
+### 1. Formula RECOVERY — BUILT AND TESTED, BUT NEVER INVOKED
+
+**Status corrected 2026-08-14 by reading the code.** This item said "blocked on
+three prerequisites". That is no longer what is wrong with it.
+
+`backend/src/curator/pipeline/formula_recovery.py` exists (commit `1f9a088`,
+"feat(pipeline): add selective formula recovery"), exports `recover_formula`,
+`classify_formula_loss`, and `invalidate_formula_recoveries`, and is covered by
+`test_plan_b_formula_recovery.py` — **6 tests, all passing**. The
+`validator_trace_id` producer this item listed as a missing prerequisite exists
+too, at `formula_recovery.py:226`.
+
+`pipeline/compile.py` imports all three symbols — **only to re-export them in
+`__all__` (line 56)**. Grepped across the whole backend: `recover_formula(` is
+never called. The single hit outside its own definition is a comment in
+`db_sync.py:149`.
+
+So the work is not blocked. It is finished and disconnected. The remaining task
+is wiring it into the compile path and deciding when it runs, which is a much
+smaller and much better-defined job than the one this item described.
 
 Visibility shipped in v0.49.0/.1: `source_spans.metadata.loss`, a `wiki lint`
 `extraction_loss` check, a `wiki add` warning, and an `[image-not-extracted]`
@@ -187,10 +206,22 @@ unstarted one.
 
 ### 8. Job progress is unobservable
 
-`ingest_worker.py` writes `progress=0.1` once when L2 starts and `0.5` only
-after all of L2 returns; `progress_current/progress_total` stay `0/1` and
-`job_events` gets zero rows. Reference-Mode jobs also display the `.md` stub
-name for a PDF, and a running job cannot be cancelled.
+**Status corrected 2026-08-14 by reading the code. Mostly resolved; one
+sub-item survives.**
+
+- ~~`progress=0.1` once when L2 starts and `0.5` after all of L2~~ — resolved.
+  `WorkerCallbacks` (`ingest_worker.py:39`) reports 0.25 / 0.5 / 0.75 / 0.9
+  across `on_pass1_start`, `on_fragment_written`, `on_pass2_start`,
+  `on_theme_written`.
+- ~~`progress_current/progress_total` stay `0/1`~~ — resolved. Written with
+  real `pages_seen` values at lines 54–86.
+- ~~a running job cannot be cancelled~~ — resolved. `db/jobs.py:243
+  cancel_job`, with `STATUS_CANCELLED` surfaced through `runtime_state.py`.
+- **`job_events` still gets zero rows.** The table and its index are created
+  (`db/schema.py:291`), `db_sync.py` lists it for transport, and
+  `db/sources.py:482` deletes from it — but nothing ever inserts. Still open.
+- Reference-Mode jobs displaying the `.md` stub name for a PDF: not re-verified
+  in this pass.
 
 ### 9. Drafts not yet planned
 
