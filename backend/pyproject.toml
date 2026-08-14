@@ -2,7 +2,7 @@
 name = "incurator"
 version = "0.53.1"
 description = "An LLM-maintained personal wiki, per Karpathy's pattern. Local-first, enterprise-grade."
-readme = "../docs/README.md"
+readme = "README.md"
 requires-python = ">=3.10"
 authors = [
     { name = "Incurator" }
@@ -70,10 +70,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/curator"]
-
-[tool.hatch.build.targets.wheel.force-include]
-"src/curator/workspace/templates" = "curator/workspace/templates"
-"src/curator/data" = "curator/data"
 
 [tool.pytest.ini_options]
 cache_dir = "../.cache/pytest"
