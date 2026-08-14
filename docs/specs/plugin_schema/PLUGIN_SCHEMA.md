@@ -2453,7 +2453,7 @@ boundary closed by §13.5/§13.6.
   or a shell. Execution wraps only the existing page-fetch, page-render, and
   document-index accessors, scoped to the PDF the user already has open.
 
-- **`read_pdf_page_image` is the pixel escape hatch (v0.54.0).** A PDF page can
+- **`read_pdf_page_image` is the pixel escape hatch (v0.55.0).** A PDF page can
   carry content that is present to the eye and absent from every text-layer
   path: a displayed equation emitted as a raster image, a figure whose labels
   live in the artwork, a scanned insert, and the reader's own handwritten

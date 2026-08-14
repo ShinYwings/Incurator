@@ -178,6 +178,32 @@ describe("Quick Query PDF reference fetch", () => {
     expect(body).toContain("expectedDocumentId !== undefined && pinnedDocumentId !== expectedDocumentId");
     expect(body).toContain("pinnedView.getDocumentId() !== pinnedDocumentId");
   });
+
+  it("pins identity for the page-image read too (v0.55.0)", () => {
+    // read_pdf_page_image crosses TWO awaits — the off-screen render and the
+    // backend vision round-trip — so it needs the same pin as the text fetch
+    // above, and needs it more: the vision call is the longer of the two. It
+    // shipped without one; this is the regression guard for that.
+    const src = mainSource();
+    const start = src.indexOf("readPageImage: async (pageNum: number) => {");
+    expect(start).toBeGreaterThan(-1);
+    const body = src.slice(start, src.indexOf("searchAnchor:", start));
+
+    // Exactly one active-view lookup, and it precedes the render.
+    expect(body.split("getActiveViewOfType(ExternalPdfView)").length - 1).toBe(1);
+    expect(body.indexOf("getActiveViewOfType(ExternalPdfView)")).toBeLessThan(
+      body.indexOf("renderPageImageBase64(pageNum)")
+    );
+    // Caller-supplied identity is enforced before the first await.
+    expect(body).toContain(
+      "expectedDocumentId !== undefined && pinnedDocumentId !== expectedDocumentId"
+    );
+    // And identity is re-checked after the render, before the vision call.
+    expect(body).toContain("pinnedView.getDocumentId() !== pinnedDocumentId");
+    expect(body.indexOf("pinnedView.getDocumentId() !== pinnedDocumentId")).toBeLessThan(
+      body.indexOf("this.transcribePdfCrop(")
+    );
+  });
 });
 
 describe("Session sync path hygiene", () => {

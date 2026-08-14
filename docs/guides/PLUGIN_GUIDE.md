@@ -193,7 +193,7 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
   exact section. Theorem-style pointers accept appendix-lettered numbering
   (`Result A4.1`, `Corollary B2.3`), and `Appendix 4` ToC titles answer to
   `A4`-style numbers so appendix anchors resolve too.
-- **When the text layer does not have it (v0.54.0)**: some PDFs render their
+- **When the text layer does not have it (v0.55.0)**: some PDFs render their
   displayed equations and figures as images, so the label never appears in the
   extracted text and no amount of *text* searching will locate it. The
   assistant can now look at the page instead of reading it. When the text it
@@ -211,6 +211,11 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
     vision model is far more expensive than reading text, so a single question
     gets a small number of page images. The assistant spends them on the pages
     that actually need pixels and answers everything else from text.
+  - **How far it can reach still depends on where you asked from.** The
+    drag-to-select popover works from the pages already loaded, and
+    whole-document search needs the backend running. Reading a page as an image
+    widens what the assistant can do with a page it has; it does not change
+    which pages each surface can go looking through in the first place.
 
   Pointers whose text cannot be found are listed in an
   `<unresolved_cross_references>` block. That block is addressed to the

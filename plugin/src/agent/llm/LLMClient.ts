@@ -739,7 +739,7 @@ export class LLMClient {
               "Error (budget_exhausted): no further page reads are available " +
               "for this question. Answer from the pages you already have.",
             pagesFetched: 0,
-        imagesRead: 0,
+            imagesRead: 0,
           };
         }
         const text = await runner.fetchPage(parsed.pageNum);

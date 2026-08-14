@@ -63,7 +63,7 @@ function makeRunner(overrides: Partial<LocalPdfToolRunner> = {}): LocalPdfToolRu
     describeContext: () => CONTEXT,
     fetchPage: async (pageNum: number) => `text of page ${pageNum}`,
     readPageImage: async () => undefined,
-  searchAnchor: async () => [],
+    searchAnchor: async () => [],
     ...overrides,
   };
 }
