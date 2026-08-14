@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.55.0)
+# Incurator - System Behavior (v0.56.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
