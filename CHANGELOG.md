@@ -2,6 +2,38 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.54.0] - 2026-08-14
+### Changed
+- **The prompt now states what the assistant is for.** The system prompt opened
+  by describing Obsidian and then spent its length on prohibitions. Nothing in
+  it said what the sidechat and popover actually exist to do, so the model
+  optimized for the only goal it was given — stay inside the provided context —
+  and a question it could have answered came back as a report on what it had
+  not received.
+
+  The prompt now opens with three duties, in order: read alongside the user
+  (papers, books, and PDFs, including pages and figures they have not opened);
+  remind them what they have already written, surfacing their own notes when
+  those bear on the question; and help them get somewhere new — an implication,
+  a tension, a connection they had not stated. The third duty had **zero**
+  instructions anywhere in the stack before this release. It is qualified
+  rather than mandated: answer the question first, add the connection when
+  there is a real one, because a manufactured insight is worse than none.
+
+- **Prohibitions rewritten as descriptions of the wanted behaviour.** Negative
+  instructions prime the behaviour they forbid — the "pink elephant" effect —
+  so "do NOT open the file" was itself part of why the model reached for a file
+  tool. Each prohibition now states what to do instead. The general-knowledge
+  fallback survives as a capability ("where those do not cover the question,
+  answer it from your general knowledge of the field rather than stopping")
+  with the mandate to *announce* that fallback removed.
+
+- **The role and its budget are now gated by tests.** `promptRoleBudget.test.ts`
+  asserts all three duties are present, caps the assembled prompt at 17,000
+  characters and 23 negative constructions, and fails if a narration mandate
+  reappears. A prompt that grows without bound dilutes every instruction in it,
+  including the ones that matter.
+
 ## [0.53.3] - 2026-08-14
 ### Fixed
 - **The Assistant Narrated Its Own Context Instead Of Answering**
