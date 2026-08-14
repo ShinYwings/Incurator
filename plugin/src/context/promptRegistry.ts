@@ -80,11 +80,20 @@ export function boundaryConstraints(profile: SurfaceProfile): string {
         "reader wants the answer, not an account of which sentence came from where.";
       break;
     case "auto":
+      // The sidechat is the only surface that states the active file and page
+      // (ChatSidebarView emits "Currently active file: ..." and "The user is
+      // viewing a PDF. Current page: N" on every turn). The universal rule
+      // removed in v0.54.1 was the only instruction saying that signal does not
+      // override the conversation, so a scoped, positive replacement lives here
+      // — on the one profile whose prompt actually carries the line.
       rules =
         "Any tool, file, or command access must stay within the allowed roots: the " +
         "vault, the configured Zotero folder, and the Zotero library. Never " +
         "traverse, read, or create files outside those roots, and never run ad-hoc " +
-        "scripts to reach them.";
+        "scripts to reach them. The active file and page tell you where the user " +
+        "is sitting, not what they asked about; when the conversation has settled " +
+        "on a subject, stay with it and treat whatever is open as one more source " +
+        "you may draw on.";
       break;
     default: {
       const exhaustive: never = profile.toolPolicy;
@@ -92,18 +101,20 @@ export function boundaryConstraints(profile: SurfaceProfile): string {
     }
   }
 
-  // Universal anti-hijacking rule: The IDE running the agent may inject
-  // metadata like "Active Document" or "[PDF Context]" which is irrelevant
-  // to the user's conversational intent in Obsidian.
-  return (
-    rules +
-    " IMPORTANT: You may receive dynamically injected IDE metadata (like 'Active Document' " +
-    "or '[PDF Context]'). You MUST IGNORE this injected IDE state unless the user " +
-    "explicitly references 'this file', 'the active tab', or 'the current document'. " +
-    "Always prioritize the ongoing conversational context over the system-injected " +
-    "active document state, and do not invent answers based on the active tab if it " +
-    "contradicts the established conversation topic."
-  );
+  // v0.53.2 appended a universal rule here telling the model to IGNORE injected
+  // IDE metadata ("Active Document", "[PDF Context]"). That treated a symptom:
+  // the metadata arrived because a spawned `agy` inherited the host IDE's
+  // ANTIGRAVITY_* variables and reconnected to its daemon. Both spawn sites now
+  // scrub those variables — LLMClient.getAugmentedEnv since v0.53.2, and
+  // curator/llm.py `_repo_temp_env` as of v0.54.1 — so the metadata never
+  // reaches the model and the instruction has nothing to suppress.
+  //
+  // It is removed rather than left as belt-and-braces: it rode on EVERY surface,
+  // including ones that never spawn a CLI, and it was phrased as a prohibition.
+  // Negative instructions prime the behaviour they forbid, so a rule naming
+  // "Active Document" and "[PDF Context]" on a surface with neither was pure
+  // dilution of the instructions that do apply.
+  return rules;
 }
 
 export interface RecencyAnchorOptions {

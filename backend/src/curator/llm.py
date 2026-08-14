@@ -49,6 +49,20 @@ def _repo_cache_dir(*parts: str) -> Path:
 def _repo_temp_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     temp_dir = str(_repo_cache_dir("llm", "tmp"))
     env = dict(os.environ)
+
+    # Drop IDE-injected Antigravity variables before anything else touches the
+    # environment. When Incurator itself runs inside the Antigravity IDE, the
+    # host exports ANTIGRAVITY_* pointing at its local daemon; a spawned `agy`
+    # picks them up, connects back to that daemon, and answers using the IDE's
+    # active-tab metadata instead of the prompt we sent. The plugin has scrubbed
+    # these since v0.53.2 (LLMClient.getAugmentedEnv); the backend's own CLI
+    # clients were left inheriting them.
+    #
+    # Order matters: `extra` is applied AFTER, so a caller that deliberately
+    # sets ANTIGRAVITY_TRUST_WORKSPACE (AntigravityCliClient does) still gets it.
+    for key in [k for k in env if k.startswith("ANTIGRAVITY_")]:
+        del env[key]
+
     if extra:
         env.update(extra)
     env.update({"TMPDIR": temp_dir, "TEMP": temp_dir, "TMP": temp_dir})

@@ -2263,6 +2263,45 @@ create files, or traverse the filesystem.
     from this function — it MUST NOT re-declare a hardcoded duplicate.
     This text is **documentation of** the boundary, not the enforcement of it:
     per §13.7 the enforcement is behavioral and independently tested.
+
+    It also carries no universal suffix. v0.53.2 appended one to every profile
+    telling the model to ignore injected IDE metadata; v0.54.1 removed it once
+    both CLI spawn sites scrubbed `ANTIGRAVITY_*` (see below), because the
+    metadata no longer reaches the model. A rule appended to every surface
+    regardless of profile is by construction wrong for most of them, and
+    naming the exact strings to ignore primes the behaviour it forbids.
+
+- **CLI spawns MUST NOT inherit the host IDE's `ANTIGRAVITY_*` variables
+  (v0.54.1).** When Incurator runs inside the Antigravity IDE, the host exports
+  `ANTIGRAVITY_*` pointing at its local daemon. A spawned `agy` that inherits
+  them reconnects to that daemon and answers from the IDE's active-tab state
+  instead of the prompt it was given. **Both** spawn paths must scrub the
+  prefix before building the child environment — the plugin's
+  `LLMClient.getAugmentedEnv` and the backend's `curator/llm.py`
+  `_repo_temp_env`. Scrubbing one and not the other leaves the hijack live on
+  the unscrubbed path, which is what shipped between v0.53.2 and v0.54.1.
+
+  The scrub MUST run **before** caller-supplied overrides are applied, never
+  after, so that a caller which deliberately sets an `ANTIGRAVITY_*` value still
+  gets it. The backend's `AntigravityCliClient` is such a caller: it sets
+  `ANTIGRAVITY_TRUST_WORKSPACE`, and deleting that would stop `agy` at a
+  workspace-trust prompt it cannot display in `--print` mode.
+
+  **This does not amend §13.6.** The two are different spawn sites with
+  different trust boundaries, and the prohibition below is not being relaxed:
+
+  | | §13.6 (plugin) | here (backend) |
+  |---|---|---|
+  | Spawner | `LLMClient.buildCliCommand`, for the popover/sidechat surfaces | `curator/llm.py` CLI clients, for the ingest/synthesis pipeline |
+  | Trigger | a chat turn, over content the user may not have read | a `wiki` command the user ran on their own vault |
+  | Containment | OS sandbox; agy REFUSED if it cannot be OS-sandboxed | the invoking command's own scope |
+  | `*_TRUST_WORKSPACE` | **REMOVED** — see §13.6 | set by the caller, and predates the v0.23.0 hardening |
+
+  §13.6's removal governs the plugin's spawn only, and MUST NOT be read as
+  permission to reintroduce `*_TRUST_WORKSPACE` there. Conversely, the backend's
+  use of it is not blessed by this section — it is recorded here only because
+  the scrub ordering depends on it. The backend's own trust model belongs in
+  `SYSTEM_BEHAVIOR.md`; see §26.8 there.
   - `buildRecencyAnchor(profile, { hasPrimarySelection })` — a `<critical_invariants>`
     block appended LAST in the payload (recency-effect position) that re-asserts:
     answer only about `<primary_focus_selection>` (deferring to the existing
