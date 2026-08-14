@@ -47,3 +47,57 @@ search unrendered PDF pages. Arena record exists at
 `.agents/plans/pdf_background_index_arena/`, master plan at
 `.agents/plans/04_pdf_background_index.md`. Needs Executor to proceed — read the
 plan, fix the quadratic `upsertPage` first, then wire the consumers.
+
+---
+
+### Update (2026-08-14, Claude Code)
+
+**v0.54.0 reading-assistant plan is executing. P0 and P2 are landed/open.**
+
+Plan: `.agents/plans/05_pdf_reading_assistant.md` (Arena record under
+`.agents/plans/pdf_reading_assistant_arena/`).
+
+Shipped:
+- **#152 → v0.53.3** — removed the three prompt sites that *instructed* the
+  model to narrate its own retrieval state.
+- **#153 → v0.54.0 (P0)** — the system prompt now opens with the assistant's
+  three duties (read alongside, remind of prior notes, find new value) instead
+  of a list of prohibitions. Duty 3 previously had zero instructions anywhere.
+- **#154 → v0.55.0 (P2), OPEN** — `read_pdf_page_image(page_number)`: renders
+  any page off-screen and reads the pixels, so a rasterized equation answers
+  without the user snipping it. Model-invoked, not heuristic — see below.
+
+Two master-level defects found and fixed by fast-forward while doing this:
+- `chore(backend)` 67876a7 — hatchling 1.30 rejects `readme = "../docs/README.md"`
+  and the redundant `force-include` block. Backend CI had gone red with no
+  commit causing it, blocking every branch.
+- `chore(ci)` dfdc6fc — **the version-consistency gate had never run on a pull
+  request.** Its condition tested `github.ref` against `refs/heads/*`, but on a
+  pull_request event that value is `refs/pull/<n>/merge`. `feat/**` was also
+  missing from the push allowlist, so on those branches it ran zero times from
+  either trigger. This is how v0.53.2 shipped with pyproject at 0.53.1 and the
+  plugin manifests at 0.53.2. Condition removed; verified running on #154.
+
+## Critical context for whoever picks this up
+
+**`isScannedLike` cannot route pixel reads, and no threshold tuning changes
+that.** It is a whole-page aggregate. Measured on "3D Line Mapping Revisited"
+p.11 via pdf.js `getOperatorList()`: 14 image draw ops and 4,193 text chars,
+against a prose control page's 5 ops. The page holding the rasterized equation
+is text-dense by every page-level measure. Only the model answering the
+question knows the answer is missing from the text it got — hence a
+model-invoked tool.
+
+**Unverified leg**: the vision transcription in #154 could not be exercised
+end-to-end. Antigravity returns 429 capacity-exhausted for `gemini-3.6-flash`
+and no local vision model is installed. The off-screen render *is* verified on
+the real file. Re-run `wiki plugin pdf transcribe --image-file <page.png>`
+once capacity returns.
+
+## Immediate next action
+
+Remaining plan phases, in order: **P1** (PLUGIN_SCHEMA contract for the
+three-duty role — P2 already landed the §13.7 tool-set half), **P3** (`[8]`
+citation resolution, depth 1), **P4** (provenance surfaced from tool results),
+**P5** (vault coverage — 36 sources ingested against 137 markdown files on
+disk), **P6** (live acceptance test).
