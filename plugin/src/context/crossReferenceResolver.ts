@@ -716,10 +716,13 @@ function escapeAttr(value: string): string {
 const UNRESOLVED_NOTE =
   "The verbatim text behind these references is not in this context (commonly " +
   "a rasterized equation or figure, or a page outside the loaded range). " +
-  "Describe these targets from what the supplied material establishes about " +
-  "them, working from the blocks given. This note is addressed to you, not " +
-  "to the reader: the answer describes the document, never the context or " +
-  "what it does or does not contain.";
+  "A rasterized target is not missing from the paper, only from its text " +
+  "layer: if `read_pdf_page_image` is among the tools you were given, that " +
+  "is what it is for, so call it on the page the reference points to before " +
+  "settling for less. If you were not given that tool, describe these targets " +
+  "from what the supplied material establishes about them. This note is " +
+  "addressed to you, not to the reader: the answer describes the document, " +
+  "never the context or what it does or does not contain.";
 
 /**
  * Render cross-references as first-class context blocks.

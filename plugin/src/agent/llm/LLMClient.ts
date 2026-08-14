@@ -25,6 +25,7 @@ import {
   isLocalPdfToolName,
   parseLocalPdfToolCall,
   LOCAL_PDF_FETCH_BUDGET,
+  LOCAL_PDF_IMAGE_BUDGET,
   LOCAL_PDF_SEARCH_TOP_K,
   type LocalPdfToolContext,
   type LocalPdfToolRunner,
@@ -674,9 +675,14 @@ export class LLMClient {
     runner: LocalPdfToolRunner | undefined,
     captured: LocalPdfToolContext | undefined,
     budget: number,
-  ): Promise<{ content: string; pagesFetched: number }> {
+    imageBudget: number,
+  ): Promise<{ content: string; pagesFetched: number; imagesRead: number }> {
     if (!runner || !captured) {
-      return { content: "Error: the PDF page reader is not available.", pagesFetched: 0 };
+      return {
+        content: "Error: the PDF page reader is not available.",
+        pagesFetched: 0,
+        imagesRead: 0,
+      };
     }
     if (runner.describeContext().documentId !== captured.documentId) {
       return {
@@ -684,15 +690,48 @@ export class LLMClient {
           "Error: the open document changed during this request; the page " +
           "reader is no longer valid. Answer from the context you already have.",
         pagesFetched: 0,
+        imagesRead: 0,
       };
     }
 
     const parsed = parseLocalPdfToolCall(name, rawArgs, captured);
     if (parsed.kind === "error") {
-      return { content: `Error (${parsed.code}): ${parsed.message}`, pagesFetched: 0 };
+      return {
+        content: `Error (${parsed.code}): ${parsed.message}`,
+        pagesFetched: 0,
+        imagesRead: 0,
+      };
     }
 
     try {
+      if (parsed.kind === "read_page_image") {
+        // Budgeted separately from text reads: a render plus a vision
+        // round-trip is the escalation of last resort, not a browsing mode.
+        if (imageBudget <= 0) {
+          return {
+            content:
+              "Error (budget_exhausted): no further page images are available " +
+              "for this question. Answer from what you already have.",
+            pagesFetched: 0,
+            imagesRead: 0,
+          };
+        }
+        const transcribed = await runner.readPageImage(parsed.pageNum);
+        if (!transcribed?.trim()) {
+          return {
+            content:
+              `Error (not_found): page ${parsed.pageNum} could not be read as an image.`,
+            pagesFetched: 0,
+            imagesRead: 1,
+          };
+        }
+        return {
+          content: `Page ${parsed.pageNum}, read from the page image:\n${transcribed.trim()}`,
+          pagesFetched: 0,
+          imagesRead: 1,
+        };
+      }
+
       if (parsed.kind === "fetch_page") {
         if (budget <= 0) {
           return {
@@ -700,6 +739,7 @@ export class LLMClient {
               "Error (budget_exhausted): no further page reads are available " +
               "for this question. Answer from the pages you already have.",
             pagesFetched: 0,
+            imagesRead: 0,
           };
         }
         const text = await runner.fetchPage(parsed.pageNum);
@@ -707,16 +747,25 @@ export class LLMClient {
           return {
             content: `Error (not_found): page ${parsed.pageNum} has no extractable text.`,
             pagesFetched: 1,
+            imagesRead: 0,
           };
         }
-        return { content: `Page ${parsed.pageNum}:\n${text.trim()}`, pagesFetched: 1 };
+        return {
+          content: `Page ${parsed.pageNum}:\n${text.trim()}`,
+          pagesFetched: 1,
+          imagesRead: 0,
+        };
       }
 
       const hits = await runner.searchAnchor(parsed.query, LOCAL_PDF_SEARCH_TOP_K);
-      return { content: formatAnchorHits(hits), pagesFetched: 0 };
+      return { content: formatAnchorHits(hits), pagesFetched: 0, imagesRead: 0 };
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
-      return { content: `Error: PDF reader failed: ${detail}`, pagesFetched: 0 };
+      return {
+        content: `Error: PDF reader failed: ${detail}`,
+        pagesFetched: 0,
+        imagesRead: 0,
+      };
     }
   }
 
@@ -939,6 +988,7 @@ export class LLMClient {
     const rawTools = injectTools && mcpManager ? mcpManager.getAllTools() : [];
     const { tools, routes } = buildMcpToolExposure(rawTools);
     let localFetchBudget = LOCAL_PDF_FETCH_BUDGET;
+    let localImageBudget = LOCAL_PDF_IMAGE_BUDGET;
 
     let currentMessages = [...messages];
     let fullFinalText = "";
@@ -987,8 +1037,10 @@ export class LLMClient {
               localRunner,
               localContext,
               budget,
+              localImageBudget,
             );
             localFetchBudget -= outcome.pagesFetched;
+            localImageBudget -= outcome.imagesRead;
             currentMessages.push({
               role: "tool",
               tool_call_id: tc.id,

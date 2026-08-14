@@ -545,6 +545,38 @@ export class ExternalPdfView extends ItemView {
     }
   }
 
+  /**
+   * Render any page to a detached canvas and return it as base64 PNG.
+   *
+   * `renderPageCanvas` draws into an on-screen `pageEl` that must already
+   * exist, so it can only produce an image for a page the user has scrolled
+   * to. This renders off-screen, which is what makes reading an unvisited
+   * page possible at all.
+   *
+   * The scale is a deliberate trade, chosen so a subscripted symbol in a
+   * displayed equation should stay legible while the image remains inside the
+   * vision model's limits. Legibility is confirmed by eye on the rendered page;
+   * the transcription leg itself is not yet verified end to end.
+   */
+  async renderPageImageBase64(pageNum: number, scale = 2.0): Promise<string | undefined> {
+    if (!this.cachedPdf || pageNum < 1 || pageNum > this.totalPages) return undefined;
+    try {
+      const page = await this.cachedPdf.getPage(pageNum);
+      const viewport = page.getViewport({ scale });
+      const doc = this.containerEl.ownerDocument;
+      const canvas = doc.createElement("canvas");
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return undefined;
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      return canvas.toDataURL("image/png").replace(/^data:image\/png;base64,/, "");
+    } catch (err) {
+      logger.warn(`Could not render page ${pageNum} as an image:`, err);
+      return undefined;
+    }
+  }
+
   /** Called by main plugin to capture current page for LLM context. */
   getActivePdfContext(
     captureMode: "text" | "image" | "both"

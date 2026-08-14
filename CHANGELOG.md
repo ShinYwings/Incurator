@@ -2,6 +2,93 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.55.0] - 2026-08-14
+### Added
+- **The assistant can look at a PDF page, not just read its text.** Ask about
+  an equation that the PDF draws as a picture and the answer no longer depends
+  on you snipping it first. When the text it fetched does not contain what you
+  asked about, the assistant renders that page off-screen and reads the pixels
+  through the same extraction model the manual `Cmd+Shift+X` snip already uses.
+
+  This reaches three things the text layer structurally cannot hold: displayed
+  equations and figures emitted as raster images, scanned inserts, and **your
+  own handwritten margin notes**.
+
+  Three properties are deliberate, and each is a decision rather than a
+  default:
+
+  - **The model asks for it; no heuristic routes it.** The obvious design is to
+    reuse the existing `isScannedLike` verdict, and it cannot work: that verdict
+    is a whole-page aggregate. Measured on the paper that motivated this
+    feature, the page carrying the rasterized equation reports 4,193 text
+    characters and 14 image draw operations against a prose control page's 5 —
+    text-dense by every page-level measure, and missing the equation entirely.
+    Only the model answering the question knows the answer is not in the text
+    it received.
+  - **It renders off-screen, so any page is reachable.** The existing render
+    path draws into an on-screen element that exists only for pages you have
+    scrolled to. Reading a page you never opened is the point, not an edge
+    case.
+  - **It is rationed separately from text reads.** A render plus a vision
+    round-trip is the escalation of last resort, not a browsing mode, so a
+    turn gets a small number of page images and answers everything else from
+    text. A failed read is charged too: an unreadable page fails identically
+    every time, and a free failure would let one turn retry it indefinitely.
+
+### Fixed
+- **The new tool would have shipped unreachable.** Found reviewing v0.53.0
+  through v0.55.0 before merge. Exposing a tool is not the same as making the
+  model use it: three prompt sites steered away from the page image and none
+  mentioned it. The decisive one was the unresolved-reference note, which fires
+  on *exactly* the condition the tool exists for — "commonly a rasterized
+  equation or figure" — and then told the model to describe the target from
+  what it already had. Asking about equation 29 would have produced the same
+  non-answer as before the feature existed. All three sites now name the image
+  read, conditionally (a CLI-routed provider has no local tools at all), and
+  `pageImageReachability.test.ts` fails 4 of 5 without them.
+
+- **The prompt could have sent a CLI-routed model back into "no output
+  produced".** The instruction said to use "a tool for reading a page as an
+  image". CLI-routed providers receive no local tools at all, yet still get this
+  text — and the agy path holds a persistent `read_file()` grant, so a model
+  told to go fetch a rasterized equation could reach for that instead and hit
+  the headless auto-deny that caused the original v0.48.4 failure. Every site
+  now names `read_pdf_page_image` literally: a model that was not handed it has
+  nothing to match. Prompt assembly is still not provider-aware; that is a
+  follow-up, not something this release closes.
+
+- **The last instruction the model read still argued against the tool.**
+  `buildRecencyAnchor` is emitted last, at the recency position, and duplicates
+  the pointer rule — it kept telling the model to work "from the blocks given"
+  while the three sites above had been fixed. A reviewer caught the identical
+  miss on a previous release; the reachability test now covers this site too.
+
+- **A model-invoked failure popped a toast at the user.** `transcribePdfCrop`
+  raises a Notice on every failure, which is right for the two callers it was
+  written for — both user actions. The page-image tool is not one: the model
+  calls it by itself, on a page the reader may never have opened, and the error
+  already goes back to the model as a typed tool result. Anyone without a vision
+  model configured would have gotten an unprompted popup naming a page they did
+  not ask about, up to twice per turn. That path is now silent and logs instead.
+
+- **Reading a page image ignored the document-identity pin.** `readPageImage`
+  crosses two awaits — the render and the vision round-trip — and resolved the
+  active view at call time with no identity check, while `fetchActivePdfPage`
+  directly above it pins before its first await and refuses on mismatch.
+  Switching tabs mid-request would have rasterized a page of the *new*
+  document and returned it as a page of the one asked about. It now pins, and
+  re-checks after the render.
+
+### Changed
+- `PLUGIN_SCHEMA.md` §13.7's closed tool set grows from two names to three;
+  `read_pdf_page_image(page_number)` joins `fetch_pdf_page` and
+  `search_pdf_anchor`. It remains a plugin-executed local tool — never
+  registered with an MCP server, never reaching the filesystem, the vault, or a
+  shell — and is emitted under the same fail-closed preconditions as the rest.
+- The plugin guide's "when a reference cannot be found" section was describing
+  a limitation this release removes ("no amount of searching will locate it")
+  and has been rewritten in both the English and Korean guides.
+
 ## [0.54.1] - 2026-08-14
 ### Fixed
 - **The IDE-context hijack was only half fixed.** v0.53.2 stopped the Obsidian
@@ -35,6 +122,7 @@ All notable changes to Incurator are documented here.
   not override a settled conversation topic now lives on the sidechat profile
   alone — the one surface whose prompt actually carries the line — phrased as
   what to do rather than what to ignore.
+
 
 ## [0.54.0] - 2026-08-14
 ### Changed

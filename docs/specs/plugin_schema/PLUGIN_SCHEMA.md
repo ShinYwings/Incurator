@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.54.0)
+# Incurator Plugin Schema & API Contract (v0.55.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -2256,8 +2256,9 @@ create files, or traverse the filesystem.
     (`local-only` since v0.41.0, previously `none` / edits-off).
   - `boundaryConstraints(profile)` — the canonical filesystem/tool boundary text.
     For `toolPolicy: "none"` it declares zero tools and zero filesystem access;
-    for `"local-only"` it declares zero MCP tools, zero filesystem access, and
-    the single read-only PDF page reader of §13.7; for `"auto"` it limits access
+    for `"local-only"` it declares zero MCP tools, no model-reachable
+    filesystem or shell surface, and the read-only PDF page reader of §13.7
+    (three tools as of v0.55.0); for `"auto"` it limits access
     to the allowed roots (vault, configured Zotero folder, Zotero library). The
     popover's system prompt sources its boundary line
     from this function — it MUST NOT re-declare a hardcoded duplicate.
@@ -2445,13 +2446,100 @@ boundary closed by §13.5/§13.6.
   deliberately produces instead of wrong context; and unnumbered/prose
   references that no pattern in the closed regex table matches.
 
-- **Closed tool set.** Exactly two names may ever be exposed:
-  `fetch_pdf_page(page_number)` and `search_pdf_anchor(query)`. They are
-  plugin-executed local tools, NOT MCP tools: they are never registered with an
-  MCP server, never routed through `mcpManager`, and never reach the filesystem,
-  the vault, the Zotero library, or a shell. Execution wraps only the existing
-  page-fetch and document-index accessors, scoped to the PDF the user already
-  has open.
+- **Closed tool set.** Exactly three names may ever be exposed:
+  `fetch_pdf_page(page_number)`, `read_pdf_page_image(page_number)`, and
+  `search_pdf_anchor(query)`. They are plugin-executed local tools, NOT MCP
+  tools: they are never registered with an MCP server and never routed through
+  `mcpManager`. Execution wraps only the existing page-fetch, page-render, and
+  document-index accessors, scoped to the PDF the user already has open.
+
+  **What the model can reach is an integer, not a path.** Every argument in the
+  closed set is a page number or a search string, bounds-checked against the
+  captured context before execution. No tool takes a path, a command, or a
+  glob, so nothing the model emits can name a file, escape the open document,
+  or reach the vault or the Zotero library.
+
+  That is the guarantee — not that no byte touches disk.
+  `read_pdf_page_image` transcribes through the same backend round-trip the
+  manual `Cmd+Shift+X` snip uses, which writes the rendered PNG to a temp
+  directory under the machine cache and spawns the `wiki` CLI to read it. Both
+  the path and the command are constructed entirely by the plugin. Earlier
+  wording here claimed local tools "never reach the filesystem or a shell";
+  that was written for the two text tools and was false the moment the image
+  read landed.
+
+- **`read_pdf_page_image` is the pixel escape hatch (v0.55.0).** A PDF page can
+  carry content that is present to the eye and absent from every text-layer
+  path: a displayed equation emitted as a raster image, a figure whose labels
+  live in the artwork, a scanned insert, and the reader's own handwritten
+  margin notes. `fetch_pdf_page` returns the text layer, so for that content it
+  returns text that is confidently complete and silently missing the answer.
+  This tool renders the requested page off-screen and transcribes the pixels
+  through the same vision model the manual region-snip already uses.
+
+  Three properties are contractual:
+
+  1. **Model-invoked, never heuristic.** Routing MUST NOT be driven by the
+     page-level `isScannedLike` verdict. That verdict is a whole-page aggregate
+     and cannot see a picture region on a text-dense page: measured on the
+     motivating paper, the page carrying the rasterized equation reports 4,193
+     text characters and 14 image draw operations against a prose control
+     page's 5, so any page-aggregate test classifies it as an ordinary text
+     page. The model asking the question is the only party that knows the
+     answer it needs is not in the text it received.
+  2. **Renders off-screen, so any page is reachable.** The render MUST NOT
+     depend on an on-screen page element, which exists only for pages the user
+     has scrolled to. Reading a page the user never opened is the point of the
+     tool, not an edge case.
+  3. **Separately budgeted from text reads.** A render plus a vision
+     round-trip is the escalation of last resort, not a browsing mode. The
+     image budget is charged even when a read fails, because an unreadable page
+     fails identically on every retry and a free failure would let one turn
+     retry it indefinitely.
+  4. **The prompt stack MUST NOT argue against it.** Exposing the tool is not
+     the same as making it reachable: a model told to "work from the blocks
+     given" will do that instead of calling it. Three sites carry the
+     obligation — `boundaryConstraints("local-only")`, the pointer paragraph in
+     `contextPriorityInstruction`, and `crossReferenceResolver`'s
+     `UNRESOLVED_NOTE`. The last is the load-bearing one: it fires on exactly
+     the condition the tool exists for ("commonly a rasterized equation or
+     figure"), so a note that ends the search there makes the feature inert in
+     its own headline case. Each site must name the image read and must not
+     instruct the model to settle for the supplied blocks.
+
+     The two *per-turn* sites — `UNRESOLVED_NOTE` and the pointer paragraph —
+     hedge on availability ("if a tool for reading a page as an image is
+     available to you"), because they are emitted alongside context whose tool
+     set varies: a CLI-routed provider gets no local tools at all (§13.6).
+     `boundaryConstraints` does not hedge, matching how it already describes
+     `fetch_pdf_page`: it is static policy prose describing the surface, and a
+     model cannot invoke a function it was never handed regardless of what that
+     prose says.
+
+     **All four sites MUST name `read_pdf_page_image` literally, never "a tool
+     for reading a page as an image".** The generic phrasing is what caused the
+     v0.48.4 `no output produced` failure: a CLI-routed model, told to go fetch
+     a rasterized equation, reached for its *own* file-reading capability, and
+     headless mode auto-denied a permission it could not prompt for. That risk
+     is live — `shouldInjectLocalTools` withholds every local tool from
+     CLI-routed providers (§13.6), while the agy path holds a persistent
+     `read_file()` grant — so those runs see this prompt text with no tool
+     behind it. A named tool has nothing to substitute for; a described
+     capability does. The fourth site is `buildRecencyAnchor`, which is emitted
+     LAST at the recency position and is the easiest to forget precisely
+     because it duplicates the pointer rule.
+
+     Prompt assembly is still not CLI-aware — the text is built before the
+     provider is known. Naming the tool bounds the failure; scoping the
+     instruction to runs that actually receive tools is the open follow-up.
+
+- **Identity pinning covers the image read too (v0.55.0).** The rule below is
+  not limited to text fetches. `readPageImage` crosses **two** awaits — the
+  page render and the vision round-trip — so it pins the view and its document
+  id before the first await, refuses on mismatch, and re-checks after the
+  render because the vision call is the longer of the two. A pinned view
+  reference alone is insufficient: the same `ExternalPdfView` instance is
+  reused across documents via `setState`.
 
 - **Emission preconditions (fail closed).** Local tools are emitted only when
   the captured request context reports an active PDF, a known positive page
@@ -2467,7 +2555,7 @@ boundary closed by §13.5/§13.6.
   caption index, and outline resolution already run deterministically.
 
 - **Typed failures, never thrown turns.** Out-of-range page numbers,
-  unparseable arguments, an exhausted fetch budget, and a mid-request document
+  unparseable arguments, an exhausted page or image budget, and a mid-request document
   identity change each produce a typed `role: "tool"` error message that the
   model can answer around. No local tool failure may abort the turn, and a
   document identity change MUST NOT be resolved against the new document.
@@ -2497,7 +2585,7 @@ boundary closed by §13.5/§13.6.
 - **Enforcement is behavioral, not textual.** The popover's zero-MCP guarantee
   MUST be locked by tests asserting that MCP injection is refused for the
   popover policy under every combination of MCP-manager presence and CLI
-  routing, and that a popover tool array contains only the two local names
+  routing, and that a popover tool array contains only the three local names
   above. Prompt wording (§13.5 `boundaryConstraints`) documents the boundary;
   it does not enforce it.
 

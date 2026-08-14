@@ -7,9 +7,15 @@
  * tell the user to navigate there. These tools are the missing actuator.
  *
  * They are NOT MCP tools: they are executed by the plugin against the PDF the
- * user already has open, never reach the filesystem, the vault, the Zotero
- * library, or a shell, and are never registered with an MCP server. The
+ * user already has open, and are never registered with an MCP server. The
  * popover's zero-MCP guarantee (§13.5) is therefore unchanged.
+ *
+ * The security property is that every argument is a page number or a search
+ * string, bounds-checked before execution — no tool takes a path, a command,
+ * or a glob, so nothing the model emits can name a file or leave the open
+ * document. It is NOT that no byte touches disk: `read_pdf_page_image`
+ * transcribes via the same backend round-trip the manual snip uses, which
+ * writes a temp PNG and spawns the `wiki` CLI. Both are built by the plugin.
  *
  * Everything here is pure so the security-relevant gating and bounds are unit
  * testable without a provider, a PDF, or a UI surface. Execution lives behind
@@ -17,7 +23,11 @@
  */
 import type { PdfRagHit } from "../../types";
 
-export const LOCAL_PDF_TOOL_NAMES = ["fetch_pdf_page", "search_pdf_anchor"] as const;
+export const LOCAL_PDF_TOOL_NAMES = [
+  "fetch_pdf_page",
+  "search_pdf_anchor",
+  "read_pdf_page_image",
+] as const;
 export type LocalPdfToolName = (typeof LOCAL_PDF_TOOL_NAMES)[number];
 
 /** Default number of anchor-search hits returned to the model. */
@@ -28,6 +38,13 @@ export const LOCAL_PDF_SEARCH_TOP_K = 5;
  * from the tool loop's recursion limit: one round may request several pages.
  */
 export const LOCAL_PDF_FETCH_BUDGET = 6;
+
+/**
+ * Page images a single request may read. Much smaller than the text budget:
+ * each one is a render plus a vision round-trip, so it is the escalation of
+ * last resort, not a browsing mode.
+ */
+export const LOCAL_PDF_IMAGE_BUDGET = 2;
 
 /**
  * Whether the document's outline is known to exist. "unknown" (not yet parsed)
@@ -66,6 +83,7 @@ export type LocalPdfToolErrorCode =
 
 export type LocalPdfToolRequest =
   | { kind: "fetch_page"; pageNum: number }
+  | { kind: "read_page_image"; pageNum: number }
   | { kind: "search_anchor"; query: string };
 
 export interface LocalPdfToolError {
@@ -81,6 +99,20 @@ export interface LocalPdfToolRunner {
   describeContext(): LocalPdfToolContext;
   fetchPage(pageNum: number): Promise<string | undefined>;
   searchAnchor(query: string, topK: number): Promise<PdfRagHit[]>;
+  /**
+   * Read a page as an IMAGE rather than as text.
+   *
+   * A LaTeX paper routinely renders its displayed equations as pictures: the
+   * page carries thousands of characters of healthy prose and the equation
+   * itself has no text at all. Measured on "3D Line Mapping Revisited" page 11
+   * (which holds equation 29): 4,193 extractable characters and 14 image draw
+   * operations — no page-level text-quality signal can see the gap, because
+   * the page IS text-rich. Only the pixels carry the formula.
+   *
+   * Returns the transcribed content, or undefined when the page cannot be
+   * rendered or the vision model is unavailable.
+   */
+  readPageImage(pageNum: number): Promise<string | undefined>;
 }
 
 function error(code: LocalPdfToolErrorCode, message: string): LocalPdfToolError {
@@ -139,6 +171,32 @@ export function buildLocalPdfTools(ctx: LocalPdfToolContext): ExposedLocalTool[]
         },
       },
     },
+    {
+      type: "function",
+      function: {
+        name: "read_pdf_page_image",
+        description:
+          `Read a page of this PDF as an IMAGE (1-${pageCount}), transcribing what ` +
+          "is drawn on it. Use this when `fetch_pdf_page` returned the page but " +
+          "the thing you were asked about is not in that text — in a typeset " +
+          "paper a displayed equation, a figure's contents, or a table is often " +
+          "a picture with no text behind it, so the page reads as complete prose " +
+          "while the formula itself is simply absent. Reading the image is the " +
+          "way to answer those; it is slower, so reach for it after the text.",
+        parameters: {
+          type: "object",
+          properties: {
+            page_number: {
+              type: "integer",
+              minimum: 1,
+              maximum: pageCount,
+              description: "Physical PDF page to read as an image.",
+            },
+          },
+          required: ["page_number"],
+        },
+      },
+    },
   ];
 
   if (canSearch(ctx)) {
@@ -187,7 +245,7 @@ export function parseLocalPdfToolCall(
     return error("invalid_arguments", `Arguments were not valid JSON: ${rawArgs}`);
   }
 
-  if (name === "fetch_pdf_page") {
+  if (name === "fetch_pdf_page" || name === "read_pdf_page_image") {
     if (!canFetch(ctx)) {
       return error(
         "unavailable",
@@ -209,7 +267,9 @@ export function parseLocalPdfToolCall(
         `page_number must be between 1 and ${pageCount}; got ${raw}.`
       );
     }
-    return { kind: "fetch_page", pageNum: raw };
+    return name === "read_pdf_page_image"
+      ? { kind: "read_page_image", pageNum: raw }
+      : { kind: "fetch_page", pageNum: raw };
   }
 
   if (!canSearch(ctx)) {

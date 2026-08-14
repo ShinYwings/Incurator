@@ -143,7 +143,12 @@ describe("buildRecencyAnchor", () => {
     // long session can still steer the model back to a file-read tool it cannot
     // be granted — so it must carry the unresolved case too.
     expect(withSel).toContain("<unresolved_cross_references>");
-    expect(withSel).toContain("working from the blocks given");
+    // v0.55.0: what it says about that case changed. It used to end the search
+    // here ("working from the blocks given"); a rasterized target is missing
+    // from the text layer, not from the paper, so the anchor now points at the
+    // page-image read first and keeps the description as the fallback.
+    expect(withSel).toMatch(/call `read_pdf_page_image` on the page it names/);
+    expect(withSel).toContain("describe the target from what the supplied material");
 
     const noSel = buildRecencyAnchor(SIDECHAT_PROFILE, { hasPrimarySelection: false });
     expect(noSel).not.toContain("Answer ONLY about the <primary_focus_selection>");

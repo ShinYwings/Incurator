@@ -53,6 +53,34 @@ describe("buildLocalPdfTools", () => {
     expect(buildLocalPdfTools({ ...ACTIVE, documentId: undefined })).toEqual([]);
   });
 
+  /**
+   * PLUGIN_SCHEMA §13.7 says the closed tool set "MUST be locked by tests
+   * asserting ... that a popover tool array contains only the [three] local
+   * names above." Membership alone does not lock it — a fourth name added to
+   * LOCAL_PDF_TOOL_NAMES would satisfy a membership check while silently
+   * widening the surface. This pins the exact set instead.
+   */
+  it("emits exactly the closed set, no more and no fewer", () => {
+    const withOutline = buildLocalPdfTools(ACTIVE).map((t) => t.function.name);
+    expect([...withOutline].sort()).toEqual(
+      ["fetch_pdf_page", "read_pdf_page_image"].sort(),
+    );
+
+    // Outline-less documents additionally get the anchor search, and nothing
+    // beyond it.
+    const outlineless = buildLocalPdfTools({ ...ACTIVE, outlineState: "absent" }).map(
+      (t) => t.function.name,
+    );
+    expect([...outlineless].sort()).toEqual(
+      ["fetch_pdf_page", "read_pdf_page_image", "search_pdf_anchor"].sort(),
+    );
+
+    // And the closed set itself has not grown behind the exposure logic.
+    expect([...LOCAL_PDF_TOOL_NAMES].sort()).toEqual(
+      ["fetch_pdf_page", "read_pdf_page_image", "search_pdf_anchor"].sort(),
+    );
+  });
+
   it("never emits a name outside the closed set", () => {
     for (const state of ["present", "absent", "unknown"] as const) {
       const names = buildLocalPdfTools({ ...ACTIVE, outlineState: state }).map(
@@ -139,3 +167,49 @@ describe("parseLocalPdfToolCall", () => {
     });
   });
 });
+
+/**
+ * v0.54.0 P2 — the pixel escape hatch is model-invoked, not heuristic.
+ *
+ * The page-level `isScannedLike` verdict cannot route this: on the paper that
+ * motivated the feature, the page holding a rasterized equation reports 4,193
+ * text characters, so any page-aggregate test calls it a text page. The model
+ * is the only party that knows the answer it needs is missing.
+ */
+describe("read_pdf_page_image", () => {
+  it("is offered whenever a page can be fetched at all", () => {
+    const names = buildLocalPdfTools(ACTIVE).map((t) => t.function.name);
+    expect(names).toContain("read_pdf_page_image");
+  });
+
+  it("disappears with the rest of the reader when no PDF is active", () => {
+    const names = buildLocalPdfTools({ ...ACTIVE, hasActivePdf: false }).map(
+      (t) => t.function.name,
+    );
+    expect(names).not.toContain("read_pdf_page_image");
+  });
+
+  it("tells the model when to reach for it, not just that it exists", () => {
+    const tool = buildLocalPdfTools(ACTIVE).find(
+      (t) => t.function.name === "read_pdf_page_image",
+    );
+    // Without a stated trigger the model defaults to the text tool and never
+    // discovers that the equation it needs was never in the text layer.
+    expect(tool?.function.description.toLowerCase()).toMatch(
+      /equation|figure|image|scan/,
+    );
+  });
+
+  it("applies the same page validation as the text reader", () => {
+    expect(
+      parseLocalPdfToolCall("read_pdf_page_image", '{"page_number": 11}', ACTIVE),
+    ).toEqual({ kind: "read_page_image", pageNum: 11 });
+    expect(
+      parseLocalPdfToolCall("read_pdf_page_image", '{"page_number": 9999}', ACTIVE),
+    ).toMatchObject({ kind: "error", code: "out_of_range" });
+    expect(
+      parseLocalPdfToolCall("read_pdf_page_image", '{"page_number": 1.5}', ACTIVE),
+    ).toMatchObject({ kind: "error", code: "invalid_arguments" });
+  });
+});
+
