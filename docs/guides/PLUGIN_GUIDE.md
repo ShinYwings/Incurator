@@ -193,6 +193,34 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
   exact section. Theorem-style pointers accept appendix-lettered numbering
   (`Result A4.1`, `Corollary B2.3`), and `Appendix 4` ToC titles answer to
   `A4`-style numbers so appendix anchors resolve too.
+- **Citations resolve to the paper they name (v0.56.0)**: select a passage
+  containing `[8]` and ask about it, and the assistant already has the
+  bibliography entry `[8]` points to — no extra round trip, no asking you to
+  scroll to the References section.
+
+  It finds the References section by scanning backward from the end of the
+  document, and follows it across pages: a bibliography prints its heading once
+  and then continues for two or three more pages, so stopping at the heading
+  page would miss most of it.
+
+  **A bracket that does not match the bibliography is ignored, silently.**
+  `[8]` is ambiguous — it is also how footnotes (`[^8]`), markdown reference
+  links (`[text][8]`), and array indices (`arr[8]`) are written. Rather than
+  guess, the assistant treats a number with no matching entry as "not a
+  citation" and says nothing about it. A selection with no citation at all never
+  causes the References section to be read, so asking about code costs nothing.
+
+- **Where each answer came from (v0.56.0)**: when a question needed a lookup, a
+  quiet line appears under the answer listing what was consulted —
+  `Eq. (29) — p.11 · [8] — Bartoli et al., 2005`.
+
+  It is built from what the assistant actually retrieved, not from reading its
+  answer back, so it cannot claim a source that was not used. A pointer that
+  could not be reached reads **"not retrieved"**, never "absent from the paper" —
+  the drag-to-select popover searches only the pages already loaded, so failing
+  to find something is a statement about the search, not about the document.
+  A question that needed no lookup shows no line at all.
+
 - **When the text layer does not have it (v0.55.0)**: some PDFs render their
   displayed equations and figures as images, so the label never appears in the
   extracted text and no amount of *text* searching will locate it. The

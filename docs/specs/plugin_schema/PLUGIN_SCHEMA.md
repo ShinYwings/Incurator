@@ -2617,6 +2617,87 @@ boundary closed by §13.5/§13.6.
 
 ---
 
+### 13.7a Page Text Is Read By Column (v0.56.0)
+
+Every surface in §13.7 — and the chat and popover context builders besides —
+reads page text through `layoutTextItems`. That function grouped items by
+vertical position and sorted by horizontal position, which is correct for one
+column and wrong for two. On a two-column page each reconstructed line welded
+the left column onto the right:
+
+    [1] Hichem Abdellali, Robert Frohlich, Viktor Vilagos, and [18] Daniel
+    DeTone, Tomasz Malisi...
+
+Two unrelated bibliography entries, one line. This corrupted **every**
+two-column paper, for every consumer, silently — nothing downstream could tell
+a welded line from a real one.
+
+- **A page with a detected gutter MUST be read one column at a time**, left
+  column fully, then right. `LayoutTextResult.text` is therefore in *reading*
+  order, not in raster order, and `LayoutTextResult.lines` is grouped by column
+  rather than globally sorted by y. A consumer that requires global y-ordering
+  must sort for itself.
+
+- **Detection is conservative by construction, and MUST stay that way.** A
+  false positive reorders a single-column page — a correctness regression for
+  every reader. A false negative merely leaves the page interleaved, which is
+  the prior behaviour. A candidate gutter qualifies only when:
+
+  | condition | threshold | why |
+  |---|---|---|
+  | items on the page | ≥ 40 | two lines of two columns is a table row, not a layout |
+  | items straddling the band | ≤ 1 | tolerates one full-width rule or caption; more means no gutter |
+  | share on the thinner side | ≥ 25% | a marginal note or line-number column is not a column |
+  | band width | ≥ 4% of page width **AND** ≥ 1.5 × median glyph height | see below |
+  | candidate positions | middle half of the page only | a gutter is central; scanning the edges splits margins off |
+
+  **Both width floors are load-bearing.** The page-fraction test alone passes on
+  ordinary inter-word spacing — an implementation carrying only that floor
+  sliced single-column pages into ribbons. The type-relative floor is what
+  distinguishes a gutter (several characters wide) from a word space (under
+  one).
+
+- **A single-column page MUST produce byte-identical output to the
+  pre-detection path.** This is asserted directly, by laying the same items out
+  with detection on and off and comparing, so a future threshold change cannot
+  quietly alter ordinary pages.
+
+### 13.7b Citation Resolution (v0.56.0)
+
+A reference like `[8]` names a paper. Resolving it happens in the same pre-turn
+pass as §13.7's cross-references, on the same fetcher, so the model receives the
+bibliography entry in its first prompt and spends no tool round chasing it.
+
+- **The bibliography is the disambiguator, and a citation without a match is
+  DROPPED — not reported unresolved.** A bare `[N]` collides with footnote
+  markers (`[^8]`), markdown reference links (`[text][8]`), and array indices
+  (`arr[8]`). Reporting an unmatched number as an unresolved reference would put
+  noise in front of the model on every code-bearing page. This is a deliberate
+  asymmetry with §13.7, which *does* report what it could not find: there,
+  "not found" means retrieval failed; here it almost always means "not a
+  citation".
+
+- **Collisions are rejected structurally, not by heuristic confidence.** A
+  bracket bound to the token before it (`\w`, `)`, or `]` immediately
+  preceding) is an index or a reference link. A bracket inside a code span or
+  fence is code. Both are dropped before any bibliography lookup.
+
+- **The scan runs backward from the last page**, because a References section is
+  at the end; scanning forward reads the whole document to find it.
+
+- **A bibliography spans pages and prints its heading once.** The heading is
+  required on the page that *starts* the section and MUST NOT be required on
+  the pages that continue it — the motivating paper carries the heading and
+  entries 1–28 on one page, then 35 and 32 more entries on the next two with no
+  heading at all. Continuation stops when a page adds nothing, or when its
+  numbering restarts below the highest already seen, which is what prevents an
+  appendix using bracketed enumeration from being absorbed.
+
+- **The result is cached per document, including a fruitless search.** Without
+  that, every question re-fetches and re-parses several pages before the model
+  sees anything. A selection containing no resolvable bracket MUST NOT trigger
+  any fetch at all.
+
 ### 13.8 The Reading Assistant's Role (v0.54.0)
 
 Every rule from §13.1 to §13.7 says what the reading surfaces may not do. None
