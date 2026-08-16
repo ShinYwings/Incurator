@@ -41,6 +41,20 @@ All notable changes to Incurator are documented here.
   path added in v0.55.0, which until now had only ever been verified as far as
   the rendered image.
 
+  **What this costs, stated rather than buried.** `read_file(*)` lets the
+  Antigravity CLI read any file your account can — agy accepts no narrower form,
+  and the OS sandbox Incurator wraps it in restricts writes, never reads. The
+  grant is global and lasting, and it is honoured by the `wiki` ingest pipeline
+  too, which processes PDFs and pages you did not write. Incurator grants
+  exactly two rules and Antigravity auto-denies anything unapproved in headless
+  mode, so there is still no write tool, no arbitrary shell, and no network
+  tool: the realistic worst case is a secret read into your own vault, not
+  something sent elsewhere. Pointing PDF extraction at an API vision model
+  avoids the trade entirely — it takes image bytes directly and needs no
+  filesystem permission. Written up in both plugin guides and PLUGIN_SCHEMA
+  §13.5, and the unsandboxed backend spawn it interacts with is tracked as
+  ROADMAP item 11.
+
   The measurement is now automated rather than repeated by hand.
   `agyPermissionLive.test.ts` writes each rule, asks a real `agy` to read a file
   containing a token that appears nowhere in the prompt, and checks whether the

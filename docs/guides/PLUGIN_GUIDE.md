@@ -339,6 +339,32 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
 > Nothing you configured was wrong. Updating rewrites the rule and removes the
 > dead one; you do not need to edit the file yourself.
 
+> [!WARNING]
+> **What `read_file(*)` costs you, stated plainly.**
+>
+> That rule lets the Antigravity CLI read **any file your user account can
+> read** — not just the page images Incurator hands it. agy accepts no narrower
+> form (an exact path is refused), and the OS sandbox Incurator wraps the CLI in
+> restricts *writes*, never reads. So while the rule was broken the door was
+> shut by accident; making image reading work opens it.
+>
+> The grant is **global and lasting**: one file under `~/.gemini`, honoured by
+> every later `agy` run on your account, including the `wiki` ingest pipeline —
+> which is the part that processes PDFs and web pages you did not write. A
+> prompt-injected instruction inside an ingested source can ask the model to
+> read an unrelated file, and its contents can end up in your knowledge base.
+>
+> What is *not* granted matters too. Incurator adds exactly two rules, and
+> Antigravity auto-denies anything unapproved in headless mode, so the CLI still
+> cannot write files or run arbitrary shell commands. The realistic worst case
+> is a secret being read into your own vault, not silently sent somewhere.
+>
+> **To avoid the trade entirely**, point PDF extraction at a vision model reached
+> over an API (Dashboard → LLM Provider → PDF/LaTeX extraction model). An API
+> provider receives the image bytes directly, so no filesystem permission is
+> involved and this rule is never needed.
+
+
   `command(wiki)` is deliberately scoped to the `wiki` binary the plugin itself
   configures — Incurator never writes a bare `command()`, which would approve
   running anything. This lets an open PDF or an attached
