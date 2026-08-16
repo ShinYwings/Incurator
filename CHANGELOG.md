@@ -2,6 +2,78 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.56.1] - 2026-08-15
+### Fixed
+- **"jetski: no output produced" — the actual cause, found by testing the
+  permission instead of trusting it.** Every image the assistant tried to read
+  through Antigravity came back empty with:
+
+      jetski: no output produced — a tool required the "read_file" permission
+      that headless mode cannot prompt for, so it was auto-denied
+
+  v0.53.1 corrected the rule's *shape* (`$read_file$()` → `read_file()`) and
+  verified it survived a CLI run. Surviving is not granting, and no test could
+  tell the difference — `read_file()` persists in `settings.json` and authorizes
+  nothing. So the bug outlived its own fix by three releases while the rule sat
+  there looking correct.
+
+  Re-measured against agy 1.1.13 by writing each rule and then asking the model
+  to read a real PNG:
+
+  | rule | result |
+  |---|---|
+  | `read_file(*)` | the model read the file |
+  | `read_file(/tmp/exact-file.png)` | auto-denied — an **exact path** is refused |
+  | `read_file(/tmp/*)` | auto-denied |
+  | `read_file()` | auto-denied — what v0.53.1 shipped |
+
+  Only the wildcard is honoured for reads: a path-scoped read rule is not a
+  narrower grant, it is no grant at all. `command(wiki)` was measured the same
+  way and **does** work scoped, so the v0.23.0 posture keeps its narrow command
+  permission — only the read rule is forced wide by the CLI's own parser.
+
+  Upgrading also removes the retired `read_file()` rule rather than leaving it
+  beside its replacement, where a dead grant would keep reading as configured
+  access. Rules the user or another tool added are preserved untouched.
+
+  With this, `wiki plugin pdf transcribe --image-file` returns transcribed LaTeX
+  instead of an empty result — the first end-to-end confirmation of the vision
+  path added in v0.55.0, which until now had only ever been verified as far as
+  the rendered image.
+
+  **What this costs, stated rather than buried.** `read_file(*)` lets the
+  Antigravity CLI read any file your account can — agy accepts no narrower form,
+  and the OS sandbox Incurator wraps it in restricts writes, never reads. The
+  grant is global and lasting, and it is honoured by the `wiki` ingest pipeline
+  too, which processes PDFs and pages you did not write. Incurator grants
+  exactly two rules and Antigravity auto-denies anything unapproved in headless
+  mode, so there is still no write tool, no arbitrary shell, and no network
+  tool: the realistic worst case is a secret read into your own vault, not
+  something sent elsewhere. Pointing PDF extraction at an API vision model
+  avoids the trade entirely — it takes image bytes directly and needs no
+  filesystem permission. Written up in both plugin guides and PLUGIN_SCHEMA
+  §13.5, and the unsandboxed backend spawn it interacts with is tracked as
+  ROADMAP item 11.
+
+  The measurement is now automated rather than repeated by hand.
+  `agyPermissionLive.test.ts` writes each rule, asks a real `agy` to read a file
+  containing a token that appears nowhere in the prompt, and checks whether the
+  token comes back. It is skipped unless `INCURATOR_LIVE_AGY=1` and `agy` is on
+  PATH, because it spends provider quota — but it exists, so the next agy
+  release that changes what a rule authorizes has something to fail against.
+  Asserting what we wrote to the file is what let this ship twice.
+
+- **The page-image path asked the wrong question.** v0.55.0 renders a whole page
+  and sent it to the prompt that says "transcribe ONLY the selected PDF region",
+  which is right for a `Cmd+Shift+X` snip and wrong for a page: handed a full
+  page the model has to guess what counts as "selected". Measured on the page
+  holding equation 29, it returned the sentence the reader had highlighted —
+  about 150 characters — and not the equation being asked about.
+
+  `wiki plugin pdf transcribe` now takes `--scope page|region` and the
+  page-image tool asks for `page`. Same page, same model: **6,468 characters
+  covering the whole page, with equation 29 in it.**
+
 ## [0.56.0] - 2026-08-14
 ### Added
 - **`[8]` now resolves to the paper it names.** Ask the popover about a citation

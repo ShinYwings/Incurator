@@ -962,6 +962,14 @@ export default class ObsidianAIAgent extends Plugin {
     formatFailure: (detail: string) => string = (detail) =>
       this.formatPdfExtractionFailure(detail),
     silent = false,
+    /**
+     * "page" when the image is a whole rendered page rather than a user-drawn
+     * crop. The default region prompt says "transcribe ONLY the selected PDF
+     * region"; handed a full page it makes the model guess which part counts as
+     * selected, and measured on a real page it returned the highlighted
+     * sentence instead of the displayed equation being asked about.
+     */
+    scope: "page" | "region" = "region",
   ): Promise<{ latex: string; model?: string } | null> {
     const fail = (detail: string): null => {
       if (!silent) new Notice(formatFailure(detail));
@@ -984,7 +992,7 @@ export default class ObsidianAIAgent extends Plugin {
     const imageFile = join(tmpDir, "crop.png");
     try {
       await fs.writeFile(imageFile, Buffer.from(base64, "base64"));
-      const result = await this.incuratorClient.transcribePdfRegion({ imageFile });
+      const result = await this.incuratorClient.transcribePdfRegion({ imageFile, scope });
       const latex = result.latex?.trim() || "";
       if (result.ok && latex) {
         return { latex, model: result.model };
@@ -1914,6 +1922,7 @@ export default class ObsidianAIAgent extends Plugin {
             `Could not read page ${pageNum} as an image` +
             `${detail ? `: ${detail}` : ""}.`,
           true, // model-invoked: the failure returns to the model, not the user
+          "page", // a whole rendered page, not a user-drawn crop
         );
         return result?.latex;
       },

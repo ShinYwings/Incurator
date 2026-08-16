@@ -421,8 +421,20 @@ def plugin_pdf_transcribe(
     image_file: str = typer.Option("", "--image-file", help="Path to a PNG to transcribe to LaTeX."),
     text: str = typer.Option("", "--text", help="Raw PDF-selection text to clean up as LaTeX."),
     workspace_path: str = typer.Option("", "--workspace-path", help="Vault root override."),
+    scope: str = typer.Option(
+        "region",
+        "--scope",
+        help="'region' for a user-drawn crop, 'page' for a whole rendered page.",
+    ),
 ) -> None:
     """Transcribe interactive PDF content to LaTeX via the dedicated extract model.
+
+    ``--scope`` picks the prompt. The region prompt says "transcribe ONLY the
+    selected PDF region", which is right for a snip and wrong for a whole page:
+    handed a full page it makes the model guess which part was "selected", and
+    measured on a real page it returned the visually highlighted sentence
+    instead of the displayed equation that was actually being asked about.
+    ``read_pdf_page_image`` (v0.55.0) sends whole pages, so it asks for ``page``.
 
     Resolves ``llm.latex_extract_model → llm.vision_model → main-if-vision``
     (SYSTEM_BEHAVIOR §26.2a); a configured-but-non-vision model raises. Used by the
@@ -456,8 +468,18 @@ def plugin_pdf_transcribe(
             raise typer.Exit(code=1)
         if image_file:
             data = _P(image_file).read_bytes()
-            latex = _vision.normalize_interactive_latex_transcription(
-                client.describe_image(data, prompt=_vision.PDF_INTERACTIVE_LATEX_TRANSCRIBE_PROMPT)
+            prompt = (
+                _vision.PDF_LATEX_TRANSCRIBE_PROMPT
+                if scope == "page"
+                else _vision.PDF_INTERACTIVE_LATEX_TRANSCRIBE_PROMPT
+            )
+            raw = client.describe_image(data, prompt=prompt)
+            # The page prompt does not ask for a <transcription> wrapper, so the
+            # interactive normalizer (which extracts that block) would find none.
+            latex = (
+                _vision.normalize_vision_latex(raw)
+                if scope == "page"
+                else _vision.normalize_interactive_latex_transcription(raw)
             )
         else:
             latex = _vision.normalize_interactive_latex_transcription(

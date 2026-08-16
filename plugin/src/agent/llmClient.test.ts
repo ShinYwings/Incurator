@@ -393,7 +393,7 @@ describe("Antigravity headless read permission sync", () => {
 
     const settingsPath = join(geminiDir, "antigravity-cli", "settings.json");
     expect(JSON.parse(readFileSync(settingsPath, "utf-8"))).toEqual({
-      permissions: { allow: ["read_file()", "command(wiki)"] },
+      permissions: { allow: ["read_file(*)", "command(wiki)"] },
     });
   });
 
@@ -412,6 +412,17 @@ describe("Antigravity headless read permission sync", () => {
     //   command(wiki)        -> survives
     //   $command$()          -> pruned
     //   run_shell_command()  -> pruned
+    //
+    // v0.56.1: surviving is NOT granting, and this test could not tell the
+    // difference — it asserted the rule persisted, which `read_file()` does
+    // while authorizing nothing. Re-measured against agy 1.1.13 by writing each
+    // rule and then asking the model to read a real PNG:
+    //   read_file(*)                 -> the model read the file
+    //   read_file(/tmp/exact.png)    -> auto-denied (an EXACT path is refused)
+    //   read_file(/tmp/*)            -> auto-denied
+    //   read_file()                  -> auto-denied
+    // Only the wildcard is honoured for reads. `command(wiki)` DOES work
+    // scoped, so the narrow command grant stays.
     const geminiDir = freshGeminiDir();
     syncAgyHeadlessReadPermission(geminiDir);
 
@@ -460,7 +471,11 @@ describe("Antigravity headless read permission sync", () => {
       model: "Gemini 3.6 Flash",
       custom: { future: true },
       permissions: {
-        allow: ["command(git status)", "read_file()", "command(wiki)"],
+        // `command(git status)` is the user's rule and survives untouched.
+        // `read_file()` is OUR retired rule and is replaced, not kept beside
+        // its successor — a dead grant next to a live one reads as configured
+        // read access when it is not.
+        allow: ["command(git status)", "command(wiki)", "read_file(*)"],
         ask: ["write_file()"],
       },
     });

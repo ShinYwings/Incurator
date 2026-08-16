@@ -572,6 +572,8 @@ export class IncuratorClient {
     imageFile?: string;
     text?: string;
     workspacePath?: string;
+    /** "page" for a whole rendered page; omit for a user-drawn crop. */
+    scope?: "page" | "region";
   }): Promise<PdfTranscribeResult> {
     if (this.settings.incuratorEnabled === false) {
       return { ok: false, error: "backend_disabled" };
@@ -581,6 +583,7 @@ export class IncuratorClient {
       ...(args.imageFile ? ["--image-file", args.imageFile] : []),
       ...(args.text ? ["--text", args.text] : []),
       ...(args.workspacePath ? ["--workspace-path", args.workspacePath] : []),
+      ...(args.scope ? ["--scope", args.scope] : []),
     ]);
     return this.normalizePdfTranscribeResult(result);
   }

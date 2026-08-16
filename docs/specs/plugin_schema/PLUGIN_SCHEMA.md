@@ -2331,7 +2331,7 @@ the `find_mvg_text.py`-style exploit). This section governs the CLI path.
     an interactive confirmation during `-p`/headless execution. Before launching
     agy, the plugin MUST atomically merge its required rules into
     `permissions.allow` in the CLI-owned
-    `~/.gemini/antigravity-cli/settings.json`: the read-only rule `read_file()`
+    `~/.gemini/antigravity-cli/settings.json`: the read rule `read_file(*)`
     and the scoped spawn rule `command(wiki)`.
     **Rule syntax is load-bearing (v0.53.1).** Antigravity validates that list,
     silently prunes entries it does not recognise, and deletes an emptied
@@ -2340,17 +2340,65 @@ the `find_mvg_text.py`-style exploit). This section governs the CLI path.
     survived zero CLI invocations and every headless tool call was auto-denied
     ("jetski: no output produced"). Measured: `read_file()` and `command(wiki)`
     survive; `$read_file$()`, `$command$()`, and `run_shell_command()` are
-    pruned. A test MUST pin the rule *format* — asserting only that a string was
-    written is what allowed this to ship undetected.
+    pruned.
+
+    **Surviving is not granting (v0.56.1).** v0.53.1 fixed the shape and
+    verified persistence, and the bug outlived that fix by three releases:
+    `read_file()` sits in the file indefinitely and authorizes nothing.
+    Re-measured against agy 1.1.13 by writing each rule and then asking the
+    model to read a real PNG — `read_file(*)` reads the file, while
+    `read_file(/tmp/exact.png)`, `read_file(/tmp/*)`, and `read_file()` are all
+    auto-denied. **For reads, only the wildcard is honoured: a path-scoped rule
+    is not a narrower grant, it is no grant.** `command(wiki)` was measured the
+    same way and does work scoped, so the narrow command grant stays and only
+    the read rule is forced wide by the CLI's parser.
+
+    A test MUST pin the rule *format*, and pinning the format is still not
+    enough on its own — asserting a string was written is what let v0.48.4 ship
+    undetected, and asserting the string persists is what let v0.53.1 ship the
+    same defect. The authorizing effect has to be measured against the CLI.
+
+    **Retired rules MUST be removed on upgrade.** A form this function shipped
+    and has since measured to be inert (`read_file()`, `$read_file$()`) is
+    dropped rather than left beside its replacement, where a dead grant reads as
+    configured access. Only the function's own retired output is removed; rules
+    the user or another tool added are preserved untouched.
     `command(wiki)` exists because spawning the configured MCP server is a
     command, and is deliberately SCOPED: a bare `command()` is the blanket
     bypass this section forbids and MUST NOT be written. It MUST preserve unknown top-level
     keys, unknown `permissions` keys, and existing allow entries, and MUST refuse
-    to overwrite malformed JSON or a non-array `permissions.allow`. This approval
+    to overwrite malformed JSON or a non-array `permissions.allow`.
+    The plugin MUST NOT install `--dangerously-skip-permissions` or approve
+    write, shell, or network tools.
+
+    **This approval DOES grant paths, and that is a posture change recorded
+    here rather than buried (v0.56.1).** The previous text said "this approval
     does not grant a path: non-ephemeral path visibility remains the separate
-    `--add-dir` set, while the popover still receives no added workspace dirs.
-    The plugin MUST NOT install `--dangerously-skip-permissions` or approve write,
-    shell, network, or wildcard tools.
+    `--add-dir` set". That was wrong twice over. `--add-dir` is the *visibility*
+    set, not the read boundary — reads bypass it — and the OS sandbox profile is
+    `(allow default)` + `(deny file-write*)`, which never restricted reads
+    either. The CLI's own approval gate was therefore the only thing gating
+    `read_file`, and while the rule was malformed that gate was closed by
+    accident, not by design.
+
+    Making it work opens it. `read_file(*)` is the only form agy honours (an
+    exact path is refused), so the read grant cannot be narrowed at this layer.
+    Two consequences follow and MUST be weighed before this rule is written:
+
+    1. The grant is **global and standing** — one file under `~/.gemini`, shared
+       by every later `agy` invocation on that account, not scoped to the plugin
+       or to one call.
+    2. The **backend** `AntigravityCliClient` has no OS sandbox at all (unlike
+       `CodexCliClient`, which passes `--sandbox read-only`) and sets
+       `*_TRUST_WORKSPACE`. It is also the client that processes ingested
+       source material, which is untrusted by definition. A standing read grant
+       on that path is a prompt-injection surface: content in an ingested PDF
+       can ask the model to read an unrelated file.
+
+    A vision provider reached over an API takes image bytes directly and needs
+    no filesystem grant at all. Configuring one for
+    `llm.latex_extract_model` / `llm.vision_model` avoids this trade entirely,
+    and is the recommended posture where image transcription matters.
     The active-bundle gate above applies before this boundary: an installed
     permission hotfix does not count as active until the running bundle identity
     matches the installed bundle. Once active, the invocation-time atomic merge
@@ -2523,7 +2571,7 @@ boundary closed by §13.5/§13.6.
      headless mode auto-denied a permission it could not prompt for. That risk
      is live — `shouldInjectLocalTools` withholds every local tool from
      CLI-routed providers (§13.6), while the agy path holds a persistent
-     `read_file()` grant — so those runs see this prompt text with no tool
+     `read_file(*)` grant — so those runs see this prompt text with no tool
      behind it. A named tool has nothing to substitute for; a described
      capability does. The fourth site is `buildRecencyAnchor`, which is emitted
      LAST at the recency position and is the easiest to forget precisely
