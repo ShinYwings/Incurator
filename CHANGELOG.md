@@ -2,6 +2,45 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.56.1] - 2026-08-15
+### Fixed
+- **"jetski: no output produced" — the actual cause, found by testing the
+  permission instead of trusting it.** Every image the assistant tried to read
+  through Antigravity came back empty with:
+
+      jetski: no output produced — a tool required the "read_file" permission
+      that headless mode cannot prompt for, so it was auto-denied
+
+  v0.53.1 corrected the rule's *shape* (`$read_file$()` → `read_file()`) and
+  verified it survived a CLI run. Surviving is not granting, and no test could
+  tell the difference — `read_file()` persists in `settings.json` and authorizes
+  nothing. So the bug outlived its own fix by three releases while the rule sat
+  there looking correct.
+
+  Re-measured against agy 1.1.13 by writing each rule and then asking the model
+  to read a real PNG:
+
+  | rule | result |
+  |---|---|
+  | `read_file(*)` | the model read the file |
+  | `read_file(/tmp/exact-file.png)` | auto-denied — an **exact path** is refused |
+  | `read_file(/tmp/*)` | auto-denied |
+  | `read_file()` | auto-denied — what v0.53.1 shipped |
+
+  Only the wildcard is honoured for reads: a path-scoped read rule is not a
+  narrower grant, it is no grant at all. `command(wiki)` was measured the same
+  way and **does** work scoped, so the v0.23.0 posture keeps its narrow command
+  permission — only the read rule is forced wide by the CLI's own parser.
+
+  Upgrading also removes the retired `read_file()` rule rather than leaving it
+  beside its replacement, where a dead grant would keep reading as configured
+  access. Rules the user or another tool added are preserved untouched.
+
+  With this, `wiki plugin pdf transcribe --image-file` returns transcribed LaTeX
+  instead of an empty result — the first end-to-end confirmation of the vision
+  path added in v0.55.0, which until now had only ever been verified as far as
+  the rendered image.
+
 ## [0.56.0] - 2026-08-14
 ### Added
 - **`[8]` now resolves to the paper it names.** Ask the popover about a citation
