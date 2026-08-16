@@ -247,6 +247,42 @@ Two defects the Arena verified, both of which must be fixed before any walk:
 - A naive `notifyContextChanged()` progress tick cascades into an unconditional
   main-thread BM25 search + chip rebuild, ~27 times per book open.
 
+### 11. Backend `agy` spawn has no OS sandbox (opened by v0.56.1)
+
+`AntigravityCliClient._run` (`backend/src/curator/llm.py`, the Antigravity
+client) spawns `agy` with plain `subprocess.run` — no sandbox wrapper, unlike
+`CodexCliClient`, which passes `--sandbox read-only`. It also sets
+`ANTIGRAVITY_TRUST_WORKSPACE` / `AGY_TRUST_WORKSPACE`.
+
+This was latent while the read permission was broken. v0.56.1 fixed that
+permission (it had to — the vision path was dead without it), so the backend
+now spawns an unsandboxed CLI that can read any file the user can, on the code
+path that processes **ingested, untrusted source material**. The trade was
+taken deliberately and is recorded in PLUGIN_SCHEMA §13.5 and in both plugin
+guides.
+
+**Be clear about what fixing this buys.** The existing sandbox
+(`sandboxWrapper.ts`) is a *write* sandbox: macOS Seatbelt is `(allow default)`
++ `(deny file-write*)`, and Linux bwrap read-only-binds the whole filesystem.
+Applying it to the backend aligns the two spawn paths and adds write and
+process containment — it does **not** close the read exposure, because reads
+were never restricted on either path (`sandboxWrapper.ts:19`: "Reads are
+intentionally still allowed (denying reads breaks the CLI's…)").
+
+So this item is worth doing as hardening, and MUST NOT be filed as "the fix for
+the v0.56.1 read grant". Closing that would need a read-restricted profile with
+an allowlist of everything agy needs — designable, but it breaks on every agy
+release, which is why it was not attempted here.
+
+The exposure is bounded by what else is granted: exactly `read_file(*)` and
+`command(wiki)`, with unapproved tools auto-denied in headless mode. No write
+tool, no arbitrary shell, no network tool. Realistic worst case is a secret
+read into the user's own vault, not remote exfiltration.
+
+Eliminating it entirely is a configuration choice, not a code change: a vision
+model reached over an API takes image bytes directly and needs no filesystem
+grant. Recommended in both guides.
+
 ## Blocked / Icebox
 
 - None.
