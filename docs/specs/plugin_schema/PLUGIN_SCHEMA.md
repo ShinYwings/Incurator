@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.56.0)
+# Incurator Plugin Schema & API Contract (v0.57.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -2775,6 +2775,50 @@ bibliography entry in its first prompt and spends no tool round chasing it.
   that, every question re-fetches and re-parses several pages before the model
   sees anything. A selection containing no resolvable bracket MUST NOT trigger
   any fetch at all.
+
+### 13.7c Workspace Notes Are Consulted, Never Ingested (v0.57.0)
+
+Duty 2 of §13.8 — remind the reader what they have already written — was not
+achievable from the knowledge graph alone. Measured on the reporting vault: 137
+markdown files on disk, 36 ingested, and **75 of the gap are research notes
+inside a single workspace**.
+
+Those notes stay out of the DAG. `01_Workspaces/<project>/` is the Artist Space:
+project studios holding `curate.yml`, agent scaffolding, and notes bound to one
+project. Promoting them into a vault-wide graph mixes project-local working
+state into shared knowledge, which is the separation the vault topology exists
+to maintain. So they are reached by **retrieval at answer time**, and the two
+mechanisms MUST NOT be conflated.
+
+- **Nothing here writes.** No L1–L4 node, no `state.sqlite` row, no
+  `.curator/` file. The index is in-memory for the session and is rebuilt from
+  the notes themselves.
+
+- **Scoped to the ACTIVE workspace, with no vault-wide fallback.** A
+  conversation outside a project consults nothing. Falling back to the whole
+  vault would reintroduce the ephemeral vault-wide index plan 05 §4.7 rejected
+  on measured grounds, and would surface an unrelated project's working notes.
+
+- **Agent scaffolding is excluded.** `.agents/`, `CLAUDE.md`, `AGENTS.md`, and
+  `GEMINI.md` inside a workspace are instructions to a tool, not the reader's
+  thinking. Quoting the agent's own plans and relay state back as "notes you
+  wrote" is worse than surfacing nothing. Measured: 13 of the reporting
+  workspace's 88 markdown files are under `.agents/`.
+
+- **Built in bulk, never per call.** The index is built once per workspace with
+  `upsertDocument` and reused until the workspace's files change, detected by a
+  path+mtime signature that costs only the listing. A rebuild-per-call shape
+  measured 331x the bulk path elsewhere (26,881 ms against 81 ms), which is
+  precisely why §4.7 rejected the design that had it.
+
+- **The block says whose words these are.** `<workspace_notes>` carries a note
+  stating the content is the reader's own working notes and must be attributed
+  to them rather than presented as established fact. That distinction changes
+  what a correct answer looks like: quoting the reader back to themselves is
+  duty 2 working; laundering their draft thinking into fact is not.
+
+- **Consultation is additive and MUST fail soft.** A failure to read or index
+  notes degrades to "no notes consulted" and never costs the reader an answer.
 
 ### 13.8 The Reading Assistant's Role (v0.54.0)
 

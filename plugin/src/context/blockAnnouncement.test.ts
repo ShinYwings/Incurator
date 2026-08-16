@@ -29,6 +29,7 @@ const EMITTED_BLOCKS = [
   "<resolved_cross_references>",
   "<unresolved_cross_references>",
   "<resolved_citations>",
+  "<workspace_notes>",
 ] as const;
 
 /** Named without the angle brackets in prose is fine; the name must appear. */
