@@ -188,6 +188,33 @@ function detectColumnSplit(items: LayoutTextItem[]): number | null {
   return best ? best.at : null;
 }
 
+/** The y-range in which BOTH columns carry text. Anything outside is furniture. */
+function sharedColumnBand(
+  items: LayoutTextItem[],
+  inLeft: (i: LayoutTextItem) => boolean
+): { min: number; max: number } | null {
+  const ys = { left: [] as number[], right: [] as number[] };
+  for (const item of items) (inLeft(item) ? ys.left : ys.right).push(item.y);
+  if (!ys.left.length || !ys.right.length) return null;
+  const min = Math.max(Math.min(...ys.left), Math.min(...ys.right));
+  const max = Math.min(Math.max(...ys.left), Math.max(...ys.right));
+  return max > min ? { min, max } : null;
+}
+
+/** Is this item outside the shared band, on the given side of the page? */
+function beyond(
+  item: LayoutTextItem,
+  band: { min: number; max: number } | null,
+  side: "above" | "below",
+  yAxis: "up" | "down" | undefined
+): boolean {
+  if (!band) return false;
+  // With yAxis "up" (pdf.js) a LARGER y is higher on the page.
+  const higherIsLarger = yAxis === "up";
+  if (side === "above") return higherIsLarger ? item.y > band.max : item.y < band.min;
+  return higherIsLarger ? item.y < band.min : item.y > band.max;
+}
+
 export function layoutTextItems(
   inputItems: LayoutTextItem[],
   options: LayoutTextOptions
@@ -210,15 +237,33 @@ export function layoutTextItems(
   // single-column page falls straight through to the original path.
   const gutter = options.columns === false ? null : detectColumnSplit(items);
   if (gutter !== null) {
-    const leftItems = items.filter((i) => i.x + (i.width || 0) <= gutter);
-    const rightItems = items.filter((i) => i.x + (i.width || 0) > gutter);
     const opts = { ...options, columns: false as const };
-    const a = layoutTextItems(leftItems, opts);
-    const b = layoutTextItems(rightItems, opts);
-    const text = [a.text, b.text].filter(Boolean).join("\n");
+    const inLeft = (i: LayoutTextItem): boolean => i.x + (i.width || 0) <= gutter;
+
+    // Page furniture — the running head and the page-number footer — sits
+    // OUTSIDE the vertical band where both columns have text, and must keep its
+    // raster position. Bucketing it by x instead put a footer that happens to
+    // sit left of the gutter at the end of the LEFT COLUMN, i.e. the middle of
+    // the page's text. `printedHeaderCandidates` reads the first and last three
+    // lines to infer a printed page number, so that silently broke
+    // printed-page cross-references on exactly the two-column papers this
+    // change is meant to help.
+    const band = sharedColumnBand(items, inLeft);
+    const above = items.filter((i) => beyond(i, band, "above", options.yAxis));
+    const below = items.filter((i) => beyond(i, band, "below", options.yAxis));
+    const furniture = new Set([...above, ...below]);
+    const body = items.filter((i) => !furniture.has(i));
+
+    const head = above.length ? layoutTextItems(above, opts) : null;
+    const a = layoutTextItems(body.filter(inLeft), opts);
+    const b = layoutTextItems(body.filter((i) => !inLeft(i)), opts);
+    const foot = below.length ? layoutTextItems(below, opts) : null;
+
+    const parts = [head, a, b, foot].filter((r): r is LayoutTextResult => r !== null);
+    const text = parts.map((r) => r.text).filter(Boolean).join("\n");
     return {
       text,
-      lines: [...a.lines, ...b.lines],
+      lines: parts.flatMap((r) => r.lines),
       items,
       quality: assessPdfTextQuality(text, options.source),
     };

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { layoutTextItems, type LayoutTextItem } from "./pdfTextLayout";
+import { printedHeaderCandidates } from "./crossReferenceResolver";
 
 /**
  * v0.56.0 — two-column pages are read column by column.
@@ -101,5 +102,48 @@ describe("column-aware layout", () => {
     // 30 body lines, not 30 left + 4 right split into two blocks.
     expect(text.split("\n").length).toBe(30);
     expect(text.split("\n")[0]).toContain("m0");
+  });
+});
+
+/**
+ * Page furniture keeps its raster position.
+ *
+ * Bucketing every item by x put a page-number footer that sits left of the
+ * gutter at the END OF THE LEFT COLUMN — the middle of the page's text.
+ * `printedHeaderCandidates` reads the first and last three non-empty lines to
+ * infer a printed page number, so column splitting silently broke printed-page
+ * cross-references on two-column papers: precisely the documents it was added
+ * to help. Caught in review by reproducing it, not by reading the diff.
+ */
+describe("headers and footers survive the column split", () => {
+  function withFooter(footerX: number): LayoutTextItem[] {
+    const items = twoColumnPage(30);
+    // Footer sits BELOW both columns. yAxis "up": lower on the page = smaller y.
+    items.push(item("42", footerX, 700 - 30 * 12 - 40, 20));
+    return items;
+  }
+
+  it("finds the printed page number when the footer is under the LEFT column", () => {
+    const { text } = layoutTextItems(withFooter(190), { source: "pdfjs", yAxis: "up" });
+    expect(text.trimEnd().endsWith("42")).toBe(true);
+    expect(printedHeaderCandidates(text)).toContain(42);
+  });
+
+  it("finds it when the footer is under the RIGHT column too", () => {
+    const { text } = layoutTextItems(withFooter(450), { source: "pdfjs", yAxis: "up" });
+    expect(printedHeaderCandidates(text)).toContain(42);
+  });
+
+  it("keeps a running head at the top", () => {
+    const items = twoColumnPage(30);
+    items.push(item("RunningHead", 190, 700 + 40, 120));
+    const { text } = layoutTextItems(items, { source: "pdfjs", yAxis: "up" });
+    expect(text.split("\n")[0]).toContain("RunningHead");
+  });
+
+  it("still reads the body one column at a time", () => {
+    const { text } = layoutTextItems(withFooter(190), { source: "pdfjs", yAxis: "up" });
+    const lines = text.split("\n");
+    expect(lines.some((l) => /L\d+\s+R\d+/.test(l))).toBe(false);
   });
 });

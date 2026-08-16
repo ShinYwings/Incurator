@@ -2619,8 +2619,14 @@ boundary closed by §13.5/§13.6.
 
 ### 13.7a Page Text Is Read By Column (v0.56.0)
 
-Every surface in §13.7 — and the chat and popover context builders besides —
-reads page text through `layoutTextItems`. That function grouped items by
+**Scope: this governs the plugin's own pdf.js/DOM extraction path only.** A
+tracked PDF is served by the backend by default (`shouldUseBackendPdfContext`
+returns true unless an image context or already-loaded local text preempts it),
+and that path extracts through `pymupdf4llm` / `fitz`, which never reaches
+`layoutTextItems`. Measured on the same References page: `fitz` produces 28
+entry-leading lines and **zero** welded lines, so the backend path does not have
+this defect and is unchanged here. The local path — the fallback, and what the
+external PDF viewer uses — did, and is what follows. That function grouped items by
 vertical position and sorted by horizontal position, which is correct for one
 column and wrong for two. On a two-column page each reconstructed line welded
 the left column onto the right:
@@ -2657,6 +2663,21 @@ a welded line from a real one.
   distinguishes a gutter (several characters wide) from a word space (under
   one).
 
+- **Page furniture keeps its raster position.** A running head and a
+  page-number footer sit outside the vertical band where both columns carry
+  text, and are emitted before and after the columns respectively. Bucketing
+  them by horizontal position instead put a footer left of the gutter at the end
+  of the LEFT column — the middle of the page's text — which silently broke
+  `printedHeaderCandidates`, the printed-page-number inference that reads the
+  first and last three lines. That regression hit exactly the two-column papers
+  this rule exists to help.
+
+- **Known gap: region crops still cross columns.** `extractRegionTextFromSpans`
+  (the drag/lasso crop path) sorts its own hits top-to-bottom then
+  left-to-right, which is the same welding this section fixes for full pages. A
+  crop box spanning both columns still concatenates them. Unfixed as of
+  v0.56.0.
+
 - **A single-column page MUST produce byte-identical output to the
   pre-detection path.** This is asserted directly, by laying the same items out
   with detection on and off and comparing, so a future threshold change cannot
@@ -2682,8 +2703,17 @@ bibliography entry in its first prompt and spends no tool round chasing it.
   preceding) is an index or a reference link. A bracket inside a code span or
   fence is code. Both are dropped before any bibliography lookup.
 
-- **The scan runs backward from the last page**, because a References section is
-  at the end; scanning forward reads the whole document to find it.
+- **The scan is a bounded window at the END of the document**, because a
+  References section lives there and scanning from page 1 would read the whole
+  document to find it. It is a fixed window — the last 6 pages — walked in
+  ascending order, not an unbounded walk backward.
+
+  **The bound is a real limit and is stated here rather than discovered later:**
+  a bibliography whose heading page sits more than 5 pages before the last page
+  is not found at all. Papers with long appendices, supplementary material, or
+  author biographies after the references fall outside it and get no citation
+  resolution — silently, because §4.8 drops unmatched numbers. Widening the
+  window trades directly against fetch cost on every first citation question.
 
 - **A bibliography spans pages and prints its heading once.** The heading is
   required on the page that *starts* the section and MUST NOT be required on
@@ -2782,6 +2812,13 @@ There are two ways to produce that, and only one of them works.
   "no citation" on every popover answer ever produced. A provenance signal that
   is wrong by construction is worse than none, because the reader learns to
   ignore it.
+
+- **Surfaced on the popover as of v0.56.0; the chat sidebar is not yet wired.**
+  `resolveSelectionContextAsync` returns the record to every caller, and the
+  popover renders it. `ChatSidebarView` still calls the block-only wrapper and
+  displays nothing. This is a deliberate staging, not a claim that one surface
+  needs provenance less — recorded here so the gap is visible rather than
+  mistaken for a contract already met.
 
 - **Provenance is UI state, not prompt text.** It is displayed from the
   resolution record; it is not requested from the model, and the model is not

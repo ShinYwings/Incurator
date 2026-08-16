@@ -31,6 +31,12 @@ const PROMPT_FILES = [
   "chatContextPriority.ts",
   "promptRegistry.ts",
   "crossReferenceResolver.ts",
+  // v0.56.0: `<resolved_citations>` carries an instructional note of the same
+  // shape as crossReferenceResolver's UNRESOLVED_NOTE, which this gate already
+  // measures. Leaving it out would have let instruction text grow in a file the
+  // ceiling does not see — the gate would keep passing while the assembled
+  // prompt grew.
+  "citationContext.ts",
 ] as const;
 
 /** Prompt prose only: long string literals, not identifiers or short fragments. */
