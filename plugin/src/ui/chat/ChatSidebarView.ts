@@ -105,7 +105,11 @@ import {
   normalizePluginModelEffort,
 } from "../../types";
 import { RenameJournal } from "../../utils/renameJournal";
-import { resolveWorkspacePath } from "../../context/workspaceScope";
+import { resolveWorkspacePath, workspaceRelpathForFile } from "../../context/workspaceScope";
+import {
+  buildWorkspaceNotesBlock,
+  searchWorkspaceNotes,
+} from "../../context/workspaceNotes";
 
 export interface MultiEditProposal {
   filepath: string;
@@ -1908,6 +1912,15 @@ export class ChatSidebarView extends ItemView {
         );
       }
       if (resolvedReferencesBlock) sections.push(resolvedReferencesBlock);
+
+      // Duty 2: the reader's own project notes. Consulted at answer time and
+      // never ingested — 01_Workspaces is the Artist Space, and promoting it
+      // into the vault-wide DAG would mix project-local working state into
+      // shared knowledge (plan 05 §4.7). Scoped to the ACTIVE workspace only:
+      // outside a project this consults nothing rather than falling back to a
+      // whole-vault index, which §4.7 rejected on measured grounds.
+      const workspaceNotesBlock = await this.workspaceNotesFor(query);
+      if (workspaceNotesBlock) sections.push(workspaceNotesBlock);
       if (windowPages.length > 0) {
         const contextSource = useBackendPdfContext
           ? backendCtx?.contextSource ?? "ephemeral_parse"
@@ -4041,6 +4054,40 @@ export class ChatSidebarView extends ItemView {
    * fetched under one workspace and expanded under another would not share a
    * policy hash, and the snapshot check would reject the expansion.
    */
+  /**
+   * Consult the active workspace's notes for material bearing on `query`.
+   *
+   * Returns "" outside a workspace, on an empty query, or when nothing matched
+   * — the prompt gets no block rather than an empty one.
+   */
+  private async workspaceNotesFor(query: string): Promise<string> {
+    const activeRelpath = this.app.workspace.getActiveFile()?.path || "";
+    const workspaceRelpath = workspaceRelpathForFile(activeRelpath);
+    if (!workspaceRelpath) return "";
+    try {
+      const hits = await searchWorkspaceNotes(
+        {
+          list: () =>
+            this.app.vault
+              .getMarkdownFiles()
+              .map((file) => ({ path: file.path, mtime: file.stat.mtime })),
+          read: (path) => {
+            const file = this.resolveVaultFile(path);
+            return file ? this.app.vault.cachedRead(file) : Promise.resolve("");
+          },
+        },
+        workspaceRelpath,
+        query,
+      );
+      return buildWorkspaceNotesBlock(hits);
+    } catch (err) {
+      // Consultation is additive. A failure here must never cost the reader
+      // their answer, so it degrades to "no notes consulted".
+      logger.warn("Workspace note consultation failed:", err);
+      return "";
+    }
+  }
+
   private contextWorkspacePath(): string {
     const vaultBase = (this.app.vault.adapter as any).getBasePath?.() || "";
     const activeRelpath = this.app.workspace.getActiveFile()?.path || "";

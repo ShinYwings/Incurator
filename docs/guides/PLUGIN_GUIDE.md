@@ -193,6 +193,27 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
   exact section. Theorem-style pointers accept appendix-lettered numbering
   (`Result A4.1`, `Corollary B2.3`), and `Appendix 4` ToC titles answer to
   `A4`-style numbers so appendix anchors resolve too.
+- **Your own project notes are consulted (v0.57.0)**: when you ask the sidebar
+  a question while working inside `01_Workspaces/<project>/`, the assistant also
+  looks through the notes you wrote in that project and surfaces what you
+  already concluded, attributed to you.
+
+  Three things about how it is scoped:
+
+  - **Your notes are not ingested.** Nothing from a workspace enters the
+    knowledge graph, the database, or `.curator/`. They are read at the moment
+    you ask and nowhere else, so your project's working state stays project-local.
+  - **Only the project you are in.** Ask outside a workspace and nothing is
+    consulted — it does not search your whole vault, and it will not surface a
+    different project's notes.
+  - **The agent's own files are skipped.** `.agents/`, `CLAUDE.md`, `AGENTS.md`,
+    and `GEMINI.md` inside a workspace are instructions to a tool, not your
+    thinking. Having the assistant quote its own plans back to you as "notes you
+    wrote" would be worse than saying nothing.
+
+  Your notes are presented to the model as *your working notes*, not as
+  established fact — so it should say "you concluded X" rather than asserting X.
+
 - **Citations resolve to the paper they name (v0.56.0)**: select a passage
   containing `[8]` and ask about it, and the assistant already has the
   bibliography entry `[8]` points to — no extra round trip, no asking you to

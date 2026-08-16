@@ -150,6 +150,9 @@ export function buildRecencyAnchor(
         "it, regardless of earlier turns in this conversation. " +
         "A <resolved_citations> block, when present, holds the papers the " +
         "selection cites; answer about the cited work from its entry there. " +
+        "A <workspace_notes> block holds notes the reader wrote themselves in " +
+        "this project; when they bear on the question, say what the reader " +
+        "already concluded and attribute it to them. " +
         "If the pointer's " +
         "target appears in <unresolved_cross_references> instead, call " +
         "`read_pdf_page_image` on the page it names where you were given that " +

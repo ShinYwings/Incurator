@@ -2,6 +2,39 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.57.0] - 2026-08-17
+### Added
+- **The assistant reads your own project notes.** Ask the sidebar a question
+  while working inside `01_Workspaces/<project>/` and it now also looks through
+  the notes you wrote in that project, surfacing what you already concluded and
+  attributing it to you.
+
+  This was the last thing standing between the assistant and its second stated
+  job — remind the reader what they have already written. Measured on the
+  reporting vault: **137 markdown files on disk, 36 ingested, and 75 of the gap
+  were research notes inside one workspace.** They were simply invisible.
+
+  Deliberately a *retrieval* path, not an ingestion one:
+
+  - **Nothing is ingested.** No knowledge-graph node, no database row, no
+    `.curator/` file. A workspace is project-local working state, and promoting
+    it into a vault-wide graph is the mixing the vault topology exists to
+    prevent. The notes are read when you ask and nowhere else.
+  - **Only the project you are in.** Outside a workspace nothing is consulted.
+    It does not fall back to searching the whole vault, and it will not surface
+    another project's notes.
+  - **The agent's own files are skipped** — `.agents/`, `CLAUDE.md`,
+    `AGENTS.md`, `GEMINI.md`. Those are instructions to a tool. Quoting the
+    agent's own plans back as "notes you wrote" is worse than surfacing nothing;
+    13 of the reporting workspace's 88 markdown files are that.
+  - **Built once per change, not once per question.** The index is bulk-built
+    and reused until a note's path or mtime changes. The rebuild-per-call shape
+    this avoids measured 331x the bulk path elsewhere (26,881 ms against 81 ms).
+
+  Your notes reach the model labelled as *your working notes*, not as
+  established fact, so a correct answer says "you concluded X" rather than
+  asserting X.
+
 ## [0.56.1] - 2026-08-15
 ### Fixed
 - **"jetski: no output produced" — the actual cause, found by testing the
