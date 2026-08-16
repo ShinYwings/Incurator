@@ -299,16 +299,26 @@ LLM이 제안 생성 → Diff 표시 → Accept / Reject
   Antigravity 1.1.3 이상은 플러그인이 `agy`를 headless(`-p`) 모드로 실행할 때
   대화형 승인이 필요한 도구도 거부합니다. 따라서 플러그인은 기존 Antigravity CLI
   설정을 보존하면서 `~/.gemini/antigravity-cli/settings.json`의
-  `permissions.allow`에 좁은 규칙 두 개를 추가합니다: `read_file()`, 그리고
+  `permissions.allow`에 규칙 두 개를 추가합니다: `read_file(*)`, 그리고
   Incurator MCP 서버를 띄우기 위한 `command(wiki)`.
 
 > [!IMPORTANT]
-> **`jetski: no output produced`가 반복해서 떴다면 원인이 이것입니다 (v0.53.1에서
-> 수정).** 그전까지 기록하던 규칙은 `$read_file$()` 형식이었는데, Antigravity가
-> 인식하지 못하는 형태입니다. Antigravity는 인식하지 못하는 규칙을 잘라내고 비어
-> 버린 `permissions` 객체를 통째로 삭제하므로, 이 권한은 **단 한 번의 실행도**
-> 살아남지 못했고 모델이 도구를 쓰려 할 때마다 자동 거부되었습니다. 사용자가 설정을
-> 잘못한 것이 아닙니다. 업데이트하면 권한이 유지됩니다.
+> **`jetski: no output produced`가 반복해서 떴다면 원인이 이것이고, 실제로 고치는
+> 데 세 번 걸렸습니다 (v0.56.1).**
+>
+> v0.53.1 전까지 기록하던 규칙은 `$read_file$()` 형식이었는데, Antigravity가
+> 인식하지 못하는 형태입니다. 인식하지 못하는 규칙은 잘라내고 비어 버린
+> `permissions` 객체를 통째로 삭제하므로, 이 권한은 **단 한 번의 실행도** 살아남지
+> 못했습니다. v0.53.1은 이를 `read_file()`로 고치고 규칙이 파일에 *남아 있는지*를
+> 확인했습니다. 실제로 남아 있긴 하지만 아무것도 허가하지 않습니다. 그래서 제대로
+> 설정된 것처럼 보이는 규칙 뒤에서 이미지 읽기는 세 릴리스 더 자동 거부되었습니다.
+>
+> agy 1.1.13으로 실측한 결과, `read_file(*)`만 동작합니다. 정확한 경로
+> (`read_file(/path/to/file.png)`)도 거부되고 `read_file(/tmp/*)`도 거부됩니다.
+> 읽기에서 경로로 좁힌 규칙은 더 좁은 허가가 아니라 허가가 아닙니다.
+>
+> 사용자가 설정을 잘못한 것이 아닙니다. 업데이트하면 규칙이 다시 기록되고 죽은
+> 규칙은 제거됩니다. 파일을 직접 고칠 필요는 없습니다.
 
   `command(wiki)`는 플러그인이 직접 설정하는 `wiki` 실행 파일로만 범위가
   제한됩니다 — Incurator는 무엇이든 실행할 수 있게 하는 `command()`를 절대

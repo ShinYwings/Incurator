@@ -319,15 +319,25 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
   when the plugin launches `agy` in headless (`-p`) mode. The plugin therefore
   preserves your Antigravity CLI settings and adds two narrow rules under
   `permissions.allow` in `~/.gemini/antigravity-cli/settings.json`:
-  `read_file()`, and `command(wiki)` so the Incurator MCP server can be started.
+  `read_file(*)`, and `command(wiki)` so the Incurator MCP server can be started.
 
 > [!IMPORTANT]
-> **If you saw `jetski: no output produced` repeatedly, this was why (fixed in
-> v0.53.1).** The rule shipped until then was written `$read_file$()`, a form
-> Antigravity does not recognise. It prunes unrecognised rules and deletes the
-> emptied `permissions` object, so the permission survived **zero** runs and
-> every tool the model reached for was auto-denied. Nothing you configured was
-> wrong. Update and the grant persists.
+> **If you saw `jetski: no output produced` repeatedly, this is why — and it
+> took three attempts to actually fix (v0.56.1).**
+>
+> Until v0.53.1 the rule was written `$read_file$()`, a form Antigravity does
+> not recognise: it prunes unrecognised rules and deletes the emptied
+> `permissions` object, so the grant survived **zero** runs. v0.53.1 corrected
+> that to `read_file()` and confirmed the rule now *stayed* in the file — which
+> it does, while granting nothing. Every image read was still auto-denied for
+> another three releases, behind a rule that looked correctly configured.
+>
+> Measured against agy 1.1.13: only `read_file(*)` is honoured. An exact path
+> (`read_file(/path/to/file.png)`) is refused, and so is `read_file(/tmp/*)`.
+> For reads, a path-scoped rule is not a narrower grant — it is no grant.
+>
+> Nothing you configured was wrong. Updating rewrites the rule and removes the
+> dead one; you do not need to edit the file yourself.
 
   `command(wiki)` is deliberately scoped to the `wiki` binary the plugin itself
   configures — Incurator never writes a bare `command()`, which would approve

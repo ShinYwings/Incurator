@@ -41,6 +41,25 @@ All notable changes to Incurator are documented here.
   path added in v0.55.0, which until now had only ever been verified as far as
   the rendered image.
 
+  The measurement is now automated rather than repeated by hand.
+  `agyPermissionLive.test.ts` writes each rule, asks a real `agy` to read a file
+  containing a token that appears nowhere in the prompt, and checks whether the
+  token comes back. It is skipped unless `INCURATOR_LIVE_AGY=1` and `agy` is on
+  PATH, because it spends provider quota — but it exists, so the next agy
+  release that changes what a rule authorizes has something to fail against.
+  Asserting what we wrote to the file is what let this ship twice.
+
+- **The page-image path asked the wrong question.** v0.55.0 renders a whole page
+  and sent it to the prompt that says "transcribe ONLY the selected PDF region",
+  which is right for a `Cmd+Shift+X` snip and wrong for a page: handed a full
+  page the model has to guess what counts as "selected". Measured on the page
+  holding equation 29, it returned the sentence the reader had highlighted —
+  about 150 characters — and not the equation being asked about.
+
+  `wiki plugin pdf transcribe` now takes `--scope page|region` and the
+  page-image tool asks for `page`. Same page, same model: **6,468 characters
+  covering the whole page, with equation 29 in it.**
+
 ## [0.56.0] - 2026-08-14
 ### Added
 - **`[8]` now resolves to the paper it names.** Ask the popover about a citation

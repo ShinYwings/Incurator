@@ -2367,11 +2367,38 @@ the `find_mvg_text.py`-style exploit). This section governs the CLI path.
     command, and is deliberately SCOPED: a bare `command()` is the blanket
     bypass this section forbids and MUST NOT be written. It MUST preserve unknown top-level
     keys, unknown `permissions` keys, and existing allow entries, and MUST refuse
-    to overwrite malformed JSON or a non-array `permissions.allow`. This approval
+    to overwrite malformed JSON or a non-array `permissions.allow`.
+    The plugin MUST NOT install `--dangerously-skip-permissions` or approve
+    write, shell, or network tools.
+
+    **This approval DOES grant paths, and that is a posture change recorded
+    here rather than buried (v0.56.1).** The previous text said "this approval
     does not grant a path: non-ephemeral path visibility remains the separate
-    `--add-dir` set, while the popover still receives no added workspace dirs.
-    The plugin MUST NOT install `--dangerously-skip-permissions` or approve write,
-    shell, network, or wildcard tools.
+    `--add-dir` set". That was wrong twice over. `--add-dir` is the *visibility*
+    set, not the read boundary — reads bypass it — and the OS sandbox profile is
+    `(allow default)` + `(deny file-write*)`, which never restricted reads
+    either. The CLI's own approval gate was therefore the only thing gating
+    `read_file`, and while the rule was malformed that gate was closed by
+    accident, not by design.
+
+    Making it work opens it. `read_file(*)` is the only form agy honours (an
+    exact path is refused), so the read grant cannot be narrowed at this layer.
+    Two consequences follow and MUST be weighed before this rule is written:
+
+    1. The grant is **global and standing** — one file under `~/.gemini`, shared
+       by every later `agy` invocation on that account, not scoped to the plugin
+       or to one call.
+    2. The **backend** `AntigravityCliClient` has no OS sandbox at all (unlike
+       `CodexCliClient`, which passes `--sandbox read-only`) and sets
+       `*_TRUST_WORKSPACE`. It is also the client that processes ingested
+       source material, which is untrusted by definition. A standing read grant
+       on that path is a prompt-injection surface: content in an ingested PDF
+       can ask the model to read an unrelated file.
+
+    A vision provider reached over an API takes image bytes directly and needs
+    no filesystem grant at all. Configuring one for
+    `llm.latex_extract_model` / `llm.vision_model` avoids this trade entirely,
+    and is the recommended posture where image transcription matters.
     The active-bundle gate above applies before this boundary: an installed
     permission hotfix does not count as active until the running bundle identity
     matches the installed bundle. Once active, the invocation-time atomic merge
