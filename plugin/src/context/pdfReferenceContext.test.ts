@@ -4,7 +4,9 @@ import {
   resolveSelectionReferencesAsync,
   resolveSelectionReferencesBlock,
   resolveSelectionReferencesBlockAsync,
+  resolveSelectionContextAsync,
 } from "./pdfReferenceContext";
+import { forgetBibliography } from "./citationContext";
 import { PdfDocumentIndexService } from "./pdfDocumentIndex";
 import type { PdfWindowPage } from "../types";
 
@@ -449,5 +451,104 @@ describe("resolveSelectionReferencesAsync", () => {
     const fetch = vi.fn().mockResolvedValue(undefined);
     const block = await resolveSelectionReferencesBlockAsync("no refs here", undefined, fetch);
     expect(block).toBe("");
+  });
+});
+
+/**
+ * The funnel itself (v0.56.0).
+ *
+ * Both the popover and the chat sidebar reach citations and provenance only
+ * through this function. The pure modules are unit-tested in isolation, which
+ * says nothing about whether the wiring here actually joins them: a wrong
+ * separator, a dropped block, or a `source` shape mismatch leaves every unit
+ * test green and the feature dead.
+ */
+describe("resolveSelectionContextAsync — citations and provenance join the block", () => {
+  const BIB = "References\n[8] A. Author. The cited work. In CVPR, 2023.";
+
+  function source(documentId: string) {
+    return {
+      windowPages: [page(1, "we build on [8] for this stage")],
+      pageNum: 1,
+      pageCount: 12,
+      searchDocumentId: documentId,
+    };
+  }
+
+  it("merges a citations block into the returned prompt block", async () => {
+    forgetBibliography("doc-join");
+    const { block } = await resolveSelectionContextAsync(
+      "we build on [8]",
+      source("doc-join"),
+      async (pageNum) => (pageNum >= 10 ? BIB : "body")
+    );
+    expect(block).toContain("<resolved_citations");
+    expect(block).toContain("The cited work");
+  });
+
+  it("returns provenance built from the same resolution, not from the block", async () => {
+    forgetBibliography("doc-prov");
+    const { provenance } = await resolveSelectionContextAsync(
+      "we build on [8]",
+      source("doc-prov"),
+      async (pageNum) => (pageNum >= 10 ? BIB : "body")
+    );
+    expect(provenance.items.map((i) => i.label)).toContain("[8]");
+    expect(provenance.items.find((i) => i.label === "[8]")?.origin).toBe("bibliography");
+  });
+
+  it("emits no citations block when nothing resolved, leaving the prompt clean", async () => {
+    forgetBibliography("doc-none");
+    const { block, provenance } = await resolveSelectionContextAsync(
+      "ordinary prose with no citation",
+      source("doc-none"),
+      async () => BIB
+    );
+    expect(block).not.toContain("<resolved_citations");
+    expect(provenance.items).toEqual([]);
+  });
+
+  it("resolves citations from documentKey when there is no search index", async () => {
+    // The chat sidebar builds no BM25 index, so it has no searchDocumentId.
+    // Keying the bibliography cache on that alone made citation resolution a
+    // silent no-op on that entire surface.
+    forgetBibliography("hash-abc");
+    const { block } = await resolveSelectionContextAsync(
+      "we build on [8]",
+      {
+        windowPages: [page(1, "we build on [8]")],
+        pageNum: 1,
+        pageCount: 12,
+        documentKey: "hash-abc",
+      },
+      async (pageNum) => (pageNum >= 10 ? BIB : "body")
+    );
+    expect(block).toContain("<resolved_citations");
+  });
+
+  it("skips citations when the caller supplied no document identity", async () => {
+    // Without searchDocumentId there is no cache key, so citations are skipped
+    // rather than cached under a shared bucket where one document's
+    // bibliography would be served for another.
+    const fetch = vi.fn(async () => BIB);
+    const { block } = await resolveSelectionContextAsync(
+      "we build on [8]",
+      { windowPages: [page(1, "x")], pageNum: 1, pageCount: 12 },
+      fetch
+    );
+    expect(block).not.toContain("<resolved_citations");
+  });
+
+  it("the string wrapper still returns exactly the block", async () => {
+    forgetBibliography("doc-wrap");
+    const args = [
+      "we build on [8]",
+      source("doc-wrap"),
+      async (pageNum: number) => (pageNum >= 10 ? BIB : "body"),
+    ] as const;
+    const viaWrapper = await resolveSelectionReferencesBlockAsync(...args);
+    forgetBibliography("doc-wrap");
+    const { block } = await resolveSelectionContextAsync(...args);
+    expect(viaWrapper).toBe(block);
   });
 });

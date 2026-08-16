@@ -147,7 +147,10 @@ export function buildRecencyAnchor(
         "or, when that selection is a pointer/cross-reference, about its resolved " +
         "target in <resolved_cross_references>. Do NOT explain, summarize, or " +
         "modify the whole document unless the latest request explicitly asks for " +
-        "it, regardless of earlier turns in this conversation. If the pointer's " +
+        "it, regardless of earlier turns in this conversation. " +
+        "A <resolved_citations> block, when present, holds the papers the " +
+        "selection cites; answer about the cited work from its entry there. " +
+        "If the pointer's " +
         "target appears in <unresolved_cross_references> instead, call " +
         "`read_pdf_page_image` on the page it names where you were given that " +
         "tool — a rasterized equation has no text to find — and otherwise " +

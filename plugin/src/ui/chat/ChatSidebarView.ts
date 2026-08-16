@@ -1845,6 +1845,14 @@ export class ChatSidebarView extends ItemView {
             pageNum: pdf.pageNum,
             pageCount: backendCtx?.totalPages || pdf.pageCount || sourceStatus?.pageCount,
             pageLabels: pdf.pageLabels,
+            // The sidechat builds no BM25 index, so it has no searchDocumentId.
+            // Without a key the bibliography cache cannot run at all, which is
+            // how citation resolution silently never fired on this surface.
+            // Content hash first: it survives the file moving, and changes when
+            // the bytes change, so a revised attachment cannot serve the old
+            // document's references.
+            documentKey:
+              pdf.fileHash || pdf.zoteroAttachmentKey || pdf.filePath || undefined,
           },
           async (pageNum) => {
             // Try backend first (for tracked/indexed PDFs).

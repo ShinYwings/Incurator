@@ -2,6 +2,66 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.56.0] - 2026-08-14
+### Added
+- **`[8]` now resolves to the paper it names.** Ask the popover about a citation
+  and the assistant gets the bibliography entry it points to, resolved before
+  the turn starts so no tool round is spent chasing it.
+
+  The hard part is not finding `[8]` — it is knowing that a given `[8]` IS a
+  citation. Bare brackets collide with footnote markers (`[^8]`), markdown
+  reference links (`[text][8]`), and array indices (`arr[8]`). The bibliography
+  itself is the disambiguator: a number that does not match a parsed References
+  section is **dropped, not reported unresolved**, because on ordinary prose
+  "not found" almost always means "not a citation".
+
+  Verified on a real 26-page paper: **110 entries, numbers 1–110, no gaps.**
+
+- **Provenance under the answer.** Each lookup is listed with where it came
+  from — `Eq. (29) — p.11`, `[8] — Bartoli et al., 2005`. It is assembled from
+  what the plugin actually resolved, never recovered by scanning the model's
+  output, so it cannot disagree with what really happened. A pointer that could
+  not be reached reads "not retrieved", never "absent from the paper" — the
+  popover searches only loaded pages, so the first is what the code can support.
+
+### Fixed
+- **Two-column papers were being read across the gutter.** Page text was grouped
+  by vertical position with no notion of a column, so every line of a
+  two-column paper concatenated the left and right sides. On the References page
+  of the motivating paper that produced:
+
+      [1] Hichem Abdellali, Robert Frohlich, Viktor Vilagos, and [18] Daniel
+      DeTone, Tomasz Malisi...
+
+  — two unrelated references welded into one line. This was never a citation
+  bug; it is how the plugin has read **every** two-column paper, silently
+  corrupting anything downstream that relies on page text.
+
+  Pages are now split at a detected gutter and read one column at a time. The
+  detector is deliberately conservative: a band essentially no item crosses,
+  substantial text on both sides, wider than both 4% of the page and 1.5x the
+  median glyph height. Both floors matter — the page-fraction test alone passed
+  on ordinary word spacing and sliced single-column pages into ribbons. A
+  single-column page produces byte-identical output to before.
+
+  Same page: 16 contaminated entries before, 28 clean ones after.
+
+- **A bibliography spanning pages is now followed.** The heading prints once —
+  the motivating paper carries it on p.24 with entries 1–28, then continues
+  across p.25 and p.26 with no heading at all. Stopping at the heading page
+  found 28 of 110, so a real citation like `[42]` was being dropped for "not
+  being in the bibliography".
+
+### Changed
+- `PLUGIN_SCHEMA.md` §13.8 records the reading assistant's role as contract —
+  the three duties, the ban on self-cancelling duty clauses, and the prompt
+  budget gate — with the audit that motivated it: duty 3 had four "enabling"
+  sentences, all of them MCP tool descriptions, and no instruction anywhere.
+- `PLUGIN_SCHEMA.md` §13.9 records that provenance is assembled from resolution
+  results and never regexed from output, with the measurement that killed the
+  output-scanning design: `quickQueryContext.ts` contains zero `[[`, so the
+  check would have fired "no citation" on every popover answer ever produced.
+
 ## [0.55.0] - 2026-08-14
 ### Added
 - **The assistant can look at a PDF page, not just read its text.** Ask about

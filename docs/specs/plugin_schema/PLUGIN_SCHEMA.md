@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.55.0)
+# Incurator Plugin Schema & API Contract (v0.56.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -2616,6 +2616,220 @@ boundary closed by §13.5/§13.6.
   the gate prove the wrong thing for the current document.
 
 ---
+
+### 13.7a Page Text Is Read By Column (v0.56.0)
+
+**Scope: this governs the plugin's own pdf.js/DOM extraction path only.** A
+tracked PDF is served by the backend by default (`shouldUseBackendPdfContext`
+returns true unless an image context or already-loaded local text preempts it),
+and that path extracts through `pymupdf4llm` / `fitz`, which never reaches
+`layoutTextItems`. Measured on the same References page: `fitz` produces 28
+entry-leading lines and **zero** welded lines, so the backend path does not have
+this defect and is unchanged here. The local path — the fallback, and what the
+external PDF viewer uses — did, and is what follows. That function grouped items by
+vertical position and sorted by horizontal position, which is correct for one
+column and wrong for two. On a two-column page each reconstructed line welded
+the left column onto the right:
+
+    [1] Hichem Abdellali, Robert Frohlich, Viktor Vilagos, and [18] Daniel
+    DeTone, Tomasz Malisi...
+
+Two unrelated bibliography entries, one line. This corrupted **every**
+two-column paper, for every consumer, silently — nothing downstream could tell
+a welded line from a real one.
+
+- **A page with a detected gutter MUST be read one column at a time**, left
+  column fully, then right. `LayoutTextResult.text` is therefore in *reading*
+  order, not in raster order, and `LayoutTextResult.lines` is grouped by column
+  rather than globally sorted by y. A consumer that requires global y-ordering
+  must sort for itself.
+
+- **Detection is conservative by construction, and MUST stay that way.** A
+  false positive reorders a single-column page — a correctness regression for
+  every reader. A false negative merely leaves the page interleaved, which is
+  the prior behaviour. A candidate gutter qualifies only when:
+
+  | condition | threshold | why |
+  |---|---|---|
+  | items on the page | ≥ 40 | two lines of two columns is a table row, not a layout |
+  | items straddling the band | ≤ 1 | tolerates one full-width rule or caption; more means no gutter |
+  | share on the thinner side | ≥ 25% | a marginal note or line-number column is not a column |
+  | band width | ≥ 4% of page width **AND** ≥ 1.5 × median glyph height | see below |
+  | candidate positions | middle half of the page only | a gutter is central; scanning the edges splits margins off |
+
+  **Both width floors are load-bearing.** The page-fraction test alone passes on
+  ordinary inter-word spacing — an implementation carrying only that floor
+  sliced single-column pages into ribbons. The type-relative floor is what
+  distinguishes a gutter (several characters wide) from a word space (under
+  one).
+
+- **Page furniture keeps its raster position.** A running head and a
+  page-number footer sit outside the vertical band where both columns carry
+  text, and are emitted before and after the columns respectively. Bucketing
+  them by horizontal position instead put a footer left of the gutter at the end
+  of the LEFT column — the middle of the page's text — which silently broke
+  `printedHeaderCandidates`, the printed-page-number inference that reads the
+  first and last three lines. That regression hit exactly the two-column papers
+  this rule exists to help.
+
+- **Known gap: region crops still cross columns.** `extractRegionTextFromSpans`
+  (the drag/lasso crop path) sorts its own hits top-to-bottom then
+  left-to-right, which is the same welding this section fixes for full pages. A
+  crop box spanning both columns still concatenates them. Unfixed as of
+  v0.56.0.
+
+- **A single-column page MUST produce byte-identical output to the
+  pre-detection path.** This is asserted directly, by laying the same items out
+  with detection on and off and comparing, so a future threshold change cannot
+  quietly alter ordinary pages.
+
+### 13.7b Citation Resolution (v0.56.0)
+
+A reference like `[8]` names a paper. Resolving it happens in the same pre-turn
+pass as §13.7's cross-references, on the same fetcher, so the model receives the
+bibliography entry in its first prompt and spends no tool round chasing it.
+
+- **The bibliography is the disambiguator, and a citation without a match is
+  DROPPED — not reported unresolved.** A bare `[N]` collides with footnote
+  markers (`[^8]`), markdown reference links (`[text][8]`), and array indices
+  (`arr[8]`). Reporting an unmatched number as an unresolved reference would put
+  noise in front of the model on every code-bearing page. This is a deliberate
+  asymmetry with §13.7, which *does* report what it could not find: there,
+  "not found" means retrieval failed; here it almost always means "not a
+  citation".
+
+- **Collisions are rejected structurally, not by heuristic confidence.** A
+  bracket bound to the token before it (`\w`, `)`, or `]` immediately
+  preceding) is an index or a reference link. A bracket inside a code span or
+  fence is code. Both are dropped before any bibliography lookup.
+
+- **The scan is a bounded window at the END of the document**, because a
+  References section lives there and scanning from page 1 would read the whole
+  document to find it. It is a fixed window — the last 6 pages — walked in
+  ascending order, not an unbounded walk backward.
+
+  **The bound is a real limit and is stated here rather than discovered later:**
+  a bibliography whose heading page sits more than 5 pages before the last page
+  is not found at all. Papers with long appendices, supplementary material, or
+  author biographies after the references fall outside it and get no citation
+  resolution — silently, because §4.8 drops unmatched numbers. Widening the
+  window trades directly against fetch cost on every first citation question.
+
+- **A bibliography spans pages and prints its heading once.** The heading is
+  required on the page that *starts* the section and MUST NOT be required on
+  the pages that continue it — the motivating paper carries the heading and
+  entries 1–28 on one page, then 35 and 32 more entries on the next two with no
+  heading at all. Continuation stops when a page adds nothing, or when its
+  numbering restarts below the highest already seen, which is what prevents an
+  appendix using bracketed enumeration from being absorbed.
+
+- **The result is cached per document, including a fruitless search.** Without
+  that, every question re-fetches and re-parses several pages before the model
+  sees anything. A selection containing no resolvable bracket MUST NOT trigger
+  any fetch at all.
+
+### 13.8 The Reading Assistant's Role (v0.54.0)
+
+Every rule from §13.1 to §13.7 says what the reading surfaces may not do. None
+of them said what the surfaces are *for*. That omission was not neutral: a model
+given only a boundary optimises for staying inside it, and the measured result
+was a prompt stack in which the assistant's third job had no instructions at
+all.
+
+**The measurement.** Sentences in the assembled prompt, classified by which duty
+they served (`A_prompt_role_audit.md`, 2026-08-09):
+
+| duty | enabling | limiting |
+|---|---|---|
+| 1 — read and explain the document | 32 | 13 |
+| 2 — remind the reader of their own notes | 6 | 3 |
+| 3 — help them find new value | **4** | 0 |
+
+Duty 3's four "enabling" hits were MCP *tool descriptions* — no sentence
+anywhere stated that finding new value is part of the job. Both duty-2
+sentences cancelled themselves inside the same clause ("…connect it to the
+user's existing notes, **but avoid**…"; "…**but you MUST NOT** explain the
+background context itself"), while three unhedged prohibitions elsewhere said
+answer ONLY about the selection. The model obeyed the prohibitions. The user
+reported precisely that behaviour.
+
+- **The prompt MUST open by stating the role, before any constraint.** The
+  three duties, in order: read alongside the reader — papers, books, and PDFs,
+  including pages and figures they have not opened; remind them what they have
+  already written, surfacing their own notes when those bear on the question;
+  and help them get somewhere new — an implication, a tension, a connection
+  they had not stated.
+
+- **Duty 3 is qualified, not mandated.** Answer the question first; add the
+  connection when there is a real one. A manufactured insight is worse than
+  none. A prompt that *requires* an insight per turn produces filler, which is
+  the failure mode opposite to the one being fixed.
+
+- **A duty sentence MUST NOT cancel itself.** "Surface the reader's notes, but
+  avoid…" instructs nothing. Where a genuine limit applies, it belongs in its
+  own sentence, so the duty and the limit can each be read on their own.
+
+- **Prohibitions are written as descriptions of the wanted behaviour.**
+  Negative instructions prime the behaviour they forbid; "do NOT open the file"
+  sat beside a model that would not stop trying to open files. Each constraint
+  states what to do instead. This is a drafting rule, not a ban on the words
+  "not" or "never" — §13.5's boundary language is deliberately absolute and
+  stays that way.
+
+- **The role and its budget are gated by tests, not by review attention.**
+  `promptRoleBudget.test.ts` asserts all three duties are present, caps the
+  assembled prose at **17,000 characters** and **23 negative constructions**,
+  and fails if a narration mandate reappears. The ceilings are budgets, not
+  targets: a prompt that grows without bound dilutes every instruction in it,
+  including the ones that matter. Wording may change freely underneath them;
+  only drift back toward a wall of prohibitions fails.
+
+- **The assistant does not narrate its own retrieval state.** What was or was
+  not loaded, which blocks arrived, and whether something came from the
+  document or from general knowledge are not part of an answer. Three prompt
+  sites once *instructed* the model to announce those things; `noContextNarration.test.ts`
+  now pins their absence. The honest purpose that mandate served — letting the
+  reader tell paper-content from model-knowledge — is met structurally by
+  §13.9, which a model cannot argue itself out of mid-turn.
+
+### 13.9 Provenance Comes From Resolution Results (v0.56.0)
+
+The reader needs to know which part of an answer came from their document,
+which from their own notes, and which from the model's background knowledge.
+There are two ways to produce that, and only one of them works.
+
+- **Provenance MUST be assembled from what the plugin actually resolved**, and
+  MUST NOT be recovered by pattern-matching the model's output. The plugin
+  already holds, per turn, exactly what is needed: which rung of the resolver
+  answered, which physical page it read, which citation matched which
+  bibliography entry, whether a page was read as text or as pixels. That record
+  is ground truth. Model output is a claim about it.
+
+- **Why the output-scanning design was rejected.** The proposal was to check
+  the rendered answer for `[[wikilink]]` citations and warn when none appeared.
+  Measured: `quickQueryContext.ts` contains **zero** occurrences of `[[` — the
+  popover model is never told wikilinks exist, so the check would have fired
+  "no citation" on every popover answer ever produced. A provenance signal that
+  is wrong by construction is worse than none, because the reader learns to
+  ignore it.
+
+- **Surfaced on the popover as of v0.56.0; the chat sidebar is not yet wired.**
+  `resolveSelectionContextAsync` returns the record to every caller, and the
+  popover renders it. `ChatSidebarView` still calls the block-only wrapper and
+  displays nothing. This is a deliberate staging, not a claim that one surface
+  needs provenance less — recorded here so the gap is visible rather than
+  mistaken for a contract already met.
+
+- **Provenance is UI state, not prompt text.** It is displayed from the
+  resolution record; it is not requested from the model, and the model is not
+  told to produce it. This keeps it outside the prompt budget of §13.8 and
+  immune to a model that decides mid-turn to answer differently.
+
+- **Absence is reported as unresolved, never as absent from the document.**
+  A pointer the plugin could not resolve means retrieval did not reach it, not
+  that the paper lacks it — the popover searches only loaded pages, and
+  whole-document search needs the backend running. The distinction is
+  contractual because the opposite claim is one the code cannot support.
 
 ## 14. LaTeX-preserving copy (chat sidebar + quick-query popover + note Reading View) (v0.5.4)
 

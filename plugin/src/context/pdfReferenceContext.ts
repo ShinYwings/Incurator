@@ -8,6 +8,8 @@
  * formatted `<resolved_cross_references>` / `<unresolved_cross_references>`
  * blocks.
  */
+import { buildCitationsBlock, resolveSelectionCitations } from "./citationContext";
+import { buildProvenance, type ProvenanceRecord } from "./provenance";
 import { PdfDocumentIndexService } from "./pdfDocumentIndex";
 import {
   buildCaptionIndex,
@@ -45,6 +47,17 @@ export interface PdfReferenceSource {
   /** Document ID used when the pages were upserted into searchIndex.
    *  Must be provided alongside searchIndex; defaults to "selection". */
   searchDocumentId?: string;
+  /**
+   * Stable per-document identity for caches that are NOT the search index.
+   *
+   * `searchDocumentId` exists only where a BM25 index was built, which is the
+   * custom PDF viewer via the popover — so keying the bibliography cache on it
+   * alone silently disabled citation resolution for the chat sidebar and for
+   * Obsidian's own PDF viewer. Callers that have a durable identity (content
+   * hash, Zotero key, path) supply it here; it is never used for the index, so
+   * it cannot perturb search behaviour.
+   */
+  documentKey?: string;
 }
 
 function mapPrintedPageLabel(pageLabels: string[] | undefined, printed: number): number | undefined {
@@ -476,9 +489,11 @@ export async function resolveSelectionReferencesAsync(
 /**
  * Async convenience wrapper: resolve, fetch missing pages, format.
  *
- * Returns "" only when the selection contained no reference to resolve — see
- * {@link resolveSelectionReferencesBlock} on why "" no longer means "nothing
- * resolved".
+ * Returns "" only when the selection contained neither a reference nor a
+ * resolvable citation — see {@link resolveSelectionReferencesBlock} on why ""
+ * no longer means "nothing resolved". A selection whose only hit is a citation
+ * still returns a non-empty block, so a caller MUST NOT read "" as "no
+ * cross-reference was found".
  */
 export async function resolveSelectionReferencesBlockAsync(
   selectedText: string,
@@ -486,11 +501,53 @@ export async function resolveSelectionReferencesBlockAsync(
   fetchPageText: (pageNum: number) => Promise<string | undefined>,
   locatePages?: (label: string) => Promise<number[]>
 ): Promise<string> {
-  const resolved = await resolveSelectionReferencesAsync(
-    selectedText,
-    source,
-    fetchPageText,
-    locatePages
-  );
-  return buildResolvedReferencesBlock(resolved);
+  return (await resolveSelectionContextAsync(selectedText, source, fetchPageText, locatePages))
+    .block;
+}
+
+/**
+ * Resolve once, return BOTH the prompt block and the provenance record.
+ *
+ * `resolveSelectionReferencesBlockAsync` above returns only the block, which is
+ * all the prompt needs. But §13.9 requires provenance to be built from the
+ * resolution record rather than recovered from model output, and that record
+ * exists only here — discarding it and reconstructing it later is precisely the
+ * output-scanning design §13.9 rejects. So the record is returned alongside.
+ */
+export async function resolveSelectionContextAsync(
+  selectedText: string,
+  source: PdfReferenceSource | undefined,
+  fetchPageText: (pageNum: number) => Promise<string | undefined>,
+  locatePages?: (label: string) => Promise<number[]>
+): Promise<{ block: string; provenance: ProvenanceRecord }> {
+  // Citations resolve alongside the cross-references, in the same pre-turn
+  // pass and on the same fetcher, so the model gets both in one prompt and
+  // spends no tool rounds chasing either (plan §4.2).
+  //
+  // Both surfaces funnel through here, but funnelling is not enough on its own:
+  // the bibliography cache needs a per-document key, and the first version keyed
+  // it on `searchDocumentId`, which only the custom viewer's popover path sets.
+  // Citations were therefore skipped in silence for the chat sidebar and for
+  // Obsidian's native PDF viewer. `documentKey` is the fallback identity.
+  const [resolved, citations] = await Promise.all([
+    resolveSelectionReferencesAsync(selectedText, source, fetchPageText, locatePages),
+    resolveSelectionCitations(
+      selectedText,
+      source?.searchDocumentId || source?.documentKey
+        ? {
+            documentId: source.searchDocumentId ?? source.documentKey ?? "",
+            pageCount: source.pageCount,
+            knownPages: source.windowPages?.map((page) => ({
+              pageNum: page.pageNum,
+              text: page.text,
+            })),
+          }
+        : undefined,
+      fetchPageText
+    ),
+  ]);
+  const block = [buildResolvedReferencesBlock(resolved), buildCitationsBlock(citations)]
+    .filter(Boolean)
+    .join("\n");
+  return { block, provenance: buildProvenance(resolved, citations) };
 }

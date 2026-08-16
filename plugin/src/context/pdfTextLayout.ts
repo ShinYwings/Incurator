@@ -32,6 +32,11 @@ export interface LayoutTextResult {
 }
 
 export interface LayoutTextOptions {
+  /**
+   * Set `false` to skip column detection. Used internally when recursing into
+   * an already-isolated column; callers should leave it unset.
+   */
+  columns?: false;
   source: PdfTextSource;
   /**
    * pdf.js text transforms use PDF page coordinates (higher y is higher on page);
@@ -100,6 +105,116 @@ export function domTextLayerToLayoutItems(textLayer: Element): LayoutTextItem[] 
   return out;
 }
 
+/**
+ * Split items into columns when the page has a real gutter (v0.56.0).
+ *
+ * `layoutTextItems` groups by y and sorts by x, which is correct for a
+ * single-column page and wrong for every two-column paper: each visual line
+ * concatenates the left column and the right column, so entry `[1]` of a
+ * bibliography arrives spliced onto entry `[18]` from the other side.
+ *
+ * Measured on "3D Line Mapping Revisited" p.24 (its References page):
+ * `[1] Hichem Abdellali, Robert Frohlich, Viktor Vilagos, and [18] Daniel
+ * DeTone, Tomasz Malisi...` — two separate references, one reconstructed line.
+ *
+ * Detection is deliberately conservative, because the cost of a false positive
+ * (reordering a single-column page) is far worse than a false negative
+ * (leaving a two-column page interleaved, i.e. today's behaviour):
+ *
+ *  - the gutter must be a vertical band that essentially NO item crosses;
+ *  - both sides must hold a substantial share of the items;
+ *  - the band must be wide relative to the page.
+ *
+ * A single-column page has no such band, so it takes the original path and its
+ * output is byte-identical.
+ *
+ * Returns `null` when the page is not confidently multi-column.
+ */
+function detectColumnSplit(items: LayoutTextItem[]): number | null {
+  if (items.length < 40) return null;
+
+  const left = Math.min(...items.map((i) => i.x));
+  const right = Math.max(...items.map((i) => i.x + (i.width || 0)));
+  const pageWidth = right - left;
+  if (pageWidth <= 0) return null;
+
+  // Candidate gutters: scan the middle half of the page. A two-column layout
+  // puts its gutter near the centre; scanning the edges only invites splitting
+  // a margin off a single-column page.
+  //
+  // The width floor is measured against the TEXT, not only the page. A page
+  // fraction alone is not a discriminator: ordinary inter-word gaps on a wide
+  // page clear 3% of page width easily, and an early version of this detector
+  // duly split single-column pages into ribbons. A real gutter is several
+  // characters wide; a word space is under one. Requiring both floors means a
+  // candidate has to be wide in absolute type terms AND a real share of the
+  // page before it counts.
+  const medianHeight =
+    median(items.map((i) => i.height || i.fontSize).filter((n) => n > 0)) || 10;
+  const minGutter = Math.max(pageWidth * 0.04, medianHeight * 1.5);
+  let best: { at: number; width: number } | null = null;
+
+  const STEPS = 60;
+  for (let s = 0; s <= STEPS; s += 1) {
+    const at = left + pageWidth * (0.25 + (0.5 * s) / STEPS);
+    let straddling = 0;
+    let leftCount = 0;
+    let rightCount = 0;
+    let gapLeft = left;
+    let gapRight = right;
+    for (const item of items) {
+      const a = item.x;
+      const b = item.x + (item.width || 0);
+      if (a < at && b > at) {
+        straddling += 1;
+        if (straddling > 1) break;
+      } else if (b <= at) {
+        leftCount += 1;
+        if (b > gapLeft) gapLeft = b;
+      } else {
+        rightCount += 1;
+        if (a < gapRight) gapRight = a;
+      }
+    }
+    // At most one straddling item tolerates a stray full-width rule or a
+    // figure caption; more than that means the band is not a gutter.
+    if (straddling > 1) continue;
+    const share = Math.min(leftCount, rightCount) / items.length;
+    if (share < 0.25) continue;
+    const width = gapRight - gapLeft;
+    if (width < minGutter) continue;
+    if (!best || width > best.width) best = { at, width };
+  }
+  return best ? best.at : null;
+}
+
+/** The y-range in which BOTH columns carry text. Anything outside is furniture. */
+function sharedColumnBand(
+  items: LayoutTextItem[],
+  inLeft: (i: LayoutTextItem) => boolean
+): { min: number; max: number } | null {
+  const ys = { left: [] as number[], right: [] as number[] };
+  for (const item of items) (inLeft(item) ? ys.left : ys.right).push(item.y);
+  if (!ys.left.length || !ys.right.length) return null;
+  const min = Math.max(Math.min(...ys.left), Math.min(...ys.right));
+  const max = Math.min(Math.max(...ys.left), Math.max(...ys.right));
+  return max > min ? { min, max } : null;
+}
+
+/** Is this item outside the shared band, on the given side of the page? */
+function beyond(
+  item: LayoutTextItem,
+  band: { min: number; max: number } | null,
+  side: "above" | "below",
+  yAxis: "up" | "down" | undefined
+): boolean {
+  if (!band) return false;
+  // With yAxis "up" (pdf.js) a LARGER y is higher on the page.
+  const higherIsLarger = yAxis === "up";
+  if (side === "above") return higherIsLarger ? item.y > band.max : item.y < band.min;
+  return higherIsLarger ? item.y < band.min : item.y > band.max;
+}
+
 export function layoutTextItems(
   inputItems: LayoutTextItem[],
   options: LayoutTextOptions
@@ -116,6 +231,43 @@ export function layoutTextItems(
     if (Math.abs(yDelta) > yTolerance) return yDelta;
     return a.x - b.x;
   });
+
+  // Two-column pages must be read column by column, not line by line across
+  // the gutter. Only a confidently detected gutter triggers this; a
+  // single-column page falls straight through to the original path.
+  const gutter = options.columns === false ? null : detectColumnSplit(items);
+  if (gutter !== null) {
+    const opts = { ...options, columns: false as const };
+    const inLeft = (i: LayoutTextItem): boolean => i.x + (i.width || 0) <= gutter;
+
+    // Page furniture — the running head and the page-number footer — sits
+    // OUTSIDE the vertical band where both columns have text, and must keep its
+    // raster position. Bucketing it by x instead put a footer that happens to
+    // sit left of the gutter at the end of the LEFT COLUMN, i.e. the middle of
+    // the page's text. `printedHeaderCandidates` reads the first and last three
+    // lines to infer a printed page number, so that silently broke
+    // printed-page cross-references on exactly the two-column papers this
+    // change is meant to help.
+    const band = sharedColumnBand(items, inLeft);
+    const above = items.filter((i) => beyond(i, band, "above", options.yAxis));
+    const below = items.filter((i) => beyond(i, band, "below", options.yAxis));
+    const furniture = new Set([...above, ...below]);
+    const body = items.filter((i) => !furniture.has(i));
+
+    const head = above.length ? layoutTextItems(above, opts) : null;
+    const a = layoutTextItems(body.filter(inLeft), opts);
+    const b = layoutTextItems(body.filter((i) => !inLeft(i)), opts);
+    const foot = below.length ? layoutTextItems(below, opts) : null;
+
+    const parts = [head, a, b, foot].filter((r): r is LayoutTextResult => r !== null);
+    const text = parts.map((r) => r.text).filter(Boolean).join("\n");
+    return {
+      text,
+      lines: parts.flatMap((r) => r.lines),
+      items,
+      quality: assessPdfTextQuality(text, options.source),
+    };
+  }
 
   const lines: LayoutTextLine[] = [];
   for (const item of sorted) {
