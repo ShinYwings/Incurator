@@ -127,8 +127,21 @@ becoming L1–L4. Ingestion and consultation are different mechanisms and this
 plan had conflated them.
 
 So P5 splits:
-- **P5a** — ingest `03_Notes`, `00_System`, `04_Resources` (15 files). Needs LLM
-  capacity; blocked while Antigravity returns 429.
+- **P5a** — ingest `03_Notes` and `04_Resources` (**9 files**), the two spaces
+  the vault contract marks `[Source]`.
+
+  **Corrected 2026-08-17 by reading the files.** This originally said 15 files
+  including `00_System`. `00_System` is not a source space — CLAUDE.md describes
+  it as "User-defined folders (e.g., sandbox, inbox, daily, etc.)", while only
+  `03_Notes/` and `04_Resources/` carry `[Source]`. Two of its six files are
+  `00_System/Templates/Zotero/{book,paper}_template.md`, which are pure Jinja
+  scaffolding (`{{ citekey }}`, `{% for creator in creators %}`) with no
+  knowledge content at all. Ingesting those would put template syntax into the
+  DAG — the same class of pollution as ingesting `.agents/`.
+
+  The remaining four (`Dashboard/Action Items.md`, three `Sandbox/` notes) are a
+  judgement call for the vault owner, not a contract question. Left out until
+  asked for.
 - **P5b** — query-time workspace consultation, scoped to the active workspace,
   read-only, never written to the DAG. Needs its own design; it is a new
   retrieval path, not a change to an existing one.
