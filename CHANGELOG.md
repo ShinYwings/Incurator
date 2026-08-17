@@ -2,6 +2,40 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.58.0] - 2026-08-17
+### Added
+- **Long ingests now say what they are doing.** A `wiki add` on a 673-page book
+  sat at 0% CPU for 26 minutes and looked hung. It was working correctly —
+  transcribing pages one at a time through a subprocess — and nothing on screen
+  or in the database could tell the two apart.
+
+  Two fixes, because the blindness had two separate causes:
+
+  - **Per-page progress during vision transcription.** The serial CLI path now
+    reports `vision: 12/300 transcribed (page 12 of 673)` as it goes. Agentic
+    CLI providers cannot be called concurrently, so that loop is serial by
+    design and each page is slow; silence there reads as death.
+  - **`wiki jobs events <id>`** — a job's history, oldest first. `ingest_jobs`
+    only ever holds the LATEST phase, so a stalled job and a working one show
+    the same row indefinitely. `job_events` existed for this since the schema
+    was written, is transported by `db_sync`, is deleted from by `sources.py` —
+    and nothing had ever inserted a row.
+
+- **Ingesting a long book is resumable, and now says so.** The
+  `vision_max_pages_per_run` rail (300) caps one run, and every transcribed page
+  is cached by content hash, so re-running the same command continues instead of
+  starting over. That already worked; nothing told you. The message now does:
+  *"Re-run the same command to continue: the N page(s) done in this run are
+  cached and will be skipped."*
+
+### Changed
+- Job history lives in a new `db/job_events.py` rather than in `db/jobs.py`.
+  `db/jobs.py` and `db/__init__.py` are pinned by content hash in
+  `D2_HOLDOUT_RESULT.yml`, which freezes an evaluation against specific code;
+  adding a function there — or even a re-export — invalidates that result for a
+  reason unrelated to retrieval. The first draft did exactly that and D2 caught
+  it, so a test now pins that those files stay untouched.
+
 ## [0.57.0] - 2026-08-17
 ### Added
 - **The assistant reads your own project notes.** Ask the sidebar a question

@@ -1612,6 +1612,13 @@ def _apply_vlm_pdf_extraction(parsed, file_path, vision_client, config, db_path)
             f"skipped (vision_max_pages_per_run={max_pages}, vision_skipped) — those "
             f"pages keep pymupdf4llm text."
         )
+        # The rail is per RUN, and every transcribed page is cached by content
+        # hash, so re-running resumes instead of starting over. Say so: without
+        # it the cap reads as "these pages are lost" rather than "run it again".
+        print(
+            f"  [Info] Re-run the same command to continue: the {transcribe_n} "
+            f"page(s) done in this run are cached and will be skipped."
+        )
 
     # SQLite has no concurrent writers, so keep all DB access on the main thread:
     # (1) serial cache lookup, (2) concurrent transcription of misses with NO DB
@@ -1644,9 +1651,30 @@ def _apply_vlm_pdf_extraction(parsed, file_path, vision_client, config, db_path)
         # concurrently (rate limits / lock contention) → run them serially.
         concurrent_ok = getattr(vision_client, "supports_concurrent_calls", False)
         workers = max(1, min(vision.VISION_CONCURRENCY, len(misses))) if concurrent_ok else 1
+
+        # Say what is about to happen, and how much of it is already done.
+        # Serial CLI transcription of a long book takes hours, and without this
+        # the process sits at 0% CPU (the work is in a child) with no output —
+        # a 673-page book was diagnosed as hung on exactly that evidence when it
+        # was working correctly.
+        cached_n = transcribe_n - len(misses)
+        print(
+            f"  [Info] vision: {len(misses)} page(s) to transcribe, "
+            f"{cached_n} already cached; {'serial' if workers == 1 else f'{workers} workers'}."
+        )
+        done_n = 0
         with ThreadPoolExecutor(max_workers=workers) as ex:
             for i, latex in ex.map(_transcribe, misses):
                 results[i] = latex
+                done_n += 1
+                # Every page for the serial CLI path, where each one is slow
+                # enough that silence reads as a hang; every 10 otherwise.
+                if workers == 1 or done_n % 10 == 0 or done_n == len(misses):
+                    print(
+                        f"  [Info] vision: {done_n}/{len(misses)} transcribed "
+                        f"(page {i + 1} of {n}).",
+                        flush=True,
+                    )
         for i in misses:  # serial cache write
             latex = results.get(i)
             if latex:

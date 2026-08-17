@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Callable
 
 from . import config as cfg
+from .db import job_events
 from . import constants as consts
 from . import db
 from . import ingest_llm
@@ -37,7 +38,15 @@ def _is_transient(error: str) -> bool:
 
 
 class WorkerCallbacks(ingest_llm.IngestCallbacks):
-    """Minimal callbacks that update job progress and layer status."""
+    """Callbacks that update job progress, layer status, and job history.
+
+    ``update_job_progress`` overwrites the job row, so a reader only ever sees
+    the latest phase. That makes a stalled job and a working one look identical:
+    both sit at the same phase and percentage indefinitely. Each callback below
+    therefore also appends to ``job_events``, which is append-only — the
+    difference between "no new events for ten minutes" and "an event a second
+    ago" is the whole signal, and it did not exist.
+    """
 
     def __init__(self, paths: cfg.WikiPaths, job_id: int, source_id: int) -> None:
         self.paths = paths
@@ -55,6 +64,7 @@ class WorkerCallbacks(ingest_llm.IngestCallbacks):
             progress_total=fragment_count,
         )
         db.set_source_layer_status(self.paths.state_db, self.source_id, "l2", consts.STATUS_RUNNING)
+        self._event("status", phase=consts.PHASE_L2, fragments=fragment_count)
 
     def on_fragment_written(self, _change) -> None:
         self.pages_seen += 1
@@ -65,6 +75,7 @@ class WorkerCallbacks(ingest_llm.IngestCallbacks):
             progress=0.5,
             progress_current=self.pages_seen,
         )
+        self._event("extracted", phase=consts.PHASE_L2, done=self.pages_seen)
 
     def on_pass2_start(self, fragment_count: int) -> None:
         db.update_job_progress(
@@ -75,6 +86,7 @@ class WorkerCallbacks(ingest_llm.IngestCallbacks):
             progress_current=0,
             progress_total=fragment_count,
         )
+        self._event("status", phase=consts.PHASE_L3, fragments=fragment_count)
 
     def on_theme_written(self, _change) -> None:
         self.pages_seen += 1
@@ -85,9 +97,15 @@ class WorkerCallbacks(ingest_llm.IngestCallbacks):
             progress=0.9,
             progress_current=self.pages_seen,
         )
+        self._event("chunk", phase=consts.PHASE_L3, done=self.pages_seen)
 
     def on_error(self, _error: str) -> None:
         db.update_job_progress(self.paths.state_db, self.job_id, phase=consts.STATUS_ERROR)
+        self._event("error", message=str(_error)[:500])
+
+    def _event(self, kind: str, **data: object) -> None:
+        """Record one history entry. Never raises — see append_job_event."""
+        job_events.append(self.paths.state_db, self.job_id, kind, data)
 
 
 def enqueue_l2_l3_for_sources(
@@ -161,6 +179,12 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
                 pages_created = sum(1 for c in l3_changes if c.operation == "created")
                 pages_updated = sum(1 for c in l3_changes if c.operation == "updated")
                 db.mark_job_done(paths.state_db, job_id, pages_created=pages_created, pages_updated=pages_updated)
+                # How a job ENDED is the part a reader most often needs, and the
+                # row alone cannot say how far it got before it stopped.
+                job_events.append(
+                    paths.state_db, job_id, "done",
+                    {"pages_created": pages_created, "pages_updated": pages_updated},
+                )
                 return {
                     "ok": True,
                     "job": job,
@@ -270,6 +294,7 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
             db.requeue_job_for_retry(paths.state_db, job_id, retry_count + 1, error_str)
         else:
             db.mark_job_failed(paths.state_db, job_id, error_str)
+            job_events.append(paths.state_db, job_id, "error", {"message": error_str[:500]})
             if source_id:
                 db.set_source_layer_status(
                     paths.state_db, source_id, "l2", consts.STATUS_ERROR, error=error_str

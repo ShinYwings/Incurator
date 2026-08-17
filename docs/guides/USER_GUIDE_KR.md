@@ -1221,3 +1221,37 @@ Incurator는 Zotero 등의 외부 PDF 파일들을 보관소로 복사하지 않
 Linux와 macOS 환경을 번갈아 사용하는 경우, Syncthing 동기화로 인한 절대 경로 충돌을 방지하기 위해 플랫폼별 설정이 철저히 분리됩니다.
 - **플러그인 설정**: 옵시디언 플러그인 설정 메뉴에서 `Linux Binary Path`와 `macOS Binary Path`를 각각 별도로 입력합니다. 에이전트는 실행 중인 운영체제(`process.platform`)에 맞춰 올바른 백엔드 실행 파일을 자동 호출합니다.
 - **기기별 설정 (`.cache/config/config.yml`)**: Zotero 라이브러리 경로 등 기기 종속적인 로컬 설정은 Vault 내부가 아닌 저장소 루트의 `.cache/config/config.yml` 파일에서 관리됩니다. Vault-scoped 이식 가능 설정은 `.curator/settings.yml`에 저장됩니다.
+
+## 긴 책 색인하기
+
+figure가 의미를 담고 있는 교과서는 `wiki add` 중에 그 figure들을 페이지 단위로
+전사합니다. 느린 건 의도된 것입니다 — agentic CLI 프로바이더는 동시 호출이 안 되므로
+이 루프는 직렬입니다.
+
+동작 중인 게 보입니다:
+
+```
+  [Info] vision: 300 page(s) to transcribe, 70 already cached; serial.
+  [Info] vision: 1/300 transcribed (page 1 of 673).
+  [Info] vision: 2/300 transcribed (page 2 of 673).
+```
+
+**이어받을 수 있습니다.** 한 번 실행에 최대 `vision_max_pages_per_run` 페이지(기본
+300)까지 전사하고, 끝난 페이지는 내용 해시로 캐시됩니다. 같은 명령을 다시 실행하면
+멈춘 지점부터 이어갑니다 — 끝난 페이지는 건너뛰지 다시 하지 않습니다. 중간에
+중단했거나 프로바이더 할당량이 떨어져도 마찬가지입니다:
+
+```bash
+wiki add "04_Resources/References/YourBook.md"
+```
+
+다음 묶음을 위해 다시 실행하면 됩니다. 실행 사이에 잃는 것은 없습니다.
+
+백그라운드 작업이 어디까지 갔는지 보려면 이력을 요청하세요:
+
+```bash
+wiki jobs events 42
+```
+
+`wiki jobs list`는 작업이 지금 어디 있는지 보여주고, `wiki jobs events`는 어떻게
+거기까지 갔는지 보여줍니다. 그 차이가 곧 "느리게 동작 중"과 "멈춤"의 차이입니다.

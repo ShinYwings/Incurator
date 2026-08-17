@@ -1269,3 +1269,39 @@ than one layer, the single reason field carries a layer-tagged message such as
 > (`wiki build`) and by nothing else. Earlier versions promoted L3/L4 to `done`
 > whenever *any* `CON-*.md` file existed on disk, which made a genuinely skipped
 > source indistinguishable from a completed one afterwards.
+
+## Ingesting a long book
+
+A textbook whose figures carry meaning gets those figures transcribed during
+`wiki add`, one page at a time. That is slow on purpose: agentic CLI providers
+cannot be called concurrently, so the loop is serial.
+
+You will see it working:
+
+```
+  [Info] vision: 300 page(s) to transcribe, 70 already cached; serial.
+  [Info] vision: 1/300 transcribed (page 1 of 673).
+  [Info] vision: 2/300 transcribed (page 2 of 673).
+```
+
+**It is resumable.** One run transcribes at most `vision_max_pages_per_run`
+pages (300 by default), and every page that completes is cached by its content
+hash. Re-run the same command and it picks up where it stopped — the finished
+pages are skipped, not redone. The same is true if you interrupt it, or if your
+provider runs out of quota partway through:
+
+```bash
+wiki add "04_Resources/References/YourBook.md"
+```
+
+Run it again for the next batch. Nothing is lost between runs.
+
+To see how far a background job got, ask for its history:
+
+```bash
+wiki jobs events 42
+```
+
+`wiki jobs list` shows where a job is now; `wiki jobs events` shows how it got
+there, which is the difference between a job working slowly and one that
+stopped.

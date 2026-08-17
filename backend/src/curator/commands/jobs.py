@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from .common import *
 
+from ..db import job_events
+
 jobs_app = typer.Typer(
     name="jobs",
     help="Inspect and run queued background ingest jobs.",
@@ -84,6 +86,32 @@ def jobs_run(
     # the export hook here covers background-queued mutations too (LWW-gated:
     # an empty drain exports nothing).
     _maybe_auto_export(paths)
+
+
+@jobs_app.command("events")
+def jobs_events(
+    job_id: int = typer.Argument(..., help="Job id to show history for."),
+    limit: int = typer.Option(200, "--limit", help="Maximum events to show."),
+) -> None:
+    """Show a job's event history, oldest first.
+
+    `wiki jobs list` shows where a job IS. This shows how it got there, which is
+    the difference between a job that is working slowly and one that stopped: a
+    row that has not changed says nothing either way, while a history whose last
+    event is ten minutes old says plenty.
+    """
+    paths = cfg.load_paths()
+    events = job_events.listing(paths.state_db, job_id, limit=limit)
+    if not events:
+        console.print(
+            f"[yellow]No events recorded for job {job_id}.[/yellow] "
+            "Jobs that ran before v0.58.0 have no history."
+        )
+        return
+    for ev in events:
+        data = ev["data"] if isinstance(ev["data"], dict) else {}
+        detail = " ".join(f"{k}={v}" for k, v in data.items())
+        console.print(f"[dim]{ev['at']}[/dim]  {ev['seq']:>4}  {ev['kind']:<10} {detail}")
 
 
 @jobs_app.command("cancel")
