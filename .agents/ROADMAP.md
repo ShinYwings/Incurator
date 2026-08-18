@@ -217,13 +217,21 @@ sub-item survives.**
   real `pages_seen` values at lines 54–86.
 - ~~a running job cannot be cancelled~~ — resolved. `db/jobs.py:243
   cancel_job`, with `STATUS_CANCELLED` surfaced through `runtime_state.py`.
-- ~~`job_events` still gets zero rows~~ — resolved in v0.58.0 (#159).
-  `db/job_events.py` inserts, `ingest_worker.py` calls it from the same
-  callbacks that write progress, and `wiki jobs events <id>` reads it back
-  oldest-first. It lives in its own module because `db/jobs.py` and
-  `db/__init__.py` are content-hash-pinned in `D2_HOLDOUT_RESULT.yml`.
-  Note the rows are new from v0.58.0 onward: jobs that ran before it have no
-  history and will read as empty, which is expected rather than a regression.
+- **`job_events` still gets zero rows — REOPENED.** v0.58.0 (#159) added the
+  writer (`db/job_events.py`) and the reader (`wiki jobs events <id>`), but
+  attached the writer to `WorkerCallbacks`, which an L2 job never uses:
+  `run_next_job` calls `compile_source_l2` directly and that takes no callbacks.
+  Measured on the live vault — jobs 42 and 43 completed at `5/5` and `11/11`
+  with 0 event rows, and a traced `append` was never called. The table moved
+  from "nothing inserts" to "the inserter is never called".
+- **L2 progress is two-point, not incremental.** `run_next_job` writes progress
+  once before `compile_source_l2` and once after; the entire extraction is one
+  opaque block. A job at `0/1` for twenty minutes is indistinguishable from a
+  stalled one — the original symptom, unfixed. The earlier sub-claim above that
+  `WorkerCallbacks` reports 0.25/0.5/0.75/0.9 is true only of the legacy L3
+  path.
+- **PLANNED**: `.agents/plans/06_job_progress_observability.md` (v0.59.0),
+  Arena at `.agents/plans/job_progress_arena/`. Awaiting user approval.
 - Reference-Mode jobs displaying the `.md` stub name for a PDF: not re-verified
   in this pass.
 
