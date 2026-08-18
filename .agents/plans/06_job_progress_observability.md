@@ -1,11 +1,12 @@
 # v0.59.0 Master Implementation Plan — L2 job progress that a reader can act on
 
 Date: 2026-08-18
-Status: AWAITING USER APPROVAL — Arena debate concluded, measurements taken, no code written.
+Status: APPROVED — Arena debate concluded, measurements taken, pre-implementation
+review applied (D7 reversed, D5 restated, D9 added, G1 constrained).
 
 Arena record: `.agents/plans/job_progress_arena/`
 (`00_problem.md`, `01_proposal_lead_architect.md`, `02_critique_redteam.md`,
-`03_defense_measured.md`)
+`03_defense_measured.md`, `04_plan_review.md`)
 
 ## 1. Objective
 
@@ -44,6 +45,15 @@ anything calls it — that is precisely how v0.58.0 shipped broken.
 - **G1.** An end-to-end test runs a queued L2 job through `run_next_job` with a
   stub client and asserts `job_events` rows > 1, ≥ 2 distinct `kind`s, and
   ≥ 2 `extracted` events. **Mutation-verified**: must fail against `master`.
+  **Binding constraint (review R1): the test must NOT patch
+  `compile_source_l2`.** Every existing worker test does
+  (`test_v021_background_jobs.py:67, 82, 131, 143, 164, 184, 203`), and doing so
+  here would mock away the exact function that must call the sink — a green test
+  proving nothing, which is how v0.58.0 shipped. G1 runs the real compile with a
+  stub **LLM client** (`test_authored_topology.py:33` `_EmptyUnitsClient`).
+  Multiple batches are forced deterministically with `optimal_chunk_chars = 200`
+  on the stub, read by `pipeline/chunking.py:8`. The word `compile_source_l2`
+  must not appear inside any `patch(...)` in the new test file.
 - **G2.** A test pins all-or-nothing extraction is unchanged — interrupt after
   batch 2 of N, assert zero published knowledge units for that source.
 - **G3.** A test pins that a dropped event is reported: force contention, assert
@@ -79,18 +89,37 @@ call, taking a write lock to write an event. A direct connection with
 `timeout=0.25` costs 1.17 ms and, under a held write lock, fails in 0.29 s
 instead of blocking 5.23 s and then silently discarding the row.
 
-**D5 — Drops are counted and surfaced.** `append` keeps its never-raise
-contract but increments a per-job drop counter; the terminal `done` event
-carries `events_dropped`; `wiki jobs events` prints an incomplete-history line
-when it is non-zero.
+**D5 — Drops are counted and surfaced (revised by review R4).** `append` keeps
+its never-raise contract and **returns `bool`** — True when the row was written.
+It returns `None` today, so every existing caller is unaffected. The worker's
+`_sink` closure owns the counter; there is **no module-level mutable state**,
+because `IngestWorker` is a `threading.Thread` and a shared counter would race
+and misattribute one job's drops to another. The terminal `done` event carries
+`events_dropped`, and the count is also logged at WARNING (review R6: if
+contention persists, the event carrying the count is itself droppable, and the
+log does not depend on the resource that is failing). `wiki jobs events` prints
+an incomplete-history line when the count is non-zero.
 
 **D6 — `progress_total` means batches for the whole L2 run.** The post-compile
 write at `ingest_worker.py:219` stops overwriting it with the atom count. Atoms
-created already live in `pages_created` via `mark_job_done`.
+created already live in `pages_created` via `mark_job_done`. Verified safe
+(review R3): both consumers render the fraction only for a **running** job —
+`incuratorDashboardModal.ts:1304` and `ingest_worker.py:387` — so no consumer
+reads `progress_total` on a finished job and F3's "4/7 then 11/11" cannot occur.
 
-**D7 — No `progress` float from the L2 sink.** The phase→float convention gets
-written into `SYSTEM_BEHAVIOR.md` §12 instead of being hardcoded in a second
-location.
+**D7 — REVERSED by review R2. The L2 sink writes the `progress` float too.**
+The original concession to F2 was wrong: `wiki jobs list` renders **only** the
+float (`commands/jobs.py:41-42`); `progress_current`/`progress_total` are not in
+that table. Dropping it would freeze the primary CLI surface at 10% for the
+whole L2 run — a regression delivered by the plan meant to fix that surface. The
+sink writes all three fields, and F2's real complaint (an undocumented
+convention hardcoded twice) is answered by writing the phase→float mapping into
+`SYSTEM_BEHAVIOR.md` §12 in P1.
+
+**D9 — The lightweight connection self-heals once (review R5).** Skipping
+`connect()` also skips `executescript(SCHEMA_SQL)`, which is what creates
+`job_events` on a DB predating the table. On an `OperationalError` naming a
+missing table, retry once through `connect()`. One fallback, not a loop.
 
 **D8 — Guard at the call site.** `_emit()` wraps the sink in try/except because
 a sink is caller-supplied and the compiler must not inherit its bugs.
@@ -159,8 +188,12 @@ Each phase passes `pytest` + `ruff` + `mypy` before the next begins.
   `second_brain`, run it, and paste the actual `wiki jobs events` output into
   the evidence ledger. **This phase is the point of the plan** — v0.58.0 had
   every other phase and skipped this one.
-- **P8 — Docs, version bump (Minor → v0.59.0, new user-facing capability, all
-  four spec titles to `v0.59`), CHANGELOG, PR.**
+- **P8 — Docs, version bump, CHANGELOG, PR.** Minor → **v0.59.0**, and all four
+  spec titles to the `v0.59` line. The bump is Minor because **D6 changes the
+  meaning of a stored field** (`progress_total`) — a contract change under the
+  0.x criteria — not merely because a surface got better. `wiki jobs events`
+  already existed, so on capability alone this would read as a `### Fixed`-only
+  Patch (review R7). Say the reason in `CHANGELOG.md`.
 
 ## 8. Note on how this plan came to exist
 
