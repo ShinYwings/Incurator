@@ -1253,5 +1253,28 @@ wiki add "04_Resources/References/YourBook.md"
 wiki jobs events 42
 ```
 
+실제 추출은 다음과 같이 보입니다:
+
+```
+2026-08-18T07:34:09Z    1  status     phase=l2 stage=spans_stored spans=156
+2026-08-18T07:34:53Z    2  extracted  phase=l2 batch=1 batches=3 units=32
+2026-08-18T07:35:53Z    3  extracted  phase=l2 batch=2 batches=3 units=65
+2026-08-18T07:39:20Z    4  extracted  phase=l2 batch=3 batches=3 units=105
+2026-08-18T07:39:21Z    5  status     phase=l2 stage=publishing units=105
+2026-08-18T07:39:47Z    6  done       pages_created=30 pages_updated=0
+```
+
+줄만 보지 말고 **타임스탬프**를 읽으세요. batch 1은 44초, batch 2는 1분, batch 3은
+3분 27초가 걸렸습니다 — 즉 이 작업은 느렸을 뿐 멈추지는 않았습니다. "죽었는가?"를
+판단하는 기준은 단순히 마지막 줄이 얼마나 오래됐는가입니다. batch가 보통 1분 걸리는
+소스에서 최신 이벤트가 10분 전이라면 들여다볼 만합니다. `batch=2 batches=3`은 얼마나
+남았는지도 알려줍니다.
+
+`wiki jobs list`는 같은 질문에 더 거칠게 답합니다. 이제 그 퍼센트가 L2가 끝날 때까지
+10%에 머무르지 않고 L2 진행에 따라 움직입니다.
+
+마지막 줄에 기록하지 못한 이벤트가 있다고 나오면 그렇게 표시됩니다 — 데이터베이스가
+바쁘면 이력 한 줄을 잃을 수 있고, 불완전한 이력을 조용한 작업으로 오해해서는 안 됩니다.
+
 `wiki jobs list`는 작업이 지금 어디 있는지 보여주고, `wiki jobs events`는 어떻게
 거기까지 갔는지 보여줍니다. 그 차이가 곧 "느리게 동작 중"과 "멈춤"의 차이입니다.

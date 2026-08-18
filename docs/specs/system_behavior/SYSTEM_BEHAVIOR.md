@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.58.0)
+# Incurator - System Behavior (v0.59.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -1176,6 +1176,57 @@ Status surfaces:
   never fail the job it describes — a write error degrades to "no event
   recorded".
 - Repo-cache `dashboard.md` may summarize job and DAG state for local diagnostics.
+
+### 12.1 The job progress contract
+
+A job's progress is carried by four fields, and each answers a different
+question. A surface that reads only one of them is answering only that one.
+
+| field | meaning | who renders it |
+|---|---|---|
+| `progress` (float 0.0–1.0) | coarse position in the job's phase sequence | `wiki jobs list` — **the only field that table shows** |
+| `progress_current` / `progress_total` | units of work finished / expected, within the current phase | plugin dashboard and `dashboard.md`, **for running jobs only** |
+| `job_events` rows | the append-only history: what happened and when | `wiki jobs events <id>` |
+
+**Phase → `progress` mapping.** This is a fixed convention, not a per-call
+choice. Any code writing `progress` must use it:
+
+| phase | range |
+|---|---|
+| job claimed, L2 not yet started | `0.1` |
+| L2 extraction in progress | `0.1 → 0.5`, linear in batches completed |
+| L2 complete | `0.5` |
+| L3 clustering in progress | `0.75 → 0.9` |
+| job done | `1.0` |
+
+**`progress_current` / `progress_total` during L2 mean batches**, not atoms. The
+count of atoms a job produced is `pages_created`, written by `mark_job_done`;
+that is where a reader takes it from. `progress_total` is not rewritten at the
+end of L2 — a finished job's fraction is not rendered by any surface, so
+repurposing the column at the last moment would only make the two fields
+disagree during the run.
+
+**Events must be emitted from the path that runs.** L2 is compiled by
+`compile_source_l2`, which accepts an optional progress sink; the L2 batch loop
+emits one event per LLM call. Attaching progress reporting to a callback object
+that the executing path does not use is not observability — v0.58.0 did exactly
+that and produced an empty history for every job.
+
+**A dropped event must be reported.** Recording an event never fails the job,
+but a writer that silently loses rows is indistinguishable from a job that did
+nothing — the defect this surface exists to remove. The event writer therefore
+reports whether the row was written; the job counts what it lost, carries the
+count on its terminal event as `events_dropped`, and logs it at WARNING. When
+the count is non-zero, `wiki jobs events` states that the history is incomplete.
+
+**Emitting an event is not committing a checkpoint.** L2 extraction is
+all-or-nothing: staged units accumulate in memory and are bulk-persisted only on
+full success, so an interrupted run re-processes every batch. Progress events
+observe that loop; they must never be read as, or grow into, resume points. A
+prior checkpoint mechanism in this function was removed in v0.52.0 because it
+could never run, and its resume path returned the staged-unit list — empty after
+a successful publish — which would have retired a source's entire authoritative
+unit set. Resumable L2 is tracked separately.
 
 Status rules:
 

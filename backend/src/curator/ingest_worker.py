@@ -208,16 +208,46 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
         from .pipeline import compile as _compile
         from . import runtime_state
 
-        cr = _compile.compile_source_l2(paths, client, source_id)
+        # The compile is where an L2 job spends its time, and until v0.59.0 it
+        # reported nothing: progress was written once here and once after, so
+        # everything between — every span, every LLM batch, staging, publish —
+        # was a single opaque block. A job stuck at 0/1 for twenty minutes and a
+        # job working normally were the same row.
+        #
+        # `dropped` is a local, not module state: IngestWorker is a Thread, and a
+        # shared counter would both race and attribute one job's losses to
+        # another. See SYSTEM_BEHAVIOR §12.1.
+        dropped = 0
+
+        def _sink(kind: str, data: dict) -> None:
+            nonlocal dropped
+            if not job_events.append(paths.state_db, job_id, kind, data):
+                dropped += 1
+            batches = data.get("batches")
+            if kind == "extracted" and batches:
+                # `progress` is the ONLY field `wiki jobs list` renders, so it
+                # has to move; L2 owns 0.1 -> 0.5 by the §12.1 convention.
+                # current/total are batches for the whole L2 run, which is what
+                # the dashboards show while a job is running.
+                db.update_job_progress(
+                    paths.state_db, job_id, phase=consts.PHASE_L2,
+                    progress=0.1 + 0.4 * (int(data["batch"]) / int(batches)),
+                    progress_current=int(data["batch"]), progress_total=int(batches),
+                )
+
+        cr = _compile.compile_source_l2(paths, client, source_id, on_progress=_sink)
         if not cr.ok:
             raise RuntimeError(cr.error or "L2 compile failed")
         db.set_source_layer_status(paths.state_db, source_id, "l2", consts.STATUS_DONE)
         ingest_llm._mark_source_status(paths, source_id, "curated")
 
-        # Update progress to reflect L2 complete; progress_total = atoms created
+        # L2 complete. progress_current/total keep meaning BATCHES (§12.1) — the
+        # atom count lives in `pages_created` on the job row, and no surface
+        # renders the fraction for a finished job, so repurposing the columns at
+        # the last moment would only make them disagree with the run they
+        # described.
         pages_created = len(cr.atom_ids)
-        db.update_job_progress(paths.state_db, job_id, phase=consts.PHASE_L2, progress=0.5,
-                               progress_current=pages_created, progress_total=max(1, pages_created))
+        db.update_job_progress(paths.state_db, job_id, phase=consts.PHASE_L2, progress=0.5)
         # Write snapshot so the plugin dashboard sees the L2-done state immediately.
         try:
             runtime_state.write_runtime_snapshots(paths)
@@ -269,6 +299,26 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
             job_id,
             pages_created=pages_created,
             pages_updated=pages_updated,
+        )
+        # How a job ENDED is what a reader needs most, and the source-L2 path
+        # had no terminal event while the global-L3 path above did. `dropped`
+        # rides along because a history that quietly lost rows must say so —
+        # otherwise an incomplete story is indistinguishable from a short one.
+        if dropped:
+            # Logged as well as recorded: if contention persisted, the event
+            # carrying this number is exactly the one likely to be lost too.
+            _log.warning(
+                "Job %d: %d progress event(s) could not be recorded "
+                "(database contention); its history is incomplete.",
+                job_id, dropped,
+            )
+        job_events.append(
+            paths.state_db, job_id, "done",
+            {
+                "pages_created": pages_created,
+                "pages_updated": pages_updated,
+                "events_dropped": dropped,
+            },
         )
         if in_tok or out_tok:
             db.accumulate_job_tokens(paths.state_db, job_id, in_tok, out_tok)

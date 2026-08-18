@@ -113,6 +113,22 @@ def jobs_events(
         detail = " ".join(f"{k}={v}" for k, v in data.items())
         console.print(f"[dim]{ev['at']}[/dim]  {ev['seq']:>4}  {ev['kind']:<10} {detail}")
 
+    # A history that quietly lost rows reads exactly like a job that did little.
+    # Say which one this is (SYSTEM_BEHAVIOR §12.1).
+    dropped = next(
+        (
+            int(ev["data"].get("events_dropped") or 0)
+            for ev in reversed(events)
+            if isinstance(ev["data"], dict) and ev["data"].get("events_dropped")
+        ),
+        0,
+    )
+    if dropped:
+        console.print(
+            f"\n[yellow]{dropped} event(s) could not be recorded[/yellow] "
+            "(database contention) — the history above is incomplete."
+        )
+
 
 @jobs_app.command("cancel")
 def jobs_cancel(job_id: int = typer.Argument(..., help="Queued job id to cancel.")) -> None:
