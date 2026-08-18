@@ -385,6 +385,36 @@ Eliminating it entirely is a configuration choice, not a code change: a vision
 model reached over an API takes image bytes directly and needs no filesystem
 grant. Recommended in both guides.
 
+### 12. Two latent defects found while working on v0.59.0 — PLANNED (v0.58.1)
+
+Both reproduce on `master` with no local changes; neither belongs in the
+v0.59.0 job-progress PR. Reported directly by the user, so they never passed
+through `USER_REPORT.md`.
+
+- **`claim_next_job` can never claim a job on a freshly-created state DB, and
+  never self-heals.** `db/schema.py connect()` runs `_stamp_schema_version`,
+  whose `INSERT INTO schema_version` opens an implicit transaction that is not
+  committed until `yield`-exit. `db/jobs.py:112` then issues `BEGIN IMMEDIATE`
+  inside it and raises `cannot start a transaction within a transaction`. The
+  raise skips `conn.commit()`, so the schema row rolls back and the *next* call
+  repeats the identical failure — an infinite failure loop, not a transient
+  one. Hidden in normal use because `wiki init` / `wiki add` call `init_db`
+  first; it bites when a job claim is the first thing to touch a state DB, e.g.
+  `wiki jobs run` against a vault whose repo-cache DB was deleted.
+- **`extract_knowledge_units` passes a NEGATIVE chunk size when a client
+  reports a small context window.** `knowledge_units.py:348` computes
+  `chunk_size=max_chars - 500` with no positivity guarantee; `_chunk_text`'s
+  forward-progress guard then degenerates into a one-character walk instead of
+  erroring. Measured: `optimal_chunk_chars = 200` against an eight-section
+  document produced **3,920 batches** (24,000 refined spans). Latent — no
+  production client reports a window that small — but it is a quota bomb armed
+  by a single bad config value, and it fails by doing enormous work rather than
+  by failing. `graph_index.py:91` carries the same unchecked subtraction as a
+  slice bound.
+
+Master plan: `.agents/plans/07_latent_defect_fixes.md`
+Arena: `.agents/plans/latent_defect_fixes_arena/`
+
 ## Blocked / Icebox
 
 - None.
