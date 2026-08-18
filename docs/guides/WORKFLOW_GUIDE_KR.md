@@ -185,6 +185,7 @@ wiki jobs list
 wiki jobs run          # queued L2/L3 background jobs를 foreground로 처리
 wiki jobs cancel <id>  # worker가 claim하기 전 queued job 취소
 wiki jobs rerun <id>   # 완료/실패/취소된 job 재queue; queued는 no-op
+wiki jobs events <id>  # job의 이력을 오래된 순으로: 지금 상태에 이르기까지의 과정
 ```
 
 기본 `wiki --help` 화면은 일상적인 사용자 워크플로우 중심으로 제한됩니다.
@@ -224,7 +225,9 @@ Obsidian plugin JSON 호출용 `wiki plugin ...`, 외부 에이전트용 `wiki m
 > 테스트나 오프라인 CLI 사용 시에는 `wiki jobs run` 명령으로 큐를 전경(foreground)에서 처리할 수 있습니다.
 > 실행하지 않을 queued job은 `wiki jobs cancel <id>`로 취소하고, 완료/실패/취소된 job은
 > `wiki jobs rerun <id>`로 다시 queue에 넣을 수 있습니다. 이미 queued 상태인 job에 같은 명령을 실행하면
-> 중복을 만들지 않고 성공 no-op으로 처리됩니다.
+> 중복을 만들지 않고 성공 no-op으로 처리됩니다. `wiki jobs list`가 job의 현재 위치를 보여준다면,
+> `wiki jobs events <id>`는 거기까지 온 과정을 오래된 순으로 보여줍니다 — 느리게 진행 중인 job과
+> 멈춰버린 job의 차이이며, `ingest_jobs`의 최신 phase 한 행으로는 표현할 수 없는 정보입니다.
 
 > **즉각적인 L1 / L2·L3 분리**: `wiki add`는 LLM 호출 없이 파서 구조로부터 즉시 CTX, ToC, 섹션 마커 및
 > 대략적인 Atom 후보를 생성합니다(구조적 L1). v0.2.2부터 이 단계는 **AST 기반 청킹**을 사용해

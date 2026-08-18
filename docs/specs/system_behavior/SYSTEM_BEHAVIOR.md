@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.57.0)
+# Incurator - System Behavior (v0.58.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -1169,6 +1169,12 @@ Status surfaces:
 - `wiki jobs cancel <id>` cancels a queued job.
 - `wiki jobs rerun <id>` requeues a completed, failed, or cancelled job and is
   a success/no-op for an already queued job.
+- `wiki jobs events <id>` lists that job's `job_events` rows oldest-first
+  (`seq`, `kind`, `data`, `at`). `ingest_jobs` carries only the latest phase, so
+  a stalled job and a working one present the same row indefinitely; the event
+  history is the only surface that distinguishes them. Recording an event must
+  never fail the job it describes — a write error degrades to "no event
+  recorded".
 - Repo-cache `dashboard.md` may summarize job and DAG state for local diagnostics.
 
 Status rules:
