@@ -107,6 +107,28 @@ on a plausible near date. Running `ruff`/`mypy` without `--cache-dir` outside
 the repo drops a cache at the repo root and fails `test_workspace_hygiene.py`;
 use `scripts/backend-check`.
 
+## Interposed release: v0.59.0 job progress (PR #160, awaiting merge)
+
+v0.58.0 closed ROADMAP 8 against a code path no L2 job runs. Reopened, planned
+(`.agents/plans/06_job_progress_observability.md`), implemented, and verified by
+running a real job — the gate v0.58.0 skipped. Evidence with the verbatim live
+output: `.agents/plans/06_job_progress_evidence.md`.
+
+**The L2 daemon is currently STOPPED** and 16 jobs sit queued (Hartley = 76,
+Přibyl = 77). It was stopped to run the live acceptance test. Restart it after
+#160 merges so the remaining jobs record histories:
+
+```bash
+nohup env VAULT_ROOT=/Users/shin/shinywings/second_brain .venv/bin/wiki jobs run &
+```
+
+**Testing a worktree against the real vault silently uses the wrong database.**
+The repo cache resolves from the running code's own location
+(`config.py:354`, `Path(__file__).parents[3]`), so a `PYTHONPATH` run creates a
+NEW EMPTY state DB inside the worktree. Redirect `config.get_global_config_dir`
+to `/Users/shin/shinywings/Incurator/.cache/config` for live runs. This cost an
+hour of misdiagnosis; do not repeat it.
+
 ## Immediate Next Action
 
 **P5a** — advance the two pending books. Hartley's L1 and 104 vision pages are
