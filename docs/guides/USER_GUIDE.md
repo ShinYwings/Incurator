@@ -617,7 +617,11 @@ What this means in practice:
   For large PDFs or long Markdown files, L2 retries failed extraction batches as
   smaller source-span-preserving batches before giving up. L2 uses the active
   model's declared safe chunk budget for these batches, including CLI models
-  that expose that budget as a property. If any narrowed batch still fails
+  that expose that budget as a property. That budget is used as reported — a
+  small-context local model is never handed a larger default — but the pieces
+  L2 splits a long section into always have a positive minimum size, so a
+  mistakenly tiny budget cannot turn one document into thousands of model
+  calls. If any narrowed batch still fails
   validation or the provider raises a capacity/timeout error, the run stops at
   that batch, records the failed prompt trace, and publishes no newly extracted
   L2 units.
