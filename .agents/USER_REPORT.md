@@ -707,3 +707,67 @@ Running it over existing rows would take the answer from "I cannot get the text"
 to "that region is a 185×12 image the parser discarded — snip it, or set
 `llm.vision_model` and re-add." That is a different, much smaller job than
 ROADMAP item 1 (recovery), which stays blocked on its three prerequisites.
+
+---
+
+## v0.58.0 `job_events` writes nothing on a real L2 job — the writer is attached to a dead callback path
+
+**Found by running it, after the release merged.** `wiki build` queued 36 L2
+jobs against the live vault. Jobs 42 and 43 both completed successfully
+(`state='done'`, progress `5/5` and `11/11`) and `job_events` stayed at **0
+rows**. Instrumented `job_events.append` and re-ran one job in the foreground:
+it is **never called**.
+
+**Cause.** v0.58.0 attached the event writer to `WorkerCallbacks`
+(`ingest_worker.py:40-108`), whose methods (`on_pass1_start`,
+`on_fragment_written`, `on_pass2_start`, `on_theme_written`) each call
+`_event(...)`. But the L2 job does not use those callbacks. `run_next_job`
+calls the v0.3.1 pipeline directly:
+
+```python
+cr = _compile.compile_source_l2(paths, client, source_id)   # ingest_worker.py:212
+```
+
+`compile_source_l2` (`pipeline/compile.py:274`) takes **no callbacks
+parameter**. `WorkerCallbacks` survives only as the factory passed to
+`run_l3_from_existing_atoms` (`:177`, `:245`) — the legacy L3 path. So for an L2
+job the event writer is unreachable.
+
+So ROADMAP item 8 was closed on unit tests that exercise `job_events.append`
+directly plus a code path nobody runs. The table went from "nothing inserts" to
+"the inserter is never called" — same empty table, one layer further from the
+symptom.
+
+**A second, larger finding falls out of the same trace.** L2 progress is not
+incremental either. `run_next_job` writes progress exactly twice:
+
+```python
+db.update_job_progress(..., progress=0.1, progress_current=0, progress_total=1)     # :205, before compile
+cr = _compile.compile_source_l2(...)                                                # :212, the entire L2
+db.update_job_progress(..., progress=0.5, progress_current=n, progress_total=n)     # :219, after compile
+```
+
+Everything between those two lines — span extraction, every LLM knowledge-unit
+call, staging, gating, publish — is one opaque block. So a job sitting at `0/1`
+for twenty minutes is indistinguishable from a stalled one, **which is the exact
+user-facing symptom v0.58.0 was written to fix.** ROADMAP item 8's earlier
+sub-claim — "resolved. `WorkerCallbacks` reports 0.25 / 0.5 / 0.75 / 0.9" — is
+true only of the legacy L3 path and false for every L2 job.
+
+**Verification gap that let this ship.** The v0.58.0 tests call
+`job_events.append` / `listing` directly and assert ordering, scoping, and the
+never-fail guarantee. Not one of them runs a job. The `except Exception` in
+`append` is deliberate (an event must never fail the job it describes) but it
+also means a broken writer is silent — so "no rows" reads identically to "no
+events happened". Any fix needs a test that runs a real job end to end and
+asserts the row count is non-zero.
+
+**Open design question for the plan** (do not hot-patch): emit events at the
+coarse boundaries `run_next_job` already knows (claim / L2 start / L2 done / L3
+start / done / error), or thread a progress hook into `compile_source_l2` so a
+long extraction reports per span? Only the second actually answers "slow or
+stalled". The first is a few lines; the second touches the compile contract.
+
+Also noted while tracing: the source-L2 success path calls `db.mark_job_done`
+(`:265`) with no `"done"` event, while the global-L3 path at `:184` does append
+one. Whatever the fix, make the two symmetric.
