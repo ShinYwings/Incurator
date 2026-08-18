@@ -1622,7 +1622,8 @@ def _apply_vlm_pdf_extraction(parsed, file_path, vision_client, config, db_path)
 
     # SQLite has no concurrent writers, so keep all DB access on the main thread:
     # (1) serial cache lookup, (2) concurrent transcription of misses with NO DB
-    # access in worker threads, (3) serial cache write.
+    # access in worker threads, (3) cache write as each result is consumed —
+    # still the main thread, since `ex.map` yields into the caller's loop.
     hashes = [hashlib.sha256(images[i]).hexdigest()[:16] for i in range(transcribe_n)]
     results: dict[int, str | None] = {}
     misses: list[int] = []
@@ -1666,6 +1667,20 @@ def _apply_vlm_pdf_extraction(parsed, file_path, vision_client, config, db_path)
         with ThreadPoolExecutor(max_workers=workers) as ex:
             for i, latex in ex.map(_transcribe, misses):
                 results[i] = latex
+                # Cache EACH page as it lands, not all of them after the loop.
+                #
+                # The batch write this replaces ran only once every miss had
+                # finished, so interrupting a long run — Ctrl-C, a crash, or the
+                # provider refusing partway through — threw away every page that
+                # run had transcribed. Measured: a 673-page book ran for 26
+                # minutes and cached nothing, because it never reached the end.
+                # That is precisely the case the rail and the cache exist for.
+                #
+                # This still honours the "no DB access in worker threads" rule
+                # above: `ex.map` yields into THIS loop, which is the main
+                # thread. Only the transcription itself runs concurrently.
+                if latex:
+                    db.vision_cache_put(db_path, hashes[i], model, latex)
                 done_n += 1
                 # Every page for the serial CLI path, where each one is slow
                 # enough that silence reads as a hang; every 10 otherwise.
@@ -1675,10 +1690,6 @@ def _apply_vlm_pdf_extraction(parsed, file_path, vision_client, config, db_path)
                         f"(page {i + 1} of {n}).",
                         flush=True,
                     )
-        for i in misses:  # serial cache write
-            latex = results.get(i)
-            if latex:
-                db.vision_cache_put(db_path, hashes[i], model, latex)
 
     new_texts: list[str] = []
     for i, page in enumerate(pdf_pages):

@@ -185,6 +185,7 @@ wiki jobs list
 wiki jobs run          # process queued L2/L3 background jobs now
 wiki jobs cancel <id>  # cancel a queued job before a worker claims it
 wiki jobs rerun <id>   # requeue a completed/failed/cancelled job; queued is a no-op
+wiki jobs events <id>  # a job's history oldest-first: how it got where it is
 ```
 
 The default `wiki --help` surface is intentionally limited to daily user
@@ -228,7 +229,10 @@ fixtures, and `wiki devices ...` for launcher diagnostics.
 > same queue in the foreground. Use `wiki jobs cancel <id>` for a queued job that
 > should not run, and `wiki jobs rerun <id>` to retry a completed, failed, or
 > cancelled job. Running `wiki jobs rerun <id>` against an already queued job
-> succeeds without creating a duplicate.
+> succeeds without creating a duplicate. `wiki jobs list` shows where a job is
+> now; `wiki jobs events <id>` shows how it got there, oldest first — the
+> difference between a job that is working slowly and one that has stopped,
+> which the single latest-phase row in `ingest_jobs` cannot express.
 
 > **Instant L1 / L2·L3 Separation**: `wiki add` always creates the CTX, ToC,
 > section markers, and coarse Atom Candidates instantly from parser structure

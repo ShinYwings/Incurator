@@ -22,11 +22,21 @@ All notable changes to Incurator are documented here.
     and nothing had ever inserted a row.
 
 - **Ingesting a long book is resumable, and now says so.** The
-  `vision_max_pages_per_run` rail (300) caps one run, and every transcribed page
-  is cached by content hash, so re-running the same command continues instead of
-  starting over. That already worked; nothing told you. The message now does:
-  *"Re-run the same command to continue: the N page(s) done in this run are
-  cached and will be skipped."*
+  `vision_max_pages_per_run` rail (300) caps one run and cached pages are
+  skipped, so re-running the same command continues instead of starting over.
+  The message now says it: *"Re-run the same command to continue: the N page(s)
+  done in this run are cached and will be skipped."*
+
+### Fixed
+- **An interrupted vision run kept nothing.** The transcription cache was
+  written in a single loop *after* every page had finished, so a run that ended
+  early — Ctrl-C, a crash, a provider refusing partway — left
+  `vision_page_cache` exactly as it found it and the next run started from
+  scratch. Measured on the 673-page book above: 26 minutes of transcription,
+  zero rows cached. Each page is now cached as it lands, which is what makes the
+  resumability described above actually true. The write still happens on the
+  main thread — `ThreadPoolExecutor.map` yields into the caller's loop — so the
+  "no DB access from worker threads" rule is unchanged.
 
 ### Changed
 - Job history lives in a new `db/job_events.py` rather than in `db/jobs.py`.
