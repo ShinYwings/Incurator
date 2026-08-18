@@ -217,9 +217,13 @@ sub-item survives.**
   real `pages_seen` values at lines 54–86.
 - ~~a running job cannot be cancelled~~ — resolved. `db/jobs.py:243
   cancel_job`, with `STATUS_CANCELLED` surfaced through `runtime_state.py`.
-- **`job_events` still gets zero rows.** The table and its index are created
-  (`db/schema.py:291`), `db_sync.py` lists it for transport, and
-  `db/sources.py:482` deletes from it — but nothing ever inserts. Still open.
+- ~~`job_events` still gets zero rows~~ — resolved in v0.58.0 (#159).
+  `db/job_events.py` inserts, `ingest_worker.py` calls it from the same
+  callbacks that write progress, and `wiki jobs events <id>` reads it back
+  oldest-first. It lives in its own module because `db/jobs.py` and
+  `db/__init__.py` are content-hash-pinned in `D2_HOLDOUT_RESULT.yml`.
+  Note the rows are new from v0.58.0 onward: jobs that ran before it have no
+  history and will read as empty, which is expected rather than a regression.
 - Reference-Mode jobs displaying the `.md` stub name for a PDF: not re-verified
   in this pass.
 

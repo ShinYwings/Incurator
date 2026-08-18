@@ -36,22 +36,26 @@ complied with the prohibitions. That is exactly what the user complained about.
       general-knowledge narration mandate deleted; prohibitions rewritten as
       descriptions. Gated by `promptRoleBudget.test.ts` (≤17,000 chars,
       ≤23 negatives, all three duties present).
-- [ ] **P1 — Contract.** PLUGIN_SCHEMA §13.7 gains the three-duty role and the
-      provenance-from-results rule. *P2 already landed the tool-set half and the
-      per-region pixel rule, so P1 is now the role + provenance remainder.*
+- [x] **P1 — Contract** → v0.56.0 (#156). PLUGIN_SCHEMA §13.7 carries the
+      three-duty role and the provenance-from-results rule.
 - [x] **P2 — Per-region pixel routing** → v0.55.0 (#154).
       `read_pdf_page_image` renders any page off-screen and reads the pixels.
-- [ ] **P3 — Citation resolution (depth 1).** Bibliography parse, `[8]` → paper,
-      resolved pre-turn. Collision cases (`[^8]`, `[text][8]`, code indices)
-      must drop.
-- [ ] **P4 — Provenance surface.** Assemble from resolution results. No output
-      regex.
-- [ ] **P5 — Vault coverage.** ~101 markdown files are unindexed (36 sources
-      ingested against 137 on disk), so duty 2 is not yet true.
+- [x] **P3 — Citation resolution (depth 1)** → v0.56.0 (#156). Bibliography
+      parse with continuation, `[8]` → paper, resolved pre-turn. Unmatched
+      citations DROP (§4.8); `[^8]`, `[text][8]` and code indices are excluded
+      by isolating cases, not by a guard that happened to be green.
+- [x] **P4 — Provenance surface** → v0.56.0 (#156). Assembled from resolution
+      results; no output regex.
+- [x] **P5b — Query-time workspace consultation** → v0.57.0 (#158). Notes under
+      `01_Workspaces/<project>/` are read when you ask and never ingested.
+- [ ] **P5a — Vault coverage.** The remaining ingest half: the `[Source]`
+      spaces (`03_Notes/`, `04_Resources/`), NOT `00_System/`. Partly underway —
+      see the live-vault state below.
 - [ ] **P6 — Live acceptance.** The definition-of-done question, end to end.
 
-Out-of-plan work that shipped alongside: v0.53.3 (#152) narration removal and
-v0.54.1 (#155) the backend `ANTIGRAVITY_*` scrub.
+Out-of-plan work that shipped alongside: v0.53.3 (#152) narration removal,
+v0.54.1 (#155) the backend `ANTIGRAVITY_*` scrub, v0.56.1 (#157) the agy
+`read_file(*)` permission, v0.58.0 (#159) long-ingest observability.
 
 ## Critical Context / Blockers
 
@@ -66,7 +70,7 @@ knows the answer is missing — hence a model-invoked tool.
 reverse can regress a known bug.** v0.55.0 first shipped with three prompt sites
 steering *away* from the new tool, then with wording ("a tool for reading a page
 as an image") that a CLI-routed model — which receives no local tools at all,
-while agy holds a persistent `read_file()` grant — could satisfy with its own
+while agy holds a persistent `read_file(*)` grant — could satisfy with its own
 file reader, re-opening the v0.48.4 `no output produced` failure. Every site now
 names `read_pdf_page_image` literally. **Prompt assembly is still not
 provider-aware; that is the open follow-up.**
@@ -74,28 +78,46 @@ provider-aware; that is the open follow-up.**
 **`buildRecencyAnchor` is the easiest site to forget.** It is emitted last, at
 the recency position, and duplicates the pointer rule. It has now been missed
 twice by two different changes. Any edit to the pointer instruction must touch
-it too — `pageImageReachability.test.ts` covers it now.
+it too — `blockAnnouncement.test.ts` now asserts every emitted block is named in
+both the anchor and the pointer instruction.
 
-**Unverified leg**: the vision transcription in v0.55.0 has never run end to
-end. Antigravity returns 429 capacity-exhausted for `gemini-3.6-flash` and no
-local vision model is installed. The off-screen render *is* verified on the real
-file. Re-run when capacity returns:
-`wiki plugin pdf transcribe --image-file <page.png>`
+**Live vault state (P5a, `second_brain`)** — read from
+`.cache/vaults/13ed51f8b06cb88e/state.sqlite`, not `.curator/state.sqlite`,
+which is a 0-byte stub:
+
+- 44 sources tracked, all L1 done. L2: 18 done / 18 pending / 8 skipped.
+  L3: 18 error. **No L2 job is currently queued for the two pending books** —
+  Hartley (`sources.id=45`) and Přibyl (`46`) sit at `l2_status='pending'` with
+  nothing in `ingest_jobs`, so they will not advance on their own.
+- `vision_page_cache` holds 104 pages of Hartley's 673. The run that produced
+  them completed (exit 0, `l1_status='done'`), so those pages are genuinely
+  cached and the next run skips them.
+- `job_events` is empty and correctly so: rows only exist for jobs that ran
+  under v0.58.0 or later. Do not read the empty table as the v0.58.0 fix having
+  failed — enqueue a job and check again.
+
+**Vision transcription is verified end to end** as of the Hartley run; the
+earlier 429-capacity blocker is cleared.
 
 **Environment**: venvs at the repo root — `.venv` runtime, `.venv-dev` checks.
 Never `backend/.venv`, `backend/uv.lock`, or backend-local caches. Plugin tests
 need `plugin/src/generated/buildManifest.json`; CI stubs it, so stub it locally
 too. Use far-future test sentinels (2099-01-01) — two tests expired mid-session
-on a plausible near date.
+on a plausible near date. Running `ruff`/`mypy` without `--cache-dir` outside
+the repo drops a cache at the repo root and fails `test_workspace_hygiene.py`;
+use `scripts/backend-check`.
 
 ## Immediate Next Action
 
-**P3 — citation resolution (depth 1)**, or P1 if the contract should be settled
-first. P3 is the user's stated item 1 (`[8]` references answered), and P5 is
-what makes duty 2 true at all. P1 is docs-only and cheap.
+**P5a** — advance the two pending books. Hartley's L1 and 104 vision pages are
+done; what is missing is an L2 job for sources 45 and 46. Then **P6**, the live
+acceptance question end to end.
 
-Note the plan's own version line ("Minor → v0.54.0") is now stale: P0 shipped as
-v0.54.0 and P2 as v0.55.0. Later phases version themselves on their own merits.
+Also open, in rough priority order: ROADMAP 6 (L2 resumability — the same
+"interrupt loses the run" shape as the vision cache bug, one layer up),
+ROADMAP 1 (wire formula recovery into the compile path — built and tested but
+never invoked), ROADMAP 11 (backend agy sandbox), and the `wiki add --help`
+text that still claims L1 runs "without an LLM call".
 
 ---
 
