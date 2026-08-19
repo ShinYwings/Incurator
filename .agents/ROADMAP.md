@@ -261,6 +261,38 @@ conflating them is why this failure was hard to read.
 
 **NEXT**: plan not yet written.
 
+### 14. Two Arena inventories were never triaged into the roadmap
+
+`system_defect_audit_arena/03_synthesis.md` holds a consolidated defect
+inventory — 13+ items with severities and file:line, batched B1/B2/B3 — and
+`knowledge_value_arena/` holds a second debate. Neither is cited by any roadmap
+item, which is how they came to be mistaken for finished work and deleted, then
+restored.
+
+Sampling the B3 batch against current code shows most of it shipped:
+
+- item 10 (`recover_stale_jobs` NULLing `layer_error`) — **fixed**, the
+  `CASE WHEN layer_error LIKE ?` guard the synthesis prescribed is at
+  `db/jobs.py:171`.
+- item 13 (`wiki sync` promoting `l3/l4_status` from a filesystem glob) —
+  **fixed**; `commands/common.py`'s docstring now says "It used to also
+  promote".
+- item 11 (the constant clobbering the real L3 error) — `compile.py:1158` still
+  holds the string, but only for the genuine prerequisite case, and
+  `test_l3_failure_message_survives_the_l4_status_write` pins the distinction.
+- The synthesis's own "never ran" domains — `exception_hygiene`, `docs_parity` —
+  DID run afterwards: `04_g0_exception_hygiene.md`, `04_g0_docs_parity.md`,
+  `05_g0_critique_exception_hygiene.md` exist in the folder.
+
+**What is actually open is the triage, not necessarily the defects.** Nobody has
+walked either inventory end to end and recorded, per item, whether it shipped.
+Until that pass happens these folders are unreadable as status, and their
+absence from this roadmap is what made them look disposable.
+
+**NEXT**: one verification pass per inventory item, then either close the item
+here or move the survivors into the queue — and delete the folders only after
+that, not before.
+
 ### 9. Drafts not yet planned
 
 - Vault Storage Governance & Quota Visibility —
