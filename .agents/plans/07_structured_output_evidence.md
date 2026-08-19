@@ -135,3 +135,52 @@ explicit decision rather than folded in silently.
 | G5 envelope success/error/capacity | **P0 done for success + error**; capacity not forceable on demand |
 | G6 suite/ruff/mypy | pending |
 | G7 Hartley ingests | pending |
+
+## P6 — live gate, passed
+
+`INCURATOR_LIVE_AGY=1` against the real CLI with the real contract schema:
+`num_turns == 1`, and `KnowledgeUnitExtractOutput.model_validate()` accepts the
+CLI's `structured_output` unmodified. 12 passed, 9.11s.
+
+Offline the same file skips that test and runs 11.
+
+## P7 — Nicholson (job 66), the first of the two failures, now completes
+
+`wiki jobs events 66` — one append-only history holding **both** runs of the
+same job. Seq 1 is yesterday's failure; seq 2 onward is today's run on the
+branch code:
+
+```
+ 1 error      {"message": "L2 extraction batch 9/15.2 failed for spans [   2026-08-18T09:55:33Z
+ 2 status     {"phase":"l2","stage":"spans_stored","spans":706}          2026-08-19T08:03:37Z
+ 3 extracted  {"batch": 1, "batches": 15, "units": 17}                   2026-08-19T08:03:54Z
+ ...
+11 extracted  {"batch": 9, "batches": 15, "units": 161}                  2026-08-19T08:06:10Z
+ ...
+17 extracted  {"batch": 15, "batches": 15, "units": 270}                 2026-08-19T08:07:54Z
+18 status     {"phase":"l2","stage":"publishing","units":270}            2026-08-19T08:07:54Z
+19 done       {"pages_created":133,"pages_updated":0,"events_dropped":0} 2026-08-19T08:08:37Z
+```
+
+**Batch 9 is the batch that killed this job yesterday** — the one where the CLI
+tried `python3 -c 'import json, jsonschema'` and was denied. Today it returns in
+18 seconds with 161 accumulated units, and the job finishes with **133 ATM pages
+and zero dropped events**.
+
+Read the timestamps: 15 batches in 4m17s, one event every 14–24 seconds. Under
+the pre-v0.59.0 code this entire stretch was a single unchanging row, and under
+pre-v0.60.0 code it did not finish at all.
+
+Note also what seq 1 demonstrates about the v0.59.0 work: the failure and the
+recovery live in the same history, so "what happened to this job" is answerable
+across runs rather than only within one.
+
+## P7 — Hartley (job 76), in progress
+
+277 batches. Reached batch 25 at the time of writing; **it died at batch 37 in
+the previous run**, so passing 37 is the first meaningful checkpoint and
+completing 277 is the gate. Result to be appended.
+
+## Branch CI
+
+`Backend Tests`, `Plugin Tests`, `Version Consistency` — all green on `71e32dc`.
