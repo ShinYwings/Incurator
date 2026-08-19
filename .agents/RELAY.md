@@ -154,11 +154,13 @@ from the running code's own location). Log: `scratchpad/hartley2.log`.
 done; what is missing is an L2 job for sources 45 and 46. Then **P6**, the live
 acceptance question end to end.
 
-Also open, in rough priority order: ROADMAP 6 (L2 resumability — the same
-"interrupt loses the run" shape as the vision cache bug, one layer up),
-ROADMAP 1 (wire formula recovery into the compile path — built and tested but
-never invoked), ROADMAP 11 (backend agy sandbox), and the `wiki add --help`
-text that still claims L1 runs "without an LLM call".
+Also open, in rough priority order **against the re-sorted roadmap**:
+ROADMAP 2 (external-file access cannot tell "missing" from "not allowed" — the
+wall Hartley is behind), ROADMAP 4 (resumable L2 — Hartley finished 277 batches
+and lost all of them at publish), ROADMAP 1 (wire formula recovery into the
+compile path — built and tested but never invoked), ROADMAP 8 (backend agy
+sandbox), and the `wiki add --help` text that still claims L1 runs "without an
+LLM call".
 
 ---
 

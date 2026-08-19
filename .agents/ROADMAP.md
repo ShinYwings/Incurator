@@ -28,7 +28,7 @@ allow-rule was pruned on every run, causing "jetski: no output produced" on
 headless CLI calls) · **v0.53.2** chat sidebar `fetchPageText` viewer fallback
 (Zotero / untracked PDFs now resolve distant cross-references without backend).
 
-**v0.53.2–v0.55.0 — the reading-assistant line** (item 11, now closed, plus the
+**v0.53.2–v0.55.0 — the reading-assistant line** (the reading-assistant item, now closed, plus the
 prompt defects the same investigation surfaced):
 
 - **v0.53.2** popover grounding relaxed + sidechat pinned sources injected into
@@ -61,6 +61,19 @@ backend at 0.53.1 and the plugin at 0.53.2.
 
 Note: v0.48.1 "distant PDF equation references" shipped but was a **no-op** —
 see item 1. It searched neighbouring pages for a label that was never ingested.
+
+### Recently shipped (moved out of the queue)
+
+- **v0.59.0 (#160) — job progress emitted from the loop that runs.** v0.58.0 had
+  attached the writer to `WorkerCallbacks`, which an L2 job never invokes.
+  Remainder: **the L3 phase still has no per-step heartbeat**, because
+  `run_l3_from_existing_atoms` accepts a callbacks factory and never calls it.
+- **v0.60.0 (#162) — the CLI is asked for a value, not for prose.** Nicholson
+  (died at batch 9/15) completes; Hartley (died at 37/277) extracts 277/277 with
+  zero permission denials. The schema must be flattened: unflattened, agy returns
+  SUCCESS with an empty structure and the answer in prose, so every book would
+  ingest to nothing while reporting success. Hartley is still not ingested — a
+  429 at publish, then a folder-permission wall (item 2).
 
 ### 1. Formula RECOVERY — BUILT AND TESTED, BUT NEVER INVOKED
 
@@ -119,126 +132,7 @@ images. 159 of 480 `uncertain` units vault-wide (99 on source 37) sit adjacent
 to a placeholder, so the owning claims already exist; what is missing is a
 locator, not a unit.
 
-### 2. Community hierarchy is flat by construction
-
-`_entities.py` hardcodes `level = 0`; one community holds 176 of 965 entities
-while 152 of 233 are single-relation pairs. §27.4 permits the degraded
-connected-components fallback but requires it be "surfaced by the audit" —
-`config_hash` records it only as an opaque digest and `graph_audit` returns
-violations only.
-
-### 3. System Integrity Consolidation — the remainder
-
-- **B2 — COMPLETE** (v0.49.2 → v0.50.2, all five items). The milestone has no
-  P1 left; everything below it is P2/P3.
-- **B3 P5 — DONE** (v0.51.0): a truncated L4 layer is detected instead of
-  frozen as complete. **P6** delete the dead L2 checkpoint-resume (table
-  migration) · **P7** record a reason on legitimate skips — **blocked on a user
-  decision**: `layer_error` is named for errors and `error_reason` already
-  exists, so which column carries a non-error reason is a contract choice, not
-  an implementation detail.
-- **B5 / B7** each require their own Arena plan.
-- Plan: `.agents/plans/03_system_integrity_consolidation.md`,
-  ledger `03_b3_roadmap_evidence.md`.
-
-### 4. `.curator` state audit — the remainder
-
-- Losing `.cache/` reports a healthy **empty** vault: `connect()` self-heals a
-  schema into any empty DB and `get_stats` returns zeros. Recovery exists (the
-  in-vault sync journal + `wiki db import`) but is silent and undocumented.
-- Vault rename/move silently mints a new empty DB (cache key is
-  `sha256(resolved_root)[:16]`); also hits `VAULT_ROOT=testbed` from two
-  directories.
-- `sessions.json` 15 MB, **81% re-embedded context** — one note stored 52×, a
-  1.39 MB base64 image, ~1.1 s per send. The 30-session cap is a provable no-op.
-  Supersedes the old "Chat Session Context Compaction" draft.
-- Sync journals never compact — 24 MB, `compress=True` exists unused with gzip
-  measured at 9.86×; tombstones never expire; a stale peer is skipped silently
-  while `autosync` reports success.
-- `wiki sync` claims to rebuild `ledger.md`/`overview.md` and calls neither.
-- `SYSTEM_BEHAVIOR.md` contradicts itself on where `state.sqlite` lives.
-- Arena record: `.agents/plans/curator_state_arena/`
-
-### 5. `graph_entities` / `source_spans` transport on a surrogate id
-
-Both carry a natural identity — `UNIQUE(canonical_name, entity_type)` and
-`UNIQUE(source_id, content_hash)` — but sync transports them on the surrogate
-`id`, so two devices that independently extract the same thing mint different
-ids. The key lookup misses, the insert collides on content, and convergence has
-to be classified after the fact (v0.50.0 does this via `PRAGMA index_list`).
-`sources` solved the same problem properly with a `sync_key` transport identity,
-so the primary lookup finds converging rows directly and children remap to the
-local id.
-
-Nothing remaps `graph_relations.source_entity_id`/`target_entity_id` when an
-entity converges, so the classifier makes the symptom quiet without closing the
-gap. The real fix is a transport identity for both tables plus the id-remap
-plumbing — a schema change touching every referencing column, which is why it
-was left out of v0.50.0 rather than smuggled in.
-
-### 6. Resumable L2 extraction — wanted, needs designing
-
-Removed in v0.51.1 rather than repaired (B3 P6). The old mechanism could never
-run: checkpoints were written only inside the branch that required checkpoints
-to already exist, so `l2_checkpoints` held 0 rows across 36 sources and 2,799
-units. Deleting it changed no behavior.
-
-The cost it was meant to avoid is real. An interrupted L2 build restarts from
-the first batch, so a 40-batch source re-pays every provider round-trip — at the
-measured 8–12 s per CLI round-trip that is 5–8 minutes per retry.
-
-It must be designed, not re-enabled. The removed branch returned
-`list_staged_unit_ids_for_source`, which filters `generation_id IS NULL` and is
-therefore **empty after a successful publish** — a resumed run would have
-attributed zero units to a fresh generation and retired the source's entire
-authoritative unit set under §26.3. Any new design has to decide what a resumed
-run returns, and how a partially-published source is distinguished from an
-unstarted one.
-
-### 7. Retrieval and projection leftovers
-
-- Span segmentation isolates single-word fragments
-  (`pipeline/source_spans.py` splits on blank lines with no minimum length).
-- One stale CTX file survives re-ingest (bounded — the index carries no CTX
-  projection, so it cannot be retrieved).
-- Retro-repair for vaults carrying a dead source row from a pre-v0.46.0 move;
-  `wiki lint` reports them but nothing fixes them.
-
-### 8. ~~Job progress is unobservable~~ — SHIPPED v0.59.0 (#160)
-
-Progress and history now come from the loop that runs. v0.58.0 had attached the
-writer to `WorkerCallbacks`, which `run_next_job` never invokes for L2 — it
-compiles through `compile_source_l2`. Proven on the live vault: job 66's
-`job_events` holds yesterday's failure at batch 9 and today's pass through it in
-one append-only history, ending `pages_created=133 events_dropped=0`.
-
-Two gaps were closed after the tests were already green, both found by
-re-reading the plan's own gate list: the `num_turns` warning was listed as a
-gate and never implemented, and the retry branch recorded nothing — so a job
-that discarded 90 minutes of work left only a batch counter restarting at 1.
-
-**Remainder, stated rather than dropped: the L3 phase still has no per-step
-heartbeat.** `run_l3_from_existing_atoms` accepts a callbacks factory and never
-invokes it, so `WorkerCallbacks` does not execute at all. Its terminal event
-carries the drop count; nothing is emitted between L3's start and its end.
-
-### 12. ~~Structured output~~ — SHIPPED v0.60.0 (#162)
-
-L2 extraction uses the CLI's native structured-output mode, so the model is
-asked for a value rather than prose it may decide to compute with `python3`.
-Nicholson (died at batch 9/15) completes with 133 ATM pages; Hartley (died at
-37/277) extracts **277/277** with zero permission denials. 12 of 277 calls still
-took a two-turn detour and none corrupted a result.
-
-The load-bearing detail: the schema MUST be flattened. Unflattened, agy returns
-`SUCCESS` with an empty structure and the real answer in prose under invented
-field names — every book would ingest to nothing while reporting success.
-
-**Not closed by this: Hartley is still not ingested.** After extraction it hit a
-429 at publish, then a macOS folder-permission wall on the Zotero attachment.
-Both are tracked separately; neither is this defect.
-
-### 13. External-file access cannot tell "missing" from "not allowed"
+### 2. External-file access cannot tell "missing" from "not allowed"
 
 Audit in `.agents/USER_REPORT.md`. `PermissionError` appears once in the whole
 backend (redundantly, as an `OSError` subclass beside `OSError`); across the
@@ -261,63 +155,112 @@ conflating them is why this failure was hard to read.
 
 **NEXT**: plan not yet written.
 
-### 14. Two Arena inventories were never triaged into the roadmap
+**Related to item 8 (unsandboxed `agy` spawn)** — that one narrows what may be
+read, this one makes a refusal legible. Fixing either without the other leaves
+the user with a wrong error message or an unnecessary grant.
 
-`system_defect_audit_arena/03_synthesis.md` holds a consolidated defect
-inventory — 13+ items with severities and file:line, batched B1/B2/B3 — and
-`knowledge_value_arena/` holds a second debate. Neither is cited by any roadmap
-item, which is how they came to be mistaken for finished work and deleted, then
-restored.
+### 3. System Integrity Consolidation — the remainder
 
-Sampling the B3 batch against current code shows most of it shipped:
+- **B2 — COMPLETE** (v0.49.2 → v0.50.2, all five items). The milestone has no
+  P1 left; everything below it is P2/P3.
+- **B3 P5 — DONE** (v0.51.0): a truncated L4 layer is detected instead of
+  frozen as complete. **P6** delete the dead L2 checkpoint-resume (table
+  migration) · **P7** record a reason on legitimate skips — **blocked on a user
+  decision**: `layer_error` is named for errors and `error_reason` already
+  exists, so which column carries a non-error reason is a contract choice, not
+  an implementation detail.
+- **B5 / B7** each require their own Arena plan.
+- Plan: `.agents/plans/03_system_integrity_consolidation.md`,
+  ledger `03_b3_roadmap_evidence.md`.
 
-- item 10 (`recover_stale_jobs` NULLing `layer_error`) — **fixed**, the
-  `CASE WHEN layer_error LIKE ?` guard the synthesis prescribed is at
-  `db/jobs.py:171`.
-- item 13 (`wiki sync` promoting `l3/l4_status` from a filesystem glob) —
-  **fixed**; `commands/common.py`'s docstring now says "It used to also
-  promote".
-- item 11 (the constant clobbering the real L3 error) — `compile.py:1158` still
-  holds the string, but only for the genuine prerequisite case, and
-  `test_l3_failure_message_survives_the_l4_status_write` pins the distinction.
-- The synthesis's own "never ran" domains — `exception_hygiene`, `docs_parity` —
-  DID run afterwards: `04_g0_exception_hygiene.md`, `04_g0_docs_parity.md`,
-  `05_g0_critique_exception_hygiene.md` exist in the folder.
+**Its inventory lives in `system_defect_audit_arena/03_synthesis.md`** — the
+B-batches this item tracks are that synthesis's batches, so the two are one
+piece of work, not two. That folder was briefly deleted as "finished" and
+restored; it is unreadable as status because nobody has walked it item by item.
 
-**What is actually open is the triage, not necessarily the defects.** Nobody has
-walked either inventory end to end and recorded, per item, whether it shipped.
-Until that pass happens these folders are unreadable as status, and their
-absence from this roadmap is what made them look disposable.
+Sampled against current code (numbers are the SYNTHESIS's, not this
+roadmap's): its item 10 (`recover_stale_jobs` NULLing
+`layer_error`) is **fixed** — the prescribed `CASE WHEN` guard is at
+`db/jobs.py:171`; its item 13 (`wiki sync` promoting `l3/l4_status` from a glob) is
+**fixed**, its docstring says "It used to also promote"; the synthesis's two
+"never ran" domains later did run (`04_g0_exception_hygiene.md`,
+`04_g0_docs_parity.md`). `knowledge_value_arena/` has had no triage at all.
 
-**NEXT**: one verification pass per inventory item, then either close the item
-here or move the survivors into the queue — and delete the folders only after
-that, not before.
+**P6 is DONE, not pending** — the dead L2 checkpoint-resume was deleted in
+v0.51.1, which is what item 4 (resumable L2) picks up from. The line below
+saying otherwise was stale.
 
-### 9. Drafts not yet planned
+**NEXT here**: one pass per inventory item recording shipped/open, then delete
+the folders. Not before — that ordering is what went wrong once already.
 
-- Vault Storage Governance & Quota Visibility —
-  `.agents/drafts/vault_storage_governance.md`
-- Native PDF Annotation & Asset System —
-  `.agents/drafts/pdf_annotation_system.md`
-- Web Search Integration — no current plan; re-plan from current provider,
-  privacy, and cost constraints.
+### 4. Resumable L2 extraction — wanted, needs designing
 
-### 10. PDF whole-document search — PLANNED, awaiting approval
+Removed in v0.51.1 rather than repaired (B3 P6). The old mechanism could never
+run: checkpoints were written only inside the branch that required checkpoints
+to already exist, so `l2_checkpoints` held 0 rows across 36 sources and 2,799
+units. Deleting it changed no behavior.
 
-`pdfFullDocumentIndex` ("Background page indexing") has **0 consumers** — the
-toggle writes a value nothing reads, so `search_pdf_anchor` can only find
-content on pages already rendered. The chat can read any page it can *name*
-(`fetch_pdf_page`) but cannot *locate* one.
+The cost it was meant to avoid is real. An interrupted L2 build restarts from
+the first batch, so a 40-batch source re-pays every provider round-trip — at the
+measured 8–12 s per CLI round-trip that is 5–8 minutes per retry.
 
-Arena concluded: `.agents/plans/pdf_background_index_arena/`
-Master plan: `.agents/plans/04_pdf_background_index.md` (v0.54.0)
+It must be designed, not re-enabled. The removed branch returned
+`list_staged_unit_ids_for_source`, which filters `generation_id IS NULL` and is
+therefore **empty after a successful publish** — a resumed run would have
+attributed zero units to a fresh generation and retired the source's entire
+authoritative unit set under §26.3. Any new design has to decide what a resumed
+run returns, and how a partially-published source is distinguished from an
+unstarted one.
 
-Two defects the Arena verified, both of which must be fixed before any walk:
-- `upsertPage` is **quadratic** — 226,801 tokenize calls for 673 pages (337x).
-- A naive `notifyContextChanged()` progress tick cascades into an unconditional
-  main-thread BM25 search + chip rebuild, ~27 times per book open.
+**Measured cost, 2026-08-19**: Hartley completed **all 277 extraction batches**
+and then hit a 429 at publish. All-or-nothing discarded every batch — about 90
+minutes. This is the sharpest case this item has: not "interrupted midway" but
+"finished the expensive part and threw it away". Continues ROADMAP 3's P6.
 
-### 11. Backend `agy` spawn has no OS sandbox (opened by v0.56.1)
+### 5. `.curator` state audit — the remainder
+
+- Losing `.cache/` reports a healthy **empty** vault: `connect()` self-heals a
+  schema into any empty DB and `get_stats` returns zeros. Recovery exists (the
+  in-vault sync journal + `wiki db import`) but is silent and undocumented.
+- Vault rename/move silently mints a new empty DB (cache key is
+  `sha256(resolved_root)[:16]`); also hits `VAULT_ROOT=testbed` from two
+  directories.
+- `sessions.json` 15 MB, **81% re-embedded context** — one note stored 52×, a
+  1.39 MB base64 image, ~1.1 s per send. The 30-session cap is a provable no-op.
+  Supersedes the old "Chat Session Context Compaction" draft.
+- Sync journals never compact — 24 MB, `compress=True` exists unused with gzip
+  measured at 9.86×; tombstones never expire; a stale peer is skipped silently
+  while `autosync` reports success.
+- `wiki sync` claims to rebuild `ledger.md`/`overview.md` and calls neither.
+- `SYSTEM_BEHAVIOR.md` contradicts itself on where `state.sqlite` lives.
+- Arena record: `.agents/plans/curator_state_arena/`
+
+### 6. `graph_entities` / `source_spans` transport on a surrogate id
+
+Both carry a natural identity — `UNIQUE(canonical_name, entity_type)` and
+`UNIQUE(source_id, content_hash)` — but sync transports them on the surrogate
+`id`, so two devices that independently extract the same thing mint different
+ids. The key lookup misses, the insert collides on content, and convergence has
+to be classified after the fact (v0.50.0 does this via `PRAGMA index_list`).
+`sources` solved the same problem properly with a `sync_key` transport identity,
+so the primary lookup finds converging rows directly and children remap to the
+local id.
+
+Nothing remaps `graph_relations.source_entity_id`/`target_entity_id` when an
+entity converges, so the classifier makes the symptom quiet without closing the
+gap. The real fix is a transport identity for both tables plus the id-remap
+plumbing — a schema change touching every referencing column, which is why it
+was left out of v0.50.0 rather than smuggled in.
+
+### 7. Community hierarchy is flat by construction
+
+`_entities.py` hardcodes `level = 0`; one community holds 176 of 965 entities
+while 152 of 233 are single-relation pairs. §27.4 permits the degraded
+connected-components fallback but requires it be "surfaced by the audit" —
+`config_hash` records it only as an opaque digest and `graph_audit` returns
+violations only.
+
+### 8. Backend `agy` spawn has no OS sandbox (opened by v0.56.1)
 
 `AntigravityCliClient._run` (`backend/src/curator/llm.py`, the Antigravity
 client) spawns `agy` with plain `subprocess.run` — no sandbox wrapper, unlike
@@ -356,3 +299,41 @@ grant. Recommended in both guides.
 ## Blocked / Icebox
 
 - None.
+
+**Related to item 2 (external-file access)** but not the same: this item is
+about what the spawned CLI is *permitted* to read; item 2 is about the backend
+being unable to *tell* a denial from a missing file. A sandbox here changes
+which denials happen; item 2 changes whether we can explain them.
+
+### 9. Retrieval and projection leftovers
+
+- Span segmentation isolates single-word fragments
+  (`pipeline/source_spans.py` splits on blank lines with no minimum length).
+- One stale CTX file survives re-ingest (bounded — the index carries no CTX
+  projection, so it cannot be retrieved).
+- Retro-repair for vaults carrying a dead source row from a pre-v0.46.0 move;
+  `wiki lint` reports them but nothing fixes them.
+
+### 10. PDF whole-document search — PLANNED, awaiting approval
+
+`pdfFullDocumentIndex` ("Background page indexing") has **0 consumers** — the
+toggle writes a value nothing reads, so `search_pdf_anchor` can only find
+content on pages already rendered. The chat can read any page it can *name*
+(`fetch_pdf_page`) but cannot *locate* one.
+
+Arena concluded: `.agents/plans/pdf_background_index_arena/`
+Master plan: `.agents/plans/04_pdf_background_index.md` (v0.54.0)
+
+Two defects the Arena verified, both of which must be fixed before any walk:
+- `upsertPage` is **quadratic** — 226,801 tokenize calls for 673 pages (337x).
+- A naive `notifyContextChanged()` progress tick cascades into an unconditional
+  main-thread BM25 search + chip rebuild, ~27 times per book open.
+
+### 11. Drafts not yet planned
+
+- Vault Storage Governance & Quota Visibility —
+  `.agents/drafts/vault_storage_governance.md`
+- Native PDF Annotation & Asset System —
+  `.agents/drafts/pdf_annotation_system.md`
+- Web Search Integration — no current plan; re-plan from current provider,
+  privacy, and cost constraints.
