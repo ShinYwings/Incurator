@@ -224,8 +224,11 @@ External files such as research PDFs owned by Zotero, iCloud, Syncthing, or a br
 > | `/Volumes` (external / network drives) | top level yes, individual volumes may prompt |
 >
 > An attachment directory under `~/Documents/Zotero` is blocked with no cloud
-> involved anywhere. Dropbox, Google Drive, and OneDrive present their folders
-> through `~/Library/CloudStorage` and fall under the same rules.
+> involved anywhere — which is the point: what matters is *which folder*, not
+> whether it syncs. Dropbox, Google Drive, and OneDrive expose their folders
+> under `~/Library/CloudStorage`, which was reachable on the machine measured
+> above; treat any specific setup as unknown until it fails, rather than
+> assuming it matches iCloud Drive.
 >
 > **To fix it**, grant access to whichever application runs Incurator:
 > System Settings → Privacy & Security → **Full Disk Access**, then enable

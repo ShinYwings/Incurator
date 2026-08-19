@@ -192,8 +192,10 @@ PDF text parsing은 pymupdf4llm의 host Tesseract OCR을 암묵적으로 실행�
 > | `/Volumes` (외장/네트워크 드라이브) | 최상위는 가능, 개별 볼륨은 확인창이 뜰 수 있음 |
 >
 > 첨부 디렉터리가 `~/Documents/Zotero`에 있으면 클라우드가 전혀 개입하지 않아도
-> 막힙니다. Dropbox·Google Drive·OneDrive는 폴더를 `~/Library/CloudStorage`를
-> 통해 노출하며 같은 규칙을 적용받습니다.
+> 막힙니다. 핵심이 이것입니다 — 동기화 여부가 아니라 *어느 폴더인가*가 결정합니다.
+> Dropbox·Google Drive·OneDrive는 폴더를 `~/Library/CloudStorage` 아래에 노출하며,
+> 위 측정에서 이 경로는 접근 가능했습니다. 특정 환경이 iCloud Drive와 같으리라고
+> 가정하지 말고, 실제로 실패하기 전까지는 미확인으로 다루세요.
 >
 > **해결하려면** Incurator를 실행하는 애플리케이션에 권한을 주세요.
 > 시스템 설정 → 개인정보 보호 및 보안 → **전체 디스크 접근 권한**에서
