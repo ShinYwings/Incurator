@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from . import config as cfg
+from . import file_access
 from . import constants as consts
 from . import zotero as zotero_backend
 
@@ -291,11 +292,56 @@ def _storage_pdf_candidates(attachment_key: str, roots: list[str]) -> list[str]:
     return out
 
 
-def _first_existing_pdf(candidates: list[str]) -> str:
+def _first_readable_pdf(candidates: list[str]) -> tuple[str, file_access.Reachability]:
+    """The first candidate this process can actually read, and why if none.
+
+    Was `_first_existing_pdf`, and the name was the bug: `os.path.exists` is
+    True for a file the process may not open, so it returned a path, the caller
+    reported success, and the parser failed citing a corrupt PDF. See
+    SYSTEM_BEHAVIOR §12.3.
+
+    A denied candidate is remembered and outranks "nothing found". Telling a
+    user their file is missing when it is sitting on disk is what sent them
+    hunting; being refused is a different fact and a different fix.
+    """
+    denied = ""
     for candidate in candidates:
-        if os.path.exists(candidate):
-            return candidate
-    return ""
+        state = file_access.probe(Path(candidate))
+        if state is file_access.Reachability.OK:
+            return candidate, state
+        if state is file_access.Reachability.DENIED and not denied:
+            denied = candidate
+    if denied:
+        return denied, file_access.Reachability.DENIED
+    return "", file_access.Reachability.MISSING
+
+
+def _denied_result(
+    path: str, *, db_path: Any, zotero_db: str, effective_key: str,
+    candidates: list[str], checked_paths: list[str],
+) -> dict[str, Any]:
+    """Report a refusal as a refusal, with the folder the user has to grant.
+
+    Naming the file alone is useless — macOS grants access per folder — so the
+    grant root is probed rather than matched against a list of known locations
+    (§12.3).
+    """
+    root = file_access.grant_root(Path(path))
+    return {
+        "ok": False,
+        "state": "attachment_file_denied",
+        "error": (
+            f"Not permitted to read {path}"
+            + (f" — grant access to {root}" if root else "")
+        ),
+        "path": path,
+        "grant_folder": str(root) if root else "",
+        "db_path": db_path or "",
+        "zotero_db": zotero_db,
+        "attachment_key": effective_key,
+        "roots_checked": candidates,
+        "paths_checked": checked_paths,
+    }
 
 
 def resolve_pdf(attachment_key: str, paths: cfg.WikiPaths, custom_paths: str = "") -> dict[str, Any]:
@@ -321,28 +367,43 @@ def resolve_pdf(attachment_key: str, paths: cfg.WikiPaths, custom_paths: str = "
     checked_paths: list[str] = []
     if db_path:
         checked_paths = _pdf_candidates_for_db_path(db_path, effective_key, candidates)
-        found = _first_existing_pdf(checked_paths)
-        if found:
+        found, state = _first_readable_pdf(checked_paths)
+        if state is file_access.Reachability.OK:
             return {
                 "ok": True, "path": found, "db_path": db_path,
                 "zotero_db": zotero_db, "attachment_key": effective_key,
             }
+        if state is file_access.Reachability.DENIED:
+            return _denied_result(
+                found, db_path=db_path, zotero_db=zotero_db,
+                effective_key=effective_key, candidates=candidates,
+                checked_paths=checked_paths,
+            )
 
     fallback_candidates = _storage_pdf_candidates(effective_key, candidates)
-    found = _first_existing_pdf(fallback_candidates)
-    if found:
+    found, state = _first_readable_pdf(fallback_candidates)
+    if state is file_access.Reachability.OK:
         return {
             "ok": True, "path": found, "zotero_db": zotero_db,
             "attachment_key": effective_key,
         }
+    if state is file_access.Reachability.DENIED:
+        return _denied_result(
+            found, db_path=db_path, zotero_db=zotero_db,
+            effective_key=effective_key, candidates=candidates,
+            checked_paths=checked_paths + fallback_candidates,
+        )
 
     checked_paths.extend(fallback_candidates)
-    state = "attachment_file_missing" if db_path else "attachment_key_missing"
+    # A distinct name from the `Reachability` above: these are the taxonomy's
+    # states, and reusing one identifier for both let mypy catch what a reader
+    # would have had to hold in their head.
+    result_state = "attachment_file_missing" if db_path else "attachment_key_missing"
     error = "Zotero attachment file not found" if db_path else "Zotero attachment key not found"
 
     return {
         "ok": False,
-        "state": state,
+        "state": result_state,
         "error": error,
         "db_path": db_path or "",
         "zotero_db": zotero_db,

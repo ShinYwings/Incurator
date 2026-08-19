@@ -12,6 +12,7 @@ from pathlib import Path
 
 from .base import (
     ParsedDocument,
+    ParserAccessDenied,
     ParserError,
     compute_hash,
     fallback_title_from_path,
@@ -152,6 +153,11 @@ def parse(path: Path) -> ParsedDocument:
             str(path), page_chunks=True, use_ocr=False
         )
         doc = fitz.open(str(path))
+    except PermissionError as e:
+        # Reachable only if the file became unreadable between the dispatch's
+        # probe and here. Kept so a race cannot resurface as `Cannot parse PDF`.
+        from .. import file_access
+        raise ParserAccessDenied(path, file_access.grant_root(path)) from e
     except Exception as e:
         raise ParserError(f"Cannot parse PDF {path.name}: {e}") from e
 

@@ -1028,8 +1028,12 @@ Rules:
   Zotero installs, moved data directories, and unreadable databases produce
   structured states instead of empty search results.
 - Backend Zotero PDF resolution must distinguish missing database
-  (`db_missing`), missing attachment key (`attachment_key_missing`), and missing
-  attachment file (`attachment_file_missing`). It must resolve Zotero `storage:`
+  (`db_missing`), missing attachment key (`attachment_key_missing`), missing
+  attachment file (`attachment_file_missing`), and an attachment file that is
+  present but **not readable by this process** (`attachment_file_denied`) — see
+  §12.3, which is normative for how the last one is determined. Reporting a
+  denied file as missing is a defect: it sends the user to look for a file that
+  is sitting on disk. It must resolve Zotero `storage:`
   paths under the active data directory and `attachments:` linked-file paths
   against configured linked attachment roots without mutating the Zotero DB.
   Linked attachment root discovery may use Zotero profile `prefs.js`
@@ -1393,6 +1397,56 @@ requested chunk in that batch counts as failed. Reindex reports counts for FTS
 rows, chunks, embedded chunks, skipped unchanged chunks, failures,
 provider/model, and degraded state. It does not shell out to an external search
 binary.
+
+## 12.3 Reachability — telling a missing file from a forbidden one
+
+A file the process may not read is not a missing file, and the difference has to
+survive all the way to the user. Reporting the first as the second is what sends
+someone hunting for a corrupt PDF that opens fine in Finder.
+
+**Reachability has three outcomes, never a boolean**: `ok`, `missing`, `denied`.
+A boolean is what made the previous resolution helper unable to say anything
+useful — it picked a file it could not read, reported success, and left the
+parser to fail citing an unrelated cause.
+
+**Determining it requires opening the file.** This is normative, not an
+implementation preference:
+
+- `Path.exists()` / `is_file()` succeed for a file that cannot be read.
+- **`os.access(path, R_OK)` also succeeds for such a file.** Measured on
+  macOS 15: `exists() True`, `os.access R_OK True`, `open()` raises
+  `PermissionError errno=1`. `access()` consults POSIX permission bits, and
+  macOS TCC denies below them.
+
+So any check cheaper than an actual `open()` reports a readable file and defers
+the failure to a caller that will describe it wrongly. The probe opens the file
+and reads one byte — one rather than zero, because an empty read can succeed
+where the first byte does not.
+
+**A denial must name the folder to grant, and that folder is found by probing.**
+Reporting the file alone is useless: a user cannot grant access to one PDF. The
+grant target is the **shallowest ancestor that is itself denied**, discovered by
+walking upward and probing — never by matching a list of known macOS locations.
+A hardcoded list is wrong in both directions: it cannot know a location the OS
+adds later, and it names folders that do not need a grant on a given machine
+(`~/Library/CloudStorage` was readable where `~/Library/Mobile Documents` was
+not), sending the user to change a setting that was never the problem.
+
+**Cost is bounded and was measured**, because the probe does real I/O: `ok`
+0.016 ms, `missing` 0.001 ms, `denied` **0.722 ms** — the denial is two orders
+of magnitude dearer than a `stat`. That is acceptable only because the candidate
+list is short; if resolution ever walks many roots, this is the first thing to
+re-measure.
+
+**Where a denial is reported.** A per-job ingest error is the worst place to
+learn a folder needs granting, because it recurs and says nothing actionable.
+Status surfaces enumerate sources; a source whose file probes `denied` is named
+there with its grant folder.
+
+**What this does NOT cover.** Nothing here requests a permission, and nothing
+changes what a spawned process is allowed to read. macOS has no API to ask for a
+folder grant; a background process receives a silent denial rather than a
+prompt. This contract governs only whether the system can *say* what happened.
 
 ## 13. Syncthing Device Registry
 
