@@ -53,9 +53,12 @@ def _write(db_path: Path, job_id: int, kind: str, payload: str, *, heal: bool) -
             _insert(conn, job_id, kind, payload)
         return
     # The lightweight path deliberately skips `connect()`. That helper re-runs
-    # `executescript(SCHEMA_SQL)` on EVERY call — measured at 1.31 ms and, worse,
-    # it takes a write lock just to record an event. A plain connection costs
-    # 1.17 ms and contends with nothing it does not need.
+    # `executescript(SCHEMA_SQL)` on EVERY call and, worse, takes a write lock
+    # just to record an event. Measured: `connect()` costs 1.31 ms before any
+    # query runs, a full append through it 1.79 ms, and the same append on a
+    # plain connection 1.17 ms. The cost is the lesser reason — under a held
+    # write lock the `connect()` path blocks for SQLite's 5 s default and then
+    # loses the row, where this one fails in 0.29 s and says so.
     conn = sqlite3.connect(db_path, timeout=_BUSY_TIMEOUT_S)
     try:
         conn.execute("PRAGMA foreign_keys = ON")

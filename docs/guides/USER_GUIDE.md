@@ -1314,7 +1314,7 @@ A real extraction reads like this:
 2026-08-18T07:35:53Z    3  extracted  phase=l2 batch=2 batches=3 units=65
 2026-08-18T07:39:20Z    4  extracted  phase=l2 batch=3 batches=3 units=105
 2026-08-18T07:39:21Z    5  status     phase=l2 stage=publishing units=105
-2026-08-18T07:39:47Z    6  done       pages_created=30 pages_updated=0
+2026-08-18T07:39:47Z    6  done       pages_created=30 pages_updated=0 events_dropped=0
 ```
 
 Read the **timestamps**, not just the lines. Batch 1 took 44 seconds, batch 2

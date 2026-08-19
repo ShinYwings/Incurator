@@ -233,6 +233,13 @@ fixtures, and `wiki devices ...` for launcher diagnostics.
 > now; `wiki jobs events <id>` shows how it got there, oldest first — the
 > difference between a job that is working slowly and one that has stopped,
 > which the single latest-phase row in `ingest_jobs` cannot express.
+>
+> From v0.59.0 an L2 job emits one event per extraction batch, so the history
+> gains a line every LLM call and `wiki jobs list`'s percentage advances through
+> L2 instead of holding at 10% until the phase ends. Judge liveness by how old
+> the newest event is, not by the row. If a busy database costs the job a line,
+> `wiki jobs events` says the history is incomplete rather than letting a gap
+> read as a quiet job.
 
 > **Instant L1 / L2·L3 Separation**: `wiki add` always creates the CTX, ToC,
 > section markers, and coarse Atom Candidates instantly from parser structure

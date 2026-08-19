@@ -321,7 +321,7 @@ def compile_source_l2(
     projection page per unit. Sets the source's l2_status.
 
     ``on_progress`` is optional and defaults to ``None`` on purpose: this
-    function has ~21 call sites in ``test_authored_topology.py`` alone plus
+    function has 28 call sites in ``test_authored_topology.py`` alone plus
     ``ingest_llm.py``, and a required parameter would rewrite all of them for no
     gain. When supplied (the background worker does), events are emitted at the
     boundaries below and — via ``extract_knowledge_units`` — once per extraction

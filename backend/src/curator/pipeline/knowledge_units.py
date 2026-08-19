@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -18,6 +19,8 @@ from typing import Any
 
 from .. import db, prompting
 from .chunking import client_optimal_chunk_chars
+
+_log = logging.getLogger(__name__)
 
 __all__ = ["KnowledgeUnitResult", "extract_knowledge_units"]
 
@@ -399,11 +402,14 @@ def extract_knowledge_units(
             break
         pending_units.extend(result.units)
 
-        # One event per LLM call — the heartbeat that makes a slow L2 and a
-        # stopped one distinguishable. This loop already knows both numbers; the
-        # retry label three lines up is built from the same pair. Before v0.59.0
-        # nothing left this function until it had finished, so a job spent the
-        # whole extraction reporting a single unchanging row.
+        # One event per BATCH — the heartbeat that makes a slow L2 and a
+        # stopped one distinguishable. Not per LLM call: `_run_batch_with_retry`
+        # splits a batch that fails validation and recurses, so a single
+        # iteration can cost several calls and go quiet between events. This
+        # loop already knows both numbers; the retry label above is built from
+        # the same pair. Before v0.59.0 nothing left this function until it had
+        # finished, so a job spent the whole extraction reporting one
+        # unchanging row.
         #
         # This is an OBSERVATION, NOT A CHECKPOINT. Extraction is
         # all-or-nothing by design: units accumulate in memory and are
@@ -425,7 +431,11 @@ def extract_knowledge_units(
                     },
                 )
             except Exception:  # noqa: BLE001 - observation is never fatal
-                pass
+                # Logged, not silent: XC-1 established that best-effort swallows
+                # in this codebase still leave a debug trace, and this is the
+                # highest-frequency event the sink emits — a bug in the caller's
+                # sink would otherwise be invisible exactly where it matters.
+                _log.debug("progress sink raised (non-fatal)", exc_info=True)
 
     if all_errors:
         return KnowledgeUnitResult(

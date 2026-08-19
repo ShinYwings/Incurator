@@ -14,7 +14,7 @@ All notable changes to Incurator are documented here.
 
   The signal now comes from the loop that does the work. `compile_source_l2`
   takes an optional progress sink and the extraction loop emits one event per
-  LLM batch — a loop that already computed `batch 2/3` for its retry label and
+  extraction batch — a loop that already computed `batch 2/3` for its retry label and
   threw it away. A real job reads:
 
   ```
@@ -33,6 +33,13 @@ All notable changes to Incurator are documented here.
   until the phase ends. It renders only the `progress` float, so the float had
   to move; the phase→float convention is now written down in SYSTEM_BEHAVIOR
   §12.1 rather than implied in two places.
+
+- **Every path a job can take reports what its history lost.** Review found the
+  first draft counted drops only inside the L2 sink, so a job that failed, or
+  one whose terminal event was itself lost, said nothing — while the spec
+  promised the count unconditionally. A per-job `JobHistory` now owns both the
+  writing and the counting; the success event, the failure event, and the log
+  all carry it.
 
 - **A lost event is reported instead of hidden.** Recording an event still
   never fails the job — but a writer that silently drops rows is exactly the

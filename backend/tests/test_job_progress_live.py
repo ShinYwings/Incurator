@@ -245,3 +245,61 @@ def test_a_lost_event_is_reported_rather_than_hidden(
     assert done[-1]["data"].get("events_dropped", 0) > 0, (
         "events were dropped and the history does not admit it"
     )
+
+
+def test_a_failed_job_still_reports_what_its_history_lost(
+    vault: cfg.WikiPaths, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The failure path is where an operator most needs to know rows went missing.
+
+    The first draft carried `events_dropped` only on the success event, so a job
+    that dropped events and then failed reported neither.
+    """
+    class Exploding(StubLLMClient):
+        def chat(self, messages, *, json_mode=False, temperature=0.3):
+            raise RuntimeError("permanent provider failure")
+
+    monkeypatch.setattr(ingest_worker, "build_client", lambda *_a, **_k: Exploding())
+    source_id = _seed_source(vault, _long_body())
+    job_id = db.enqueue_job(vault.state_db, source_id=source_id, job_type="l2_atoms")
+
+    real = job_events.append
+
+    def flaky(db_path, jid, kind, data=None):
+        return False if kind == "extracted" else real(db_path, jid, kind, data)
+
+    monkeypatch.setattr(ingest_worker.job_events, "append", flaky)
+    ingest_worker.run_next_job(vault, cfg.DEFAULT_CONFIG)
+
+    events = job_events.listing(vault.state_db, job_id, limit=1000)
+    terminal = [e for e in events if e["kind"] in ("done", "error")]
+    assert terminal, f"a job that ended must say so: {events}"
+    assert "events_dropped" in terminal[-1]["data"], (
+        "the terminal event of a FAILED job must carry the drop count too"
+    )
+
+
+def test_losing_the_terminal_event_itself_is_logged(
+    vault: cfg.WikiPaths, stub_llm: StubLLMClient, monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """If contention eats the `done` row, the history just stops — with no `done`
+    line and no count anywhere. The log does not depend on the database, so it is
+    the one place that can still say the history is incomplete.
+    """
+    source_id = _seed_source(vault, _long_body())
+    db.enqueue_job(vault.state_db, source_id=source_id, job_type="l2_atoms")
+
+    real = job_events.append
+    monkeypatch.setattr(
+        ingest_worker.job_events, "append",
+        lambda db_path, jid, kind, data=None: (
+            False if kind in ("done", "error") else real(db_path, jid, kind, data)
+        ),
+    )
+    with caplog.at_level("WARNING"):
+        ingest_worker.run_next_job(vault, cfg.DEFAULT_CONFIG)
+
+    assert any("history is incomplete" in r.getMessage() for r in caplog.records), (
+        f"losing the terminal event was not reported: {[r.getMessage() for r in caplog.records]}"
+    )

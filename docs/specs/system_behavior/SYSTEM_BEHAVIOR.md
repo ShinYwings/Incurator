@@ -1199,6 +1199,14 @@ choice. Any code writing `progress` must use it:
 | L3 clustering in progress | `0.75 → 0.9` |
 | job done | `1.0` |
 
+The L3 range describes the intended shape, not a guarantee that the value is
+monotonic today. The legacy `WorkerCallbacks` path — still used for L3, both
+standalone and when an L2 job triggers clustering inline — sets `0.75` on entry
+and then walks `0.25 → 0.5 → 0.75 → 0.9` through its own callbacks, so the
+number can move backwards during L3. That is pre-existing and out of scope here;
+it is recorded so the table is not read as describing behavior the code does not
+have. Only the L2 range is enforced by v0.59.0.
+
 **`progress_current` / `progress_total` during L2 mean batches**, not atoms. The
 count of atoms a job produced is `pages_created`, written by `mark_job_done`;
 that is where a reader takes it from. `progress_total` is not rewritten at the
@@ -1208,9 +1216,18 @@ disagree during the run.
 
 **Events must be emitted from the path that runs.** L2 is compiled by
 `compile_source_l2`, which accepts an optional progress sink; the L2 batch loop
-emits one event per LLM call. Attaching progress reporting to a callback object
-that the executing path does not use is not observability — v0.58.0 did exactly
-that and produced an empty history for every job.
+emits one event per BATCH — not per LLM call, since a batch failing validation
+is split and retried recursively, so one batch can cost several calls and go
+quiet within itself. Attaching progress reporting to a callback object that the
+executing path does not use is not observability — v0.58.0 did exactly that and
+produced an empty history for every job.
+
+The L3 phase has no per-step heartbeat. `run_l3_from_existing_atoms` accepts a
+callbacks factory and never invokes it, so `WorkerCallbacks` — the class v0.58.0
+attached its writer to — does not execute at all. L3's terminal event still
+carries the job's drop count, but nothing is emitted between its start and its
+end. Recorded here rather than left to be rediscovered; closing it is separate
+work.
 
 **A dropped event must be reported.** Recording an event never fails the job,
 but a writer that silently loses rows is indistinguishable from a job that did
