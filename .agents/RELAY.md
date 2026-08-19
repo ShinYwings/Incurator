@@ -107,27 +107,46 @@ on a plausible near date. Running `ruff`/`mypy` without `--cache-dir` outside
 the repo drops a cache at the repo root and fails `test_workspace_hygiene.py`;
 use `scripts/backend-check`.
 
-## Interposed release: v0.59.0 job progress (PR #160, awaiting merge)
+## Interposed line: v0.59.0 shipped, v0.60.0 in flight
 
-v0.58.0 closed ROADMAP 8 against a code path no L2 job runs. Reopened, planned
-(`.agents/plans/06_job_progress_observability.md`), implemented, and verified by
-running a real job — the gate v0.58.0 skipped. Evidence with the verbatim live
-output: `.agents/plans/06_job_progress_evidence.md`.
+**v0.59.0 (#160, merged `372c23d`)** — job progress emitted from the loop that
+runs. v0.58.0 had attached the writer to `WorkerCallbacks`, which an L2 job
+never uses.
 
-**The L2 daemon is currently STOPPED** and 16 jobs sit queued (Hartley = 76,
-Přibyl = 77). It was stopped to run the live acceptance test. Restart it after
-#160 merges so the remaining jobs record histories:
+**v0.60.0 (`feature/v0.60.0-structured-output`, PR not yet opened)** — the CLI
+answers a JSON prompt by writing a `python3` program to build the object; the
+permission layer denies it and the job dies. Fixed by using agy's native
+structured-output mode. Plan `.agents/plans/07_structured_output.md`, evidence
+`.agents/plans/07_structured_output_evidence.md`, Arena
+`.agents/plans/structured_output_arena/`.
 
-```bash
-nohup env VAULT_ROOT=/Users/shin/shinywings/second_brain .venv/bin/wiki jobs run &
-```
+**The load-bearing detail, which nearly shipped wrong**: the schema MUST be
+flattened. `model_json_schema()` emits `$defs`/`$ref`, and with it agy returns
+`SUCCESS` / `num_turns: 2` / `structured_output: {"units": []}` — no error, the
+real answer left in the response text under invented field names. Unflattened,
+every book ingests to nothing while reporting success. Flattened: `num_turns: 1`
+and units that validate against the contract model unmodified.
 
-**Testing a worktree against the real vault silently uses the wrong database.**
-The repo cache resolves from the running code's own location
-(`config.py:354`, `Path(__file__).parents[3]`), so a `PYTHONPATH` run creates a
-NEW EMPTY state DB inside the worktree. Redirect `config.get_global_config_dir`
-to `/Users/shin/shinywings/Incurator/.cache/config` for live runs. This cost an
-hour of misdiagnosis; do not repeat it.
+**Acceptance state.** Nicholson (job 66) completed — the job that died at batch
+9/15 now finishes with 133 ATM pages. Hartley (job 76) reached **263 of 277**,
+far past the batch 37 that used to kill it, then hit a transient error and was
+requeued. A re-run is in progress.
+
+Three gaps were found by re-reading the plan's own gate/decision list while that
+run was going, all after the tests were green:
+
+- G4 `num_turns > 1` warning — listed as a gate, never implemented.
+- D7 `FailoverClient` declared no capability, so structured output was silently
+  OFF for any failover config even when the capable delegate was active.
+- The retry branch wrote NOTHING to the job history, and
+  `requeue_job_for_retry` overwrites the job row's error — so Hartley's 90
+  discarded minutes left no reason anywhere. Fixed; the retry event now carries
+  attempt, reason, and how far it got.
+
+**Live-run mechanics.** The worker is `scratchpad/run_hartley.py`, which
+redirects `config.get_global_config_dir` to the real `.cache/config` — a
+worktree run otherwise creates a NEW EMPTY state DB (`config.py:354` resolves
+from the running code's own location). Log: `scratchpad/hartley2.log`.
 
 ## Immediate Next Action
 
