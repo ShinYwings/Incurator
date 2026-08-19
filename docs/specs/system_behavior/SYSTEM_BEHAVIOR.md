@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.59.0)
+# Incurator - System Behavior (v0.60.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -729,6 +729,73 @@ Rules:
   `backend/src/curator/data/models.json` at plugin build time so model controls
   do not depend on MCP startup.
 
+### 11.0 Structured Output — asking a CLI for a value, not for prose
+
+An agentic CLI given a prompt that wants JSON may **compute** the answer rather
+than write it. Measured: asked to emit knowledge units, `agy` wrote a
+`python3 -c` program to build the object, and on another job a second one to
+validate it against `jsonschema`. The permission layer denied `python3`, the CLI
+exited 1, and two of the vault's three largest sources became un-ingestable —
+non-deterministically, since 34 of 36 jobs in the same batch never took that
+route.
+
+The fix is not a wider sandbox. A model that needs no tool must not be asked a
+question that invites one.
+
+**Capability.** A client declares `supports_structured_output`. It is False by
+default and set True only for a client whose native structured-output mode has
+been measured. `agy` has one; `claude` and `codex` are not assumed to.
+
+**Contract.** `chat()` accepts an optional `json_schema`. `PromptContract`
+already owns the schema — `output_model` is a pydantic model, and
+`supports_json_mode` already reports whether one exists — so the runner passes
+`output_model.model_json_schema()` and computes nothing new.
+
+**The schema MUST be flattened before it reaches the CLI.** `$defs` / `$ref`
+must be inlined. This is not a formatting preference. Measured on the real
+`curator.knowledge_unit_extract` schema, with the schema as the only variable:
+
+| schema | status | turns | units returned |
+|---|---|---|---|
+| as emitted (`$defs` + `$ref`) | SUCCESS | 2 | **0** |
+| flattened | SUCCESS | **1** | **2** |
+
+The referenced schema does not fail. It **succeeds and returns nothing**,
+leaving the real answer in the response text under field names the contract
+never declared. Sending an unflattened schema therefore ingests a source to
+nothing while reporting success — a worse outcome than the crash this replaces.
+
+**One turn is the property that matters.** `num_turns: 1` means the model
+answered directly: no tool call, so nothing for a permission layer to deny. A
+structured call reporting more than one turn must be logged — it is the early
+sign of the failure recurring.
+
+**Precedence when reading the result.**
+
+1. `structured_output` present and non-empty → use it. It is already validated
+   against the schema, and the contract's own model validates it unmodified.
+2. `structured_output` **empty after one turn** → use it. An empty result is a
+   legitimate answer: a references list, a title page, or boilerplate contains
+   nothing extractable, and the model says so in prose out of habit while
+   returning an honestly empty structure. One turn means it answered directly,
+   so that structure IS the answer.
+3. `structured_output` empty **after more than one turn, or with no turn count**,
+   while the response text is non-empty → fall back to parsing the response text
+   and log the degradation. This is the measured defect shape: the model went
+   and did something, returned nothing structured, and left the real answer in
+   the text under field names the contract never declared.
+4. Never report an empty structure as a *failure* when the model answered
+   directly, and never report prose as a *result* when it did not. Returning
+   prose where a caller expects JSON fails the parse, burns the one-shot repair
+   retry, and can fail the batch.
+
+**The error envelope moves the reason.** Under structured output the CLI still
+exits non-zero on failure, but stderr is empty and the cause moves into the
+envelope's `error` field. A client must read the message from there; building it
+from stderr yields an exit code with no explanation. Capacity/quota detection
+must consult the envelope's error text as well as the log file, since stderr is
+no longer a signal.
+
 ### 11.1 Model Catalogue and Reasoning Effort
 
 The shared catalogue (`backend/src/curator/data/models.json`, the single source of
@@ -1235,6 +1302,14 @@ nothing — the defect this surface exists to remove. The event writer therefore
 reports whether the row was written; the job counts what it lost, carries the
 count on its terminal event as `events_dropped`, and logs it at WARNING. When
 the count is non-zero, `wiki jobs events` states that the history is incomplete.
+
+**A retry must record what it discarded.** Requeueing a job for a transient
+error throws away everything the attempt had done — L2 extraction is
+all-or-nothing — and `requeue_job_for_retry` overwrites the job row's error, so
+the reason survives nowhere unless the history keeps it. The retry event carries
+the attempt number, the reason, and how far the discarded attempt reached.
+Measured: a 673-page book got to batch 263 of 277, was requeued, and left only a
+batch counter silently restarting at 1.
 
 **Emitting an event is not committing a checkpoint.** L2 extraction is
 all-or-nothing: staged units accumulate in memory and are bulk-persisted only on

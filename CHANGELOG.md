@@ -2,6 +2,84 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.60.0] - 2026-08-19
+### Fixed
+- **A long ingest no longer dies because the model decided to write a program.**
+  Asked to return knowledge units as JSON, the Antigravity CLI — which is an
+  *agent*, not a text completion — wrote a `python3` script to build the object,
+  and on another job a second one to `jsonschema`-validate it. The permission
+  layer denied `python3`, the CLI exited 1, and the job failed. It took the two
+  largest sources in the vault: **Hartley at batch 37 of 277 after 29 minutes**,
+  and **Nicholson at batch 9 of 15**. Non-deterministic — 34 of 36 jobs in the
+  same run never took that route — so those books were un-ingestable by luck.
+
+  The fix is not a wider sandbox. Granting `python3` would trade arbitrary code
+  execution for a JSON serialiser. Instead the extraction now uses the CLI's
+  native structured-output mode: the contract's schema is sent with the prompt
+  and a validated object comes back. Measured, the model answers in **one turn**
+  — no tool call, so there is nothing for the permission layer to deny.
+
+### Added
+- **`supports_structured_output`, declared per client.** False by default; True
+  only where the native mode has been measured. `agy` has one. `claude` and
+  `codex` are *not assumed to* — this seam has produced four separate failures
+  (v0.48.4, v0.55.0, v0.56.1, and this), every time by assuming one CLI behaves
+  like another.
+- `prompting/json_schema.py` — flattens `$defs`/`$ref` out of a pydantic schema
+  before it reaches the CLI. **This is load-bearing, not cosmetic.** Measured
+  with the schema as the only variable:
+
+  | schema | status | turns | units returned |
+  |---|---|---|---|
+  | as emitted (`$defs` + `$ref`) | SUCCESS | 2 | **0** |
+  | flattened | SUCCESS | **1** | **2** |
+
+  The referenced schema does not fail — it *succeeds and returns nothing*,
+  leaving the real answer in the response text under field names the contract
+  never declared. Shipping without flattening would have ingested every book to
+  nothing while reporting success.
+
+### Changed
+- **An empty result is only treated as a defect when the model took a detour.**
+  Review caught the first version second-guessing every legitimately empty
+  batch: a references page or boilerplate correctly yields `{"units": []}`, and
+  the CLI — an agent — says so in a sentence. Returning that sentence where JSON
+  is expected fails the parse, burns the one-shot repair retry, and can fail the
+  batch, arriving at the same job-killing failure this release removes from the
+  other direction. `num_turns` separates the two: one turn is a direct answer
+  and its empty structure is trusted; more than one turn is the measured defect
+  shape and still degrades to the text path.
+- **An empty structured result after a detour is treated as a
+  defect, not an answer.** It degrades to parsing the text — what a client
+  without this capability does — and logs the degradation, rather than telling
+  the pipeline the model found nothing.
+- **The error reason is read from the response envelope.** Under
+  `--output-format json` the CLI still exits non-zero, but stderr goes empty and
+  the cause moves into the body. The client built its message from stderr, so
+  without this it would raise `exited 1:` with nothing after the colon — and the
+  capacity/quota check, which reads stderr and the log file, would be left with
+  one signal instead of two.
+
+- **A retried job now records what it discarded.** Requeueing for a transient
+  error throws away everything the attempt did, and `requeue_job_for_retry`
+  overwrites the job row's error — so until now the reason survived nowhere and
+  the only trace was the batch counter restarting at 1. Found the hard way
+  during acceptance: a 673-page book reached **batch 263 of 277**, was requeued,
+  and left ninety minutes of work and no explanation. The retry event carries
+  the attempt, the reason, and how far it got.
+
+### Notes
+- The schema is passed as a **string**, not a temp file: at one call per
+  extraction batch (277 for Hartley) a file per call would litter the temp
+  directory the workspace-hygiene test polices.
+- A contract whose schema cannot be flattened — a recursive model — falls back
+  to the text path with a warning rather than sending a half-flattened schema,
+  which would reproduce the silent-empty failure above.
+- The release gate is a **live** test asserting `num_turns == 1` against the real
+  CLI with the real contract schema. Offline tests prove what we build; only this
+  proves what the CLI accepts — the exact gap that let v0.58.0 ship a feature
+  that never ran once.
+
 ## [0.59.0] - 2026-08-18
 ### Fixed
 - **A background job now actually records what it is doing.** v0.58.0 added

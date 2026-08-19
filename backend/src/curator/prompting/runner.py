@@ -9,6 +9,7 @@ the trace, and returns the parsed model plus the trace id.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +18,7 @@ from typing import Any, Mapping
 from pydantic import BaseModel, ValidationError
 
 from .contracts import ChatMessage, PromptContract, ValidationResult
+from .json_schema import UnflattenableSchema, flatten_refs
 from .render import render_prompt
 from .trace import (
     finish_prompt_run,
@@ -25,6 +27,8 @@ from .trace import (
     start_prompt_run,
 )
 from .validators import run_validators
+
+_log = logging.getLogger(__name__)
 
 __all__ = ["PromptRunResult", "run_prompt", "extract_json"]
 
@@ -110,18 +114,43 @@ def _validate(
     return run_validators(_validator_names(contract), raw, parsed, ctx)
 
 
+def _schema_for(contract: PromptContract, client: Any) -> dict | None:
+    """The contract's own schema, flattened, when the client can enforce one.
+
+    Returns None — leaving the prose path exactly as it was — when the client
+    has no structured-output mode, or when the schema cannot be expressed
+    without `$ref` (a recursive model). Falling back is deliberate: a partially
+    flattened schema reproduces the silent-empty failure that made this
+    necessary (§11.0).
+    """
+    if contract.output_model is None:
+        return None
+    if not getattr(client, "supports_structured_output", False):
+        return None
+    try:
+        return flatten_refs(contract.output_model.model_json_schema())
+    except UnflattenableSchema as e:
+        _log.warning(
+            "Contract %s cannot use structured output (%s); using the text path.",
+            contract.prompt_id, e,
+        )
+        return None
+
+
 def _chat_with_attribution(
     client: Any,
     messages: list[ChatMessage],
     *,
     json_mode: bool,
     temperature: float,
+    json_schema: dict | None = None,
 ) -> tuple[str, str | None, str | None]:
     chat_with_provider = getattr(client, "chat_with_provider", None)
     if callable(chat_with_provider):
         result = chat_with_provider(
             messages,
             json_mode=json_mode,
+            json_schema=json_schema,
             temperature=temperature,
         )
         provider = getattr(result, "provider", None)
@@ -130,8 +159,13 @@ def _chat_with_attribution(
             trace_provider_name(provider),
             trace_model_name(provider),
         )
+    kwargs: dict[str, Any] = {"json_mode": json_mode, "temperature": temperature}
+    # Passed only when there is one, so the five clients that do not accept the
+    # keyword are never handed it.
+    if json_schema is not None:
+        kwargs["json_schema"] = json_schema
     return (
-        client.chat(messages, json_mode=json_mode, temperature=temperature),
+        client.chat(messages, **kwargs),
         trace_provider_name(client),
         trace_model_name(client),
     )
@@ -184,12 +218,17 @@ def run_prompt(
     model_provider: str | None = None
     model_name: str | None = None
     retry_count = 0
+    # The contract already owns the schema and already reports whether it wants
+    # JSON; before v0.60.0 the CLI clients received the boolean and threw it
+    # away, so the model was asked for prose it might decide to COMPUTE.
+    schema = _schema_for(contract, client)
     try:
         raw, model_provider, model_name = _chat_with_attribution(
             client,
             rendered.messages,
             json_mode=contract.supports_json_mode,
             temperature=contract.temperature,
+            json_schema=schema,
         )
         parsed = _parse(contract, raw)
         validation = _validate(contract, raw, parsed, vctx)
@@ -202,6 +241,7 @@ def run_prompt(
                 repair_messages,
                 json_mode=contract.supports_json_mode,
                 temperature=contract.temperature,
+                json_schema=schema,
             )
             parsed2 = _parse(contract, raw2)
             validation2 = _validate(contract, raw2, parsed2, vctx)

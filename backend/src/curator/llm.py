@@ -25,7 +25,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Generator
+from typing import Any, Generator
 
 import httpx
 
@@ -206,6 +206,104 @@ class AntigravityCliError(LLMError):
     """Antigravity CLI call failed."""
 
 
+def _structured_from_envelope(stdout: str) -> str:
+    """Pick the answer out of an `--output-format json` envelope.
+
+    Returns a JSON string so the caller's contract (`chat() -> str`) is
+    unchanged and the existing brace-scraping parser still applies — to a string
+    that is now the object itself rather than prose containing it.
+
+    **An empty structure beside a non-empty response is a defect signal, not a
+    result.** That is the exact shape an unflattened `$ref` schema produces:
+    `status=SUCCESS`, the real answer sitting in `response` under invented field
+    names, and `structured_output` empty. Reporting it verbatim would tell the
+    pipeline the model found nothing, for every batch of every source, with no
+    error anywhere. So it degrades to the response text — what a client without
+    this capability does — instead of lying. See SYSTEM_BEHAVIOR §11.0.
+    """
+    try:
+        envelope = json.loads(stdout)
+    except (json.JSONDecodeError, ValueError):
+        return stdout  # not an envelope; hand it back untouched
+    if not isinstance(envelope, dict):
+        return stdout
+
+    structured = envelope.get("structured_output")
+    response = str(envelope.get("response") or "")
+
+    # One turn means the model answered directly. More than one means it went
+    # and did something first -- which is how this failure begins: the run that
+    # died reached for `python3` to build its answer, and the unflattened schema
+    # that returns nothing also reports two turns. So a multi-turn structured
+    # call is the early signal, logged before anything else is decided.
+    turns = envelope.get("num_turns")
+    if isinstance(turns, int) and turns > 1:
+        logger.warning(
+            "Structured call took %d turns; a structured request should be "
+            "answered in one. The model may be using tools, which is what a "
+            "schema is meant to make unnecessary (SYSTEM_BEHAVIOR §11.0).",
+            turns,
+        )
+
+    if structured is not None and _has_content(structured):
+        return json.dumps(structured)
+
+    # An empty structure is NOT automatically a defect. "This excerpt contains
+    # nothing extractable" is a legitimate answer -- a references list, a title
+    # page, boilerplate -- and it arrives as `{"units": []}` beside a sentence
+    # saying so, because the CLI is an agent and answers in prose by habit.
+    #
+    # The defect this fallback exists for looks different, and `num_turns` is
+    # what separates them: it took TWO turns, went and did something, and left
+    # the real answer in the response text under invented field names. One turn
+    # means the model answered directly, so an empty structure at one turn is
+    # the model's actual answer and must be returned as-is.
+    #
+    # Getting this wrong is not cosmetic. Returning prose where JSON is expected
+    # makes `_parse` fail, burns the one-shot repair retry, and can fail a batch
+    # -- turning a correct empty extraction into the same job-killing failure
+    # this release was written to remove, just from the other direction.
+    turns = envelope.get("num_turns")
+    took_a_detour = not isinstance(turns, int) or turns > 1
+    if structured is not None and not took_a_detour:
+        return json.dumps(structured)
+
+    if response.strip():
+        logger.warning(
+            "Structured output was empty after %s turns while the response was "
+            "not; falling back to parsing the text. Check that the schema was "
+            "flattened.", turns,
+        )
+        return response
+    return json.dumps(structured) if structured is not None else response
+
+
+def _has_content(structured: object) -> bool:
+    """True when a structured payload carries anything beyond empty containers."""
+    if isinstance(structured, dict):
+        return any(_has_content(v) for v in structured.values())
+    if isinstance(structured, (list, tuple)):
+        return len(structured) > 0
+    return structured not in (None, "")
+
+
+def _envelope_error(stdout: str) -> str:
+    """The failure reason, which `--output-format json` moves out of stderr.
+
+    Measured: on a bad model the CLI exits 1, stderr is EMPTY, and the cause
+    lives in the envelope. Building the message from stderr — what the code did
+    before v0.60.0 — yields an exit code with no explanation, and leaves the
+    capacity check with only the log file to read.
+    """
+    try:
+        envelope = json.loads(stdout)
+    except (json.JSONDecodeError, ValueError):
+        return ""
+    if not isinstance(envelope, dict):
+        return ""
+    return str(envelope.get("error") or "")
+
+
 def _is_capacity_error(text: str) -> bool:
     return (
         "No capacity available" in text
@@ -237,6 +335,11 @@ class ChatMessage:
 
 class OllamaClient:
     """Minimal, synchronous Ollama client tuned for the incurator use case."""
+
+    # Structured output: can this client be handed a JSON Schema and be relied
+    # on to return a value rather than prose it may decide to COMPUTE? Default
+    # False; True only where the native mode has been measured (§11.0).
+    supports_structured_output = False
 
     # HTTP server: safe to call concurrently (used to parallelize page vision).
     # Agentic CLI clients (claude/agy/codex) leave this False and run serially.
@@ -674,6 +777,11 @@ class ClaudeCodeClient:
     Requires: npm install -g @anthropic-ai/claude-code
     """
 
+    # Structured output: can this client be handed a JSON Schema and be relied
+    # on to return a value rather than prose it may decide to COMPUTE? Default
+    # False; True only where the native mode has been measured (§11.0).
+    supports_structured_output = False
+
     CLI = consts.CLOUD_CLAUDE
     INSTALL_CMD = "npm install -g @anthropic-ai/claude-code"
 
@@ -813,6 +921,12 @@ class AntigravityCliClient:
     Requires Antigravity CLI, then its login flow.
     """
 
+    # Measured (§11.0): `agy --json-schema <string> --output-format json`
+    # returns num_turns=1 and a validated object, so the model never reaches for
+    # a shell to build its answer. Requires a FLATTENED schema; a $ref schema
+    # returns SUCCESS with an empty structure.
+    supports_structured_output = True
+
     CLI = "agy"
     INSTALL_CMD = "curl -fsSL https://antigravity.google/cli/install.sh | bash"
 
@@ -838,7 +952,23 @@ class AntigravityCliClient:
     def __exit__(self, *args) -> None:
         pass
 
-    def _run(self, prompt: str) -> str:
+    def _structured_args(self, json_schema: dict) -> list[str]:
+        """The argv that turns this call from "write me prose" into "return a value".
+
+        The schema goes in as a STRING, not a path: `--json-schema` accepts
+        either, and at one call per extraction batch (277 for the book that
+        prompted this change) a temp file per call would litter the repo temp
+        directory `test_workspace_hygiene.py` polices.
+
+        The caller must pass a FLATTENED schema. A `$ref` schema does not fail
+        here — it succeeds and returns nothing (§11.0).
+        """
+        return [
+            "--json-schema", json.dumps(json_schema),
+            "--output-format", "json",
+        ]
+
+    def _run(self, prompt: str, json_schema: dict | None = None) -> str:
         from .models import get_default_effort
 
         log_path = ""
@@ -866,6 +996,8 @@ class AntigravityCliClient:
         # accepts only these three native values through --effort.
         if effective_effort in {"low", "medium", "high"}:
             cmd.extend(["--effort", effective_effort])
+        if json_schema is not None:
+            cmd.extend(self._structured_args(json_schema))
         cmd.extend(
             [
                 "--print",
@@ -908,20 +1040,42 @@ class AntigravityCliClient:
             except OSError:
                 pass
 
+        # Under `--output-format json` the exit code survives but stderr goes
+        # EMPTY: the reason moves into the envelope. Measured on a bad model —
+        # exit 1, empty stderr, `{"status":"ERROR","error":"invalid model ..."}`.
+        # Without this the raise below says `exited 1: ` and drops the cause,
+        # and `_is_capacity_error` is left with only the log file to read.
+        envelope_error = _envelope_error(result.stdout) if json_schema is not None else ""
+
         if result.returncode != 0:
-            is_capacity_error = _is_capacity_error(stderr) or _is_capacity_error(log_text)
+            is_capacity_error = (
+                _is_capacity_error(stderr)
+                or _is_capacity_error(log_text)
+                or _is_capacity_error(envelope_error)
+            )
 
             if is_capacity_error:
                 self._raise_capacity_error()
 
             raise AntigravityCliError(
-                f"Antigravity CLI exited {result.returncode}: {stderr}"
+                f"Antigravity CLI exited {result.returncode}: "
+                f"{stderr or envelope_error}"
             )
         output = result.stdout.strip()
         if not output:
-            if _is_capacity_error(stderr) or _is_capacity_error(log_text):
+            if (
+                _is_capacity_error(stderr)
+                or _is_capacity_error(log_text)
+                or _is_capacity_error(envelope_error)
+            ):
                 self._raise_capacity_error()
             raise AntigravityCliError("Antigravity CLI returned no output.")
+        if json_schema is not None:
+            # Unwrap the envelope. `_structured_from_envelope` is where the
+            # empty-structure fallback lives, so a schema the CLI silently
+            # ignored degrades to the prose path instead of reporting that the
+            # model found nothing.
+            return _structured_from_envelope(output)
         return output
 
     @property
@@ -933,11 +1087,11 @@ class AntigravityCliClient:
         self,
         messages: list[ChatMessage],
         *,
-        # noqa: ARG002
-        json_mode: bool = False,  # noqa: ARG002
+        json_mode: bool = False,  # noqa: ARG002 - implied by json_schema
+        json_schema: dict | None = None,
         temperature: float = 0.3,  # noqa: ARG002
     ) -> str:
-        return self._run(_messages_to_prompt(messages))
+        return self._run(_messages_to_prompt(messages), json_schema=json_schema)
 
     def chat_stream(
         self,
@@ -1008,6 +1162,11 @@ class DeepSeekApiError(LLMError):
 
 class CodexCliClient:
     """LLM client backed by the OpenAI Codex CLI (`codex exec`)."""
+
+    # Structured output: can this client be handed a JSON Schema and be relied
+    # on to return a value rather than prose it may decide to COMPUTE? Default
+    # False; True only where the native mode has been measured (§11.0).
+    supports_structured_output = False
 
     CLI = "codex"
     INSTALL_CMD = "npm install -g @openai/codex"
@@ -1182,6 +1341,11 @@ class CodexCliClient:
 
 class DeepSeekApiClient:
     """OpenAI-compatible DeepSeek API client using DEEPSEEK_API_KEY."""
+
+    # Structured output: can this client be handed a JSON Schema and be relied
+    # on to return a value rather than prose it may decide to COMPUTE? Default
+    # False; True only where the native mode has been measured (§11.0).
+    supports_structured_output = False
 
     def __init__(
         self,
@@ -1395,6 +1559,32 @@ class FailoverClient:
     def model(self) -> str:
         return self.active_provider.model
 
+    @property
+    def supports_structured_output(self) -> bool:
+        """Whatever the ACTIVE delegate supports, asked fresh each time.
+
+        A fixed value would be wrong in both directions: False would silently
+        disable structured output whenever the capable provider is active, and
+        True would hand a schema to a delegate whose `chat()` has no such
+        parameter after a failover. The re-check below (`_delegate_kwargs`) is
+        what makes the second case safe.
+        """
+        return bool(getattr(self.active_provider, "supports_structured_output", False))
+
+    @staticmethod
+    def _delegate_kwargs(provider: Any, json_schema: dict | None) -> dict:
+        """Send the schema only to a delegate that declares it can use one.
+
+        Failover can land on a provider that never accepted the keyword, so the
+        capability is re-read per delegate at call time rather than trusted from
+        whenever the caller decided to pass a schema.
+        """
+        if json_schema is None:
+            return {}
+        if not getattr(provider, "supports_structured_output", False):
+            return {}
+        return {"json_schema": json_schema}
+
     def _probe_loop(self) -> None:
         while True:
             time.sleep(self.probe_interval)
@@ -1445,11 +1635,13 @@ class FailoverClient:
         messages: list[ChatMessage],
         *,
         json_mode: bool = False,
+        json_schema: dict | None = None,
         temperature: float = 0.3,
     ) -> str:
         return self.chat_with_provider(
             messages,
             json_mode=json_mode,
+            json_schema=json_schema,
             temperature=temperature,
         ).content
 
@@ -1458,6 +1650,7 @@ class FailoverClient:
         messages: list[ChatMessage],
         *,
         json_mode: bool = False,
+        json_schema: dict | None = None,
         temperature: float = 0.3,
     ) -> ChatProviderResult:
         start = self.active_idx
@@ -1471,6 +1664,7 @@ class FailoverClient:
                     messages,
                     json_mode=json_mode,
                     temperature=temperature,
+                    **self._delegate_kwargs(provider, json_schema),
                 )
                 if idx != self.active_idx:
                     with self._lock:

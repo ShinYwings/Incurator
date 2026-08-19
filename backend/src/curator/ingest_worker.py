@@ -209,6 +209,24 @@ def enqueue_l3_global(
     )
 
 
+def progress_current_of(paths: cfg.WikiPaths, job_id: int) -> str:
+    """How far the attempt being discarded had reached, as `current/total`.
+
+    Read before the requeue resets it, so a reader can tell "died immediately"
+    from "died at 263 of 277" — the difference between a bad source and ninety
+    minutes of lost work.
+    """
+    try:
+        with db.connect(paths.state_db) as conn:
+            row = conn.execute(
+                "SELECT progress_current, progress_total FROM ingest_jobs WHERE id = ?",
+                (job_id,),
+            ).fetchone()
+        return f"{row[0]}/{row[1]}" if row else "?"
+    except Exception:  # noqa: BLE001 - a diagnostic must never fail the job
+        return "?"
+
+
 def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
     """Claim and run one queued job synchronously.
 
@@ -395,6 +413,24 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
             _log.warning(
                 "Transient error on job %d (retry %d/%d): %s",
                 job_id, retry_count + 1, MAX_RETRIES, error_str,
+            )
+            # Record it. A retry is the single most expensive thing that can
+            # happen to a job — L2 extraction is all-or-nothing, so requeueing
+            # discards everything the run had done — and until v0.60.0 this
+            # branch wrote NOTHING to the history. Measured: a 673-page book
+            # reached batch 263 of 277, was requeued, and the only trace left
+            # was the batch counter silently restarting at 1. `requeue_job_for_retry`
+            # also overwrites the job row's error, so the reason was gone from
+            # both places. The history is append-only precisely so that the
+            # attempt that failed survives the attempt that follows it.
+            history.record(
+                "retry",
+                {
+                    "attempt": retry_count + 1,
+                    "max_attempts": MAX_RETRIES,
+                    "reached": f"{progress_current_of(paths, job_id)}",
+                    "message": error_str[:500],
+                },
             )
             db.requeue_job_for_retry(paths.state_db, job_id, retry_count + 1, error_str)
         else:
