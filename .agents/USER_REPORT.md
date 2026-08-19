@@ -707,3 +707,80 @@ Running it over existing rows would take the answer from "I cannot get the text"
 to "that region is a 185×12 image the parser discarded — snip it, or set
 `llm.vision_model` and re-add." That is a different, much smaller job than
 ROADMAP item 1 (recovery), which stays blocked on its three prerequisites.
+
+---
+
+## The agentic CLI backend shells out to `python3` to answer, and the permission layer kills the whole job
+
+**Found by reading why the two biggest ingests failed after v0.59.0 merged.** 34
+L2 jobs completed; the two that failed are the two largest sources:
+
+| job | source | died at |
+|---|---|---|
+| 76 | `MultipleViewGeometryHartley` | batch **37 of 277** |
+| 66 | `QuadricSLAM2018 - Nicholson et al.` | batch **9 of 15** |
+
+Identical cause, verbatim from `ingest_jobs.error`:
+
+```
+AntigravityCliError: Antigravity CLI exited 1: Error: permission check failed
+for command "python3 -c '\nimport json\n\ndata = {\n  "units": [ ... ] }'"
+```
+
+and on job 66:
+
+```
+python3 -c '\nimport json, jsonschema\n\nallowed_spans = { "SPAN-7b4223bd", ... }
+```
+
+**What is actually happening.** The knowledge-unit extraction contract asks for
+a JSON object. Antigravity is an *agentic* CLI, so the model does not simply
+emit that JSON — it decides to **write a Python script to construct it** (job
+76) or to **validate it against `jsonschema` first** (job 66). Both reach for
+`python3 -c`, which the agy permission set does not grant. The CLI exits 1, the
+batch fails, the retry-split fails the same way, and the entire job is marked
+failed.
+
+So a request for *text* is being answered with *agency*, and the sandbox — doing
+its job correctly — turns that into a hard failure.
+
+**Why this is not the same as the v0.56.1 fix.** That one granted
+`read_file(*)` because the model legitimately needed to read a file. Here the
+model needs no tool at all: it has the spans in its prompt and the answer is a
+string. Granting `python3` would be granting arbitrary code execution to make a
+JSON serialiser work, which is the wrong trade in the wrong direction.
+
+**Cost of the failure mode.** Job 76 ran **29 minutes** and reached batch 37 of
+277 before dying, and L2 extraction is all-or-nothing (ROADMAP 6), so all of it
+is discarded. A rerun starts at batch 1 and can die at any batch where the model
+happens to choose the tool route — the choice is not deterministic, which is
+why 34 other jobs succeeded. Two of the three largest sources in the vault are
+currently un-ingestable by luck.
+
+**The root-cause direction, for a plan rather than a hot patch.** These prompts
+want a string, not an agent. The fix is to invoke the CLI in a mode where tool
+use is not available for structured-output contracts, so the model cannot
+choose a route that the permission layer must then deny. Alternatives to weigh:
+
+1. **No-tools invocation for structured-output prompts.** Root cause. Needs a
+   check of what the `agy` CLI actually offers for this (a flag, an empty
+   permission set, or a different subcommand), and whether the same applies to
+   the `claude` and `codex` CLI clients, which have the same shape.
+2. **Treat `permission check failed` as transient and retry.** A workaround —
+   it re-rolls the dice rather than removing them, and burns quota doing it.
+   Cheap enough to be tempting; note that job 76 already had `retry_count=1` and
+   failed again.
+3. **Prompt-level discouragement** ("return the JSON directly; do not use
+   tools"). Weakest — it is advice to a model that already has the tools.
+
+Related, and worth resolving together: this is the second failure mode caused by
+the gap between "agentic CLI" and "LLM that returns text" (the first was v0.48.4
+`no output produced`, then v0.55.0's file-reader confusion, then v0.56.1's
+permission grant). Prompt assembly is still not provider-aware — the RELAY has
+carried that as an open follow-up since v0.55.0.
+
+**Also worth noting for whoever picks this up**: `job_events` currently holds 8
+rows because all but one of these jobs ran under pre-v0.59.0 code. A rerun of
+job 76 now would produce a real history and show exactly which batch the run
+reached before dying — which is the whole point of v0.59.0 and would replace the
+guesswork above with a timestamped record.
