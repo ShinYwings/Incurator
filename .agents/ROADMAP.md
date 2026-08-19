@@ -235,6 +235,23 @@ sub-item survives.**
 - Reference-Mode jobs displaying the `.md` stub name for a PDF: not re-verified
   in this pass.
 
+### 12. Structured output — the CLI answers JSON prompts by running `python3`
+
+Asked for a JSON object, the agentic CLI writes a Python program to build it
+(job 76, Hartley) or to `jsonschema`-validate it (job 66, Nicholson); the agy
+permission layer denies `python3` and the job dies. Non-deterministic — 34 of 36
+jobs never took that route — so the two largest sources are un-ingestable by
+luck. Hartley died at batch 37 of 277 after 29 minutes, all discarded.
+
+Measured fix path, and the trap in it: `agy --json-schema` + `--output-format
+json` returns `num_turns: 1` (no tool call) — but ONLY with the `$ref` inlined.
+The real contract schema returns `SUCCESS` with `structured_output:
+{"units": []}`, silently empty, with the answer left in `response` under
+invented field names.
+
+**PLANNED**: `.agents/plans/07_structured_output.md` (v0.60.0), Arena at
+`.agents/plans/structured_output_arena/`. Awaiting user approval.
+
 ### 9. Drafts not yet planned
 
 - Vault Storage Governance & Quota Visibility —
