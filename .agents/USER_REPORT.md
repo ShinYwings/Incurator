@@ -784,3 +784,47 @@ rows because all but one of these jobs ran under pre-v0.59.0 code. A rerun of
 job 76 now would produce a real history and show exactly which batch the run
 reached before dying — which is the whole point of v0.59.0 and would replace the
 guesswork above with a timestamped record.
+
+### Measured follow-up: `agy --json-schema` removes the tool detour
+
+Checked what the CLI actually offers before guessing further. `agy` has **no
+`--allowedTools`** (the `claude` client uses that flag; agy does not have it),
+but it does have:
+
+```
+--json-schema   Optional JSON schema string or path to a schema file to enforce
+                structured output
+--sandbox       Run in a sandbox with terminal restrictions enabled
+```
+
+`--json-schema` requires `--output-format json` (it errors otherwise). Ran the
+failing shape against it — including the very instruction that sent job 66 to
+`python3 -c 'import json, jsonschema'`, "Validate that every source_span_id you
+emit is in this allowed set":
+
+```
+$ agy -p "<extraction prompt with 2 spans>" \
+      --json-schema ku_schema.json --output-format json
+{"status":"SUCCESS", "num_turns":1, "duration_seconds":6.85,
+ "structured_output":{"units":[{...},{...}]}, ...}
+```
+
+**`num_turns: 1`** — one turn, no tool call, no permission prompt — and the
+parsed object arrives in a dedicated `structured_output` field rather than
+having to be scraped out of prose. 6.9 seconds.
+
+So option 1 is not speculative: the CLI has a first-class structured-output mode
+and the extraction contract is exactly what it is for. The work is to route
+structured-output contracts through `--json-schema` + `--output-format json` and
+read `structured_output`, instead of asking an agent for prose that happens to
+be JSON. Two things a plan still has to settle:
+
+- The raw `response` string carried two extra keys the schema never asked for
+  (`toolAction`, `toolSummary`); `structured_output` was clean. Parse the
+  structured field, not the response text.
+- `claude` and `codex` clients have the same shape but different flags. Decide
+  whether this becomes a per-client capability (`supports_structured_output`)
+  or a client-specific path.
+
+Options 2 (retry) and 3 (prompt nudge) from the list above are superseded — both
+re-roll the dice; this one removes them.
