@@ -190,6 +190,37 @@ Once your knowledge is safely registered in the vault, it's time to set up your 
 
 External files such as research PDFs owned by Zotero, iCloud, Syncthing, or a browser download folder can be connected to Incurator in two ways.
 
+> [!WARNING]
+> **macOS blocks folders you never granted, and the failure looks like a broken
+> file.** If a referenced PDF lives in a protected folder, ingest fails with
+> `parse failed: Cannot parse PDF ...` even though the file opens perfectly in
+> Finder. The file is fine; the process was denied. macOS allows `stat` and
+> refuses `open`, so Incurator can see that the file exists and still cannot
+> read a byte of it.
+>
+> **This is not only about cloud storage.** Measured on macOS 15:
+>
+> | Folder | Reachable without a grant? |
+> |---|---|
+> | `~/Zotero` (Zotero's default) | yes |
+> | `~/Documents`, `~/Desktop`, `~/Downloads` | **no** |
+> | `~/Library/Mobile Documents` (iCloud Drive) | **no** |
+> | `/Volumes` (external / network drives) | top level yes, individual volumes may prompt |
+>
+> So a Zotero library at the default `~/Zotero` works, and the same library
+> moved to `~/Documents/Zotero` does not. Dropbox, Google Drive, and OneDrive
+> present their folders through `~/Library/CloudStorage`, which is subject to the
+> same rules.
+>
+> **To fix it**, grant access to whichever application runs Incurator:
+> System Settings → Privacy & Security → **Full Disk Access**, then enable
+> **Obsidian** (for plugin-driven ingest) and/or your terminal app (for `wiki`
+> on the command line). Restart the application afterwards — a grant does not
+> apply to an already-running process.
+>
+> Incurator cannot request this for you: macOS has no API to ask for a folder
+> grant, and a background process gets a silent denial instead of a prompt.
+
 ### 1. Reference Mode
 
 The file stays in its original location while the Incurator backend registers it

@@ -158,6 +158,35 @@ PDF text parsing은 pymupdf4llm의 host Tesseract OCR을 암묵적으로 실행�
 
 논문 PDF처럼 외부 앱(Zotero, iCloud, Syncthing, 브라우저 다운로드 폴더 등)이 소유한 파일은 두 가지 방식으로 Incurator에 연결할 수 있습니다.
 
+> [!WARNING]
+> **macOS가 허용하지 않은 폴더는 막고, 그 실패가 파일 손상처럼 보입니다.** 참조된
+> PDF가 보호된 폴더에 있으면 Finder에서는 멀쩡히 열리는데도 적재는
+> `parse failed: Cannot parse PDF ...`로 실패합니다. 파일은 정상이고 프로세스가
+> 거부된 것입니다. macOS는 `stat`은 허용하고 `open`만 막기 때문에, Incurator는
+> 파일이 있다는 것까지는 알면서 단 1바이트도 읽지 못합니다.
+>
+> **클라우드 저장소만의 문제가 아닙니다.** macOS 15에서 실측한 결과:
+>
+> | 폴더 | 권한 없이 접근 가능? |
+> |---|---|
+> | `~/Zotero` (Zotero 기본 경로) | 가능 |
+> | `~/Documents`, `~/Desktop`, `~/Downloads` | **불가** |
+> | `~/Library/Mobile Documents` (iCloud Drive) | **불가** |
+> | `/Volumes` (외장/네트워크 드라이브) | 최상위는 가능, 개별 볼륨은 확인창이 뜰 수 있음 |
+>
+> 즉 Zotero 라이브러리가 기본 위치인 `~/Zotero`에 있으면 동작하고, 같은 것을
+> `~/Documents/Zotero`로 옮기면 동작하지 않습니다. Dropbox·Google Drive·OneDrive는
+> 폴더를 `~/Library/CloudStorage`를 통해 노출하며 같은 규칙을 적용받습니다.
+>
+> **해결하려면** Incurator를 실행하는 애플리케이션에 권한을 주세요.
+> 시스템 설정 → 개인정보 보호 및 보안 → **전체 디스크 접근 권한**에서
+> **Obsidian**(플러그인으로 적재할 때)과 사용하는 터미널 앱(명령줄에서 `wiki`를
+> 쓸 때)을 켭니다. 켠 뒤에는 해당 앱을 재시작해야 합니다 — 이미 실행 중인
+> 프로세스에는 권한이 적용되지 않습니다.
+>
+> Incurator가 대신 요청해 줄 수는 없습니다. macOS에는 폴더 권한을 미리 요청하는
+> API가 없고, 백그라운드 프로세스는 확인창 대신 조용한 거부를 받습니다.
+
 ### 1. Reference Mode
 
 파일을 복사하지 않고 원래 위치에 둔 채 Incurator backend에 source로
