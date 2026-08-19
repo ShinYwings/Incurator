@@ -247,10 +247,32 @@ def _structured_from_envelope(stdout: str) -> str:
 
     if structured is not None and _has_content(structured):
         return json.dumps(structured)
+
+    # An empty structure is NOT automatically a defect. "This excerpt contains
+    # nothing extractable" is a legitimate answer -- a references list, a title
+    # page, boilerplate -- and it arrives as `{"units": []}` beside a sentence
+    # saying so, because the CLI is an agent and answers in prose by habit.
+    #
+    # The defect this fallback exists for looks different, and `num_turns` is
+    # what separates them: it took TWO turns, went and did something, and left
+    # the real answer in the response text under invented field names. One turn
+    # means the model answered directly, so an empty structure at one turn is
+    # the model's actual answer and must be returned as-is.
+    #
+    # Getting this wrong is not cosmetic. Returning prose where JSON is expected
+    # makes `_parse` fail, burns the one-shot repair retry, and can fail a batch
+    # -- turning a correct empty extraction into the same job-killing failure
+    # this release was written to remove, just from the other direction.
+    turns = envelope.get("num_turns")
+    took_a_detour = not isinstance(turns, int) or turns > 1
+    if structured is not None and not took_a_detour:
+        return json.dumps(structured)
+
     if response.strip():
         logger.warning(
-            "Structured output was empty while the response was not; falling "
-            "back to parsing the text. Check that the schema was flattened."
+            "Structured output was empty after %s turns while the response was "
+            "not; falling back to parsing the text. Check that the schema was "
+            "flattened.", turns,
         )
         return response
     return json.dumps(structured) if structured is not None else response

@@ -40,7 +40,16 @@ All notable changes to Incurator are documented here.
   nothing while reporting success.
 
 ### Changed
-- **An empty structured result beside a non-empty response is treated as a
+- **An empty result is only treated as a defect when the model took a detour.**
+  Review caught the first version second-guessing every legitimately empty
+  batch: a references page or boilerplate correctly yields `{"units": []}`, and
+  the CLI — an agent — says so in a sentence. Returning that sentence where JSON
+  is expected fails the parse, burns the one-shot repair retry, and can fail the
+  batch, arriving at the same job-killing failure this release removes from the
+  other direction. `num_turns` separates the two: one turn is a direct answer
+  and its empty structure is trusted; more than one turn is the measured defect
+  shape and still degrades to the text path.
+- **An empty structured result after a detour is treated as a
   defect, not an answer.** It degrades to parsing the text — what a client
   without this capability does — and logs the degradation, rather than telling
   the pipeline the model found nothing.

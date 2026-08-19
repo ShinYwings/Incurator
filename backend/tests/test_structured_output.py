@@ -302,3 +302,65 @@ def test_failover_sends_the_schema_only_to_a_delegate_that_takes_it() -> None:
     plain = _Plain()
     _failover(plain).chat_with_provider([], json_mode=True, json_schema=schema)
     assert plain.called, "the plain delegate must still be called, just without a schema"
+
+
+# --------------------------------------------------------------------------
+# An empty structure is not automatically a defect. Telling the two apart is
+# what `num_turns` is for, and the review found the code was not asking.
+# --------------------------------------------------------------------------
+
+# The realistic middle case: a batch of boilerplate. The model correctly finds
+# nothing, answers in ONE turn, and -- being an agent -- says so in a sentence.
+_LEGITIMATELY_EMPTY = json.dumps({
+    "status": "SUCCESS", "num_turns": 1,
+    "response": "I reviewed this excerpt and found no extractable knowledge units.",
+    "structured_output": {"units": []},
+})
+
+
+def test_a_correctly_empty_result_is_returned_not_second_guessed() -> None:
+    """`{"units": []}` at one turn is the answer, not a failure to answer.
+
+    Returning the prose instead makes `_parse` fail on text with no JSON in it,
+    burns the one-shot repair retry, and can fail the batch — turning a correct
+    empty extraction into the same job-killing failure this release removes,
+    arriving from the other direction. A references page or a title page
+    produces exactly this shape.
+    """
+    out = llm._structured_from_envelope(_LEGITIMATELY_EMPTY)
+    assert json.loads(out) == {"units": []}, (
+        "an empty extraction answered in one turn must be trusted; falling back "
+        "to prose here hands unparseable text to a JSON parser"
+    )
+
+
+def test_one_turn_and_empty_does_not_warn(caplog: pytest.LogCaptureFixture) -> None:
+    """No warning either — a normal empty batch must not look like a defect."""
+    with caplog.at_level("WARNING"):
+        llm._structured_from_envelope(_LEGITIMATELY_EMPTY)
+    assert not any("falling back" in r.getMessage() for r in caplog.records)
+
+
+def test_the_detour_signature_still_falls_back() -> None:
+    """Two turns + empty structure + prose IS the defect, and still degrades.
+
+    This is the measured shape of an unflattened `$ref` schema: the CLI goes and
+    does something, returns nothing structured, and leaves the real answer in
+    the text under field names the contract never declared.
+    """
+    out = llm._structured_from_envelope(_EMPTY_STRUCTURE)   # num_turns: 2
+    assert "knowledge_unit" in out
+
+
+def test_a_missing_turn_count_is_treated_as_a_detour() -> None:
+    """Unknown provenance falls back rather than trusting an empty result.
+
+    An envelope without `num_turns` gives no evidence the model answered
+    directly, and the safe direction is the one that still has the text.
+    """
+    envelope = json.dumps({
+        "status": "SUCCESS",
+        "response": 'here you go: {"units": [{"canonical_name": "A"}]}',
+        "structured_output": {"units": []},
+    })
+    assert "canonical_name" in llm._structured_from_envelope(envelope)

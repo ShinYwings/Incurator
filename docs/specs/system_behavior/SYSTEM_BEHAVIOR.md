@@ -774,10 +774,20 @@ sign of the failure recurring.
 
 1. `structured_output` present and non-empty → use it. It is already validated
    against the schema, and the contract's own model validates it unmodified.
-2. `structured_output` empty or absent **while the response text is non-empty**
-   → do NOT report an empty result. Fall back to parsing the response text, as
-   a client without this capability does, and log the degradation.
-3. Never return an empty structure as though the model found nothing.
+2. `structured_output` **empty after one turn** → use it. An empty result is a
+   legitimate answer: a references list, a title page, or boilerplate contains
+   nothing extractable, and the model says so in prose out of habit while
+   returning an honestly empty structure. One turn means it answered directly,
+   so that structure IS the answer.
+3. `structured_output` empty **after more than one turn, or with no turn count**,
+   while the response text is non-empty → fall back to parsing the response text
+   and log the degradation. This is the measured defect shape: the model went
+   and did something, returned nothing structured, and left the real answer in
+   the text under field names the contract never declared.
+4. Never report an empty structure as a *failure* when the model answered
+   directly, and never report prose as a *result* when it did not. Returning
+   prose where a caller expects JSON fails the parse, burns the one-shot repair
+   retry, and can fail the batch.
 
 **The error envelope moves the reason.** Under structured output the CLI still
 exits non-zero on failure, but stderr is empty and the cause moves into the
