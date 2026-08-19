@@ -159,24 +159,41 @@ PDF text parsing은 pymupdf4llm의 host Tesseract OCR을 암묵적으로 실행�
 논문 PDF처럼 외부 앱(Zotero, iCloud, Syncthing, 브라우저 다운로드 폴더 등)이 소유한 파일은 두 가지 방식으로 Incurator에 연결할 수 있습니다.
 
 > [!WARNING]
-> **macOS가 허용하지 않은 폴더는 막고, 그 실패가 파일 손상처럼 보입니다.** 참조된
-> PDF가 보호된 폴더에 있으면 Finder에서는 멀쩡히 열리는데도 적재는
-> `parse failed: Cannot parse PDF ...`로 실패합니다. 파일은 정상이고 프로세스가
-> 거부된 것입니다. macOS는 `stat`은 허용하고 `open`만 막기 때문에, Incurator는
-> 파일이 있다는 것까지는 알면서 단 1바이트도 읽지 못합니다.
+> **Zotero는 서로 다른 두 디렉터리를 씁니다. PDF 실물은 두 번째에만 있습니다.**
+> 이 둘을 혼동하면 아래 실패를 정확히 잘못 읽게 됩니다.
 >
-> **클라우드 저장소만의 문제가 아닙니다.** macOS 15에서 실측한 결과:
+> | | 무엇인가 | 무슨 역할인가 |
+> |---|---|---|
+> | **데이터 디렉터리** — 기본값 `~/Zotero` | `zotero.sqlite`와 프로필의 `prefs.js` | *색인*입니다. `zotero:<key>`를 파일로 해석하고, 첨부파일이 어디 있는지를 기록합니다. 경로 하나만 설정해도 탐색이 되는 이유가 이것입니다. |
+> | **첨부 디렉터리** — Zotero에서 지정한 위치 | PDF 실제 바이트 | Zotero의 *Linked Attachment Base Directory*(`extensions.zotero.baseAttachmentPath`, ZotMoov는 `extensions.zotmoov.dst_dir`). iCloud Drive·Dropbox·외장 볼륨인 경우가 많습니다. |
+>
+> **이 둘은 별개의 macOS 권한입니다.** `~/Zotero`를 읽을 수 있다는 사실은 첨부
+> 디렉터리를 열 수 있는지에 대해 아무것도 말해주지 않으며, 그 간극이 곧 이
+> 실패입니다:
+>
+> ```
+> parse failed: Cannot parse PDF MultipleViewGeometryHartley - .pdf:
+> Failed to open file '/Users/…/Mobile Documents/…/MultipleViewGeometryHartley - .pdf'
+> ```
+>
+> 탐색은 성공해서 Incurator가 파일의 정확한 경로까지 압니다. 여는 것이 거부된
+> 것입니다. macOS는 `stat`은 허용하고 `open`만 막기 때문에 파일의 존재와 실제
+> 크기는 보이면서 단 1바이트도 읽히지 않고, 메시지는 Finder에서 멀쩡히 열리는
+> 파일을 손상된 PDF처럼 보이게 만듭니다.
+>
+> **클라우드 저장소만의 문제가 아닙니다.** 그렇게 짐작하기 쉽지만, macOS 15에서
+> 실측한 결과는 이렇습니다:
 >
 > | 폴더 | 권한 없이 접근 가능? |
 > |---|---|
-> | `~/Zotero` (Zotero 기본 경로) | 가능 |
+> | `~/Zotero` | 가능 |
 > | `~/Documents`, `~/Desktop`, `~/Downloads` | **불가** |
 > | `~/Library/Mobile Documents` (iCloud Drive) | **불가** |
 > | `/Volumes` (외장/네트워크 드라이브) | 최상위는 가능, 개별 볼륨은 확인창이 뜰 수 있음 |
 >
-> 즉 Zotero 라이브러리가 기본 위치인 `~/Zotero`에 있으면 동작하고, 같은 것을
-> `~/Documents/Zotero`로 옮기면 동작하지 않습니다. Dropbox·Google Drive·OneDrive는
-> 폴더를 `~/Library/CloudStorage`를 통해 노출하며 같은 규칙을 적용받습니다.
+> 첨부 디렉터리가 `~/Documents/Zotero`에 있으면 클라우드가 전혀 개입하지 않아도
+> 막힙니다. Dropbox·Google Drive·OneDrive는 폴더를 `~/Library/CloudStorage`를
+> 통해 노출하며 같은 규칙을 적용받습니다.
 >
 > **해결하려면** Incurator를 실행하는 애플리케이션에 권한을 주세요.
 > 시스템 설정 → 개인정보 보호 및 보안 → **전체 디스크 접근 권한**에서

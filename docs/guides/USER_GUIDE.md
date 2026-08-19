@@ -191,32 +191,47 @@ Once your knowledge is safely registered in the vault, it's time to set up your 
 External files such as research PDFs owned by Zotero, iCloud, Syncthing, or a browser download folder can be connected to Incurator in two ways.
 
 > [!WARNING]
-> **macOS blocks folders you never granted, and the failure looks like a broken
-> file.** If a referenced PDF lives in a protected folder, ingest fails with
-> `parse failed: Cannot parse PDF ...` even though the file opens perfectly in
-> Finder. The file is fine; the process was denied. macOS allows `stat` and
-> refuses `open`, so Incurator can see that the file exists and still cannot
-> read a byte of it.
+> **Zotero uses two different directories, and only the second one holds the
+> PDF.** Getting these confused is the fastest way to misread the failure below.
 >
-> **This is not only about cloud storage.** Measured on macOS 15:
+> | | What it is | What it is for |
+> |---|---|---|
+> | **Data directory** — `~/Zotero` by default | `zotero.sqlite` and the profile's `prefs.js` | The *index*. Resolves `zotero:<key>` to a file and records where attachments live. This is why one configured path is enough for discovery. |
+> | **Attachment directory** — wherever you pointed Zotero | The actual PDF bytes | Zotero's *Linked Attachment Base Directory* (`extensions.zotero.baseAttachmentPath`; ZotMoov uses `extensions.zotmoov.dst_dir`). Commonly iCloud Drive, Dropbox, or an external volume. |
+>
+> **They are separate macOS permission grants.** Being able to read `~/Zotero`
+> tells you nothing about whether the attachment directory can be opened — and
+> that split is exactly the failure:
+>
+> ```
+> parse failed: Cannot parse PDF MultipleViewGeometryHartley - .pdf:
+> Failed to open file '/Users/…/Mobile Documents/…/MultipleViewGeometryHartley - .pdf'
+> ```
+>
+> Discovery worked, so Incurator knows the file's exact path. Opening it was
+> denied. macOS permits `stat` and refuses `open`, so the file's existence and
+> true size are visible while not one byte is readable — and the message reads
+> like a corrupt PDF for a file that opens perfectly in Finder.
+>
+> **This is not a cloud-storage question**, which is the natural assumption.
+> Measured on macOS 15:
 >
 > | Folder | Reachable without a grant? |
 > |---|---|
-> | `~/Zotero` (Zotero's default) | yes |
+> | `~/Zotero` | yes |
 > | `~/Documents`, `~/Desktop`, `~/Downloads` | **no** |
 > | `~/Library/Mobile Documents` (iCloud Drive) | **no** |
 > | `/Volumes` (external / network drives) | top level yes, individual volumes may prompt |
 >
-> So a Zotero library at the default `~/Zotero` works, and the same library
-> moved to `~/Documents/Zotero` does not. Dropbox, Google Drive, and OneDrive
-> present their folders through `~/Library/CloudStorage`, which is subject to the
-> same rules.
+> An attachment directory under `~/Documents/Zotero` is blocked with no cloud
+> involved anywhere. Dropbox, Google Drive, and OneDrive present their folders
+> through `~/Library/CloudStorage` and fall under the same rules.
 >
 > **To fix it**, grant access to whichever application runs Incurator:
 > System Settings → Privacy & Security → **Full Disk Access**, then enable
 > **Obsidian** (for plugin-driven ingest) and/or your terminal app (for `wiki`
 > on the command line). Restart the application afterwards — a grant does not
-> apply to an already-running process.
+> reach an already-running process.
 >
 > Incurator cannot request this for you: macOS has no API to ask for a folder
 > grant, and a background process gets a silent denial instead of a prompt.
