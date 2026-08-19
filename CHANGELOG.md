@@ -51,6 +51,14 @@ All notable changes to Incurator are documented here.
   capacity/quota check, which reads stderr and the log file, would be left with
   one signal instead of two.
 
+- **A retried job now records what it discarded.** Requeueing for a transient
+  error throws away everything the attempt did, and `requeue_job_for_retry`
+  overwrites the job row's error — so until now the reason survived nowhere and
+  the only trace was the batch counter restarting at 1. Found the hard way
+  during acceptance: a 673-page book reached **batch 263 of 277**, was requeued,
+  and left ninety minutes of work and no explanation. The retry event carries
+  the attempt, the reason, and how far it got.
+
 ### Notes
 - The schema is passed as a **string**, not a temp file: at one call per
   extraction batch (277 for Hartley) a file per call would litter the temp

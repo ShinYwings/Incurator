@@ -1293,6 +1293,14 @@ reports whether the row was written; the job counts what it lost, carries the
 count on its terminal event as `events_dropped`, and logs it at WARNING. When
 the count is non-zero, `wiki jobs events` states that the history is incomplete.
 
+**A retry must record what it discarded.** Requeueing a job for a transient
+error throws away everything the attempt had done — L2 extraction is
+all-or-nothing — and `requeue_job_for_retry` overwrites the job row's error, so
+the reason survives nowhere unless the history keeps it. The retry event carries
+the attempt number, the reason, and how far the discarded attempt reached.
+Measured: a 673-page book got to batch 263 of 277, was requeued, and left only a
+batch counter silently restarting at 1.
+
 **Emitting an event is not committing a checkpoint.** L2 extraction is
 all-or-nothing: staged units accumulate in memory and are bulk-persisted only on
 full success, so an interrupted run re-processes every batch. Progress events

@@ -303,3 +303,38 @@ def test_losing_the_terminal_event_itself_is_logged(
     assert any("history is incomplete" in r.getMessage() for r in caplog.records), (
         f"losing the terminal event was not reported: {[r.getMessage() for r in caplog.records]}"
     )
+
+
+def test_a_retried_job_records_what_it_discarded(
+    vault: cfg.WikiPaths, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A retry throws away everything the attempt did. Say so.
+
+    Measured on the real vault: a 673-page book reached batch 263 of 277, hit a
+    transient error, and was requeued. The only trace was the batch counter
+    silently restarting at 1 — `requeue_job_for_retry` overwrites the job row's
+    error, and this branch wrote nothing to the history, so the reason was gone
+    from both places. Ninety minutes of work discarded with no record of why.
+    """
+    class Flaky(StubLLMClient):
+        def chat(self, messages, *, json_mode=False, temperature=0.3):
+            raise RuntimeError("connection reset by peer")   # matches _is_transient
+
+    monkeypatch.setattr(ingest_worker, "build_client", lambda *_a, **_k: Flaky())
+    source_id = _seed_source(vault, _long_body())
+    job_id = db.enqueue_job(vault.state_db, source_id=source_id, job_type="l2_atoms")
+
+    ingest_worker.run_next_job(vault, cfg.DEFAULT_CONFIG)
+
+    events = job_events.listing(vault.state_db, job_id, limit=1000)
+    retries = [e for e in events if e["kind"] == "retry"]
+    assert retries, (
+        f"a requeued job left no trace of the attempt it discarded: "
+        f"{[e['kind'] for e in events]}"
+    )
+    data = retries[-1]["data"]
+    assert data.get("attempt") == 1
+    assert "connection reset" in str(data.get("message", "")), (
+        "the reason must survive the requeue that overwrites the job row"
+    )
+    assert "reached" in data, "how far it got is the difference between a bad source and lost work"
