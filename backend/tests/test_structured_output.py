@@ -237,3 +237,68 @@ def test_a_single_turn_call_is_not_flagged(caplog: pytest.LogCaptureFixture) -> 
     with caplog.at_level("WARNING"):
         llm._structured_from_envelope(_SUCCESS)           # num_turns: 1
     assert not any("turns" in r.getMessage() for r in caplog.records)
+
+
+# --------------------------------------------------------------------------
+# D7 — failover. Without this the schema is silently never sent on a failover
+# configuration, which is the "does nothing, says nothing" class of defect this
+# release exists to remove.
+# --------------------------------------------------------------------------
+
+
+class _Capable:
+    model = "capable"
+    supports_structured_output = True
+
+    def __init__(self) -> None:
+        self.got: dict | None = None
+
+    def chat(self, messages, *, json_mode=False, json_schema=None, temperature=0.3):
+        self.got = json_schema
+        return "{}"
+
+
+class _Plain:
+    """A delegate whose chat() never had the keyword — passing it would TypeError."""
+
+    model = "plain"
+    supports_structured_output = False
+
+    def __init__(self) -> None:
+        self.called = False
+
+    def chat(self, messages, *, json_mode=False, temperature=0.3):
+        self.called = True
+        return "{}"
+
+
+def _failover(*providers):
+    fc = llm.FailoverClient.__new__(llm.FailoverClient)
+    fc.providers = list(providers)
+    fc._active_idx = 0
+    fc._lock = __import__("threading").Lock()
+    fc._failover_errors = (llm.LLMError,)
+    fc._console = __import__("rich.console", fromlist=["Console"]).Console(quiet=True)
+    return fc
+
+
+def test_failover_reports_the_active_delegates_capability() -> None:
+    capable, plain = _Capable(), _Plain()
+    assert _failover(capable, plain).supports_structured_output is True
+    assert _failover(plain, capable).supports_structured_output is False
+
+
+def test_failover_sends_the_schema_only_to_a_delegate_that_takes_it() -> None:
+    """Re-checked per delegate, not trusted from when the caller decided.
+
+    A failover can land on a provider whose `chat()` has no `json_schema`
+    parameter; handing it one would raise TypeError inside the ingest path.
+    """
+    capable = _Capable()
+    schema = {"type": "object"}
+    _failover(capable).chat_with_provider([], json_mode=True, json_schema=schema)
+    assert capable.got == schema
+
+    plain = _Plain()
+    _failover(plain).chat_with_provider([], json_mode=True, json_schema=schema)
+    assert plain.called, "the plain delegate must still be called, just without a schema"

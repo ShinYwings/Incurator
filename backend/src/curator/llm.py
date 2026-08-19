@@ -25,7 +25,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Generator
+from typing import Any, Generator
 
 import httpx
 
@@ -1537,6 +1537,32 @@ class FailoverClient:
     def model(self) -> str:
         return self.active_provider.model
 
+    @property
+    def supports_structured_output(self) -> bool:
+        """Whatever the ACTIVE delegate supports, asked fresh each time.
+
+        A fixed value would be wrong in both directions: False would silently
+        disable structured output whenever the capable provider is active, and
+        True would hand a schema to a delegate whose `chat()` has no such
+        parameter after a failover. The re-check below (`_delegate_kwargs`) is
+        what makes the second case safe.
+        """
+        return bool(getattr(self.active_provider, "supports_structured_output", False))
+
+    @staticmethod
+    def _delegate_kwargs(provider: Any, json_schema: dict | None) -> dict:
+        """Send the schema only to a delegate that declares it can use one.
+
+        Failover can land on a provider that never accepted the keyword, so the
+        capability is re-read per delegate at call time rather than trusted from
+        whenever the caller decided to pass a schema.
+        """
+        if json_schema is None:
+            return {}
+        if not getattr(provider, "supports_structured_output", False):
+            return {}
+        return {"json_schema": json_schema}
+
     def _probe_loop(self) -> None:
         while True:
             time.sleep(self.probe_interval)
@@ -1587,11 +1613,13 @@ class FailoverClient:
         messages: list[ChatMessage],
         *,
         json_mode: bool = False,
+        json_schema: dict | None = None,
         temperature: float = 0.3,
     ) -> str:
         return self.chat_with_provider(
             messages,
             json_mode=json_mode,
+            json_schema=json_schema,
             temperature=temperature,
         ).content
 
@@ -1600,6 +1628,7 @@ class FailoverClient:
         messages: list[ChatMessage],
         *,
         json_mode: bool = False,
+        json_schema: dict | None = None,
         temperature: float = 0.3,
     ) -> ChatProviderResult:
         start = self.active_idx
@@ -1613,6 +1642,7 @@ class FailoverClient:
                     messages,
                     json_mode=json_mode,
                     temperature=temperature,
+                    **self._delegate_kwargs(provider, json_schema),
                 )
                 if idx != self.active_idx:
                     with self._lock:

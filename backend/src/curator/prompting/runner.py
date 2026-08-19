@@ -150,6 +150,7 @@ def _chat_with_attribution(
         result = chat_with_provider(
             messages,
             json_mode=json_mode,
+            json_schema=json_schema,
             temperature=temperature,
         )
         provider = getattr(result, "provider", None)
