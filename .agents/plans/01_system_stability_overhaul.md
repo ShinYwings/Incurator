@@ -1,7 +1,12 @@
 # System Stability Overhaul — Active Umbrella Plan
 
 Updated: 2026-07-31
-Status: ACTIVE — completed diagnosis and shipped releases removed; Git history
+Status: ACTIVE — workstream 1 (release-chain integrity) is DONE: it was
+`02_v032_regression_audit.md` P6–P10, which shipped through v0.40.1 with P8
+recorded in CHANGELOG, and that plan has been deleted. Workstreams 2–4
+(prompt architecture v2, safe decomposition, measured performance) remain
+open and are why this file is still here. Completed diagnosis and shipped
+releases removed; Git history
 is the archive.
 
 ## Objective
