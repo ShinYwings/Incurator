@@ -558,6 +558,13 @@ What this means in practice:
   that batch, records the failed prompt trace, and publishes no newly extracted
   L2 units.
   Re-running an unchanged build does not duplicate or mutate anything.
+  On a CLI backend that supports it, L2 now asks for a **value rather than
+  prose**: the extraction schema is sent to the model so it returns a structured
+  object directly. Before v0.60.0 the model was free to answer a JSON request by
+  *writing a program* to build the answer — two large books failed mid-run when
+  the CLI tried to shell out to `python3` and was correctly denied. Nothing about
+  this widens what a model is allowed to run; it removes the reason to reach for
+  a shell at all.
 - **Generated L2 stays English**: `wiki build` validates generated Atom names and
   statements programmatically. If a model writes Korean or another non-English
   language in generated L2 fields, the runner retries once and then marks L2
