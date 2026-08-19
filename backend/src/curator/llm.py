@@ -230,6 +230,21 @@ def _structured_from_envelope(stdout: str) -> str:
 
     structured = envelope.get("structured_output")
     response = str(envelope.get("response") or "")
+
+    # One turn means the model answered directly. More than one means it went
+    # and did something first -- which is how this failure begins: the run that
+    # died reached for `python3` to build its answer, and the unflattened schema
+    # that returns nothing also reports two turns. So a multi-turn structured
+    # call is the early signal, logged before anything else is decided.
+    turns = envelope.get("num_turns")
+    if isinstance(turns, int) and turns > 1:
+        logger.warning(
+            "Structured call took %d turns; a structured request should be "
+            "answered in one. The model may be using tools, which is what a "
+            "schema is meant to make unnecessary (SYSTEM_BEHAVIOR §11.0).",
+            turns,
+        )
+
     if structured is not None and _has_content(structured):
         return json.dumps(structured)
     if response.strip():

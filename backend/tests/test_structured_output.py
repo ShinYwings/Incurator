@@ -214,3 +214,26 @@ def test_live_the_real_contract_schema_returns_one_turn_and_valid_units() -> Non
     parsed = contract.output_model.model_validate(json.loads(raw))
     assert parsed.units, "the CLI accepted the schema but returned nothing"
     assert parsed.units[0].source_span_ids == ["SPAN-aaa"]
+
+
+def test_a_multi_turn_structured_call_is_flagged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """G4. Two turns means the model did something before answering.
+
+    That is how the incident starts — the run that died reached for `python3`
+    first — and it is also what the unflattened schema reports while returning
+    nothing. Cheap to notice, and it is the earliest available signal.
+    """
+    with caplog.at_level("WARNING"):
+        llm._structured_from_envelope(_EMPTY_STRUCTURE)   # num_turns: 2
+    assert any("took 2 turns" in r.getMessage() for r in caplog.records), (
+        f"a multi-turn structured call was not flagged: "
+        f"{[r.getMessage() for r in caplog.records]}"
+    )
+
+
+def test_a_single_turn_call_is_not_flagged(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level("WARNING"):
+        llm._structured_from_envelope(_SUCCESS)           # num_turns: 1
+    assert not any("turns" in r.getMessage() for r in caplog.records)
