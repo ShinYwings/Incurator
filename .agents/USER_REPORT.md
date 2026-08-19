@@ -884,3 +884,29 @@ guaranteed throw rather than a possibility.
 
 Scope note: this is its own release. It is not v0.60.0 (structured output) and
 should not be folded into it.
+
+### Doc check: the specs are clean on the two directories — and that sharpens where the fix belongs
+
+Swept `docs/` for the same conflation. **It is not there.**
+`SYSTEM_BEHAVIOR.md:963-970` keeps them properly apart:
+
+> resolve Zotero `storage:` paths under the active **data directory** and
+> `attachments:` linked-file paths against configured **linked attachment
+> roots** … discovery may use `extensions.zotero.baseAttachmentPath` and ZotMoov
+> `extensions.zotmoov.dst_dir`
+
+The confusion was mine, in the guide text added yesterday, and PR #161 corrects
+it. The spec was right the whole time.
+
+**But the same paragraph exposes the real root.** It mandates three failure
+states — `db_missing`, `attachment_key_missing`, `attachment_file_missing` — and
+the code implements all three faithfully (`zotero_tools.py:84, 226, 241, 310,
+340`). So this is not code drifting from its contract. **The contract has no
+slot for "present but not readable."**
+
+That is why `attachment_file_missing` is returned for a 21 MB file sitting on
+disk: the code picked the only state available to it. Fixing this in the code
+alone would put the implementation ahead of the spec, which this project treats
+as both being wrong. **The audit's plan must start at the spec** — add the
+denied state to the taxonomy — and only then thread it through
+`resolve_pdf`, the parser boundary, and the plugin.
