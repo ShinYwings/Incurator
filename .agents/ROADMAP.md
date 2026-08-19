@@ -204,53 +204,62 @@ unstarted one.
 - Retro-repair for vaults carrying a dead source row from a pre-v0.46.0 move;
   `wiki lint` reports them but nothing fixes them.
 
-### 8. Job progress is unobservable
+### 8. ~~Job progress is unobservable~~ — SHIPPED v0.59.0 (#160)
 
-**Status corrected 2026-08-14 by reading the code. Mostly resolved; one
-sub-item survives.**
+Progress and history now come from the loop that runs. v0.58.0 had attached the
+writer to `WorkerCallbacks`, which `run_next_job` never invokes for L2 — it
+compiles through `compile_source_l2`. Proven on the live vault: job 66's
+`job_events` holds yesterday's failure at batch 9 and today's pass through it in
+one append-only history, ending `pages_created=133 events_dropped=0`.
 
-- ~~`progress=0.1` once when L2 starts and `0.5` after all of L2~~ — resolved.
-  `WorkerCallbacks` (`ingest_worker.py:39`) reports 0.25 / 0.5 / 0.75 / 0.9
-  across `on_pass1_start`, `on_fragment_written`, `on_pass2_start`,
-  `on_theme_written`.
-- ~~`progress_current/progress_total` stay `0/1`~~ — resolved. Written with
-  real `pages_seen` values at lines 54–86.
-- ~~a running job cannot be cancelled~~ — resolved. `db/jobs.py:243
-  cancel_job`, with `STATUS_CANCELLED` surfaced through `runtime_state.py`.
-- **`job_events` still gets zero rows — REOPENED.** v0.58.0 (#159) added the
-  writer (`db/job_events.py`) and the reader (`wiki jobs events <id>`), but
-  attached the writer to `WorkerCallbacks`, which an L2 job never uses:
-  `run_next_job` calls `compile_source_l2` directly and that takes no callbacks.
-  Measured on the live vault — jobs 42 and 43 completed at `5/5` and `11/11`
-  with 0 event rows, and a traced `append` was never called. The table moved
-  from "nothing inserts" to "the inserter is never called".
-- **L2 progress is two-point, not incremental.** `run_next_job` writes progress
-  once before `compile_source_l2` and once after; the entire extraction is one
-  opaque block. A job at `0/1` for twenty minutes is indistinguishable from a
-  stalled one — the original symptom, unfixed. The earlier sub-claim above that
-  `WorkerCallbacks` reports 0.25/0.5/0.75/0.9 is true only of the legacy L3
-  path.
-- **PLANNED**: `.agents/plans/06_job_progress_observability.md` (v0.59.0),
-  Arena at `.agents/plans/job_progress_arena/`. Awaiting user approval.
-- Reference-Mode jobs displaying the `.md` stub name for a PDF: not re-verified
-  in this pass.
+Two gaps were closed after the tests were already green, both found by
+re-reading the plan's own gate list: the `num_turns` warning was listed as a
+gate and never implemented, and the retry branch recorded nothing — so a job
+that discarded 90 minutes of work left only a batch counter restarting at 1.
 
-### 12. Structured output — the CLI answers JSON prompts by running `python3`
+**Remainder, stated rather than dropped: the L3 phase still has no per-step
+heartbeat.** `run_l3_from_existing_atoms` accepts a callbacks factory and never
+invokes it, so `WorkerCallbacks` does not execute at all. Its terminal event
+carries the drop count; nothing is emitted between L3's start and its end.
 
-Asked for a JSON object, the agentic CLI writes a Python program to build it
-(job 76, Hartley) or to `jsonschema`-validate it (job 66, Nicholson); the agy
-permission layer denies `python3` and the job dies. Non-deterministic — 34 of 36
-jobs never took that route — so the two largest sources are un-ingestable by
-luck. Hartley died at batch 37 of 277 after 29 minutes, all discarded.
+### 12. ~~Structured output~~ — SHIPPED v0.60.0 (#162)
 
-Measured fix path, and the trap in it: `agy --json-schema` + `--output-format
-json` returns `num_turns: 1` (no tool call) — but ONLY with the `$ref` inlined.
-The real contract schema returns `SUCCESS` with `structured_output:
-{"units": []}`, silently empty, with the answer left in `response` under
-invented field names.
+L2 extraction uses the CLI's native structured-output mode, so the model is
+asked for a value rather than prose it may decide to compute with `python3`.
+Nicholson (died at batch 9/15) completes with 133 ATM pages; Hartley (died at
+37/277) extracts **277/277** with zero permission denials. 12 of 277 calls still
+took a two-turn detour and none corrupted a result.
 
-**PLANNED**: `.agents/plans/07_structured_output.md` (v0.60.0), Arena at
-`.agents/plans/structured_output_arena/`. Awaiting user approval.
+The load-bearing detail: the schema MUST be flattened. Unflattened, agy returns
+`SUCCESS` with an empty structure and the real answer in prose under invented
+field names — every book would ingest to nothing while reporting success.
+
+**Not closed by this: Hartley is still not ingested.** After extraction it hit a
+429 at publish, then a macOS folder-permission wall on the Zotero attachment.
+Both are tracked separately; neither is this defect.
+
+### 13. External-file access cannot tell "missing" from "not allowed"
+
+Audit in `.agents/USER_REPORT.md`. `PermissionError` appears once in the whole
+backend (redundantly, as an `OSError` subclass beside `OSError`); across the
+external-file modules there are 21 existence checks and **zero** readability
+checks. Under macOS TCC `stat` succeeds while `open` fails, so
+`_first_existing_pdf` picks a file the process cannot read, declares `ok`, and
+the parser reports `Cannot parse PDF` — a corrupt-file message for a healthy
+file.
+
+**The root is the contract, not the code.** SYSTEM_BEHAVIOR mandates three
+failure states (`db_missing`, `attachment_key_missing`, `attachment_file_missing`)
+and the code implements all three faithfully. None of them means "present but
+not readable", so a 21 MB file on disk is reported as missing. A code-only fix
+would put the implementation ahead of its spec.
+
+Also in scope: `zotero_root_candidates` fuses the Zotero **data** directory and
+the **attachment** directory into one list — visible where `_db_candidates`
+probes attachment dirs for `zotero.sqlite`. They are separate macOS grants, and
+conflating them is why this failure was hard to read.
+
+**NEXT**: plan not yet written.
 
 ### 9. Drafts not yet planned
 
