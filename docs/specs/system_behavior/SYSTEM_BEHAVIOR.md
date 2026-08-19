@@ -729,6 +729,63 @@ Rules:
   `backend/src/curator/data/models.json` at plugin build time so model controls
   do not depend on MCP startup.
 
+### 11.0 Structured Output — asking a CLI for a value, not for prose
+
+An agentic CLI given a prompt that wants JSON may **compute** the answer rather
+than write it. Measured: asked to emit knowledge units, `agy` wrote a
+`python3 -c` program to build the object, and on another job a second one to
+validate it against `jsonschema`. The permission layer denied `python3`, the CLI
+exited 1, and two of the vault's three largest sources became un-ingestable —
+non-deterministically, since 34 of 36 jobs in the same batch never took that
+route.
+
+The fix is not a wider sandbox. A model that needs no tool must not be asked a
+question that invites one.
+
+**Capability.** A client declares `supports_structured_output`. It is False by
+default and set True only for a client whose native structured-output mode has
+been measured. `agy` has one; `claude` and `codex` are not assumed to.
+
+**Contract.** `chat()` accepts an optional `json_schema`. `PromptContract`
+already owns the schema — `output_model` is a pydantic model, and
+`supports_json_mode` already reports whether one exists — so the runner passes
+`output_model.model_json_schema()` and computes nothing new.
+
+**The schema MUST be flattened before it reaches the CLI.** `$defs` / `$ref`
+must be inlined. This is not a formatting preference. Measured on the real
+`curator.knowledge_unit_extract` schema, with the schema as the only variable:
+
+| schema | status | turns | units returned |
+|---|---|---|---|
+| as emitted (`$defs` + `$ref`) | SUCCESS | 2 | **0** |
+| flattened | SUCCESS | **1** | **2** |
+
+The referenced schema does not fail. It **succeeds and returns nothing**,
+leaving the real answer in the response text under field names the contract
+never declared. Sending an unflattened schema therefore ingests a source to
+nothing while reporting success — a worse outcome than the crash this replaces.
+
+**One turn is the property that matters.** `num_turns: 1` means the model
+answered directly: no tool call, so nothing for a permission layer to deny. A
+structured call reporting more than one turn must be logged — it is the early
+sign of the failure recurring.
+
+**Precedence when reading the result.**
+
+1. `structured_output` present and non-empty → use it. It is already validated
+   against the schema, and the contract's own model validates it unmodified.
+2. `structured_output` empty or absent **while the response text is non-empty**
+   → do NOT report an empty result. Fall back to parsing the response text, as
+   a client without this capability does, and log the degradation.
+3. Never return an empty structure as though the model found nothing.
+
+**The error envelope moves the reason.** Under structured output the CLI still
+exits non-zero on failure, but stderr is empty and the cause moves into the
+envelope's `error` field. A client must read the message from there; building it
+from stderr yields an exit code with no explanation. Capacity/quota detection
+must consult the envelope's error text as well as the log file, since stderr is
+no longer a signal.
+
 ### 11.1 Model Catalogue and Reasoning Effort
 
 The shared catalogue (`backend/src/curator/data/models.json`, the single source of
