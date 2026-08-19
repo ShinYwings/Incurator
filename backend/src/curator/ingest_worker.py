@@ -37,15 +37,72 @@ def _is_transient(error: str) -> bool:
     return any(sig in low for sig in _TRANSIENT_SIGNALS)
 
 
-class WorkerCallbacks(ingest_llm.IngestCallbacks):
-    """Callbacks that update job progress, layer status, and job history.
+class JobHistory:
+    """One job's event writer, which counts what it could not record.
 
-    ``update_job_progress`` overwrites the job row, so a reader only ever sees
-    the latest phase. That makes a stalled job and a working one look identical:
-    both sit at the same phase and percentage indefinitely. Each callback below
-    therefore also appends to ``job_events``, which is append-only — the
-    difference between "no new events for ten minutes" and "an event a second
-    ago" is the whole signal, and it did not exist.
+    Every path that records an event goes through here, because a count that
+    only covers one path is the defect this release exists to fix. v0.58.0
+    attached its writer to a callback class the L2 job never used; the first
+    draft of v0.59.0 then counted drops only inside the L2 sink, leaving the L3
+    phase, the standalone-L3 job, and the failure path silently uncounted —
+    while SYSTEM_BEHAVIOR §12.1 promised the count unconditionally.
+
+    One instance per job, created in ``run_next_job``. Not module state:
+    ``IngestWorker`` is a ``Thread``, and a shared counter would race and
+    attribute one job's losses to another.
+    """
+
+    def __init__(self, db_path: Path, job_id: int) -> None:
+        self.db_path = db_path
+        self.job_id = job_id
+        self.dropped = 0
+
+    def record(self, kind: str, data: dict[str, object] | None = None) -> None:
+        """Record one event. Never raises; a loss is counted, not surfaced here."""
+        if not job_events.append(self.db_path, self.job_id, kind, data or {}):
+            self.dropped += 1
+
+    def finish(self, kind: str, data: dict[str, object]) -> None:
+        """Record a job's TERMINAL event, carrying the drop count with it.
+
+        The terminal event is the one a reader most needs and the one most
+        likely to be lost, since contention that dropped earlier events is
+        likely still present. So the count is also logged: the log does not
+        depend on the resource that is failing, and a history that simply stops
+        after the last `extracted` line — no `done`, no count — is exactly the
+        "stalled or working?" ambiguity this surface removes.
+        """
+        payload = dict(data)
+        payload["events_dropped"] = self.dropped
+        landed = job_events.append(self.db_path, self.job_id, kind, payload)
+        if self.dropped or not landed:
+            _log.warning(
+                "Job %d: %d progress event(s) could not be recorded%s "
+                "(database contention); its history is incomplete.",
+                self.job_id,
+                self.dropped + (0 if landed else 1),
+                "" if landed else ", including the terminal event",
+            )
+
+
+class WorkerCallbacks(ingest_llm.IngestCallbacks):
+    """Legacy per-fragment callbacks. NOT the source of L2 job history.
+
+    Read this before trusting anything below it. ``run_next_job`` passes a
+    factory for this class to ``ingest_llm.run_l3_from_existing_atoms``, and
+    that function **never invokes the factory** — the parameter appears in its
+    signature and nowhere in its body. So no method here runs during a job.
+
+    v0.58.0 attached the ``job_events`` writer to these methods and shipped a
+    feature that never executed once. The working L2 heartbeat is the progress
+    sink in ``run_next_job``, which ``compile_source_l2`` actually calls; see
+    SYSTEM_BEHAVIOR §12.1. This class is kept because the interactive L1 flow
+    still defines the ``IngestCallbacks`` protocol around it.
+
+    The consequence, stated plainly rather than left to be rediscovered: the L3
+    phase currently emits no per-step events. Its terminal event carries the
+    job's drop count, but there is no heartbeat between L3 start and finish.
+    That gap predates this release and is tracked separately.
     """
 
     def __init__(self, paths: cfg.WikiPaths, job_id: int, source_id: int) -> None:
@@ -53,6 +110,7 @@ class WorkerCallbacks(ingest_llm.IngestCallbacks):
         self.job_id = job_id
         self.source_id = source_id
         self.pages_seen = 0
+        self.history = JobHistory(paths.state_db, job_id)
 
     def on_pass1_start(self, fragment_count: int) -> None:
         db.update_job_progress(
@@ -104,8 +162,8 @@ class WorkerCallbacks(ingest_llm.IngestCallbacks):
         self._event("error", message=str(_error)[:500])
 
     def _event(self, kind: str, **data: object) -> None:
-        """Record one history entry. Never raises — see append_job_event."""
-        job_events.append(self.paths.state_db, self.job_id, kind, data)
+        """Record one history entry. Never raises — see JobHistory.record."""
+        self.history.record(kind, data)
 
 
 def enqueue_l2_l3_for_sources(
@@ -168,6 +226,7 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
     retry_count = int(job.get("retry_count") or 0)
     config = config or cfg.load_config(paths)
     client = build_client(config)
+    history = JobHistory(paths.state_db, job_id)
 
     try:
         if job_type == consts.PHASE_L3:
@@ -181,8 +240,8 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
                 db.mark_job_done(paths.state_db, job_id, pages_created=pages_created, pages_updated=pages_updated)
                 # How a job ENDED is the part a reader most often needs, and the
                 # row alone cannot say how far it got before it stopped.
-                job_events.append(
-                    paths.state_db, job_id, "done",
+                history.finish(
+                    "done",
                     {"pages_created": pages_created, "pages_updated": pages_updated},
                 )
                 return {
@@ -208,16 +267,56 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
         from .pipeline import compile as _compile
         from . import runtime_state
 
-        cr = _compile.compile_source_l2(paths, client, source_id)
+        # The compile is where an L2 job spends its time, and until v0.59.0 it
+        # reported nothing: progress was written once here and once after, so
+        # everything between — every span, every LLM batch, staging, publish —
+        # was a single opaque block. A job stuck at 0/1 for twenty minutes and a
+        # job working normally were the same row.
+        #
+        def _sink(kind: str, data: dict) -> None:
+            history.record(kind, data)
+            batches = data.get("batches")
+            if kind == "extracted" and batches:
+                # `progress` is the ONLY field `wiki jobs list` renders, so it
+                # has to move; L2 owns 0.1 -> 0.5 by the §12.1 convention.
+                # current/total are batches for the whole L2 run, which is what
+                # the dashboards show while a job is running.
+                #
+                # This goes through `connect()`, which the event writer
+                # deliberately avoids: `db/jobs.py` is content-hash-pinned in
+                # D2_HOLDOUT_RESULT.yml and cannot gain a lighter path here. So
+                # it keeps SQLite's 5 s default busy timeout, and this call is
+                # now made once per batch rather than twice per job. Uncontended
+                # that is 1.7 ms; under a held write lock it can block. Failing
+                # SILENTLY is the part that is not acceptable — a swallowed
+                # OperationalError here would leave the percentage frozen with
+                # no trace — so it is logged and counted like a lost event.
+                try:
+                    db.update_job_progress(
+                        paths.state_db, job_id, phase=consts.PHASE_L2,
+                        progress=0.1 + 0.4 * (int(data["batch"]) / int(batches)),
+                        progress_current=int(data["batch"]), progress_total=int(batches),
+                    )
+                except Exception as e:  # noqa: BLE001 - progress is never fatal
+                    history.dropped += 1
+                    _log.warning(
+                        "Job %d: progress update for batch %s failed (%s); "
+                        "the percentage will lag.", job_id, data.get("batch"), e,
+                    )
+
+        cr = _compile.compile_source_l2(paths, client, source_id, on_progress=_sink)
         if not cr.ok:
             raise RuntimeError(cr.error or "L2 compile failed")
         db.set_source_layer_status(paths.state_db, source_id, "l2", consts.STATUS_DONE)
         ingest_llm._mark_source_status(paths, source_id, "curated")
 
-        # Update progress to reflect L2 complete; progress_total = atoms created
+        # L2 complete. progress_current/total keep meaning BATCHES (§12.1) — the
+        # atom count lives in `pages_created` on the job row, and no surface
+        # renders the fraction for a finished job, so repurposing the columns at
+        # the last moment would only make them disagree with the run they
+        # described.
         pages_created = len(cr.atom_ids)
-        db.update_job_progress(paths.state_db, job_id, phase=consts.PHASE_L2, progress=0.5,
-                               progress_current=pages_created, progress_total=max(1, pages_created))
+        db.update_job_progress(paths.state_db, job_id, phase=consts.PHASE_L2, progress=0.5)
         # Write snapshot so the plugin dashboard sees the L2-done state immediately.
         try:
             runtime_state.write_runtime_snapshots(paths)
@@ -270,6 +369,12 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
             pages_created=pages_created,
             pages_updated=pages_updated,
         )
+        # How a job ENDED is what a reader needs most, and the source-L2 path
+        # had no terminal event at all while the global-L3 path above did.
+        history.finish(
+            "done",
+            {"pages_created": pages_created, "pages_updated": pages_updated},
+        )
         if in_tok or out_tok:
             db.accumulate_job_tokens(paths.state_db, job_id, in_tok, out_tok)
         return {
@@ -294,7 +399,7 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
             db.requeue_job_for_retry(paths.state_db, job_id, retry_count + 1, error_str)
         else:
             db.mark_job_failed(paths.state_db, job_id, error_str)
-            job_events.append(paths.state_db, job_id, "error", {"message": error_str[:500]})
+            history.finish("error", {"message": error_str[:500]})
             if source_id:
                 db.set_source_layer_status(
                     paths.state_db, source_id, "l2", consts.STATUS_ERROR, error=error_str

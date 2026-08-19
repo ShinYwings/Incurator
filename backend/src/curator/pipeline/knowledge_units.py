@@ -11,12 +11,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from .. import db, prompting
 from .chunking import client_optimal_chunk_chars
+
+_log = logging.getLogger(__name__)
 
 __all__ = ["KnowledgeUnitResult", "extract_knowledge_units"]
 
@@ -307,6 +311,7 @@ def extract_knowledge_units(
     source_title: str,
     spans: list[dict],
     curate_spec_hash: str = "",
+    on_progress: Callable[[str, dict[str, object]], None] | None = None,
 ) -> KnowledgeUnitResult:
     """Extract and persist knowledge units from in-memory spans.
 
@@ -396,6 +401,41 @@ def extract_knowledge_units(
             all_errors.extend(result.errors)
             break
         pending_units.extend(result.units)
+
+        # One event per BATCH — the heartbeat that makes a slow L2 and a
+        # stopped one distinguishable. Not per LLM call: `_run_batch_with_retry`
+        # splits a batch that fails validation and recurses, so a single
+        # iteration can cost several calls and go quiet between events. This
+        # loop already knows both numbers; the retry label above is built from
+        # the same pair. Before v0.59.0 nothing left this function until it had
+        # finished, so a job spent the whole extraction reporting one
+        # unchanging row.
+        #
+        # This is an OBSERVATION, NOT A CHECKPOINT. Extraction is
+        # all-or-nothing by design: units accumulate in memory and are
+        # bulk-persisted only on full success, so an interrupted run re-does
+        # every batch. Do not grow this into a resume point — a checkpoint
+        # mechanism lived here and was removed in v0.52.0 because it could never
+        # run, and its resume path returned the staged-unit list, which is empty
+        # after a successful publish and would retire a source's entire
+        # authoritative unit set. Resumable L2 is a separate roadmap item.
+        if on_progress is not None:
+            try:
+                on_progress(
+                    "extracted",
+                    {
+                        "phase": "l2",
+                        "batch": index,
+                        "batches": len(batches),
+                        "units": len(pending_units),
+                    },
+                )
+            except Exception:  # noqa: BLE001 - observation is never fatal
+                # Logged, not silent: XC-1 established that best-effort swallows
+                # in this codebase still leave a debug trace, and this is the
+                # highest-frequency event the sink emits — a bug in the caller's
+                # sink would otherwise be invisible exactly where it matters.
+                _log.debug("progress sink raised (non-fatal)", exc_info=True)
 
     if all_errors:
         return KnowledgeUnitResult(

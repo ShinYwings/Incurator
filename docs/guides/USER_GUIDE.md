@@ -1305,3 +1305,27 @@ wiki jobs events 42
 `wiki jobs list` shows where a job is now; `wiki jobs events` shows how it got
 there, which is the difference between a job working slowly and one that
 stopped.
+
+A real extraction reads like this:
+
+```
+2026-08-18T07:34:09Z    1  status     phase=l2 stage=spans_stored spans=156
+2026-08-18T07:34:53Z    2  extracted  phase=l2 batch=1 batches=3 units=32
+2026-08-18T07:35:53Z    3  extracted  phase=l2 batch=2 batches=3 units=65
+2026-08-18T07:39:20Z    4  extracted  phase=l2 batch=3 batches=3 units=105
+2026-08-18T07:39:21Z    5  status     phase=l2 stage=publishing units=105
+2026-08-18T07:39:47Z    6  done       pages_created=30 pages_updated=0 events_dropped=0
+```
+
+Read the **timestamps**, not just the lines. Batch 1 took 44 seconds, batch 2
+took a minute, batch 3 took three and a half — so the job was slow, not stuck.
+The test for "has it died?" is simply how old the last line is: a job whose
+newest event is ten minutes old, on a source whose batches take one, is worth
+looking at. `batch=2 batches=3` also tells you how much is left.
+
+`wiki jobs list` answers the same question more coarsely; its percentage now
+moves through L2 rather than sitting at 10% until the phase ends.
+
+If the last line reports events that could not be recorded, the command says so
+— a busy database can cost a line of history, and an incomplete history should
+not be mistaken for a quiet job.

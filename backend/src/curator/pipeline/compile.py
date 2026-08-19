@@ -19,6 +19,7 @@ import json
 import logging
 import hashlib
 from dataclasses import dataclass, field
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -49,8 +50,42 @@ from .formula_recovery import (
 
 logger = logging.getLogger(__name__)
 
+ProgressSink = Callable[[str, dict[str, object]], None]
+"""``(kind, data) -> None``. Report that something happened during a compile.
+
+Deliberately one verb rather than ``ingest_llm.IngestCallbacks``: that protocol
+carries fourteen methods built for the interactive L1 flow (``on_stream_chunk``,
+``ask_confirm``, ``on_curation_written``, …), and importing it here would drag an
+interactive-CLI contract into a batch compiler and force every test double to
+grow fourteen no-ops.
+
+``kind`` uses the vocabulary the ``job_events`` schema already documents —
+``status | extracted | page | chunk | error | done`` — so ``wiki jobs events``
+needs no new rendering. See SYSTEM_BEHAVIOR §12.1.
+
+A sink observes; it does not checkpoint. L2 extraction is all-or-nothing and
+must stay that way.
+"""
+
+
+def _emit(sink: ProgressSink | None, kind: str, **data: object) -> None:
+    """Call a progress sink, never letting it affect the compile.
+
+    The guard belongs here and not only inside the sink: a sink is supplied by
+    the caller and may be anything, so the compiler must not inherit its bugs.
+    The sink's own writer keeps its own guard as defence in depth.
+    """
+    if sink is None:
+        return
+    try:
+        sink(kind, data)
+    except Exception:  # noqa: BLE001 - see docstring: observation is never fatal
+        logger.debug("progress sink raised (non-fatal)", exc_info=True)
+
+
 __all__ = [
     "CompileResult", "compile_source_l2", "compile_global_l3", "reemit_projections",
+    "ProgressSink",
     # Plan B (v0.8.0) claim-support validation surface (SYSTEM_BEHAVIOR §26).
     "AuditReport", "validate_claim_support", "run_compiler_audit", "reconcile_source",
     "classify_formula_loss", "invalidate_formula_recoveries", "recover_formula",
@@ -277,12 +312,20 @@ def compile_source_l2(
     source_id: int,
     *,
     curate_spec_hash: str = "",
+    on_progress: ProgressSink | None = None,
 ) -> CompileResult:
     """Compile one source's L2: knowledge_units + graph, emit ATM pages.
 
     Re-derives source spans from the source (stable ids via content-hash dedup),
     extracts knowledge units, builds graph entities/relations, and emits one ATM
     projection page per unit. Sets the source's l2_status.
+
+    ``on_progress`` is optional and defaults to ``None`` on purpose: this
+    function has 28 call sites in ``test_authored_topology.py`` alone plus
+    ``ingest_llm.py``, and a required parameter would rewrite all of them for no
+    gain. When supplied (the background worker does), events are emitted at the
+    boundaries below and — via ``extract_knowledge_units`` — once per extraction
+    batch, which is where a long L2 actually spends its time.
     """
     with db.connect(paths.state_db) as conn:
         row = conn.execute("SELECT * FROM sources WHERE id = ?", (source_id,)).fetchone()
@@ -325,6 +368,7 @@ def compile_source_l2(
         {"id": span_ids[i], "text": spans[i].text, "section_title": spans[i].section_title}
         for i in range(len(span_ids))
     ]
+    _emit(on_progress, "status", phase="l2", stage="spans_stored", spans=len(span_ids))
 
     ku_result = knowledge_units.extract_knowledge_units(
         paths.state_db,
@@ -333,6 +377,7 @@ def compile_source_l2(
         source_title=title,
         spans=span_inputs,
         curate_spec_hash=curate_spec_hash,
+        on_progress=on_progress,
     )
     if not ku_result.ok:
         error_msg = "; ".join(ku_result.errors) or "knowledge unit extraction failed"
@@ -346,6 +391,9 @@ def compile_source_l2(
             prompt_trace_ids=[ku_result.trace_id] if ku_result.trace_id else [],
             error=error_msg,
         )
+
+    _emit(on_progress, "status", phase="l2", stage="publishing",
+          units=len(ku_result.unit_ids))
 
     # --- Copy-on-stage staging + atomic publish (SYSTEM_BEHAVIOR §26.3) ------
     # A fresh staged generation OWNS this compile's extracted units. They are

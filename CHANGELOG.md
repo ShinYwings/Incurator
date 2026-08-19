@@ -2,6 +2,74 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.59.0] - 2026-08-18
+### Fixed
+- **A background job now actually records what it is doing.** v0.58.0 added
+  `job_events`, a writer for it, and `wiki jobs events <id>`. Every test passed
+  and the feature never ran: the writer was attached to `WorkerCallbacks`, but
+  an L2 job is compiled by `compile_source_l2`, which never touches those
+  callbacks. Measured on a real vault — two jobs completed at `5/5` and `11/11`
+  with **zero** event rows, and a traced `append` was never called. The table
+  had moved from "nothing inserts" to "the inserter is never called".
+
+  The signal now comes from the loop that does the work. `compile_source_l2`
+  takes an optional progress sink and the extraction loop emits one event per
+  extraction batch — a loop that already computed `batch 2/3` for its retry label and
+  threw it away. A real job reads:
+
+  ```
+  07:34:09   1  status     phase=l2 stage=spans_stored spans=156
+  07:34:53   2  extracted  phase=l2 batch=1 batches=3 units=32
+  07:35:53   3  extracted  phase=l2 batch=2 batches=3 units=65
+  07:39:20   4  extracted  phase=l2 batch=3 batches=3 units=105
+  07:39:21   5  status     phase=l2 stage=publishing units=105
+  07:39:47   6  done       pages_created=30 events_dropped=0
+  ```
+
+  Batch 3 took 3m27s against 44s and 60s for the first two. That whole stretch
+  used to be a single row reading `0/1`, indistinguishable from a dead job.
+
+- **`wiki jobs list` percentage moves through L2** instead of sitting at 10%
+  until the phase ends. It renders only the `progress` float, so the float had
+  to move; the phase→float convention is now written down in SYSTEM_BEHAVIOR
+  §12.1 rather than implied in two places.
+
+- **Every path a job can take reports what its history lost.** Review found the
+  first draft counted drops only inside the L2 sink, so a job that failed, or
+  one whose terminal event was itself lost, said nothing — while the spec
+  promised the count unconditionally. A per-job `JobHistory` now owns both the
+  writing and the counting; the success event, the failure event, and the log
+  all carry it.
+
+- **A lost event is reported instead of hidden.** Recording an event still
+  never fails the job — but a writer that silently drops rows is exactly the
+  blindness this surface exists to remove. `job_events.append` now returns
+  whether the row landed, the job counts what it lost, the count rides on the
+  terminal `done` event as `events_dropped`, and `wiki jobs events` says the
+  history is incomplete. Measured cause: going through `connect()` under a held
+  write lock blocked **5.23 s** and then discarded the row; the writer now uses
+  its own lightweight connection (1.17 ms vs 1.79 ms, and it skips re-running
+  the entire schema just to insert one row) and fails visibly in 0.29 s.
+
+### Changed
+- **`progress_current`/`progress_total` mean batches for the whole L2 run**, and
+  are no longer overwritten with the atom count when L2 ends. The atom count is
+  `pages_created` on the job row. Verified safe: both consumers render the
+  fraction only while a job is running.
+
+  This field's meaning is a stored contract, which is why this release is a
+  Minor rather than a `### Fixed`-only Patch — `wiki jobs events` itself is not
+  new.
+
+### Notes
+- Emitting an event is **not** committing a checkpoint. L2 extraction stays
+  all-or-nothing, and a test pins that an interrupted run publishes nothing.
+  Resumable L2 remains a separate roadmap item; a checkpoint mechanism was
+  removed from this same function in v0.52.0 and its hazards are unchanged.
+- The release gate that would have caught v0.58.0 is now part of the plan: run a
+  real job and read its history. Both new history tests were verified to fail
+  against the previous code.
+
 ## [0.58.0] - 2026-08-17
 ### Added
 - **Long ingests now say what they are doing.** A `wiki add` on a 673-page book
