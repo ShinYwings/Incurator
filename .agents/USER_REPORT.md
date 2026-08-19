@@ -707,3 +707,77 @@ Running it over existing rows would take the answer from "I cannot get the text"
 to "that region is a 185×12 image the parser discarded — snip it, or set
 `llm.vision_model` and re-add." That is a different, much smaller job than
 ROADMAP item 1 (recovery), which stays blocked on its three prerequisites.
+
+---
+
+## Folder permission is never asked for — the backend guesses paths it may not be allowed to open
+
+**Found while trying to ingest a Zotero-referenced PDF.** The file is fine —
+21 MB, materialised on disk (`st_blocks=41592`), not an iCloud placeholder. But:
+
+```
+read  ~/Library/Mobile Documents/.../MultipleViewGeometryHartley - .pdf  -> Operation not permitted
+read  <vault>/04_Resources/References/MultipleViewGeometryHartley - .md  -> ok
+read  ~/Library/Mobile Documents/com~apple~CloudDocs                     -> Operation not permitted
+```
+
+`stat` succeeds and `open` is denied — the signature of macOS TCC. The process
+has no grant for iCloud Drive. Only Hartley is affected because it is the one
+source behind a Zotero reference into iCloud (`zotero:3YFSAQB2`); everything
+else lives in the vault.
+
+**The design gap the user named.** There is no point in the product where the
+user grants access to anything:
+
+- Zotero roots are **discovered or typed**, never chosen.
+  `zotero_tools.zotero_root_candidates` guesses `~/Zotero`, splits a
+  comma-separated settings string, and reads Zotero prefs
+  (`discover_zotero_base_attachment_path`). All of it produces **path strings**.
+- The plugin uses Electron only for `shell.openExternal`
+  (`plugin/main.ts:757`, `incuratorQueryTrace.ts:462`). It never opens a folder
+  picker.
+- The backend is spawned as a child process:
+  `spawn(command, [...], { cwd, env })` — `plugin/main.ts:1042`.
+
+A typed path grants nothing. A guessed path grants nothing. So the first time
+the backend touches a protected location it is simply denied.
+
+**What macOS does and does not allow here** (the part worth getting right):
+
+- **You cannot request a TCC grant at install time.** There is no API to raise
+  the dialog on demand. It fires only when a process actually touches a
+  protected path, and only when the responsible process is a signed GUI app in a
+  user session. A CLI or headless child typically gets a silent `EPERM` instead
+  of a prompt — which is exactly what happened here.
+- **A native folder picker IS a grant.** `dialog.showOpenDialog({properties:
+  ['openDirectory']})` — the user's explicit selection is the consent, so the
+  app receives access to that folder without demanding Full Disk Access. This is
+  the "권한 얻는 창" the user is describing and it is the standard mechanism.
+- **The catch, and it decides the whole design**: a grant attaches to the
+  *responsible process*. Our backend is a separate Python process. For a
+  non-sandboxed app a child normally inherits the parent's responsibility, so an
+  Obsidian-spawned backend would plausibly be covered — **but this is unverified
+  here and is precisely the question a plan has to answer first.** Note the
+  failing case above is a terminal-launched `wiki`, where the responsible app is
+  the terminal, not Obsidian.
+
+**Why this matters beyond one book.** Zotero libraries commonly live in iCloud
+Drive, Dropbox, or an external volume — all TCC-protected. Reference Mode is
+built for exactly that, and it currently works only by luck of whichever process
+happens to hold a grant. The failure is also silent from the user's side: the
+job just fails with a parse error naming a file they can see in Finder.
+
+**Direction for a plan, not a hot patch:**
+
+1. Verify whether a folder grant obtained by Obsidian reaches the spawned
+   backend. Everything else depends on this answer. If it does not, the picker
+   has to hand the backend something durable (a bookmark, or a copy/symlink
+   under a granted root) rather than a bare path.
+2. Replace the typed Zotero-root setting with a **"Choose folder…" picker**, and
+   keep discovery only as a suggestion the user confirms through that picker.
+3. When a read is denied, say so as a permission problem with the exact folder
+   and a way to fix it — not as `parse failed: Cannot parse PDF`. The current
+   message sends the user looking for a corrupt file that is perfectly fine.
+
+**Immediate workaround** (host setting, not a code change): grant Full Disk
+Access to the terminal app for CLI runs, and/or to Obsidian for plugin runs.
