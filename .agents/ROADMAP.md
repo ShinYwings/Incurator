@@ -169,7 +169,13 @@ the **attachment** directory into one list — visible where `_db_candidates`
 probes attachment dirs for `zotero.sqlite`. They are separate macOS grants, and
 conflating them is why this failure was hard to read.
 
-**NEXT**: plan not yet written.
+**PLANNED**: `.agents/plans/08_file_access.md` (v0.61.0), Arena at
+`.agents/plans/file_access_arena/`. Awaiting user approval.
+
+**The audit's own proposed fix does not work**, which is why this needed an
+Arena rather than a patch: `os.access(path, R_OK)` returns **True** for a
+TCC-denied file. Permission bits say yes, the kernel says no. Only an actual
+`open()` is honest.
 
 **Related to item 8 (unsandboxed `agy` spawn)** — that one narrows what may be
 read, this one makes a refusal legible. Fixing either without the other leaves
