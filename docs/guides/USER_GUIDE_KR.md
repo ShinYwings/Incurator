@@ -158,6 +158,54 @@ PDF text parsing은 pymupdf4llm의 host Tesseract OCR을 암묵적으로 실행�
 
 논문 PDF처럼 외부 앱(Zotero, iCloud, Syncthing, 브라우저 다운로드 폴더 등)이 소유한 파일은 두 가지 방식으로 Incurator에 연결할 수 있습니다.
 
+> [!WARNING]
+> **Zotero는 서로 다른 두 디렉터리를 씁니다. PDF 실물은 두 번째에만 있습니다.**
+> 이 둘을 혼동하면 아래 실패를 정확히 잘못 읽게 됩니다.
+>
+> | | 무엇인가 | 무슨 역할인가 |
+> |---|---|---|
+> | **데이터 디렉터리** — 기본값 `~/Zotero` | `zotero.sqlite`와 프로필의 `prefs.js` | *색인*입니다. `zotero:<key>`를 파일로 해석하고, 첨부파일이 어디 있는지를 기록합니다. 경로 하나만 설정해도 탐색이 되는 이유가 이것입니다. |
+> | **첨부 디렉터리** — Zotero에서 지정한 위치 | PDF 실제 바이트 | Zotero의 *Linked Attachment Base Directory*(`extensions.zotero.baseAttachmentPath`, ZotMoov는 `extensions.zotmoov.dst_dir`). iCloud Drive·Dropbox·외장 볼륨인 경우가 많습니다. |
+>
+> **이 둘은 별개의 macOS 권한입니다.** `~/Zotero`를 읽을 수 있다는 사실은 첨부
+> 디렉터리를 열 수 있는지에 대해 아무것도 말해주지 않으며, 그 간극이 곧 이
+> 실패입니다:
+>
+> ```
+> parse failed: Cannot parse PDF MultipleViewGeometryHartley - .pdf:
+> Failed to open file '/Users/…/Mobile Documents/…/MultipleViewGeometryHartley - .pdf'
+> ```
+>
+> 탐색은 성공해서 Incurator가 파일의 정확한 경로까지 압니다. 여는 것이 거부된
+> 것입니다. macOS는 `stat`은 허용하고 `open`만 막기 때문에 파일의 존재와 실제
+> 크기는 보이면서 단 1바이트도 읽히지 않고, 메시지는 Finder에서 멀쩡히 열리는
+> 파일을 손상된 PDF처럼 보이게 만듭니다.
+>
+> **클라우드 저장소만의 문제가 아닙니다.** 그렇게 짐작하기 쉽지만, macOS 15에서
+> 실측한 결과는 이렇습니다:
+>
+> | 폴더 | 권한 없이 접근 가능? |
+> |---|---|
+> | `~/Zotero` | 가능 |
+> | `~/Documents`, `~/Desktop`, `~/Downloads` | **불가** |
+> | `~/Library/Mobile Documents` (iCloud Drive) | **불가** |
+> | `/Volumes` (외장/네트워크 드라이브) | 최상위는 가능, 개별 볼륨은 확인창이 뜰 수 있음 |
+>
+> 첨부 디렉터리가 `~/Documents/Zotero`에 있으면 클라우드가 전혀 개입하지 않아도
+> 막힙니다. 핵심이 이것입니다 — 동기화 여부가 아니라 *어느 폴더인가*가 결정합니다.
+> Dropbox·Google Drive·OneDrive는 폴더를 `~/Library/CloudStorage` 아래에 노출하며,
+> 위 측정에서 이 경로는 접근 가능했습니다. 특정 환경이 iCloud Drive와 같으리라고
+> 가정하지 말고, 실제로 실패하기 전까지는 미확인으로 다루세요.
+>
+> **해결하려면** Incurator를 실행하는 애플리케이션에 권한을 주세요.
+> 시스템 설정 → 개인정보 보호 및 보안 → **전체 디스크 접근 권한**에서
+> **Obsidian**(플러그인으로 적재할 때)과 사용하는 터미널 앱(명령줄에서 `wiki`를
+> 쓸 때)을 켭니다. 켠 뒤에는 해당 앱을 재시작해야 합니다 — 이미 실행 중인
+> 프로세스에는 권한이 적용되지 않습니다.
+>
+> Incurator가 대신 요청해 줄 수는 없습니다. macOS에는 폴더 권한을 미리 요청하는
+> API가 없고, 백그라운드 프로세스는 확인창 대신 조용한 거부를 받습니다.
+
 ### 1. Reference Mode
 
 파일을 복사하지 않고 원래 위치에 둔 채 Incurator backend에 source로
