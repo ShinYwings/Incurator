@@ -781,3 +781,41 @@ job just fails with a parse error naming a file they can see in Finder.
 
 **Immediate workaround** (host setting, not a code change): grant Full Disk
 Access to the terminal app for CLI runs, and/or to Obsidian for plugin runs.
+
+---
+
+## The same file is registered twice, differing only by Unicode normalization
+
+Found while building the v0.61.0 unreadable-sources report: one paper appeared
+twice in the output. The two rows are byte-different and visually identical.
+
+```
+id=46  len=111  NFC=False  NFD=True     <- what macOS writes
+id=35  len=109  NFC=True   NFD=False
+raw equal : False
+NFC equal : True
+```
+
+`04_Resources/References/Camera Pose Estimation from Lines using Plücker
+Coordinates2015 - Přibyl et al. - .md` — `ř`/`ů` decomposed in one row and
+composed in the other. `GROUP BY relpath HAVING COUNT(*) > 1` reports **zero**
+duplicates, because to SQLite these are different strings.
+
+**1 colliding group out of 44 rows** on the live vault today.
+
+**Why it matters beyond a doubled line in a report.** `relpath` is the identity
+used for dedup on re-ingest, for move/delete tracking, and for the sync key. Two
+rows for one file means the LLM work is paid twice — both Přibyl rows have their
+own `ingest_jobs` history (35 and 46 each ran) — and a vault move or delete
+updates one row while the other silently rots.
+
+The likely origin is a path that entered from a non-macOS source (a synced
+device, a Zotero export, a plugin call) in NFC while the filesystem hands back
+NFD. Not verified.
+
+**Direction**: normalize at the boundary where a path becomes a `relpath`, not
+at every comparison site, and decide what to do with the row already duplicated
+(merge, or retire the one with no L2). Both are contract questions —
+`sources.relpath` identity is used by sync — so this needs a plan rather than a
+patch. It is NOT part of v0.61.0, which only stops the report from looking
+broken by deduplicating its own output.
