@@ -138,6 +138,46 @@ Question 2 is therefore answered and withdrawn. The open question it becomes:
 cost to ingest?** That is the first thing to establish, and it is measurable
 before anything is designed.
 
+## 5b. Measured — the coordinates exist in the PDF; the JOIN is the problem
+
+§5a asked whether the parser could retain page geometry. Re-framed after
+reading the code: **the coordinates are never discarded, because the parser
+never has them.** `pymupdf4llm` emits a marker string —
+`**==> picture [185 x 12] intentionally omitted <==**` — and
+`source_spans.py:72` parses width and height out of that text. Size is all the
+marker carries.
+
+So the question becomes: can the geometry be recovered from the PDF and matched
+back to a placeholder? Both halves measured.
+
+**The coordinates are there.** On source 37, `fitz.get_image_info(xrefs=True)`
+returns **192 image objects, 192 with a usable bbox**. Nothing is lost at the
+PDF level.
+
+**Matching them by size does not work.** Joining each loss record's
+`{width, height}` to a PDF image of the same rounded on-page size:
+
+```
+source  37:     4 loss spans -> unique    4 | ambiguous  0 | no match    0
+source  45:  1120 loss spans -> unique    1 | ambiguous  2 | no match 1117
+source  46:    11 loss spans -> unique    1 | ambiguous  0 | no match   10
+TOTAL:       1135              unique    6 | ambiguous  2 | no match 1127
+```
+
+**6 of 1,135.** The 27-page paper joins perfectly (4/4) and the 673-page book
+fails almost completely — which is the shape you would expect if the marker's
+numbers are in different units, or rounded differently, or measured before a
+transform that `get_image_info` reports after. Whatever the cause, a
+size-keyed join is not the mechanism.
+
+That kills the cheap version of blocker 3. The viable direction is to capture
+the bbox **at parse time**, where the placeholder and the image object are the
+same event, rather than trying to re-associate them afterwards from two
+independently-derived descriptions. Whether `pymupdf4llm` exposes that
+association, or whether the pipeline has to walk the page with `fitz` alongside
+it, is the next thing to establish — and it is the real content of this
+milestone.
+
 ## 6. Questions for the Arena
 
 1. Is 1b a normalisation table, or does the gate need a different comparison
