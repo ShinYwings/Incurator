@@ -107,7 +107,7 @@ Lock granularity improves (277 × ~9 ms instead of one × 0.5–1.3 s).
 
 **D4 — The skip predicate.** Before issuing batch *B*, render it and look for a
 prior run with: `input_hash = H(B)`, `prompt_id||'@'||prompt_version =
-PROMPT_CONTRACT_VERSION`, `curate_spec_hash =` current, `validator_status='ok'`,
+PROMPT_CONTRACT_VERSION`, `curate_spec_hash =` current, **`validator_status IN ('ok','repaired')`**,
 whose knowledge_units are still present with **`generation_id IS NULL AND
 retired_at IS NULL`**. If found, skip the LLM call and adopt those unit ids.
 
@@ -124,6 +124,12 @@ generation and must never be re-adopted into a new one.
 > deterministic (midpoint by `_span_len`), so a child's `input_hash` is
 > reproducible exactly like its parent's, and one predicate placed at the
 > recursion entry covers both.
+>
+> **`repaired` counts as success.** `finish_prompt_run` writes `ok` only when
+> `retry_count == 0` and `repaired` when a JSON-repair retry was used — both are
+> validated output. The live vault has 57 `repaired` extract runs carrying **687
+> knowledge units**; a predicate keyed on `'ok'` alone would re-pay every one of
+> them. The predicate is `validator_status IN ('ok','repaired')`.
 
 **D5 — What a resumed run returns.** `extract_knowledge_units` returns the union
 of adopted ids and newly persisted ids, accumulated **in the loop**, exactly as

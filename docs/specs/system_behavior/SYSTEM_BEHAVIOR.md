@@ -516,7 +516,8 @@ Batch Atom extraction (`_extract_atoms_from_chunk`) relies on the LLM adhering t
    **Skip predicate.** Before issuing a batch, the extractor renders it and
    looks for a prior run of the same source with `input_hash` equal,
    `prompt_id@prompt_version` equal to the active `PROMPT_CONTRACT_VERSION`,
-   `curate_spec_hash` equal to the current spec hash, `validator_status='ok'`,
+   `curate_spec_hash` equal to the current spec hash, `validator_status` in
+   (`ok`, `repaired`),
    and whose knowledge units are still present with `generation_id IS NULL AND
    retired_at IS NULL`. On a match the LLM call is skipped and those unit ids are
    adopted. The predicate is evaluated at **every** recursion level of batch
