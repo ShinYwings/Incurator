@@ -2,6 +2,37 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.61.1] - 2026-08-20
+### Fixed
+- **A rate-limited job no longer restarts from scratch into the same wall.**
+  Measured twice on a 673-page book: it completed **all 277 extraction batches**,
+  was refused at the staged compile with a 429, and was requeued — which
+  restarted it at batch 1, re-spent the same provider budget, and arrived at the
+  identical refusal. Both runs discarded roughly **90 minutes** of provider work
+  and published nothing; both compiler generations are `discarded` with zero
+  surviving units.
+
+  The 429 is a **burst limit, not exhaustion** — a trivial call succeeded within
+  a minute of each failure — so a retry that merely waited would have published.
+  The backoff for exactly this already existed and was inert twice over: it was
+  per-client state, and `run_next_job` builds a fresh client per job; and it was
+  consulted only by `ping()`, which the ingest path never calls.
+
+  The block is now per provider and process-wide, and the worker asks **the
+  client that would run the job**, before claiming it, so the job stays queued and claimable instead of being consumed into a
+  failure. A source large enough that extraction exhausts the window can now
+  finish on a later attempt rather than never.
+
+  Scoped per provider, deliberately: `antigravity-cli` defaults to a failover
+  with an Ollama fallback that already absorbs this error, so a global block
+  would have stopped work a healthy fallback could do — including in a vault
+  using no Antigravity at all.
+
+- **A deferral is no longer reported as a completed drain.** "Nothing to do" and
+  "work is waiting and the provider is refusing" both stop the loop and mean
+  opposite things. `wiki jobs run` now says the queue is untouched and roughly
+  how long to wait, instead of `Processed 1 job(s).` over a full queue.
+
 ## [0.61.0] - 2026-08-20
 ### Fixed
 - **A file you are not allowed to read is no longer reported as missing or

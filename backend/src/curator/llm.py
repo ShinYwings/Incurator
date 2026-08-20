@@ -304,6 +304,54 @@ def _envelope_error(stdout: str) -> str:
     return str(envelope.get("error") or "")
 
 
+
+# --- Provider capacity block (process-wide) ---------------------------------
+#
+# A 429 from the provider is a BURST limit, not exhaustion: measured, a trivial
+# call succeeded within a minute of one. So the right response is to wait, and
+# the wait has to outlive the client that was refused.
+#
+# It did not. `_capacity_blocked_until` was instance state, and `run_next_job`
+# builds a fresh client per job, so a requeued job started again immediately.
+# Measured consequence on a 673-page book: it completed all 277 extraction
+# batches, was refused at the staged compile, restarted at batch 1, re-spent the
+# same budget and hit the same wall -- twice, discarding ~90 minutes each time.
+#
+# Process-wide rather than persisted: the block is about the provider's current
+# state, not about this job, and it must not outlive the process that observed
+# it.
+_CAPACITY_BLOCK_SECONDS = 300
+_capacity_blocked_until: dict[str, float] = {}
+
+
+def block_capacity(provider: str, seconds: float = _CAPACITY_BLOCK_SECONDS) -> None:
+    """Record that ONE provider is refusing work, for every client in this process.
+
+    Keyed by provider, not global. A 429 from Antigravity says nothing about
+    Ollama, and the default topology for `antigravity-cli` is a `FailoverClient`
+    with an Ollama fallback that already absorbs exactly this error. A
+    process-wide block would stop work that a healthy fallback could do — and
+    would stop it for a vault configured with no Antigravity at all.
+    """
+    now = time.time()
+    _capacity_blocked_until[provider] = max(
+        _capacity_blocked_until.get(provider, 0.0), now + seconds
+    )
+
+
+def capacity_blocked_for(provider: str) -> float:
+    """Seconds until this provider should be tried again; 0 when it is clear."""
+    return max(0.0, _capacity_blocked_until.get(provider, 0.0) - time.time())
+
+
+def clear_capacity_block(provider: str | None = None) -> None:
+    """Forget a block, or all of them. For tests and an explicit user retry."""
+    if provider is None:
+        _capacity_blocked_until.clear()
+    else:
+        _capacity_blocked_until.pop(provider, None)
+
+
 def _is_capacity_error(text: str) -> bool:
     return (
         "No capacity available" in text
@@ -335,6 +383,14 @@ class ChatMessage:
 
 class OllamaClient:
     """Minimal, synchronous Ollama client tuned for the incurator use case."""
+
+    # Which provider a capacity refusal belongs to. Keyed rather than global so
+    # a refusal from one backend cannot stop work a healthy other one can do.
+    CAPACITY_KEY = "ollama"
+
+    def capacity_blocked_for(self) -> float:
+        """Seconds until this client's provider should be tried again."""
+        return capacity_blocked_for(self.CAPACITY_KEY)
 
     # Structured output: can this client be handed a JSON Schema and be relied
     # on to return a value rather than prose it may decide to COMPUTE? Default
@@ -777,6 +833,14 @@ class ClaudeCodeClient:
     Requires: npm install -g @anthropic-ai/claude-code
     """
 
+    # Which provider a capacity refusal belongs to. Keyed rather than global so
+    # a refusal from one backend cannot stop work a healthy other one can do.
+    CAPACITY_KEY = "claude-code"
+
+    def capacity_blocked_for(self) -> float:
+        """Seconds until this client's provider should be tried again."""
+        return capacity_blocked_for(self.CAPACITY_KEY)
+
     # Structured output: can this client be handed a JSON Schema and be relied
     # on to return a value rather than prose it may decide to COMPUTE? Default
     # False; True only where the native mode has been measured (§11.0).
@@ -921,6 +985,14 @@ class AntigravityCliClient:
     Requires Antigravity CLI, then its login flow.
     """
 
+    # Which provider a capacity refusal belongs to. Keyed rather than global so
+    # a refusal from one backend cannot stop work a healthy other one can do.
+    CAPACITY_KEY = "antigravity-cli"
+
+    def capacity_blocked_for(self) -> float:
+        """Seconds until this client's provider should be tried again."""
+        return capacity_blocked_for(self.CAPACITY_KEY)
+
     # Measured (§11.0): `agy --json-schema <string> --output-format json`
     # returns num_turns=1 and a validated object, so the model never reaches for
     # a shell to build its answer. Requires a FLATTENED schema; a $ref schema
@@ -936,7 +1008,11 @@ class AntigravityCliClient:
         self._capacity_blocked_until = 0.0
 
     def _raise_capacity_error(self) -> None:
-        self._capacity_blocked_until = time.time() + 300
+        # Both: the instance flag stays for `ping()`'s existing use, and the
+        # process-wide block is what a LATER client -- the one the retry builds
+        # -- will actually see.
+        self._capacity_blocked_until = time.time() + _CAPACITY_BLOCK_SECONDS
+        block_capacity(self.CAPACITY_KEY)
         raise AntigravityCliError(
             f"Antigravity capacity exhausted (429).\n"
             f"Model tried: '{self.model}'.\n"
@@ -1113,7 +1189,8 @@ class AntigravityCliClient:
             )
 
     def ping(self) -> bool:
-        if time.time() < self._capacity_blocked_until:
+        if (capacity_blocked_for(self.CAPACITY_KEY) > 0
+                or time.time() < self._capacity_blocked_until):
             return False
         try:
             self.ensure_ready()
@@ -1162,6 +1239,14 @@ class DeepSeekApiError(LLMError):
 
 class CodexCliClient:
     """LLM client backed by the OpenAI Codex CLI (`codex exec`)."""
+
+    # Which provider a capacity refusal belongs to. Keyed rather than global so
+    # a refusal from one backend cannot stop work a healthy other one can do.
+    CAPACITY_KEY = "codex-cli"
+
+    def capacity_blocked_for(self) -> float:
+        """Seconds until this client's provider should be tried again."""
+        return capacity_blocked_for(self.CAPACITY_KEY)
 
     # Structured output: can this client be handed a JSON Schema and be relied
     # on to return a value rather than prose it may decide to COMPUTE? Default
@@ -1342,6 +1427,14 @@ class CodexCliClient:
 class DeepSeekApiClient:
     """OpenAI-compatible DeepSeek API client using DEEPSEEK_API_KEY."""
 
+    # Which provider a capacity refusal belongs to. Keyed rather than global so
+    # a refusal from one backend cannot stop work a healthy other one can do.
+    CAPACITY_KEY = "deepseek-api"
+
+    def capacity_blocked_for(self) -> float:
+        """Seconds until this client's provider should be tried again."""
+        return capacity_blocked_for(self.CAPACITY_KEY)
+
     # Structured output: can this client be handed a JSON Schema and be relied
     # on to return a value rather than prose it may decide to COMPUTE? Default
     # False; True only where the native mode has been measured (§11.0).
@@ -1510,6 +1603,20 @@ class FailoverClient:
 
     Interface identical to OllamaClient / AntigravityCliClient / ClaudeClient.
     """
+
+    def capacity_blocked_for(self) -> float:
+        """The shortest wait across delegates — 0 while ANY of them can work.
+
+        The whole point of a failover is that one provider refusing does not
+        stop the run. Reporting the primary's block here would defeat the
+        fallback that already absorbs this error.
+        """
+        waits = [
+            p.capacity_blocked_for()
+            for p in self.providers
+            if hasattr(p, "capacity_blocked_for")
+        ]
+        return min(waits) if waits else 0.0
 
     def __init__(
         self,

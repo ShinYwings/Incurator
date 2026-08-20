@@ -66,8 +66,23 @@ def jobs_run(
     if recovered:
         _ok(f"Recovered {recovered} stale job(s) back to queue.")
     results = ingest_worker.run_queued_jobs(paths, config, limit=limit)
+    # A deferral carries ok=True and no job, so counting it as processed would
+    # report work that did not happen -- over a queue that is still full.
+    deferred = [r for r in results if r.get("deferred")]
+    results = [r for r in results if not r.get("deferred")]
+    if deferred:
+        wait = deferred[0].get("retry_after_seconds") or 0
+        # "Nothing was started" is only true when nothing was. A drain can
+        # process several jobs and THEN hit the wall, and claiming otherwise in
+        # the same output that reports them is worse than saying less.
+        started = "No further jobs were started" if results else "Nothing was started"
+        _err(
+            f"Provider is at capacity. {started}; the queue is untouched. "
+            f"Try again in about {wait / 60:.0f} min."
+        )
     if not results:
-        _ok("No queued jobs.")
+        if not deferred:
+            _ok("No queued jobs.")
     else:
         ok_count = sum(1 for result in results if result.get("ok"))
         failed = [result for result in results if not result.get("ok")]

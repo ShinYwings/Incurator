@@ -1337,6 +1337,44 @@ Status rules:
   `l1_ready`, `l2_ready`, `l3_ready` for Concept readiness, and `l4_ready`
   only when shared L4 Synthesis status is done.
 
+## 12.0 Provider capacity refusals
+
+A provider 429 is a **burst limit, not exhaustion**: measured, a trivial call
+succeeded within a minute of one that failed a compile. The correct response is
+therefore to wait, and the wait must outlive the client that was refused —
+`run_next_job` builds a fresh client per job, so per-client state cannot govern
+the retry it exists for.
+
+- A capacity refusal sets a block that is **per provider** and process-wide —
+  not per-client state, and not persisted. Per-client cannot govern the retry it
+  exists for (a fresh client is built per job); persisted would outlive the
+  condition it describes.
+- **The block must never be global.** `antigravity-cli` defaults to a failover
+  with an Ollama fallback, and the capacity error is already in the failover
+  set, so a 429 there is absorbed. A global block would stop work a healthy
+  fallback can do, and would stop it even in a vault configured with no
+  Antigravity at all. A failover reports itself blocked only while **every**
+  delegate is.
+- The worker asks **the client that would run the job**, before claiming it, so
+  a deferred job stays queued and claimable rather than being consumed into a
+  failure. Asking a global flag instead would defer work the configured provider
+  could do.
+- A deferral must be distinguishable from an empty queue at every surface.
+  Both stop a drain and they mean opposite things; reporting a clean finish over
+  a full queue is how a stalled ingest looks like a completed one.
+
+- **A deferral must leave the worker able to resume by itself.** The
+  MCP-hosted `IngestWorker` treats "no job" as idle and polls again after
+  `poll_seconds`, so a block simply delays it and it picks the work up when the
+  block expires. That is the intended behaviour, not an accident of the loop:
+  nothing should have to notice the block lifting and restart anything.
+
+Why this is load-bearing rather than a nicety: an extraction large enough to
+exhaust the window spends the budget the publish step then needs. Restarting it
+re-spends that budget before reaching the step that failed. Measured on a
+673-page book, twice: 277/277 batches completed, refused at publish, restarted,
+and ~90 minutes discarded each time with zero units published.
+
 ## 12.1 Reset Behavior
 
 `wiki reset` preserves `.curator/settings.yml`, sessions, Zotero profiles,

@@ -227,6 +227,25 @@ def progress_current_of(paths: cfg.WikiPaths, job_id: int) -> str:
         return "?"
 
 
+def _capacity_wait(client: object) -> float:
+    """How long this client says its provider will keep refusing, or 0.
+
+    `hasattr` is not enough: a `Mock` grows any attribute on demand, and test
+    doubles for the client are common in this file's own suite -- comparing the
+    result to 0 then raises `TypeError` inside the ingest path. Only a real
+    number counts, and anything else means "no opinion, proceed".
+    """
+    probe = getattr(client, "capacity_blocked_for", None)
+    if not callable(probe):
+        return 0.0
+    try:
+        value = probe()
+    except Exception:  # noqa: BLE001 - a diagnostic must never block the queue
+        _log.debug("capacity probe failed (non-fatal)", exc_info=True)
+        return 0.0
+    return float(value) if isinstance(value, (int, float)) else 0.0
+
+
 def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
     """Claim and run one queued job synchronously.
 
@@ -234,6 +253,34 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
     if no other L2 jobs remain queued, triggers global L3 concept clustering.
     Retries transient failures up to MAX_RETRIES times before marking failed.
     """
+    # Do not spend the budget that just ran out. A refused provider means the
+    # next attempt fails the same way, and for a large source the attempt costs
+    # everything before it: Hartley re-ran 277 extraction batches to reach the
+    # step that had been refused, twice, discarding ~90 minutes each time.
+    #
+    # Ask the client that WOULD run this job, not a global flag. The default
+    # topology for `antigravity-cli` is a FailoverClient with an Ollama
+    # fallback, and AntigravityCliError is already in the failover set — so a
+    # 429 there is absorbed, and blocking on it would stop work a healthy
+    # fallback can do. FailoverClient reports 0 while any delegate is free.
+    #
+    # Checked BEFORE claiming, so the job stays queued and claimable rather than
+    # being consumed into a failure. See llm.block_capacity.
+    config = config or cfg.load_config(paths)
+    probe_client = build_client(config)
+    waiting = _capacity_wait(probe_client)
+    if waiting > 0:
+        return {
+            "ok": True,
+            "job": None,
+            "deferred": True,
+            "retry_after_seconds": waiting,
+            "message": (
+                f"Provider is at capacity; not starting a job for {waiting:.0f}s. "
+                "The queue is untouched."
+            ),
+        }
+
     job = db.claim_next_job(paths.state_db)
     if job is None:
         return {"ok": True, "job": None, "message": "No queued jobs."}
@@ -242,8 +289,7 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
     job_type = str(job.get("job_type") or consts.PHASE_L2)
     source_id = int(job["source_id"] or 0)
     retry_count = int(job.get("retry_count") or 0)
-    config = config or cfg.load_config(paths)
-    client = build_client(config)
+    client = probe_client          # already built for the capacity check above
     history = JobHistory(paths.state_db, job_id)
 
     try:
@@ -485,6 +531,13 @@ def run_queued_jobs(
     while limit is None or count < limit:
         result = run_next_job(paths, config)
         if result.get("job") is None:
+            # A deferral and an empty queue both stop the drain, and they mean
+            # opposite things: one is "nothing to do", the other is "work is
+            # waiting and the provider is refusing". Keep the deferral in the
+            # results so the caller can tell them apart rather than reporting a
+            # clean finish over a queue that is still full.
+            if result.get("deferred"):
+                results.append(result)
             break
         results.append(result)
         count += 1
