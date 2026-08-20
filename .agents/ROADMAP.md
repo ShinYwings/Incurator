@@ -269,6 +269,35 @@ retried. The cheap half of the fix is not resumability at all: it is honouring
 the capacity backoff across the retry. The expensive half is not discarding a
 completed extraction because the step after it was rate-limited.
 
+
+**Settled 2026-08-21: retrying cannot fix this, and the job history proves it.**
+v0.61.1 made a rate-limited job wait instead of restarting instantly. It helped
+and it was not enough. Every attempt, from the job's own `job_events`:
+
+```
+08-19 11:24  attempt 1  reached 277/277  -> 429 at publish
+08-19 11:26  attempt 2  reached 0/1      -> 429 immediately   (pre-v0.61.1)
+08-19 11:28  attempt 3  reached 0/1      -> 429 immediately
+08-20 12:58  attempt 1  reached 277/277  -> 429 at publish
+08-20 17:46  attempt 1  reached 277/277  -> 429 at publish
+08-20 18:48  attempt 2  reached 183/277  -> 429 mid-extraction  (after a 5-min wait)
+```
+
+The backoff works: the waited retry reached **183** where the instant ones
+reached **0**. But the window recovers roughly 183 batches' worth in five
+minutes and the job needs 277 **plus** the publish that follows — so each
+attempt spends the budget from batch 1 and arrives short. More retries and
+longer backoffs only change where it dies.
+
+**So the expensive half of this item is not an optimisation, it is the only
+path for a source this size.** Preserving a completed extraction across a
+failure of the step after it is what makes Hartley ingestable at all; nothing in
+the retry dimension can substitute for it.
+
+Note what made this diagnosable: `reached` on the retry event (v0.61.1). Without
+it the six rows above would read as six identical failures with a batch counter
+at 1, and "the window is shrinking" would have been invisible.
+
 ### 6. `.curator` state audit — the remainder
 
 - Losing `.cache/` reports a healthy **empty** vault: `connect()` self-heals a
