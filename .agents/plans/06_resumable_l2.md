@@ -1,7 +1,8 @@
 # v0.62.0 Master Implementation Plan — Resumable L2 Extraction
 
 Date: 2026-08-21
-Status: AWAITING USER APPROVAL — Arena debate concluded; no code written yet.
+Status: APPROVED (user, 2026-08-21). P0 complete — see
+`06_resumable_l2_evidence.md`. D1 and D4 amended by P0 findings, marked inline.
 
 Arena record: `.agents/plans/resumable_l2_arena/`
 (`00_problem.md`, `01_proposal_lead_architect.md`, `02_critique_redteam.md`,
@@ -69,6 +70,25 @@ The three hash sets are **100% identical** (277 ∩ 277 ∩ 277 = 277). The batc
 identity is stable across attempts; the surplus runs are retries of the same
 277 batches.
 
+> **AMENDED AT P0 (2026-08-21) — this was stated too strongly.** The stop
+> condition fired: no other source reproduces identical hash sets. The cause is
+> measured: `_spans_block` renders each span's **id** into the prompt, so
+> `input_hash` depends on span identity, and an L1 re-run mints new ids. Source
+> 45's own 08-18 → 08-19 pair fails too (14.7% span overlap → 12.7% hash
+> overlap), so this is a property of span identity, not of Hartley.
+>
+> **Corrected D1**: `input_hash` is a stable batch identity **given an unchanged
+> span set** — which is exactly the condition a resume runs under. Restricted to
+> the 23 attempt pairs vault-wide that share an identical span set, **18 have
+> identical hash sets and the other 5 are in a strict subset relation**, the
+> extras being validation-split sub-batches. No pair crosses or is disjoint.
+>
+> A changed span set correctly re-runs everything. Note the sharp edge, measured
+> on source 37: **99.7% span overlap still shares only 21.7% of hashes**, because
+> one changed span shifts the packer and invalidates every batch after it.
+> Partial span reuse buys nothing; this is correct for a changed source.
+> Full detail in `06_resumable_l2_evidence.md` §6.
+
 **D2 — Resume is keyed on the batch, never on the span or the batch index.**
 Both alternatives were measured and both are wrong:
 - *batch index* — `optimal_chunk_chars` changes the batch count
@@ -94,6 +114,16 @@ retired_at IS NULL`**. If found, skip the LLM call and adopt those unit ids.
 The `generation_id IS NULL` clause is what makes a published source
 non-resumable (D-non-goal 4): published units belong to the authoritative
 generation and must never be re-adopted into a new one.
+
+> **REFINED AT P0.** The check goes at the top of **`_run_batch_with_retry`**,
+> not at the top of the batch loop. P0 found that the five same-span attempt
+> pairs whose hash sets differ do so only because of validation splits — a batch
+> that failed and succeeded as two halves records the children as their own
+> prompt runs, and the failed parent is not `ok`. Checking only at the loop level
+> would re-pay every such batch in full. `_split_batch_for_retry` is
+> deterministic (midpoint by `_span_len`), so a child's `input_hash` is
+> reproducible exactly like its parent's, and one predicate placed at the
+> recursion entry covers both.
 
 **D5 — What a resumed run returns.** `extract_knowledge_units` returns the union
 of adopted ids and newly persisted ids, accumulated **in the loop**, exactly as
@@ -172,10 +202,12 @@ Recorded before any code is written; the full ledger lands in
 
 ## 7. Execution Phases
 
-- **P0 — Research & measured baseline.** Reproduce D1 on a **second** source
-  (36 or 37) — two attempts, hash sets must match. Capture the pre-change
-  `run_compiler_audit` report on the live DB copy for the P4 diff. Write the
-  evidence ledger. *Verify: hash sets identical; report captured.*
+- **P0 — Research & measured baseline. DONE.** D1 did **not** reproduce
+  naively; the stop condition fired and the cause was measured rather than
+  guessed (span identity, not Hartley). D1 restated and D4 refined above;
+  evidence in `06_resumable_l2_evidence.md`. Audit baseline captured at
+  `scratchpad/audit_before.json`, sha256 `f5de509f…e45674`, **publish_blocking =
+  0 on the live vault** — the F1 defense confirmed on real data.
 - **P1 — Contract specification (docs-first).** `SYSTEM_BEHAVIOR.md` gains the
   resume predicate (D4) and the return-value rule (D5); `SCHEMA.md` records that
   `generation_id IS NULL` now denotes a *durable* in-progress extraction and
