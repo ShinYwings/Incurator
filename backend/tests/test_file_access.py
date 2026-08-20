@@ -340,3 +340,66 @@ def test_other_resolution_failures_still_degrade_to_the_note(
     )
     paths = type("P", (), {"root": tmp_path, "state_db": tmp_path / "s.sqlite"})()
     assert ingest_raw._resolve_reference_source(paths, stub) == stub
+
+
+# --------------------------------------------------------------------------
+# The status scan runs on every `wiki status`; it must stay cheap AND complete
+# --------------------------------------------------------------------------
+
+
+def test_the_status_scan_skips_sources_that_own_their_bytes(tmp_path: Path) -> None:
+    """Resolving a stub reads and parses frontmatter — measured at 123 ms across
+    44 sources against 1 ms for the probes themselves, and it grows linearly.
+
+    A plain vault note cannot be behind a folder grant, so it is filtered out
+    before that cost is paid.
+    """
+    from curator.commands import core
+
+    plain = tmp_path / "note.md"
+    plain.write_text("# just a note\n\nno frontmatter here\n", encoding="utf-8")
+    assert core._may_point_elsewhere(plain) is False
+
+
+def test_the_status_scan_never_skips_a_reference_stub(tmp_path: Path) -> None:
+    """The filter is an optimisation; missing a stub would make the report lie.
+
+    A Reference-Mode stub is exactly the case that can be behind a grant, so it
+    must always reach resolution.
+    """
+    from curator.commands import core
+
+    stub = tmp_path / "ref.md"
+    stub.write_text(
+        "---\ntype: reference\nlogical_source_id: zotero:KEY\n---\n\n# Paper\n",
+        encoding="utf-8",
+    )
+    assert core._may_point_elsewhere(stub) is True
+
+
+def test_a_non_markdown_source_is_always_probed(tmp_path: Path) -> None:
+    """A real PDF sitting in the vault has no stub to parse — probe it directly
+    rather than deciding from a frontmatter marker it will never have."""
+    from curator.commands import core
+
+    pdf = tmp_path / "in_vault.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n")
+    assert core._may_point_elsewhere(pdf) is True
+
+
+def test_an_unreadable_stub_is_itself_worth_reporting(tmp_path: Path) -> None:
+    """If the stub cannot be read, the filter must not silently drop the source —
+    that is the very condition being reported."""
+    from curator.commands import core
+
+    blocked = tmp_path / "blocked"
+    blocked.mkdir()
+    stub = blocked / "ref.md"
+    stub.write_text("---\ntype: reference\n---\n", encoding="utf-8")
+    blocked.chmod(0o000)
+    try:
+        if os.access(stub, os.R_OK):
+            pytest.skip("running as a user that bypasses permission bits")
+        assert core._may_point_elsewhere(stub) is True
+    finally:
+        blocked.chmod(stat.S_IRWXU)

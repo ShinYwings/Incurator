@@ -358,6 +358,24 @@ def init(
         _hint("Next: run [bold]wiki add[/bold] to discover sources, then [bold]wiki build[/bold].")
 
 
+def _may_point_elsewhere(stub: Path) -> bool:
+    """True when a source might resolve to a file outside the vault.
+
+    Reads only the first bytes rather than parsing frontmatter, because this
+    runs once per source on every `wiki status`. A Reference-Mode stub declares
+    `type: reference` in its opening frontmatter block; anything else owns its
+    bytes in the vault and cannot be behind a folder grant.
+    """
+    try:
+        if stub.suffix.lower() != ".md":
+            return True          # a real PDF/asset in place: probe it directly
+        with open(stub, "rb") as handle:
+            head = handle.read(600)
+    except OSError:
+        return True              # unreadable stub is itself worth reporting
+    return b"type: reference" in head or b"zotero" in head.lower()
+
+
 def _report_unreadable_sources(paths: cfg.WikiPaths, console: Any) -> None:
     """Name sources whose file exists but cannot be read, once, with the fix.
 
@@ -389,8 +407,17 @@ def _report_unreadable_sources(paths: cfg.WikiPaths, console: Any) -> None:
     denied: list[tuple[str, Path]] = []
     for row in rows:
         relpath = str(row["relpath"])
+        stub = paths.root / relpath
+        # Cheap filter first. Resolving a stub means reading and parsing its
+        # frontmatter: measured at 123 ms across 44 sources against 1 ms for the
+        # probes themselves, and it grows linearly, so a large vault would make
+        # `wiki status` visibly slow for a report that concerns only Reference
+        # Mode. A source whose own file is readable and is not a reference stub
+        # cannot be behind a grant.
+        if not _may_point_elsewhere(stub):
+            continue
         try:
-            resolved = _resolve_reference_source(paths, paths.root / relpath)
+            resolved = _resolve_reference_source(paths, stub)
         except ParserAccessDenied as e:
             # The resolver now RAISES on a denial rather than degrading, so the
             # signal arrives as an exception here. Catching it under a blanket
