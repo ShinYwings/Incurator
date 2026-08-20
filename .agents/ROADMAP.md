@@ -73,91 +73,89 @@ see item 1. It searched neighbouring pages for a label that was never ingested.
   zero permission denials. The schema must be flattened: unflattened, agy returns
   SUCCESS with an empty structure and the answer in prose, so every book would
   ingest to nothing while reporting success. Hartley is still not ingested — a
-  429 at publish, then a folder-permission wall (item 2).
+  429 at publish, then a folder-permission wall (item 3).
 
-### 1. Formula RECOVERY — BUILT AND TESTED, BUT NEVER INVOKED
+### 1. Formula RECOVERY — BLOCKED ON LOCATING THE REGION, and on item 2
 
-**Status corrected 2026-08-14 by reading the code.** This item said "blocked on
-three prerequisites". That is no longer what is wrong with it.
+**Arena concluded 2026-08-20 with no build.** `.agents/plans/formula_recovery_arena/`
+(`00_problem_v2.md` … `04_conclusion.md`). Five measurements removed every
+premise the plan would have been written against, so the output is this
+corrected item rather than a phase list.
 
-`backend/src/curator/pipeline/formula_recovery.py` exists (commit `1f9a088`,
-"feat(pipeline): add selective formula recovery"), exports `recover_formula`,
-`classify_formula_loss`, and `invalidate_formula_recoveries`, and is covered by
-`test_plan_b_formula_recovery.py` — **6 tests, all passing**.
+`pipeline/formula_recovery.py` exists, exports `recover_formula`,
+`classify_formula_loss`, `invalidate_formula_recoveries`, and has 6 passing
+tests. `pipeline/compile.py` imports all three **only to re-export them**.
+`recover_formula(` has **0 production call sites**.
 
-**Correction (2026-08-20).** This item previously claimed the
-`validator_trace_id` producer "exists too, at `formula_recovery.py:226`". That
-is false and contradicted blocker 2 below. Line 226 is
-`validator_trace_id=validator_trace_id` — a pass-through into
-`upsert_claim_support`, not a producer. Every non-`None` value in the repo comes
-from a test fixture (`PTR-test`, `PTR-reviewed`). Nothing in production mints
-one, so blocker 2 stands as originally written.
+**Wiring it today recovers 0 regions**, and not for the reasons this item used
+to give. It cannot locate one:
 
-`pipeline/compile.py` imports all three symbols — **only to re-export them in
-`__all__` (line 56)**. Grepped across the whole backend: `recover_formula(` is
-never called. The single hit outside its own definition is a comment in
-`db_sync.py:149`.
+- **0 of 2,121** loss regions carry page coordinates. All carry
+  `{width, height}` and nothing else.
+- The coordinates are not discarded — the parser never has them.
+  `pymupdf4llm` emits `**==> picture [185 x 12] intentionally omitted <==**`
+  and `source_spans.py:72` parses the size out of that string.
+- They cannot be re-associated afterwards. Size join: **6 of 1,135**. Per-page
+  positional join (k-th marker ↔ k-th image): **3 of 158**.
+  `get_image_info` reports vector drawings too, so one page carries 5 markers
+  against 36 image objects — the two lists describe different populations.
 
-So the code is finished and disconnected — but **the work is still blocked**,
-and the wiring is not the job. Re-verified 2026-08-20 against current code:
+**Corrected numbers.** This item said "130 regions across 4 sources"; the vault
+stores 1,135 across **3**, and the *current* parser finds **2,121** (437 + 11 +
+1,673). The original Arena's "~48 regions", against which it estimated 0–2
+recoveries, was low by a factor of forty.
 
-- blocker 1 stands — `formula_recovery.py:135` is still
-  `recovered_tokens in claim_formulas`, tuple equality.
-- blocker 2 stands — see the correction above.
-- blocker 3 stands — `recover_formula` still takes a `crop_hash` (`:81`), and
-  placeholder spans still carry no page coordinates.
+**Corrected blocker order.** Blocker 3 is not a prerequisite alongside the other
+two — it is the milestone, and it lives in parsing rather than in recovery code:
 
-Wiring it today would produce the estimated 0–2 of ~48 regions the Arena
-measured: a third no-op. **This item is first by how much finished work is
-sitting unused, and last by readiness** — the three prerequisites below are
-themselves the milestone, not preliminaries to it.
+1. **Acceptance gate.** `formula_recovery.py:135` uses tuple equality where
+   `validate_claim_support` uses subsequence. Measured on 8 faithful
+   transcriptions: equality accepts 2, subsequence accepts **5**. The three that
+   still fail differ in tokens, not span — `^\top` vs `^{T}`, `\boldsymbol` vs
+   `\mathbf`, `\left…\right` sizing — so swapping the comparison is only half
+   of it and notation normalisation is a contract question.
+2. **`validator_trace_id` has no producer.** Every occurrence is a parameter, a
+   pass-through, or a column read; the only non-`None` values in the repo are
+   test fixtures. `reviewed` is unreachable. (This item's header previously
+   claimed the producer existed at `:226`, contradicting this line. Corrected
+   2026-08-20.)
+3. **The region cannot be located.** See above. This is the gate.
 
-Visibility shipped in v0.49.0/.1: `source_spans.metadata.loss`, a `wiki lint`
-`extraction_loss` check, a `wiki add` warning, and an `[image-not-extracted]`
-marker that survives into the L1 projection the plugin reads. On the reporting
-vault that surfaces **130 unreadable regions across 4 sources** (95 of them in
-one 27-page paper). The assistant now says which region it could not read and
-why. **It still recovers nothing.**
+**What would reopen it**: one cheap experiment — does `pymupdf4llm` expose the
+association between an omitted-picture marker and the image object it stands
+for? Yes → blocker 3 becomes tractable. No → the question is whether the
+pipeline should stop using its markers and walk the page with `fitz`, which
+needs its own briefing.
 
-`recover_formula()` and `classify_formula_loss()` remain at **0 production call
-sites**. The Arena (`.agents/plans/formula_recovery_arena/`) established that
-wiring them today yields an estimated **0–2 of ~48 regions** — a third no-op —
-because three things are missing. Any recovery plan must start here:
+**Also blocked on item 2**: every number above that comes from `source_spans`
+describes an older parse.
 
-1. **The acceptance gate rejects faithful transcriptions.**
-   `formula_recovery.py:135` uses token-tuple **equality**
-   (`recovered_tokens in claim_formulas`) where `validate_claim_support` uses
-   **subsequence** (`_is_formula_subsequence`, `claim_support.py:343`). Of 8
-   plausible faithful transcriptions of `KNU-63af4c5c`'s formula, 6 reject —
-   `^\top` vs `^{T}`, `\boldsymbol{\lambda}` vs `\lambda`, a `\tag{26}`.
-2. **`validator_trace_id` has no producer.** Every occurrence in the backend is
-   a parameter, a pass-through, or a column read. Nothing mints one, so the
-   `reviewed` state is unreachable and every candidate would sit at
-   `candidate` forever.
-3. **The region cannot be cropped — measured 2026-08-20, and it reorders this
-   item.** All **1,135** loss records in the live vault carry `{width, height}`
-   and **0** carry page coordinates, so `recover_formula` could crop nothing:
-   wiring it today recovers 0 regions, not the estimated 0–2. Blocker 3 is not a
-   prerequisite alongside the others — it IS the milestone, and it lives in the
-   parser (which discards the geometry) rather than in the recovery code.
-   Note the figures below are stale: 130 regions across 4 sources was never
-   re-derived; the database says 1,135 across 3.
+### 2. A source whose parse improved is never re-derived
 
-   Original wording: `recover_formula` wants a `crop_hash` and
-   locator; placeholder spans carry `metadata = None`, and the only geometry
-   that survives is `[width x height]` in the placeholder text — no page
-   coordinates. `page_number` is a section index, not a physical page (max 23
-   on a 27-page PDF).
+`l2_status='done'` means a source is never re-parsed, so **a shipped parser fix
+reaches only sources ingested after it**.
 
-Useful anchor for whoever picks this up: the user's own question maps to
-`KNU-63af4c5c` (`formula_status='uncertain'`), whose cited span
-`SPAN-6df340cb` on p11 reads "This is a quadratic equation in λ1 and λ2, and
-can thus be written as" — and whose rowid±1 neighbours are **both** placeholder
-images. 159 of 480 `uncertain` units vault-wide (99 on source 37) sit adjacent
-to a placeholder, so the owning claims already exist; what is missing is a
-locator, not a unit.
+Measured on source 37: **646 spans stored, 2,050 computed from the same PDF
+today**, and **4** loss records stored against **437** the current parser finds.
+It was added 2026-08-04; v0.49.0 taught the parser to report unreadable regions
+on 08-08. It has never seen that improvement and never will.
 
-### 2. ~~External-file access cannot tell "missing" from "not allowed"~~ — SHIPPED v0.61.0 (#163)
+Consequences beyond one source:
+
+- Every stored measurement is a claim about whatever parser ran when that source
+  was last ingested, and nothing says so at the point of reading. This is how
+  ROADMAP 1 came to be scoped against a count that was wrong by 40×.
+- A parser improvement silently splits the corpus into sources that have it and
+  sources that do not, with no surface reporting the split.
+
+Not designed. The obvious approach — record the parser/contract version on the
+source and re-derive when it moves — is a schema and cost question
+(re-parsing the 673-page book takes 79 s; the whole vault is unmeasured), so it
+needs a plan rather than a patch.
+
+**This is upstream of item 1** and should be settled first.
+
+### 3. ~~External-file access cannot tell "missing" from "not allowed"~~ — SHIPPED v0.61.0 (#163)
 
 `probe()` opens the file, because `os.access(R_OK)` returns **True** for a
 TCC-denied one — the audit's own proposed fix would not have worked. A denial
@@ -182,7 +180,7 @@ Review caught three things worth remembering:
 and no permission request — macOS has no API, and the open question is whether a
 grant obtained by Obsidian reaches the separately spawned backend.
 
-### 3. System Integrity Consolidation — the remainder
+### 4. System Integrity Consolidation — the remainder
 
 - **B2 — COMPLETE** (v0.49.2 → v0.50.2, all five items). The milestone has no
   P1 left; everything below it is P2/P3.
@@ -210,13 +208,13 @@ roadmap's): its item 10 (`recover_stale_jobs` NULLing
 `04_g0_docs_parity.md`). `knowledge_value_arena/` has had no triage at all.
 
 **P6 is DONE, not pending** — the dead L2 checkpoint-resume was deleted in
-v0.51.1, which is what item 4 (resumable L2) picks up from. The line below
+v0.51.1, which is what item 5 (resumable L2) picks up from. The line below
 saying otherwise was stale.
 
 **NEXT here**: one pass per inventory item recording shipped/open, then delete
 the folders. Not before — that ordering is what went wrong once already.
 
-### 4. Resumable L2 extraction — wanted, needs designing
+### 5. Resumable L2 extraction — wanted, needs designing
 
 Removed in v0.51.1 rather than repaired (B3 P6). The old mechanism could never
 run: checkpoints were written only inside the branch that required checkpoints
@@ -238,9 +236,9 @@ unstarted one.
 **Measured cost, 2026-08-19**: Hartley completed **all 277 extraction batches**
 and then hit a 429 at publish. All-or-nothing discarded every batch — about 90
 minutes. This is the sharpest case this item has: not "interrupted midway" but
-"finished the expensive part and threw it away". Continues ROADMAP 3's P6.
+"finished the expensive part and threw it away". Continues ROADMAP 4's P6.
 
-### 5. `.curator` state audit — the remainder
+### 6. `.curator` state audit — the remainder
 
 - Losing `.cache/` reports a healthy **empty** vault: `connect()` self-heals a
   schema into any empty DB and `get_stats` returns zeros. Recovery exists (the
@@ -258,7 +256,7 @@ minutes. This is the sharpest case this item has: not "interrupted midway" but
 - `SYSTEM_BEHAVIOR.md` contradicts itself on where `state.sqlite` lives.
 - Arena record: `.agents/plans/curator_state_arena/`
 
-### 6. `graph_entities` / `source_spans` transport on a surrogate id
+### 7. `graph_entities` / `source_spans` transport on a surrogate id
 
 Both carry a natural identity — `UNIQUE(canonical_name, entity_type)` and
 `UNIQUE(source_id, content_hash)` — but sync transports them on the surrogate
@@ -275,7 +273,7 @@ gap. The real fix is a transport identity for both tables plus the id-remap
 plumbing — a schema change touching every referencing column, which is why it
 was left out of v0.50.0 rather than smuggled in.
 
-### 7. Community hierarchy is flat by construction
+### 8. Community hierarchy is flat by construction
 
 `_entities.py` hardcodes `level = 0`; one community holds 176 of 965 entities
 while 152 of 233 are single-relation pairs. §27.4 permits the degraded
@@ -283,7 +281,7 @@ connected-components fallback but requires it be "surfaced by the audit" —
 `config_hash` records it only as an opaque digest and `graph_audit` returns
 violations only.
 
-### 8. Backend `agy` spawn has no OS sandbox (opened by v0.56.1)
+### 9. Backend `agy` spawn has no OS sandbox (opened by v0.56.1)
 
 `AntigravityCliClient._run` (`backend/src/curator/llm.py`, the Antigravity
 client) spawns `agy` with plain `subprocess.run` — no sandbox wrapper, unlike
@@ -323,12 +321,12 @@ grant. Recommended in both guides.
 
 - None.
 
-**Related to item 2 (external-file access)** but not the same: this item is
+**Related to item 3 (external-file access)** but not the same: this item is
 about what the spawned CLI is *permitted* to read; item 2 is about the backend
 being unable to *tell* a denial from a missing file. A sandbox here changes
-which denials happen; item 2 changes whether we can explain them.
+which denials happen; item 3 changes whether we can explain them.
 
-### 9. Retrieval and projection leftovers
+### 10. Retrieval and projection leftovers
 
 - Span segmentation isolates single-word fragments
   (`pipeline/source_spans.py` splits on blank lines with no minimum length).
@@ -337,7 +335,7 @@ which denials happen; item 2 changes whether we can explain them.
 - Retro-repair for vaults carrying a dead source row from a pre-v0.46.0 move;
   `wiki lint` reports them but nothing fixes them.
 
-### 10. PDF whole-document search — PLANNED, awaiting approval
+### 11. PDF whole-document search — PLANNED, awaiting approval
 
 `pdfFullDocumentIndex` ("Background page indexing") has **0 consumers** — the
 toggle writes a value nothing reads, so `search_pdf_anchor` can only find
@@ -352,7 +350,7 @@ Two defects the Arena verified, both of which must be fixed before any walk:
 - A naive `notifyContextChanged()` progress tick cascades into an unconditional
   main-thread BM25 search + chip rebuild, ~27 times per book open.
 
-### 11. Drafts not yet planned
+### 12. Drafts not yet planned
 
 - Vault Storage Governance & Quota Visibility —
   `.agents/drafts/vault_storage_governance.md`
