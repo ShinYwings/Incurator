@@ -148,38 +148,30 @@ images. 159 of 480 `uncertain` units vault-wide (99 on source 37) sit adjacent
 to a placeholder, so the owning claims already exist; what is missing is a
 locator, not a unit.
 
-### 2. External-file access cannot tell "missing" from "not allowed"
+### 2. ~~External-file access cannot tell "missing" from "not allowed"~~ — SHIPPED v0.61.0 (#163)
 
-Audit in `.agents/USER_REPORT.md`. `PermissionError` appears once in the whole
-backend (redundantly, as an `OSError` subclass beside `OSError`); across the
-external-file modules there are 21 existence checks and **zero** readability
-checks. Under macOS TCC `stat` succeeds while `open` fails, so
-`_first_existing_pdf` picks a file the process cannot read, declares `ok`, and
-the parser reports `Cannot parse PDF` — a corrupt-file message for a healthy
-file.
+`probe()` opens the file, because `os.access(R_OK)` returns **True** for a
+TCC-denied one — the audit's own proposed fix would not have worked. A denial
+now reports as `attachment_file_denied` with the folder to grant, found by
+probing ancestors rather than matching a table of macOS locations. `wiki status`
+lists affected sources once; on the live vault it found four, not the one that
+prompted the work.
 
-**The root is the contract, not the code.** SYSTEM_BEHAVIOR mandates three
-failure states (`db_missing`, `attachment_key_missing`, `attachment_file_missing`)
-and the code implements all three faithfully. None of them means "present but
-not readable", so a 21 MB file on disk is reported as missing. A code-only fix
-would put the implementation ahead of its spec.
+Review caught three things worth remembering:
 
-Also in scope: `zotero_root_candidates` fuses the Zotero **data** directory and
-the **attachment** directory into one list — visible where `_db_candidates`
-probes attachment dirs for `zotero.sqlite`. They are separate macOS grants, and
-conflating them is why this failure was hard to read.
+- **The plugin consumes this taxonomy and was not updated**, so the new state
+  showed the user a raw enum string. The states and that `switch` were born in
+  the same commit; they move together.
+- **A documented invariant was broken silently.** XC-1 established that
+  `_resolve_reference_source` degrades on any failure; the denial carve-out is
+  correct but no plan document acknowledged it. The test docstring now states it.
+- `grant_root` stopped at the first *listable* ancestor. Listing and reading are
+  different macOS checks, so it returned nothing for exactly its own use case.
 
-**PLANNED**: `.agents/plans/08_file_access.md` (v0.61.0), Arena at
-`.agents/plans/file_access_arena/`. Awaiting user approval.
-
-**The audit's own proposed fix does not work**, which is why this needed an
-Arena rather than a patch: `os.access(path, R_OK)` returns **True** for a
-TCC-denied file. Permission bits say yes, the kernel says no. Only an actual
-`open()` is honest.
-
-**Related to item 8 (unsandboxed `agy` spawn)** — that one narrows what may be
-read, this one makes a refusal legible. Fixing either without the other leaves
-the user with a wrong error message or an unnecessary grant.
+**Remainder**: the plugin's own read path (`ExternalPdfView.ts:1385`) still goes
+`existsSync` → `readFileSync` and surfaces a raw Node error. No folder picker
+and no permission request — macOS has no API, and the open question is whether a
+grant obtained by Obsidian reaches the separately spawned backend.
 
 ### 3. System Integrity Consolidation — the remainder
 
