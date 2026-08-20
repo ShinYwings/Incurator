@@ -1708,8 +1708,29 @@ Column semantics (frozen enums):
   compiler (tombstone-style audit trail) and never feed downstream stages,
   projections, or search materialization.
 - `generation_id` — the `GEN-` compiler generation that produced or last
-  revalidated this row (§20.3). NULL only for legacy rows backfilled by the
-  v8 migration.
+  revalidated this row (§20.3). **NULL means "extracted, not authoritative"**
+  and has three sources: legacy rows backfilled by the v8 migration; rows an
+  in-flight compile has staged but not yet stamped; and, since v0.62.0,
+  **durable per-batch extraction output belonging to a run that has not
+  published** (SYSTEM_BEHAVIOR L2 item 4). The third kind is the one that
+  survives a crash, so a NULL row can now be observed by any query, not only by
+  the transaction that created it.
+
+  **Readers must therefore filter.** A query that scans `knowledge_units`
+  table-wide and means "knowledge the vault holds" MUST require
+  `generation_id IS NOT NULL`. A query scoped by primary key, or one joining
+  `compiler_generations` on `generation_id`, is already safe — search
+  materialization is in the second class, so **no partial ever reaches the
+  search corpus**. The audit scans in `run_compiler_audit` (the active
+  source-supported scan and the `semantic_hash` duplicate grouping) and the
+  synthesis dependency collection carry the filter explicitly; a structural test
+  guards against a new table-wide reader omitting it.
+
+  A durable partial is not publish-blocking: `publish_blocking` is
+  `dangling_supports | formula_inconsistencies | staged_leftovers`, and a partial
+  contributes to none of them — its claim supports are deleted before its units
+  on discard, and `formula_status` defaults to `not_applicable`, which neither
+  branch of the consistency check fires on.
 
 Eligibility rule (schema-level): a `truth_status='source_supported'` row may
 feed downstream compile stages (graph input, reports, synthesis, projections,

@@ -479,35 +479,88 @@ Batch Atom extraction (`_extract_atoms_from_chunk`) relies on the LLM adhering t
    as smaller batches while preserving the original source-span ids. Multi-span
    batches split by approximate character weight; a single very large span may
    split into overlapping text slices that still cite the same source span.
-   Successfully validated retry slices are held in memory until the whole source
-   extraction succeeds. If a top-level L2 batch returns an unrecoverable error,
+   Successfully validated retry slices are persisted with their batch (item 3),
+   not held in memory to the end of the source. If a top-level L2 batch returns
+   an unrecoverable error,
    the extractor stops immediately instead of running later batches whose output
    cannot be published.
-3. **No Partial L2 Publish**: L2 knowledge-unit rows and claim-support rows must
-   be persisted only after every batch, including retry slices, validates. If any
-   slice remains invalid, the source L2 layer is marked `error` with failed
-   batch/span/trace context and no newly extracted units from that run are
-   published. A fresh L2 extraction for a source must discard active
-   generation-less knowledge units left by older failed runs before prompting,
-   because those rows were never authoritative and must not block the new
-   publish gate. Retired generation-less rows remain audit history.
-4. **Closed Prompt Traces on Provider Exceptions**: Once a prompt run row is
+3. **No Partial L2 Publish**: no newly extracted unit becomes authoritative
+   until every batch, including retry slices, validates and the generation is
+   published. If any slice remains invalid, the source L2 layer is marked
+   `error` with failed batch/span/trace context and nothing from that run is
+   published. Retired generation-less rows remain audit history.
+
+   **Persistence is per batch; publication is atomic (v0.62.0).** Extraction no
+   longer holds every batch in memory until the end. Each batch's knowledge
+   units and claim supports are written as the batch validates, with
+   `generation_id` left NULL. NULL is what makes them non-authoritative — it is
+   the same marker the compiler already used for in-flight rows, and
+   `compile.py` stamps the staged `GEN-` onto the returned unit ids as its first
+   act after extraction returns, before the publish gate, reconciliation, graph
+   persistence, or the atomic flip. The publish contract above is therefore
+   unchanged: a durable partial is *stored*, never *served*.
+
+   Before v0.62.0 an interrupted extraction discarded every completed batch. The
+   measured cost of that: a 673-page source completed all 277 batches twice and
+   lost both at the publish step, ~86 minutes of provider work per attempt at a
+   median batch latency of 18.6 s.
+
+4. **Resumable L2 Extraction (v0.62.0)**: a re-run must not re-pay for batches a
+   previous run already completed.
+
+   **Batch identity is `prompt_runs.input_hash`** — the SHA-256 of the fully
+   rendered system+user messages. It covers the batch text, the span ids cited
+   in it, and the prompt template itself, so no separate configuration key
+   exists or is needed: a template edit changes the hash by construction.
+
+   **Skip predicate.** Before issuing a batch, the extractor renders it and
+   looks for a prior run of the same source with `input_hash` equal,
+   `prompt_id@prompt_version` equal to the active `PROMPT_CONTRACT_VERSION`,
+   `curate_spec_hash` equal to the current spec hash, `validator_status='ok'`,
+   and whose knowledge units are still present with `generation_id IS NULL AND
+   retired_at IS NULL`. On a match the LLM call is skipped and those unit ids are
+   adopted. The predicate is evaluated at **every** recursion level of batch
+   narrowing, not only at the top-level batch, so a batch that previously
+   succeeded only as split sub-batches is also not re-paid.
+
+   **Return value.** A resumed extraction returns the union of adopted and newly
+   persisted unit ids, accumulated in the extraction loop. It must never derive
+   its result by querying "the staged units for this source": that set filters
+   `generation_id IS NULL` and is empty after a successful publish, so a resumed
+   run would attribute zero units to a fresh generation and retire the source's
+   entire authoritative unit set under §26.3.
+
+   **Discard is conditional, not unconditional.** A fresh extraction still
+   removes generation-less rows left by older runs — those were never
+   authoritative and must not reach the new publish gate — but it keeps exactly
+   the rows the skip predicate can adopt. Rows whose prompt run does not match
+   the active contract or `curate_spec_hash`, and rows citing spans that no
+   longer exist, are deleted; claim supports are deleted before their units.
+
+   **Resume is bounded by span identity.** The rendered prompt carries span ids,
+   so an L1 re-run that mints new ids invalidates every batch, and a source whose
+   spans changed re-runs in full. This is all-or-nothing against L1 by design:
+   measured on a real source, 99.7% span overlap still shared only 21.7% of
+   batch hashes, because one changed span shifts the packer and invalidates every
+   batch after it. An already-published source is likewise never resumed — its
+   units carry a `generation_id` and fail the predicate.
+5. **Closed Prompt Traces on Provider Exceptions**: Once a prompt run row is
    opened, any provider exception, timeout, capacity error, or repair-call
    exception must close that `PTR-` as `validator_status='failed'` with the
    exception class/message in `validator_errors`. L2 must not leave active
    `pending` prompt traces for failed provider calls.
-5. **Deterministic L1-Candidate Fallback**: If batch extraction ultimately
+6. **Deterministic L1-Candidate Fallback**: If batch extraction ultimately
    fails with an `LLMError`, the orchestrator may create low-confidence L2 Atoms
    directly from the English L1 `Atom Candidates` and `Source Guide` provenance.
    These fallback Atoms must include the closest section id/page when available
    and must use low confidence so later LLM-backed retries or human review can
    supersede them.
-6. **Deterministic L3 Fallback Concepts**: If L3 clustering or L3 Concept
+7. **Deterministic L3 Fallback Concepts**: If L3 clustering or L3 Concept
    drafting fails after L2 Atoms exist, the build may create low-confidence
    deterministic fallback Concepts that group related Atoms by source context.
    This keeps L3 coverage and provenance available while clearly marking the
    Concept as needing later LLM or human review.
-7. **Legacy Sequential Fallback**: Older extraction paths may still attempt
+8. **Legacy Sequential Fallback**: Older extraction paths may still attempt
    candidate-by-candidate LLM calls, but they must not be the only resilience
    mechanism for provider failures because they multiply the same failing LLM
    dependency.
