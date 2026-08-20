@@ -63,10 +63,45 @@ def _seed(paths: cfg.WikiPaths, span_ids: list[str], statement: str) -> str:
                 "VALUES (?, 1, ?, ?, ?, ?, '2026-01-01T00:00:00Z')",
                 (sid, RELPATH, SPANS[sid]["span_type"], f"hash-{sid}", content),
             )
-    return db.upsert_knowledge_unit(
+    unit_id = db.upsert_knowledge_unit(
         paths.state_db, unit_type="atom", canonical_name="C", statement=statement,
         source_span_ids=span_ids, source_id=1,
     )
+    _stamp(paths, unit_id)
+    return unit_id
+
+
+def _stamp(paths, unit_id: str) -> None:
+    """Attribute the unit to a generation, as `compile.py` does before the gate.
+
+    Without this the row is generation-less, and since v0.62.0 the compiler audit
+    treats generation-less rows as an unpublished extraction and skips them —
+    correctly, since a durable partial from an interrupted L2 is not knowledge the
+    vault holds. Production never audits an unstamped unit; this fixture used to,
+    because before v0.62.0 NULL could only mean "legacy" or "inside the current
+    transaction". ONE generation is reused per vault: a second authoritative
+    generation for the same source is itself a publish-blocking finding
+    (`staged_leftovers`).
+    """
+    with db.connect(paths.state_db) as conn:
+        row = conn.execute(
+            "SELECT id FROM compiler_generations "
+            "WHERE source_id = 1 AND status = 'authoritative'"
+        ).fetchone()
+        gen_id = str(row[0]) if row else None
+    if gen_id is None:
+        gen_id = db.create_compiler_generation(
+            paths.state_db, prompt_contract_version="v3", source_id=1
+        )
+        with db.connect(paths.state_db) as conn:
+            conn.execute(
+                "UPDATE compiler_generations SET status = 'authoritative' WHERE id = ?",
+                (gen_id,),
+            )
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "UPDATE knowledge_units SET generation_id = ? WHERE id = ?", (gen_id, unit_id)
+        )
 
 
 # ---------------------------------------------------------------------------
