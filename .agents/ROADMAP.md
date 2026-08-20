@@ -238,6 +238,14 @@ and then hit a 429 at publish. All-or-nothing discarded every batch — about 90
 minutes. This is the sharpest case this item has: not "interrupted midway" but
 "finished the expensive part and threw it away". Continues ROADMAP 4's P6.
 
+**PLANNED, awaiting approval (2026-08-21)** — `.agents/plans/06_resumable_l2.md`,
+Arena at `.agents/plans/resumable_l2_arena/`. The question above ("what does a
+resumed run return?") is answered by D5. The design needs **no schema change**:
+`prompt_runs.input_hash` already identifies a batch and is stable — Hartley's
+three attempts each produced exactly 277 distinct hashes and the sets are
+identical. Per-batch persist costs 0.05–0.1% of the batch that made the LLM call
+(8.9–17.9 ms against a measured 18,631 ms median).
+
 
 **Measured twice, 2026-08-19 and 2026-08-20 — this is now the blocker for one
 real source, not a hypothetical.** Hartley (`sources.id=45`, 673 pages, 277

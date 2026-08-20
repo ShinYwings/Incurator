@@ -144,6 +144,30 @@ path, a schema that returned SUCCESS with nothing, a resolver that degraded a
 denial into a successful stub ingest, and a block that would have disabled a
 healthy failover. Green tests did not catch any of them.
 
+## Interposed: ROADMAP 5 Arena is closed; plan awaits approval
+
+`.agents/plans/06_resumable_l2.md` (v0.62.0). **No code written.** The Arena ran
+briefing → proposal → red-team → measured defense, and two of the red team's
+findings changed the design rather than confirming it:
+
+- **F2 (cost) is answered and is not an objection.** Per-batch persist is
+  8.9–17.9 ms against a measured **18,631 ms median** LLM call — 0.05–0.1%.
+  Benchmark: `scratchpad/f2_bench.py` on a copy of the live DB.
+- **F1 (readers) — my first defense overstated it and I rewrote the document.**
+  Partials are **not** publish-blocking (verified three ways: `publish_blocking`
+  excludes `unsupported_claims`; discard deletes `claim_supports` before units;
+  `formula_status` defaults to a value neither branch fires on), and the search
+  corpus cannot see them. Exposure is telemetry only → three filters, not a
+  staging table.
+- **The resume key already exists**: `prompt_runs.input_hash`. Hartley's three
+  attempts each produced exactly 277 distinct hashes, sets 100% identical.
+  **No schema change, no migration.**
+- **A span-keyed resume would have been wrong** — 1,790 of 8,692 spans (20.6%)
+  legitimately appear in more than one batch in a single clean run. Measured
+  before designing, not after.
+
+Do not start P0 until the user approves the plan.
+
 ## Immediate Next Action
 
 **P5a** — advance the two pending books. Hartley's L1 and 104 vision pages are
