@@ -15,7 +15,6 @@ from . import constants as consts
 from . import db
 from . import ingest_llm
 from .llm import build_client
-from .llm import capacity_blocked_for as llm_capacity_blocked_for
 
 _log = logging.getLogger(__name__)
 
@@ -228,6 +227,25 @@ def progress_current_of(paths: cfg.WikiPaths, job_id: int) -> str:
         return "?"
 
 
+def _capacity_wait(client: object) -> float:
+    """How long this client says its provider will keep refusing, or 0.
+
+    `hasattr` is not enough: a `Mock` grows any attribute on demand, and test
+    doubles for the client are common in this file's own suite -- comparing the
+    result to 0 then raises `TypeError` inside the ingest path. Only a real
+    number counts, and anything else means "no opinion, proceed".
+    """
+    probe = getattr(client, "capacity_blocked_for", None)
+    if not callable(probe):
+        return 0.0
+    try:
+        value = probe()
+    except Exception:  # noqa: BLE001 - a diagnostic must never block the queue
+        _log.debug("capacity probe failed (non-fatal)", exc_info=True)
+        return 0.0
+    return float(value) if isinstance(value, (int, float)) else 0.0
+
+
 def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
     """Claim and run one queued job synchronously.
 
@@ -240,9 +258,17 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
     # everything before it: Hartley re-ran 277 extraction batches to reach the
     # step that had been refused, twice, discarding ~90 minutes each time.
     #
+    # Ask the client that WOULD run this job, not a global flag. The default
+    # topology for `antigravity-cli` is a FailoverClient with an Ollama
+    # fallback, and AntigravityCliError is already in the failover set — so a
+    # 429 there is absorbed, and blocking on it would stop work a healthy
+    # fallback can do. FailoverClient reports 0 while any delegate is free.
+    #
     # Checked BEFORE claiming, so the job stays queued and claimable rather than
     # being consumed into a failure. See llm.block_capacity.
-    waiting = llm_capacity_blocked_for()
+    config = config or cfg.load_config(paths)
+    probe_client = build_client(config)
+    waiting = _capacity_wait(probe_client)
     if waiting > 0:
         return {
             "ok": True,
@@ -263,8 +289,7 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
     job_type = str(job.get("job_type") or consts.PHASE_L2)
     source_id = int(job["source_id"] or 0)
     retry_count = int(job.get("retry_count") or 0)
-    config = config or cfg.load_config(paths)
-    client = build_client(config)
+    client = probe_client          # already built for the capacity check above
     history = JobHistory(paths.state_db, job_id)
 
     try:

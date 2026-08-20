@@ -72,9 +72,13 @@ def jobs_run(
     results = [r for r in results if not r.get("deferred")]
     if deferred:
         wait = deferred[0].get("retry_after_seconds") or 0
+        # "Nothing was started" is only true when nothing was. A drain can
+        # process several jobs and THEN hit the wall, and claiming otherwise in
+        # the same output that reports them is worse than saying less.
+        started = "No further jobs were started" if results else "Nothing was started"
         _err(
-            f"Provider is at capacity. Nothing was started; the queue is "
-            f"untouched. Try again in about {wait / 60:.0f} min."
+            f"Provider is at capacity. {started}; the queue is untouched. "
+            f"Try again in about {wait / 60:.0f} min."
         )
     if not results:
         if not deferred:

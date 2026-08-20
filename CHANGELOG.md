@@ -18,10 +18,15 @@ All notable changes to Incurator are documented here.
   per-client state, and `run_next_job` builds a fresh client per job; and it was
   consulted only by `ping()`, which the ingest path never calls.
 
-  The block is now process-wide, and the worker checks it **before claiming a
-  job**, so the job stays queued and claimable instead of being consumed into a
+  The block is now per provider and process-wide, and the worker asks **the
+  client that would run the job**, before claiming it, so the job stays queued and claimable instead of being consumed into a
   failure. A source large enough that extraction exhausts the window can now
   finish on a later attempt rather than never.
+
+  Scoped per provider, deliberately: `antigravity-cli` defaults to a failover
+  with an Ollama fallback that already absorbs this error, so a global block
+  would have stopped work a healthy fallback could do — including in a vault
+  using no Antigravity at all.
 
 - **A deferral is no longer reported as a completed drain.** "Nothing to do" and
   "work is waiting and the provider is refusing" both stop the loop and mean
