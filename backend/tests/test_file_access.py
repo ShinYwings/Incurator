@@ -280,3 +280,63 @@ def test_existing_parser_error_handlers_still_catch_it() -> None:
     except parsers.ParserError as e:
         assert "Not permitted to read /x/y.pdf" in str(e)
         assert "grant access to /x" in str(e)
+
+
+# --------------------------------------------------------------------------
+# The regression the live check caught: a denial must not degrade to the stub
+# --------------------------------------------------------------------------
+
+
+def test_a_denied_attachment_does_not_silently_ingest_the_stub_instead(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Found by running it, not by a test — which is why it is a test now.
+
+    `_resolve_reference_source` is a best-effort resolver: every failure degrades
+    to "no external file here, use the note". Introducing a denied state made
+    that degradation fire for a file that is present and merely refused, so the
+    source would have ingested the stub's frontmatter and reported SUCCESS — a
+    673-page book silently becoming four lines of metadata. Worse than the error
+    it replaced, and invisible.
+    """
+    from curator import ingest_raw, parsers, zotero_tools
+
+    stub = tmp_path / "ref.md"
+    stub.write_text(
+        "---\ntype: reference\nzotero_attachment_key: KEY\n---\nnote body\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        zotero_tools, "resolve_pdf",
+        lambda *_a, **_k: {
+            "ok": False,
+            "state": "attachment_file_denied",
+            "path": "/blocked/book.pdf",
+            "grant_folder": "/blocked",
+        },
+    )
+
+    paths = type("P", (), {"root": tmp_path, "state_db": tmp_path / "s.sqlite"})()
+    with pytest.raises(parsers.ParserAccessDenied) as excinfo:
+        ingest_raw._resolve_reference_source(paths, stub)
+    assert "/blocked/book.pdf" in str(excinfo.value)
+
+
+def test_other_resolution_failures_still_degrade_to_the_note(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The broad degrade is deliberate and must survive — only DENIED escapes."""
+    from curator import ingest_raw, zotero_tools
+
+    stub = tmp_path / "ref.md"
+    stub.write_text(
+        "---\ntype: reference\nzotero_attachment_key: KEY\n---\nnote body\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        zotero_tools, "resolve_pdf",
+        lambda *_a, **_k: {"ok": False, "state": "attachment_file_missing"},
+    )
+    paths = type("P", (), {"root": tmp_path, "state_db": tmp_path / "s.sqlite"})()
+    assert ingest_raw._resolve_reference_source(paths, stub) == stub

@@ -358,6 +358,94 @@ def init(
         _hint("Next: run [bold]wiki add[/bold] to discover sources, then [bold]wiki build[/bold].")
 
 
+def _report_unreadable_sources(paths: cfg.WikiPaths, console: Any) -> None:
+    """Name sources whose file exists but cannot be read, once, with the fix.
+
+    A per-job ingest error is the worst place to learn a folder needs granting:
+    it recurs, arrives mid-run, and until v0.61.0 said `Cannot parse PDF`, which
+    points at the file rather than the permission. Status is where a user looks
+    deliberately, so a refusal is reported here with the folder to grant
+    (SYSTEM_BEHAVIOR §12.3).
+
+    Resolution goes through `_resolve_reference_source` — the same function
+    ingest uses — rather than a query over `logical_source_id`/`external_ref`.
+    Those columns are NULL for the very source that prompted this work: its
+    Zotero identity lives in the stub's frontmatter, not the source row, so a
+    DB-only filter would have reported nothing for the one case that matters.
+    """
+    import unicodedata
+
+    from ..ingest_raw import _resolve_reference_source
+    from ..parsers import ParserAccessDenied
+    from .. import file_access
+
+    try:
+        with db.connect(paths.state_db) as conn:
+            rows = conn.execute("SELECT relpath FROM sources").fetchall()
+    except Exception as e:  # noqa: BLE001 - status must never fail on a diagnostic
+        logger.debug("unreadable-source scan could not read sources: %s", e)
+        return
+
+    denied: list[tuple[str, Path]] = []
+    for row in rows:
+        relpath = str(row["relpath"])
+        try:
+            resolved = _resolve_reference_source(paths, paths.root / relpath)
+        except ParserAccessDenied as e:
+            # The resolver now RAISES on a denial rather than degrading, so the
+            # signal arrives as an exception here. Catching it under a blanket
+            # `except Exception: continue` would have thrown away the one thing
+            # this function exists to report -- which it did, until running it
+            # showed nothing.
+            denied.append((relpath, Path(e.path)))
+            continue
+        except Exception as e:  # noqa: BLE001 - one bad stub must not hide the rest
+            logger.debug("could not resolve '%s' while scanning: %s", relpath, e)
+            continue
+        if file_access.probe(resolved) is file_access.Reachability.DENIED:
+            denied.append((relpath, resolved))
+
+    if not denied:
+        return
+
+    # Deduplicate by NFC. The vault carries the same file registered twice --
+    # once NFD (what macOS writes) and once NFC -- so a byte comparison sees two
+    # sources and a reader sees the same line printed twice. The duplicate
+    # registration itself is a separate defect; this only stops the report from
+    # looking broken because of it.
+    seen: set[str] = set()
+    unique: list[tuple[str, Path]] = []
+    for relpath, resolved in denied:
+        key = unicodedata.normalize("NFC", relpath)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append((relpath, resolved))
+    denied = unique
+
+    by_root: dict[str, list[str]] = {}
+    for relpath, resolved in denied:
+        root = file_access.grant_root(resolved)
+        key = str(root) if root is not None else "(unknown folder)"
+        by_root.setdefault(key, []).append(relpath)
+
+    console.print()
+    console.print(
+        f"[yellow]{len(denied)} source file(s) exist but cannot be read.[/yellow] "
+        "They are not missing or damaged — this process lacks permission."
+    )
+    for root_name, names in by_root.items():
+        console.print(f"  [dim]grant access to[/dim] {root_name}")
+        for name in names[:5]:
+            console.print(f"      {name}")
+        if len(names) > 5:
+            console.print(f"      … and {len(names) - 5} more")
+    console.print(
+        "  [dim]System Settings → Privacy & Security → Full Disk Access, "
+        "then restart the app.[/dim]"
+    )
+
+
 def status(
     json_output: bool = typer.Option(False, "--json", help="Print the live status/sources/jobs payload as machine-readable JSON (used by the plugin dashboard)."),
     refresh: bool = typer.Option(False, "--refresh", help="Refresh the on-disk runtime snapshot cache before displaying (writes to the vault)."),
@@ -488,6 +576,8 @@ def status(
             f"in {_fmt_tokens(total_in)} / out {_fmt_tokens(total_out)}{cost_str}",
         )
     console.print(table)
+
+    _report_unreadable_sources(paths, console)
 
     pages_table = Table(title="Collections", show_header=False, box=None, padding=(0, 2))
     pages_table.add_column(style="dim", width=22)

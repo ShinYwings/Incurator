@@ -238,6 +238,21 @@ External files such as research PDFs owned by Zotero, iCloud, Syncthing, or a br
 >
 > Incurator cannot request this for you: macOS has no API to ask for a folder
 > grant, and a background process gets a silent denial instead of a prompt.
+>
+> **From v0.61.0 it at least says so.** A refused file no longer reports as
+> missing or damaged. `wiki status` lists the affected sources once, grouped by
+> the folder to grant:
+>
+> ```
+> 4 source file(s) exist but cannot be read. They are not missing or damaged —
+> this process lacks permission.
+>   grant access to /Users/you/Library/Mobile Documents
+>       04_Resources/References/MultipleViewGeometryHartley - .md
+>       …
+> ```
+>
+> and an ingest that hits one says `Not permitted to read <path> — grant access
+> to <folder>` instead of `Cannot parse PDF`.
 
 ### 1. Reference Mode
 
