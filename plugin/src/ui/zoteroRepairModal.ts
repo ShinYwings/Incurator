@@ -27,6 +27,10 @@ export function describeZoteroState(state: string, attachmentKey = ""): string {
         : "The requested attachment key is not present in the readable Zotero database.";
     case "attachment_file_missing":
       return "Zotero has an attachment row, but the PDF file was not found in configured roots.";
+    case "attachment_file_denied":
+      // The file IS there and this machine will not let the backend open it.
+      // Saying "not found" here is what sent people looking for a corrupt PDF.
+      return "The PDF exists but this app is not permitted to read it. Grant access to its folder in System Settings → Privacy & Security → Full Disk Access, then restart.";
     case "not_configured":
       return "No readable Zotero data directory is configured for this device.";
     default:

@@ -1308,7 +1308,7 @@ backend가 checked roots 또는 checked PDF paths를 반환하면 setup dialog�
 | Windows | `C:\Users\<username>\Zotero` |
 
 이 디렉토리에는 `zotero.sqlite`가 있어야 합니다. PDF 첨부 파일은 Zotero `storage/` 또는 linked/base attachment directory에 있을 수 있습니다. linked attachment root는 Zotero DB의 `attachments:` 경로를 풀기 위한 base path일 뿐이며, 일반 `storage/<KEY>/...` 첨부에는 필요하지 않습니다. 디렉토리가 이동했거나 DB가 없으면 Zotero 검색이 빈 결과처럼 보이지 않고 backend status가 구조화된 상태를 반환합니다.
-Zotero 링크나 Add-to-Incurator 작업에서 PDF를 해석하지 못하면 backend는 `db_missing`, `attachment_key_missing`, `attachment_file_missing` 같은 구조화된 상태를 반환합니다. 그래서 "Zotero DB를 찾을 수 없음", "현재 DB에 해당 attachment key가 없음", "configured root 안에 linked PDF 파일이 없음"을 plugin UI에서 구분할 수 있습니다. Settings, Dashboard, Zotero link 실패, sidechat Add-to-Incurator 실패는 같은 Zotero setup dialog를 열어 복구 로직이 한 UI 경로에 모이도록 합니다.
+Zotero 링크나 Add-to-Incurator 작업에서 PDF를 해석하지 못하면 backend는 `db_missing`, `attachment_key_missing`, `attachment_file_missing` 같은 구조화된 상태를 반환합니다. v0.61.0부터는 네 번째로 `attachment_file_denied`가 있습니다 — PDF가 있는데 이 앱에 읽을 권한이 없는 경우이며, 파일이 없는 것이 아니라 권한 문제로 표시하고 권한을 줘야 할 폴더를 함께 알려줍니다. 그래서 "Zotero DB를 찾을 수 없음", "현재 DB에 해당 attachment key가 없음", "configured root 안에 linked PDF 파일이 없음"을 plugin UI에서 구분할 수 있습니다. Settings, Dashboard, Zotero link 실패, sidechat Add-to-Incurator 실패는 같은 Zotero setup dialog를 열어 복구 로직이 한 UI 경로에 모이도록 합니다.
 
 ### Import Zotero Item
 

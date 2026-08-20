@@ -798,6 +798,12 @@ Rules:
   vault for prompt candidates or regex-rewrite arbitrary answer prose after
   generation. Hidden Curator links, PDF page/section links, and explicit block
   locators retain their existing scoped handlers.
+  From v0.61.0 it also returns `state=attachment_file_denied` when the file is
+  present and the backend is not permitted to open it. This is distinct from
+  `attachment_file_missing` and must not be presented as a missing file; the
+  payload carries `path` and `grant_folder`. Plugin UI must handle it
+  explicitly rather than falling through to a default that shows the raw
+  state string. See SYSTEM_BEHAVIOR §12.3.
 
 ### 2.1.1 Zotero Import Profiles
 

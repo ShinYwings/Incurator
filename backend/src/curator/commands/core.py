@@ -404,7 +404,11 @@ def _report_unreadable_sources(paths: cfg.WikiPaths, console: Any) -> None:
         logger.debug("unreadable-source scan could not read sources: %s", e)
         return
 
-    denied: list[tuple[str, Path]] = []
+    # (relpath, resolved path, grant folder). The grant folder travels WITH the
+    # denial rather than being re-derived: the exception already carries the one
+    # the resolver computed, and re-probing would both discard that and pay the
+    # 0.7 ms denial cost a second time for an answer we were handed.
+    denied: list[tuple[str, Path, str]] = []
     for row in rows:
         relpath = str(row["relpath"])
         stub = paths.root / relpath
@@ -424,37 +428,33 @@ def _report_unreadable_sources(paths: cfg.WikiPaths, console: Any) -> None:
             # `except Exception: continue` would have thrown away the one thing
             # this function exists to report -- which it did, until running it
             # showed nothing.
-            denied.append((relpath, Path(e.path)))
+            denied.append((relpath, Path(e.path), e.grant_folder))
             continue
         except Exception as e:  # noqa: BLE001 - one bad stub must not hide the rest
             logger.debug("could not resolve '%s' while scanning: %s", relpath, e)
             continue
         if file_access.probe(resolved) is file_access.Reachability.DENIED:
-            denied.append((relpath, resolved))
+            root = file_access.grant_root(resolved)
+            denied.append((relpath, resolved, str(root) if root else ""))
 
     if not denied:
         return
 
-    # Deduplicate by NFC. The vault carries the same file registered twice --
-    # once NFD (what macOS writes) and once NFC -- so a byte comparison sees two
-    # sources and a reader sees the same line printed twice. The duplicate
-    # registration itself is a separate defect; this only stops the report from
-    # looking broken because of it.
-    seen: set[str] = set()
-    unique: list[tuple[str, Path]] = []
-    for relpath, resolved in denied:
-        key = unicodedata.normalize("NFC", relpath)
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append((relpath, resolved))
-    denied = unique
+    # Collapse rows that name the same file, and SAY SO rather than hiding it.
+    # The vault carries one file registered twice -- once NFD (what macOS
+    # writes) and once NFC -- which `GROUP BY relpath` cannot see because the
+    # bytes differ. Silently deduplicating would make this report tidy while
+    # concealing a defect that costs real money: each row runs its own ingest
+    # job, so the LLM work is paid twice. Reporting the collision is the point.
+    grouped: dict[str, list[tuple[str, Path, str]]] = {}
+    for entry in denied:
+        grouped.setdefault(unicodedata.normalize("NFC", entry[0]), []).append(entry)
+    duplicated = [k for k, v in grouped.items() if len(v) > 1]
+    denied = [rows[0] for rows in grouped.values()]
 
     by_root: dict[str, list[str]] = {}
-    for relpath, resolved in denied:
-        root = file_access.grant_root(resolved)
-        key = str(root) if root is not None else "(unknown folder)"
-        by_root.setdefault(key, []).append(relpath)
+    for relpath, _resolved, grant in denied:
+        by_root.setdefault(grant or "(unknown folder)", []).append(relpath)
 
     console.print()
     console.print(
@@ -471,6 +471,14 @@ def _report_unreadable_sources(paths: cfg.WikiPaths, console: Any) -> None:
         "  [dim]System Settings → Privacy & Security → Full Disk Access, "
         "then restart the app.[/dim]"
     )
+    if duplicated:
+        console.print()
+        console.print(
+            f"[yellow]{len(duplicated)} of these are registered more than once[/yellow] "
+            "under Unicode-different spellings of the same path, so their ingest "
+            "work is done twice. Reported here because a byte comparison cannot "
+            "see it."
+        )
 
 
 def status(

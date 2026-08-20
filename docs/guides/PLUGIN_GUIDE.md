@@ -1480,6 +1480,9 @@ not in this database", and "the linked PDF file is missing from configured
 roots" separate in plugin UI. The plugin opens the same Zotero setup dialog from
 Settings, Dashboard, Zotero link failures, and sidechat Add-to-Incurator
 failures so repair logic stays in one UI path.
+ From v0.61.0 there is a fourth: `attachment_file_denied`, meaning the PDF is
+ there and this app is not permitted to read it. It is shown as a permission
+ problem naming the folder to grant, not as a missing file.
 
 ### Import Zotero Item
 

@@ -29,6 +29,8 @@ this is still free.
 from __future__ import annotations
 
 import logging
+import os
+import stat
 from enum import Enum
 from pathlib import Path
 
@@ -58,8 +60,22 @@ def probe(path: Path) -> Reachability:
     what makes the answer true.
     """
     try:
-        with open(path, "rb") as handle:
-            handle.read(1)
+        # O_NONBLOCK so a FIFO with no writer cannot block the process. A plain
+        # `open()` on one waits for a writer, and this runs on the ingest path
+        # and on every `wiki status` -- a stray named pipe at a source path
+        # would hang the CLI with no way out but a kill. `os.path.exists`, which
+        # this replaced, never had that failure mode, so guarding it is not
+        # optional politeness.
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                # A directory, FIFO, socket or device is not a source we could
+                # read anyway; MISSING keeps it out of the denial report rather
+                # than inventing a permission problem.
+                return Reachability.MISSING
+            os.read(fd, 1)
+        finally:
+            os.close(fd)
         return Reachability.OK
     except PermissionError:
         return Reachability.DENIED
@@ -84,6 +100,13 @@ def grant_root(path: Path) -> Path | None:
     per folder. The answer is the SHALLOWEST ancestor that is itself denied,
     found by walking upward and probing.
 
+    Every ancestor is checked rather than stopping at the first readable one.
+    Listing a directory and reading a file are DIFFERENT macOS permission
+    checks, so a folder can enumerate fine while the bytes beneath it are
+    refused; breaking early on the first successful listing would return None
+    for exactly the case this exists to describe. The walk is bounded by path
+    depth and runs only on the denial path.
+
     Deliberately not a lookup table of macOS locations. A table cannot know a
     directory the OS adds later, and on the machine this was measured against it
     would have named `~/Library/CloudStorage` — readable there — sending the
@@ -93,16 +116,13 @@ def grant_root(path: Path) -> Path | None:
     if probe(path) is not Reachability.DENIED:
         return None
 
-    deepest_denied: Path | None = None
+    shallowest_denied: Path | None = None
     for ancestor in path.parents:
         try:
-            with __import__("os").scandir(ancestor) as it:
+            with os.scandir(ancestor) as it:
                 next(iter(it), None)
         except PermissionError:
-            deepest_denied = ancestor
-            continue
+            shallowest_denied = ancestor
         except OSError:
             continue
-        # First readable ancestor: the one below it is the boundary.
-        break
-    return deepest_denied
+    return shallowest_denied

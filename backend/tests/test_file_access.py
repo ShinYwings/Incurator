@@ -25,6 +25,16 @@ import pytest
 from curator import file_access as fa
 
 
+def cfg_paths(tmp_path: Path):
+    """A minimal initialised vault for the status-report tests."""
+    from curator import config as cfg, db
+
+    paths = cfg.paths_from_config(tmp_path)
+    paths.root.mkdir(parents=True, exist_ok=True)
+    db.init_db(paths.state_db)
+    return paths
+
+
 # --------------------------------------------------------------------------
 # The three outcomes
 # --------------------------------------------------------------------------
@@ -78,14 +88,14 @@ def test_the_probe_does_not_rely_on_os_access(monkeypatch: pytest.MonkeyPatch,
 
     monkeypatch.setattr(os, "access", lambda *_a, **_k: True)   # bits say yes
 
-    real_open = open
+    real_os_open = os.open
 
     def denying_open(file, *a, **k):
         if Path(file) == p:
             raise PermissionError(1, "Operation not permitted")
-        return real_open(file, *a, **k)
+        return real_os_open(file, *a, **k)
 
-    monkeypatch.setattr("builtins.open", denying_open)
+    monkeypatch.setattr(os, "open", denying_open)
     assert fa.probe(p) is fa.Reachability.DENIED, (
         "the probe agreed with os.access instead of with reality"
     )
@@ -403,3 +413,200 @@ def test_an_unreadable_stub_is_itself_worth_reporting(tmp_path: Path) -> None:
         assert core._may_point_elsewhere(stub) is True
     finally:
         blocked.chmod(stat.S_IRWXU)
+
+
+# --------------------------------------------------------------------------
+# The report itself, and the integrated resolve_pdf — both were untested
+# --------------------------------------------------------------------------
+
+
+class _Rec:
+    def __init__(self) -> None:
+        self.lines: list[str] = []
+
+    def print(self, *a, **k) -> None:
+        self.lines.append(" ".join(str(x) for x in a))
+
+    @property
+    def text(self) -> str:
+        return "\n".join(self.lines)
+
+
+def test_the_report_names_the_source_and_the_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from curator import db
+    from curator.commands import core
+    from curator.parsers import ParserAccessDenied
+
+    paths = cfg_paths(tmp_path)
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "INSERT INTO sources (relpath, content_hash, file_type, bytes, added_at) "
+            "VALUES ('04_Resources/References/Book.md', 'h', 'md', 10, datetime('now'))"
+        )
+    stub = paths.root / "04_Resources/References/Book.md"
+    stub.parent.mkdir(parents=True, exist_ok=True)
+    stub.write_text("---\ntype: reference\n---\n", encoding="utf-8")
+
+    from curator import ingest_raw
+
+    def _denied(*_a, **_k):
+        raise ParserAccessDenied("/blocked/Book.pdf", "/blocked")
+
+    # The report imports the resolver INSIDE the function to avoid a circular
+    # import, so the patch has to land on the module it imports from.
+    monkeypatch.setattr(ingest_raw, "_resolve_reference_source", _denied)
+    rec = _Rec()
+    core._report_unreadable_sources(paths, rec)
+    assert "cannot be read" in rec.text
+    assert "Book.md" in rec.text
+    assert "/blocked" in rec.text
+    assert "Full Disk Access" in rec.text
+
+
+def test_the_report_says_nothing_when_everything_is_readable(tmp_path: Path) -> None:
+    """Silence must mean 'nothing to fix', so it has to be tested as an outcome."""
+    from curator import db
+    from curator.commands import core
+
+    paths = cfg_paths(tmp_path)
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "INSERT INTO sources (relpath, content_hash, file_type, bytes, added_at) "
+            "VALUES ('03_Notes/n.md', 'h', 'md', 10, datetime('now'))"
+        )
+    (paths.root / "03_Notes").mkdir(parents=True, exist_ok=True)
+    (paths.root / "03_Notes/n.md").write_text("# note\n", encoding="utf-8")
+
+    rec = _Rec()
+    core._report_unreadable_sources(paths, rec)
+    assert rec.text.strip() == ""
+
+
+def test_a_file_registered_twice_is_reported_not_hidden(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Collapsing the duplicate silently would tidy the report and conceal a
+    defect that costs money: each row runs its own ingest job, so the LLM work
+    is paid twice. `GROUP BY relpath` cannot see it because the bytes differ.
+    """
+    from curator import db
+    from curator.commands import core
+    from curator.parsers import ParserAccessDenied
+
+    paths = cfg_paths(tmp_path)
+    import unicodedata
+
+    # Build both spellings from the same string so the test cannot drift from
+    # what macOS actually writes: NFD is the filesystem's form, NFC is what an
+    # import from elsewhere tends to carry.
+    base = "04_Resources/References/P\u0159ibyl.md"
+    nfc = unicodedata.normalize("NFC", base)
+    nfd = unicodedata.normalize("NFD", base)
+    assert nfc != nfd, "fixture assumption: the two spellings differ in bytes"
+    with db.connect(paths.state_db) as conn:
+        for rel in (nfc, nfd):
+            conn.execute(
+                "INSERT INTO sources (relpath, content_hash, file_type, bytes, added_at) "
+                "VALUES (?, 'h', 'md', 10, datetime('now'))", (rel,)
+            )
+    d = paths.root / "04_Resources/References"
+    d.mkdir(parents=True, exist_ok=True)
+    for rel in (nfc, nfd):
+        (paths.root / rel).write_text("---\ntype: reference\n---\n", encoding="utf-8")
+
+    from curator import ingest_raw
+
+    def _denied(*_a, **_k):
+        raise ParserAccessDenied("/blocked/P.pdf", "/blocked")
+
+    monkeypatch.setattr(ingest_raw, "_resolve_reference_source", _denied)
+    rec = _Rec()
+    core._report_unreadable_sources(paths, rec)
+    assert "registered more than once" in rec.text, (
+        "the duplicate registration was collapsed without saying so"
+    )
+    assert "1 source file(s)" in rec.text, "the file itself should be listed once"
+
+
+def test_resolve_pdf_returns_the_denied_state_end_to_end(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The integrated path, not just the helper: `resolve_pdf` is what callers use."""
+    from curator import zotero_tools as zt
+
+    blocked = tmp_path / "roots"
+    blocked.mkdir()
+    pdf = blocked / "KEY.pdf"
+    pdf.write_bytes(b"%PDF")
+    blocked.chmod(0o000)
+    try:
+        if os.access(pdf, os.R_OK):
+            pytest.skip("running as a user that bypasses permission bits")
+        monkeypatch.setattr(zt, "_first_existing_zotero_db", lambda *_a, **_k: "z.sqlite")
+        monkeypatch.setattr(zt, "zotero_root_candidates", lambda *_a, **_k: [str(blocked)])
+        monkeypatch.setattr(zt.cfg, "load_config", lambda *_a, **_k: {})
+        monkeypatch.setattr(
+            zt.zotero_backend, "resolve_pdf_attachment_for_key",
+            lambda *_a, **_k: ("KEY", "KEY.pdf"),
+        )
+        monkeypatch.setattr(
+            zt, "_pdf_candidates_for_db_path", lambda *_a, **_k: [str(pdf)]
+        )
+        out = zt.resolve_pdf("KEY", object())
+        assert out["state"] == "attachment_file_denied"
+        assert out["ok"] is False
+        assert out["path"] == str(pdf)
+        assert out["grant_folder"] == str(blocked)
+    finally:
+        blocked.chmod(stat.S_IRWXU)
+
+
+def test_a_named_pipe_never_blocks_the_probe(tmp_path: Path) -> None:
+    """A plain `open()` on a FIFO waits for a writer, forever.
+
+    This runs on the ingest path and on every `wiki status`, so a stray named
+    pipe at a source path would hang the CLI with no exit but a kill.
+    `os.path.exists` -- what this replaced -- never had that failure mode, so
+    the non-blocking open is a guard against a regression, not politeness.
+    """
+    import signal
+
+    fifo = tmp_path / "pipe"
+    os.mkfifo(fifo)
+
+    def _timeout(*_a):
+        raise TimeoutError("probe blocked on a FIFO")
+
+    signal.signal(signal.SIGALRM, _timeout)
+    signal.alarm(3)
+    try:
+        assert fa.probe(fifo) is fa.Reachability.MISSING
+    finally:
+        signal.alarm(0)
+
+
+def test_grant_root_does_not_stop_at_the_first_listable_ancestor(
+    tmp_path: Path,
+) -> None:
+    """Listing a folder and reading a file are different permission checks.
+
+    A folder can enumerate fine while the bytes beneath it are refused, so
+    stopping at the first successful listing would return None for exactly the
+    case this function exists to describe. Here the immediate parent lists fine
+    and a higher ancestor does not.
+    """
+    outer = tmp_path / "outer"
+    inner = outer / "readable_dir"
+    inner.mkdir(parents=True)
+    leaf = inner / "doc.pdf"
+    leaf.write_bytes(b"%PDF")
+    outer.chmod(0o000)
+    try:
+        if os.access(outer, os.R_OK):
+            pytest.skip("running as a user that bypasses permission bits")
+        # The leaf's own parent (`inner`) is listable; `outer` is not.
+        assert fa.grant_root(leaf) == outer
+    finally:
+        outer.chmod(stat.S_IRWXU)
