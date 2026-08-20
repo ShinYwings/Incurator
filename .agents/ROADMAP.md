@@ -134,7 +134,16 @@ because three things are missing. Any recovery plan must start here:
    a parameter, a pass-through, or a column read. Nothing mints one, so the
    `reviewed` state is unreachable and every candidate would sit at
    `candidate` forever.
-3. **The region cannot be cropped.** `recover_formula` wants a `crop_hash` and
+3. **The region cannot be cropped — measured 2026-08-20, and it reorders this
+   item.** All **1,135** loss records in the live vault carry `{width, height}`
+   and **0** carry page coordinates, so `recover_formula` could crop nothing:
+   wiring it today recovers 0 regions, not the estimated 0–2. Blocker 3 is not a
+   prerequisite alongside the others — it IS the milestone, and it lives in the
+   parser (which discards the geometry) rather than in the recovery code.
+   Note the figures below are stale: 130 regions across 4 sources was never
+   re-derived; the database says 1,135 across 3.
+
+   Original wording: `recover_formula` wants a `crop_hash` and
    locator; placeholder spans carry `metadata = None`, and the only geometry
    that survives is `[width x height]` in the placeholder text — no page
    coordinates. `page_number` is a section index, not a physical page (max 23

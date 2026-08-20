@@ -104,15 +104,49 @@ The three blockers are the milestone. They are also not equally hard:
 - 3 is the largest: it needs page coordinates that the ingest path currently
   discards, which reaches back into parsing, not just recovery.
 
+## 5a. Measured 2026-08-20 — there is no "recover what we can locate" subset
+
+Question 2 below asked how many of the ~48 regions have usable geometry today,
+because that number sizes the milestone. Measured against the live vault:
+
+```
+spans carrying a loss record  : 1135
+verdicts                      : {'image_only': 1135}
+region key-sets seen          : {('height', 'width'): 1135}
+regions with page COORDINATES : 0
+distinct sources affected     : 3
+```
+
+**Every one of them carries `{width, height}` and nothing else.** Zero have page
+coordinates. So `recover_formula`, which requires a `crop_hash`, could crop
+nothing at all — wiring it today recovers **0** regions, not the Arena's
+estimated 0–2. There is no shippable subset to carve out.
+
+Note the roadmap's own figures are stale: it says "130 unreadable regions across
+4 sources"; the database says **1,135 across 3**. Neither number was re-derived
+until now.
+
+**This reverses the sequencing.** Blocker 3 is not a prerequisite alongside the
+other two — it IS the milestone. Fixing the acceptance gate (blocker 1) and
+minting a validator trace (blocker 2) perfectly would still recover nothing,
+because nothing can be located. And blocker 3 does not live in the recovery
+code: the coordinates are discarded upstream, during parsing, so the work
+touches a different part of the system than the item's name suggests.
+
+Question 2 is therefore answered and withdrawn. The open question it becomes:
+**can the parser retain page geometry for a dropped image region, and at what
+cost to ingest?** That is the first thing to establish, and it is measurable
+before anything is designed.
+
 ## 6. Questions for the Arena
 
 1. Is 1b a normalisation table, or does the gate need a different comparison
    entirely (structural parse rather than token sequence)? The 3/8 that survive
    subsequence are the evidence either way.
-2. Does blocker 3 belong in this milestone at all, or is "recover formulas we
-   can locate" a shippable subset while locating the rest is separate work?
-   ~48 regions is the estimate; how many have usable geometry today is not
-   measured and should be before scoping.
+2. ~~Is "recover what we can locate" a shippable subset?~~ **Answered by
+   measurement (§5a): no. 0 of 1,135 regions carry coordinates.** The question
+   becomes whether the parser can retain page geometry for a dropped image
+   region, and what that costs at ingest.
 3. What produces a `validator_trace_id`, and is `reviewed` a human action or an
    automated one? The answer decides whether this is a UI feature or a pipeline
    one.
