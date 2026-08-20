@@ -48,6 +48,26 @@ class ParserError(Exception):
     """Raised when a parser cannot process a file."""
 
 
+class ParserAccessDenied(ParserError):
+    """The file is there and this process may not read it.
+
+    A subclass so the boundary keeps its type: all three existing
+    `except ParserError` sites (`ingest_raw.py:2054`, `:2201`,
+    `commands/sources.py:187`) surface the message to the user unchanged, and
+    new code can be specific.
+
+    It exists because wrapping this as a parse failure was actively
+    misleading — `Cannot parse PDF <name>` sent the user to look for a corrupt
+    file that opens fine in Finder. See SYSTEM_BEHAVIOR §12.3.
+    """
+
+    def __init__(self, path, grant_folder=None) -> None:
+        self.path = str(path)
+        self.grant_folder = str(grant_folder) if grant_folder else ""
+        detail = f" — grant access to {self.grant_folder}" if self.grant_folder else ""
+        super().__init__(f"Not permitted to read {self.path}{detail}")
+
+
 def normalize_text(text: str) -> str:
     """Normalize extracted text: collapse runs of whitespace, strip, dedupe
     blank lines. Deterministic, so the resulting hash is stable.

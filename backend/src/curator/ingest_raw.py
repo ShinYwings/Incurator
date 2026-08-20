@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Iterable
 
 from . import config as cfg
+from .parsers import ParserAccessDenied
 from . import db
 from . import parsers
 from .llm import LLMError
@@ -127,6 +128,17 @@ def _resolve_reference_source(paths: cfg.WikiPaths, source: Path) -> Path:
             resolved = zotero_tools.resolve_pdf(str(zotero_key), paths)
             if resolved.get("ok") and resolved.get("path"):
                 target_path = str(resolved["path"])
+            elif resolved.get("state") == "attachment_file_denied":
+                # Do NOT fall back to the stub. Every other unresolved case
+                # means "no PDF here, use the note"; this one means "the PDF is
+                # right there and we were refused". Falling back would ingest
+                # the stub's frontmatter and report success, which is worse than
+                # the error it replaces — the source would silently become a few
+                # lines of metadata instead of a 673-page book.
+                raise ParserAccessDenied(
+                    resolved.get("path") or source,
+                    resolved.get("grant_folder") or None,
+                )
         
         if not target_path and fm.get("target_path"):
             target_path = fm["target_path"]
@@ -148,6 +160,14 @@ def _resolve_reference_source(paths: cfg.WikiPaths, source: Path) -> Path:
             target_p = Path(target_path)
             if target_p.exists():
                 return target_p
+    except ParserAccessDenied:
+        # The ONE failure that must not degrade. Every other unresolved case
+        # means "no external file here, use the note"; this one means the file
+        # is present and we were refused. Degrading would ingest the stub's
+        # frontmatter and report success — the source silently becomes a few
+        # lines of metadata instead of the book it points at, which is worse
+        # than the error being replaced. See SYSTEM_BEHAVIOR §12.3.
+        raise
     except Exception as e:
         # KEEP broad: best-effort external-path resolver spanning file read,
         # config load, Zotero lookup, and a DB query — ANY failure must degrade

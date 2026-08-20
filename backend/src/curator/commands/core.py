@@ -358,6 +358,129 @@ def init(
         _hint("Next: run [bold]wiki add[/bold] to discover sources, then [bold]wiki build[/bold].")
 
 
+def _may_point_elsewhere(stub: Path) -> bool:
+    """True when a source might resolve to a file outside the vault.
+
+    Reads only the first bytes rather than parsing frontmatter, because this
+    runs once per source on every `wiki status`. A Reference-Mode stub declares
+    `type: reference` in its opening frontmatter block; anything else owns its
+    bytes in the vault and cannot be behind a folder grant.
+    """
+    try:
+        if stub.suffix.lower() != ".md":
+            return True          # a real PDF/asset in place: probe it directly
+        with open(stub, "rb") as handle:
+            head = handle.read(600)
+    except OSError:
+        return True              # unreadable stub is itself worth reporting
+    return b"type: reference" in head or b"zotero" in head.lower()
+
+
+def _report_unreadable_sources(paths: cfg.WikiPaths, console: Any) -> None:
+    """Name sources whose file exists but cannot be read, once, with the fix.
+
+    A per-job ingest error is the worst place to learn a folder needs granting:
+    it recurs, arrives mid-run, and until v0.61.0 said `Cannot parse PDF`, which
+    points at the file rather than the permission. Status is where a user looks
+    deliberately, so a refusal is reported here with the folder to grant
+    (SYSTEM_BEHAVIOR §12.3).
+
+    Resolution goes through `_resolve_reference_source` — the same function
+    ingest uses — rather than a query over `logical_source_id`/`external_ref`.
+    Those columns are NULL for the very source that prompted this work: its
+    Zotero identity lives in the stub's frontmatter, not the source row, so a
+    DB-only filter would have reported nothing for the one case that matters.
+    """
+    import unicodedata
+
+    from ..ingest_raw import _resolve_reference_source
+    from ..parsers import ParserAccessDenied
+    from .. import file_access
+
+    try:
+        with db.connect(paths.state_db) as conn:
+            rows = conn.execute("SELECT relpath FROM sources").fetchall()
+    except Exception as e:  # noqa: BLE001 - status must never fail on a diagnostic
+        logger.debug("unreadable-source scan could not read sources: %s", e)
+        return
+
+    # (relpath, resolved path, grant folder). The grant folder travels WITH the
+    # denial rather than being re-derived: the exception already carries the one
+    # the resolver computed, and re-probing would both discard that and pay the
+    # 0.7 ms denial cost a second time for an answer we were handed.
+    denied: list[tuple[str, Path, str]] = []
+    for row in rows:
+        relpath = str(row["relpath"])
+        stub = paths.root / relpath
+        # Cheap filter first. Resolving a stub means reading and parsing its
+        # frontmatter: measured at 123 ms across 44 sources against 1 ms for the
+        # probes themselves, and it grows linearly, so a large vault would make
+        # `wiki status` visibly slow for a report that concerns only Reference
+        # Mode. A source whose own file is readable and is not a reference stub
+        # cannot be behind a grant.
+        if not _may_point_elsewhere(stub):
+            continue
+        try:
+            resolved = _resolve_reference_source(paths, stub)
+        except ParserAccessDenied as e:
+            # The resolver now RAISES on a denial rather than degrading, so the
+            # signal arrives as an exception here. Catching it under a blanket
+            # `except Exception: continue` would have thrown away the one thing
+            # this function exists to report -- which it did, until running it
+            # showed nothing.
+            denied.append((relpath, Path(e.path), e.grant_folder))
+            continue
+        except Exception as e:  # noqa: BLE001 - one bad stub must not hide the rest
+            logger.debug("could not resolve '%s' while scanning: %s", relpath, e)
+            continue
+        if file_access.probe(resolved) is file_access.Reachability.DENIED:
+            root = file_access.grant_root(resolved)
+            denied.append((relpath, resolved, str(root) if root else ""))
+
+    if not denied:
+        return
+
+    # Collapse rows that name the same file, and SAY SO rather than hiding it.
+    # The vault carries one file registered twice -- once NFD (what macOS
+    # writes) and once NFC -- which `GROUP BY relpath` cannot see because the
+    # bytes differ. Silently deduplicating would make this report tidy while
+    # concealing a defect that costs real money: each row runs its own ingest
+    # job, so the LLM work is paid twice. Reporting the collision is the point.
+    grouped: dict[str, list[tuple[str, Path, str]]] = {}
+    for entry in denied:
+        grouped.setdefault(unicodedata.normalize("NFC", entry[0]), []).append(entry)
+    duplicated = [k for k, v in grouped.items() if len(v) > 1]
+    denied = [rows[0] for rows in grouped.values()]
+
+    by_root: dict[str, list[str]] = {}
+    for relpath, _resolved, grant in denied:
+        by_root.setdefault(grant or "(unknown folder)", []).append(relpath)
+
+    console.print()
+    console.print(
+        f"[yellow]{len(denied)} source file(s) exist but cannot be read.[/yellow] "
+        "They are not missing or damaged — this process lacks permission."
+    )
+    for root_name, names in by_root.items():
+        console.print(f"  [dim]grant access to[/dim] {root_name}")
+        for name in names[:5]:
+            console.print(f"      {name}")
+        if len(names) > 5:
+            console.print(f"      … and {len(names) - 5} more")
+    console.print(
+        "  [dim]System Settings → Privacy & Security → Full Disk Access, "
+        "then restart the app.[/dim]"
+    )
+    if duplicated:
+        console.print()
+        console.print(
+            f"[yellow]{len(duplicated)} of these are registered more than once[/yellow] "
+            "under Unicode-different spellings of the same path, so their ingest "
+            "work is done twice. Reported here because a byte comparison cannot "
+            "see it."
+        )
+
+
 def status(
     json_output: bool = typer.Option(False, "--json", help="Print the live status/sources/jobs payload as machine-readable JSON (used by the plugin dashboard)."),
     refresh: bool = typer.Option(False, "--refresh", help="Refresh the on-disk runtime snapshot cache before displaying (writes to the vault)."),
@@ -488,6 +611,8 @@ def status(
             f"in {_fmt_tokens(total_in)} / out {_fmt_tokens(total_out)}{cost_str}",
         )
     console.print(table)
+
+    _report_unreadable_sources(paths, console)
 
     pages_table = Table(title="Collections", show_header=False, box=None, padding=(0, 2))
     pages_table.add_column(style="dim", width=22)

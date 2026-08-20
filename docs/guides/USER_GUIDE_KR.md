@@ -205,6 +205,21 @@ PDF text parsing은 pymupdf4llm의 host Tesseract OCR을 암묵적으로 실행�
 >
 > Incurator가 대신 요청해 줄 수는 없습니다. macOS에는 폴더 권한을 미리 요청하는
 > API가 없고, 백그라운드 프로세스는 확인창 대신 조용한 거부를 받습니다.
+>
+> **v0.61.0부터는 최소한 그렇다고 말합니다.** 거부된 파일이 더 이상 없거나 손상된
+> 것으로 보고되지 않습니다. `wiki status`가 해당 소스들을 권한을 줘야 할 폴더별로
+> 한 번에 보여줍니다:
+>
+> ```
+> 4 source file(s) exist but cannot be read. They are not missing or damaged —
+> this process lacks permission.
+>   grant access to /Users/you/Library/Mobile Documents
+>       04_Resources/References/MultipleViewGeometryHartley - .md
+>       …
+> ```
+>
+> 적재 중에 걸리면 `Cannot parse PDF`가 아니라
+> `Not permitted to read <경로> — grant access to <폴더>`라고 나옵니다.
 
 ### 1. Reference Mode
 

@@ -1,8 +1,23 @@
 """XC-1 slice 1: error-handling for ingest_raw.py best-effort resolvers.
 
 Key guarantee (review-flagged): the external-source-path resolver must degrade
-to the original source on ANY failure — including a transient DB lock — never
-crash the caller, and the failure must now be logged instead of swallowed.
+to the original source on any failure — including a transient DB lock — and the
+failure must be logged instead of swallowed.
+
+**One carve-out, added in v0.61.0**: a `ParserAccessDenied` propagates instead of
+degrading. The guarantee exists because a resolver failure means "no external
+file here, use the note", and degrading is then correct. A denial means the
+opposite — the file IS there and we were refused — so degrading would ingest the
+stub's frontmatter and report SUCCESS, turning a 673-page book into four lines of
+metadata without telling anyone. That is worse than the crash the rule prevents,
+and it is not hypothetical: it happened while implementing v0.61.0 and was caught
+by running the code, not by a test.
+
+The "never crash the caller" half still holds in practice. All four call sites
+handle it: `ingest_raw.py:1437` and `:2053` sit inside broader `except`s, and
+`ParserAccessDenied` subclasses `ParserError` so existing handlers catch it;
+`pipeline/compile.py` and `mcp/server.py` each wrap their call. See
+SYSTEM_BEHAVIOR §12.3.
 """
 
 import logging

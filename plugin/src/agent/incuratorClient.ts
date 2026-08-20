@@ -87,6 +87,9 @@ export interface ZoteroPdfResolution {
   attachmentKey?: string;
   state?: string;
   error?: string;
+  /** Set with state="attachment_file_denied": the folder the user must grant.
+   *  Carried explicitly rather than parsed back out of `error`, which is prose. */
+  grant_folder?: string;
   dbPath?: string;
   zoteroDb?: string;
   rootsChecked: string[];

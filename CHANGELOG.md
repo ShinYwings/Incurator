@@ -2,6 +2,70 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.61.0] - 2026-08-20
+### Fixed
+- **A file you are not allowed to read is no longer reported as missing or
+  damaged.** Ingesting a Zotero-referenced PDF failed with `parse failed: Cannot
+  parse PDF …` for a 21 MB file that opens instantly in Finder. The file was
+  fine; the process was refused. Three checks in a row each answered a question
+  nobody asked:
+
+  ```
+  exists()        -> True     it is there
+  os.access R_OK  -> True     the permission bits allow it
+  open()          -> PermissionError errno=1
+  ```
+
+  `os.access` is the trap, and it is why this is a release rather than a
+  one-line patch: it reads POSIX permission bits and macOS denies below them.
+  The obvious fix — "add a readability check" — would have reported a readable
+  file and let the caller fail citing something else, exactly as before.
+
+- **The message now names a folder you can act on.** `Not permitted to read
+  <path> — grant access to <folder>`. The folder is the shallowest ancestor that
+  is itself refused, found by probing upward. Measured on the live case it
+  resolves to `~/Library/Mobile Documents` — the folder a user actually enables.
+
+### Added
+- **`wiki status` lists unreadable sources once**, grouped by the folder to
+  grant, instead of leaving you to discover them one failed ingest at a time. On
+  the live vault it found **four**, not the one that prompted the work — and one
+  of them had ingested successfully the day before, so the report is about the
+  machine's current state, not a permanent property of the source.
+- `attachment_file_denied` joins `db_missing`, `attachment_key_missing` and
+  `attachment_file_missing` in the Zotero resolution taxonomy. **The taxonomy is
+  where this bug lived**: the code implemented all three states faithfully and
+  none of them meant "present but not readable", so a 21 MB file on disk had to
+  come back as missing. The spec changed first.
+- `curator.file_access` — `probe()` returning `ok` / `missing` / `denied`, and
+  `grant_root()`. Deliberately three outcomes rather than a bool, because a bool
+  is what left the old helper unable to say anything: it picked a file it could
+  not read, reported success, and left the parser to explain the failure wrongly.
+
+### Changed
+- `parsers.parse` raises `ParserAccessDenied(ParserError)` for a refusal. A
+  subclass, so all three existing `except parsers.ParserError` sites keep working
+  and get a better sentence for free. The check sits at the dispatch rather than
+  inside the PDF parser because a denial has two shapes: an unreadable parent
+  makes `path.exists()` itself raise, while macOS TCC lets `stat` through and
+  refuses only `open`.
+- **A denied attachment no longer degrades to the note.**
+  `_resolve_reference_source` is a best-effort resolver where every failure means
+  "no external file here, use the stub". Introducing a denied state made that
+  fire for a file that is present and merely refused — so the source would have
+  ingested four lines of frontmatter and reported SUCCESS, a 673-page book
+  silently becoming metadata. Only the denial escapes; every other failure still
+  degrades as designed.
+
+### Notes
+- Found by running it, not by a test: both the degrade-to-stub regression above
+  and a `wiki status` that stayed silent because the reporting helper caught its
+  own signal under a blanket `except Exception`. Both now have tests.
+- Not in scope: no folder picker and no permission request (macOS has no API,
+  and a background process is denied silently rather than prompted); no change to
+  what a spawned CLI may read; the plugin's own read path still surfaces a raw
+  error.
+
 ## [0.60.0] - 2026-08-19
 ### Fixed
 - **A long ingest no longer dies because the model decided to write a program.**
