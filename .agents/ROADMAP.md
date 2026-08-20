@@ -238,6 +238,37 @@ and then hit a 429 at publish. All-or-nothing discarded every batch — about 90
 minutes. This is the sharpest case this item has: not "interrupted midway" but
 "finished the expensive part and threw it away". Continues ROADMAP 4's P6.
 
+
+**Measured twice, 2026-08-19 and 2026-08-20 — this is now the blocker for one
+real source, not a hypothetical.** Hartley (`sources.id=45`, 673 pages, 277
+extraction batches) completed **277/277 both times** and then hit a 429 at the
+staged compile, and both generations are `discarded` with zero surviving units:
+
+```
+GEN-fe8d892e status=discarded created=2026-08-20T12:56:27Z
+GEN-c5d4a51c status=discarded created=2026-08-19T11:19:09Z
+knowledge_units for source 45: none
+```
+
+Roughly 90 minutes of provider work destroyed, twice, at the last step.
+
+Three things make it structural rather than bad luck:
+
+- **The 429 is a burst limit, not exhaustion.** A trivial `agy` call succeeded
+  within a minute of the failure. Quota recovers; the run does not.
+- **Extraction spends the budget that publish then needs.** By the time the
+  staged compile runs, the same window has already absorbed 277 batches.
+- **The retry restarts at batch 1**, so it re-spends the whole budget and
+  arrives at the same wall. `_raise_capacity_error` sets a 300 s backoff on the
+  client instance, but `run_next_job` builds a NEW client per job, so that
+  backoff is discarded — a retry that simply waited five minutes would likely
+  have published.
+
+So a source of this size cannot currently complete, however many times it is
+retried. The cheap half of the fix is not resumability at all: it is honouring
+the capacity backoff across the retry. The expensive half is not discarding a
+completed extraction because the step after it was rate-limited.
+
 ### 6. `.curator` state audit — the remainder
 
 - Losing `.cache/` reports a healthy **empty** vault: `connect()` self-heals a
