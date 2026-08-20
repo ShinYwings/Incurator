@@ -109,3 +109,52 @@ child's hash is reproducible too.
 
 **Conclusion**: D1 was stated too strongly, not wrongly. The corrected statement
 and the D4 refinement it forces are folded into the plan.
+
+## 7. P5 live acceptance — FAILED. The feature does not save Hartley.
+
+Run: `wiki jobs run` against the real vault, job 76, source 45, 2026-08-20
+20:31→21:53 UTC. The branch code was live (editable install verified against the
+working tree).
+
+**What worked.** Per-batch persistence is real and was observed live: 45 units
+were in `knowledge_units` after 4 batches, where the old code holds 0 until all
+277 finish. Extraction then completed **277/277, every run `validator_status=ok`,
+81.5 minutes of provider latency**.
+
+**What happened next.** The staged compile hit `Antigravity capacity exhausted
+(429)`. `compile.py:501` runs `_discard_staged_units(gen_id)`, which is
+`DELETE FROM knowledge_units WHERE generation_id = ?`. Generation `GEN-d0f7ef93`
+is `discarded` and **source 45 has 0 knowledge_units — deleted, not retired**.
+
+So the 81 minutes were lost exactly as in the three previous attempts. A resume
+finds nothing, because the rows a resume would adopt no longer exist.
+
+**This is my design error, not an unlucky run.** The briefing for this Arena
+said the sharpest case was *"not 'interrupted midway' but 'finished the
+expensive part and threw it away'"* — and the design I wrote addresses only
+interruption **during** extraction. `compile.py:421` stamps every extracted unit
+with the staged `gen_id` before the publish gate; the failure handler then
+deletes everything carrying that id. Per-batch persistence moves the work out of
+memory and into rows that the very next failure handler removes.
+
+**The plan's own §1 definition of done is therefore not met** for the case the
+roadmap item exists for. The unit tests pass because they exercise
+`extract_knowledge_units` directly and never reach `compile.py`'s discard.
+
+**Precise scope of a fix.** In the except handler, rows matching
+`generation_id = gen_id` are exactly this run's extraction output:
+`compile.py:421` is the only writer of that id outside the publish transaction,
+and `reconcile_source`'s carry-forward runs inside `with db.connect(...)`, which
+rolls back before the handler runs. Resetting them to `generation_id = NULL`
+instead of deleting them would leave precisely the rows the resume predicate
+looks for.
+
+**Why this is not being done unilaterally.** The approved plan's Explicit
+Non-Goals say: *"No change to publish semantics. §26.3 staging, the publish gate,
+the atomic flip, and `reconcile_source` are untouched."* Changing what a staged
+discard does is a change to staging semantics. It needs the user's decision.
+
+**Also affected: the CHANGELOG as written overclaims.** It cites the 277-batch
+loss as the motivating measurement for a feature that does not prevent it. Either
+the fix lands, or that entry must be rewritten to say the feature covers
+interruption during extraction only.
