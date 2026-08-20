@@ -204,25 +204,38 @@ expose the association itself, and its `to_markdown` signature is
 `(*args, **kwargs)`, so that has to be established against the library rather
 than assumed.
 
-**The finding underneath, which changes the item's size.** Source 37's parsed
-text contains **158 markers**; the database holds **4** loss spans for it:
+**A "97% are lost" finding, and then its correction.** Source 37's parsed text
+contains **158 markers** while the database holds **4** loss spans for it, which
+looked like the pipeline dropping almost everything. Traced the stages instead
+of concluding:
 
 ```
-markers in the parsed text : 158
-loss spans stored in the DB:   4
+1. parsed.text markers            : 158
+2. after structural sectioning    : 437   (62 sections)
+3. after spans_from_sections      : 437   (2050 spans)
+4. spans classify_span_loss flags : 437
 ```
 
-So ~97% of detected image-only regions never become a span at all. Whatever
-`spans_from_sections` does with them — merges, drops, or never splits there —
-the visibility feature shipped in v0.49.0 is reporting a small fraction of what
-the parser actually flags. That is a defect in its own right, it is upstream of
-every recovery question, and it means the vault's "1,135 regions" is itself an
-undercount of an undercount.
+**Nothing is lost — the count goes UP**, because sectioning repeats content
+across overlapping sections, and every marker that survives is classified. Zero
+spans carry more than one marker, so there is no merge swallowing them either.
 
-**Sequencing consequence.** Before any recovery work: find out why 154 of 158
-markers vanish. If they are being merged into neighbouring spans, the geometry
-question changes shape entirely; if they are being dropped, the visibility
-feature needs fixing before anything is recovered.
+The 4 in the database are a **stale parse**: 646 spans stored against 2,050
+computed from the same PDF today, written between 2026-08-04 and 08-18, while
+the source was first added 2026-08-04 — before v0.49.0 (2026-08-08) taught the
+parser to report these regions at all, and before its 27 pages were
+VLM-transcribed. The row is `l2_status=done`, so nothing will re-derive it.
+
+So the real finding is smaller than it looked and different in kind: **the loss
+records in this vault describe an older parse of these files.** The vault's
+"1,135 regions" is not an undercount of a live measurement; it is a count of
+whatever the parser said whenever each source was last actually re-derived.
+
+**Sequencing consequence.** Any measurement of "how many regions exist" must
+re-derive from the PDFs rather than query `source_spans`, and this milestone
+cannot size itself from stored data. It also raises a question worth its own
+item: a source whose parse improves does not get re-derived, so a shipped parser
+fix reaches only sources ingested after it.
 
 ## 6. Questions for the Arena
 
