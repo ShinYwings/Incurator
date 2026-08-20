@@ -178,6 +178,52 @@ association, or whether the pipeline has to walk the page with `fitz` alongside
 it, is the next thing to establish — and it is the real content of this
 milestone.
 
+## 5c. Measured at parse time — and a bigger finding underneath
+
+§5b concluded the bbox must be captured where the placeholder and the image are
+the same event. Measured what that would take, on source 37 (27 pages):
+
+**The units are already the same.** A marker reading `[17 x 30]` sits on a page
+whose `get_image_info` bbox measures `17.0 x 30.0`. So §5b's guess about
+different units was wrong — the numbers agree.
+
+**But the association still does not fall out.** Restricting the join to a
+single page, then trying position (k-th marker ↔ k-th image object):
+
+```
+per-page size join : unique 13 | ambiguous 3 | no match 142
+positional join    : match 3   | mismatch 155
+```
+
+Page 0 has 8 markers and 11 image objects; page 2 has 5 markers and **36**.
+`get_image_info` reports vector drawings too (`xref=0`), so the two lists
+describe overlapping-but-different populations. Neither size nor order
+identifies which image a given marker stands for. Capturing the bbox "at parse
+time" therefore is not a matter of reading it off — `pymupdf4llm` would have to
+expose the association itself, and its `to_markdown` signature is
+`(*args, **kwargs)`, so that has to be established against the library rather
+than assumed.
+
+**The finding underneath, which changes the item's size.** Source 37's parsed
+text contains **158 markers**; the database holds **4** loss spans for it:
+
+```
+markers in the parsed text : 158
+loss spans stored in the DB:   4
+```
+
+So ~97% of detected image-only regions never become a span at all. Whatever
+`spans_from_sections` does with them — merges, drops, or never splits there —
+the visibility feature shipped in v0.49.0 is reporting a small fraction of what
+the parser actually flags. That is a defect in its own right, it is upstream of
+every recovery question, and it means the vault's "1,135 regions" is itself an
+undercount of an undercount.
+
+**Sequencing consequence.** Before any recovery work: find out why 154 of 158
+markers vanish. If they are being merged into neighbouring spans, the geometry
+question changes shape entirely; if they are being dropped, the visibility
+feature needs fixing before anything is recovered.
+
 ## 6. Questions for the Arena
 
 1. Is 1b a normalisation table, or does the gate need a different comparison
