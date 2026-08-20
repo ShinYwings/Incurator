@@ -107,46 +107,42 @@ on a plausible near date. Running `ruff`/`mypy` without `--cache-dir` outside
 the repo drops a cache at the repo root and fails `test_workspace_hygiene.py`;
 use `scripts/backend-check`.
 
-## Interposed line: v0.59.0 shipped, v0.60.0 in flight
+## Interposed line: v0.59.0 → v0.61.1, all shipped
 
-**v0.59.0 (#160, merged `372c23d`)** — job progress emitted from the loop that
-runs. v0.58.0 had attached the writer to `WorkerCallbacks`, which an L2 job
-never uses.
+| release | what it fixed | remainder |
+|---|---|---|
+| **v0.59.0** (#160) | job progress emitted from the loop that runs; v0.58.0 had wired it to `WorkerCallbacks`, which an L2 job never invokes | L3 has no per-step heartbeat — `run_l3_from_existing_atoms` takes a callbacks factory and never calls it |
+| **v0.60.0** (#162) | the CLI is asked for a value, not prose it may compute with `python3` | the schema MUST be flattened; unflattened, agy returns SUCCESS with an empty structure |
+| **v0.61.0** (#163) | "denied" is no longer reported as "missing"; `os.access` returns True for a TCC-denied file | the plugin's own read path still surfaces a raw Node error |
+| **v0.61.1** (#164) | a rate-limited job stops restarting into the same wall | the completed extraction is still discarded — ROADMAP 5's expensive half |
 
-**v0.60.0 (`feature/v0.60.0-structured-output`, PR not yet opened)** — the CLI
-answers a JSON prompt by writing a `python3` program to build the object; the
-permission layer denies it and the job dies. Fixed by using agy's native
-structured-output mode. Plan `.agents/plans/07_structured_output.md`, evidence
-`.agents/plans/07_structured_output_evidence.md`, Arena
-`.agents/plans/structured_output_arena/`.
+**The roadmap was re-sorted and renumbered** (2026-08-20). Item numbers in older
+notes will not match. Current head: 1 formula recovery, 2 re-derivation,
+3 external-file access (shipped), 4 System Integrity, 5 resumable L2.
 
-**The load-bearing detail, which nearly shipped wrong**: the schema MUST be
-flattened. `model_json_schema()` emits `$defs`/`$ref`, and with it agy returns
-`SUCCESS` / `num_turns: 2` / `structured_output: {"units": []}` — no error, the
-real answer left in the response text under invented field names. Unflattened,
-every book ingests to nothing while reporting success. Flattened: `num_turns: 1`
-and units that validate against the contract model unmodified.
+**ROADMAP 1's Arena closed with no build** — five measurements removed every
+premise it would have planned against, including its own "~48 regions" (actually
+2,121) and a header that contradicted its blocker list. It filed **item 2**: a
+source at `l2_status='done'` is never re-parsed, so a shipped parser fix reaches
+only sources ingested after it. Item 1 should not move until item 2 does.
 
-**Acceptance state.** Nicholson (job 66) completed — the job that died at batch
-9/15 now finishes with 133 ATM pages. Hartley (job 76) reached **263 of 277**,
-far past the batch 37 that used to kill it, then hit a transient error and was
-requeued. A re-run is in progress.
+**Hartley (`sources.id=45`) — third attempt running.** It completed 277/277
+extraction twice (08-19, 08-20) and lost both at the staged compile to a 429;
+both generations are `discarded`. v0.61.1 means a refusal now defers with the
+job left queued instead of restarting from batch 1. Worker:
+`scratchpad/run_hartley5.py`, log `scratchpad/hartley5.log`.
 
-Three gaps were found by re-reading the plan's own gate/decision list while that
-run was going, all after the tests were green:
+**Live-run mechanics.** A worktree run creates a NEW EMPTY state DB — the repo
+cache resolves from the running code's own location (`config.py:354`). Redirect
+`config.get_global_config_dir` to `/Users/shin/shinywings/Incurator/.cache/config`.
+The real DB is `.cache/vaults/13ed51f8b06cb88e/state.sqlite`; `.curator/state.sqlite`
+is a 0-byte stub.
 
-- G4 `num_turns > 1` warning — listed as a gate, never implemented.
-- D7 `FailoverClient` declared no capability, so structured output was silently
-  OFF for any failover config even when the capable delegate was active.
-- The retry branch wrote NOTHING to the job history, and
-  `requeue_job_for_retry` overwrites the job row's error — so Hartley's 90
-  discarded minutes left no reason anywhere. Fixed; the retry event now carries
-  attempt, reason, and how far it got.
-
-**Live-run mechanics.** The worker is `scratchpad/run_hartley.py`, which
-redirects `config.get_global_config_dir` to the real `.cache/config` — a
-worktree run otherwise creates a NEW EMPTY state DB (`config.py:354` resolves
-from the running code's own location). Log: `scratchpad/hartley2.log`.
+**Recurring lesson from this line of work.** Four of these releases had a defect
+found by *running* the thing rather than by a test: a writer wired to a dead
+path, a schema that returned SUCCESS with nothing, a resolver that degraded a
+denial into a successful stub ingest, and a block that would have disabled a
+healthy failover. Green tests did not catch any of them.
 
 ## Immediate Next Action
 
