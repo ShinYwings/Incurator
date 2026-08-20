@@ -304,6 +304,43 @@ def _envelope_error(stdout: str) -> str:
     return str(envelope.get("error") or "")
 
 
+
+# --- Provider capacity block (process-wide) ---------------------------------
+#
+# A 429 from the provider is a BURST limit, not exhaustion: measured, a trivial
+# call succeeded within a minute of one. So the right response is to wait, and
+# the wait has to outlive the client that was refused.
+#
+# It did not. `_capacity_blocked_until` was instance state, and `run_next_job`
+# builds a fresh client per job, so a requeued job started again immediately.
+# Measured consequence on a 673-page book: it completed all 277 extraction
+# batches, was refused at the staged compile, restarted at batch 1, re-spent the
+# same budget and hit the same wall -- twice, discarding ~90 minutes each time.
+#
+# Process-wide rather than persisted: the block is about the provider's current
+# state, not about this job, and it must not outlive the process that observed
+# it.
+_CAPACITY_BLOCK_SECONDS = 300
+_capacity_blocked_until: float = 0.0
+
+
+def block_capacity(seconds: float = _CAPACITY_BLOCK_SECONDS) -> None:
+    """Record that the provider is refusing work, for every client in this process."""
+    global _capacity_blocked_until
+    _capacity_blocked_until = max(_capacity_blocked_until, time.time() + seconds)
+
+
+def capacity_blocked_for() -> float:
+    """Seconds remaining before the provider should be tried again; 0 when clear."""
+    return max(0.0, _capacity_blocked_until - time.time())
+
+
+def clear_capacity_block() -> None:
+    """Forget the block. For tests, and for an explicit user-driven retry."""
+    global _capacity_blocked_until
+    _capacity_blocked_until = 0.0
+
+
 def _is_capacity_error(text: str) -> bool:
     return (
         "No capacity available" in text
@@ -936,7 +973,11 @@ class AntigravityCliClient:
         self._capacity_blocked_until = 0.0
 
     def _raise_capacity_error(self) -> None:
-        self._capacity_blocked_until = time.time() + 300
+        # Both: the instance flag stays for `ping()`'s existing use, and the
+        # process-wide block is what a LATER client -- the one the retry builds
+        # -- will actually see.
+        self._capacity_blocked_until = time.time() + _CAPACITY_BLOCK_SECONDS
+        block_capacity()
         raise AntigravityCliError(
             f"Antigravity capacity exhausted (429).\n"
             f"Model tried: '{self.model}'.\n"
@@ -1113,7 +1154,7 @@ class AntigravityCliClient:
             )
 
     def ping(self) -> bool:
-        if time.time() < self._capacity_blocked_until:
+        if capacity_blocked_for() > 0 or time.time() < self._capacity_blocked_until:
             return False
         try:
             self.ensure_ready()

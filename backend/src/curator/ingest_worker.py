@@ -15,6 +15,7 @@ from . import constants as consts
 from . import db
 from . import ingest_llm
 from .llm import build_client
+from .llm import capacity_blocked_for as llm_capacity_blocked_for
 
 _log = logging.getLogger(__name__)
 
@@ -234,6 +235,26 @@ def run_next_job(paths: cfg.WikiPaths, config: dict | None = None) -> dict:
     if no other L2 jobs remain queued, triggers global L3 concept clustering.
     Retries transient failures up to MAX_RETRIES times before marking failed.
     """
+    # Do not spend the budget that just ran out. A refused provider means the
+    # next attempt fails the same way, and for a large source the attempt costs
+    # everything before it: Hartley re-ran 277 extraction batches to reach the
+    # step that had been refused, twice, discarding ~90 minutes each time.
+    #
+    # Checked BEFORE claiming, so the job stays queued and claimable rather than
+    # being consumed into a failure. See llm.block_capacity.
+    waiting = llm_capacity_blocked_for()
+    if waiting > 0:
+        return {
+            "ok": True,
+            "job": None,
+            "deferred": True,
+            "retry_after_seconds": waiting,
+            "message": (
+                f"Provider is at capacity; not starting a job for {waiting:.0f}s. "
+                "The queue is untouched."
+            ),
+        }
+
     job = db.claim_next_job(paths.state_db)
     if job is None:
         return {"ok": True, "job": None, "message": "No queued jobs."}
@@ -485,6 +506,13 @@ def run_queued_jobs(
     while limit is None or count < limit:
         result = run_next_job(paths, config)
         if result.get("job") is None:
+            # A deferral and an empty queue both stop the drain, and they mean
+            # opposite things: one is "nothing to do", the other is "work is
+            # waiting and the provider is refusing". Keep the deferral in the
+            # results so the caller can tell them apart rather than reporting a
+            # clean finish over a queue that is still full.
+            if result.get("deferred"):
+                results.append(result)
             break
         results.append(result)
         count += 1

@@ -629,6 +629,11 @@ What this means in practice:
   the CLI tried to shell out to `python3` and was correctly denied. Nothing about
   this widens what a model is allowed to run; it removes the reason to reach for
   a shell at all.
+  If the provider refuses with a rate limit, the job is **not** restarted
+  immediately. Restarting a large source re-spends the whole budget before
+  reaching the step that was refused — measured on a 673-page book, twice, at
+  about 90 minutes discarded each time. Instead the queue is left untouched and
+  `wiki jobs run` tells you roughly how long to wait.
 - **Generated L2 stays English**: `wiki build` validates generated Atom names and
   statements programmatically. If a model writes Korean or another non-English
   language in generated L2 fields, the runner retries once and then marks L2

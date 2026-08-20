@@ -1337,6 +1337,29 @@ Status rules:
   `l1_ready`, `l2_ready`, `l3_ready` for Concept readiness, and `l4_ready`
   only when shared L4 Synthesis status is done.
 
+## 12.0 Provider capacity refusals
+
+A provider 429 is a **burst limit, not exhaustion**: measured, a trivial call
+succeeded within a minute of one that failed a compile. The correct response is
+therefore to wait, and the wait must outlive the client that was refused —
+`run_next_job` builds a fresh client per job, so per-client state cannot govern
+the retry it exists for.
+
+- A capacity refusal sets a **process-wide** block, not per-client state, and
+  not persisted: it describes the provider's current condition, not this job's,
+  and must not outlive the process that observed it.
+- The worker checks the block **before claiming a job**, so a deferred job stays
+  queued and claimable rather than being consumed into a failure.
+- A deferral must be distinguishable from an empty queue at every surface.
+  Both stop a drain and they mean opposite things; reporting a clean finish over
+  a full queue is how a stalled ingest looks like a completed one.
+
+Why this is load-bearing rather than a nicety: an extraction large enough to
+exhaust the window spends the budget the publish step then needs. Restarting it
+re-spends that budget before reaching the step that failed. Measured on a
+673-page book, twice: 277/277 batches completed, refused at publish, restarted,
+and ~90 minutes discarded each time with zero units published.
+
 ## 12.1 Reset Behavior
 
 `wiki reset` preserves `.curator/settings.yml`, sessions, Zotero profiles,
