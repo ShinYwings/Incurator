@@ -44,6 +44,11 @@ All notable changes to Incurator are documented here.
   accepts `repaired` as well as `ok`, because a JSON-repair retry still produced
   validated output (57 such runs in the reference vault carry 687 units).
 
+  **Verified on the real thing.** The same 673-page source was run cold — 277
+  calls, 85 minutes — and then resumed: **0 extraction calls, 277/277 reached in
+  about two minutes**, counted against a snapshot taken immediately before
+  (`prompt_runs` 1941 before and 1941 after).
+
   Resume stops at the source text: an L1 re-parse mints new span ids and the
   whole source is re-extracted. That is deliberate, and sharp — measured at
   **99.7% span overlap the batch hashes still shared only 21.7%**, because one
