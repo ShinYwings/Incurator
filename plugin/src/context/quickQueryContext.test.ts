@@ -239,3 +239,41 @@ describe("quick query context builder", () => {
     expect(system).toContain("general knowledge");
   });
 });
+
+describe("duty 2 — the popover surfaces the reader's own notes (v0.62.3)", () => {
+  it("carries vault evidence into the turn and names it in the system prompt", () => {
+    // The popover had NO vault retrieval on its path: it assembled from the
+    // selection, the current file's outline, pinned refs and citation
+    // resolution, and `IncuratorClient.curatorQuery` had zero callers anywhere.
+    // Measured live, asking "내가 쓴 다른 노트 중 관련된 게 있어?" about a selected
+    // passage returned only sections of the SAME note, while the vault held 21
+    // published sources matching the topic.
+    const block =
+      '<vault_evidence query="Plücker" route="local">\n' +
+      "03_Notes/Vision/Silhouette Based Reconstruction.md — Plücker line coords\n" +
+      "</vault_evidence>";
+    const messages = buildQuickQueryMessages({
+      selectedText: "Dual Quadric Q*와 Plücker Line 사이의 대수적 손실",
+      question: "내가 쓴 다른 노트 중 관련된 게 있어?",
+      vaultEvidenceBlock: block,
+    });
+    const user = messages.find((m) => m.role === "user")!.content;
+    const system = messages.find((m) => m.role === "system")!.content;
+
+    expect(user).toContain("Silhouette Based Reconstruction.md");
+    expect(user).toContain("<vault_evidence");
+    // The block must not be silently present-but-unexplained: the model is told
+    // what it is and to name the note, which is what duty 2 asks for.
+    expect(system).toContain("<vault_evidence>");
+    expect(system).toMatch(/own vault/i);
+    expect(system).toMatch(/name the note/i);
+  });
+
+  it("omits the block entirely when there is no vault evidence", () => {
+    const messages = buildQuickQueryMessages({
+      selectedText: "some text",
+      question: "what is this?",
+    });
+    expect(messages.find((m) => m.role === "user")!.content).not.toContain("<vault_evidence");
+  });
+});

@@ -1266,9 +1266,10 @@ Rules:
 - PDF-focused turns use adaptive routing. Visible local PDF.js context is always
   preferred and does not require source registration. When local context is
   unavailable, the plugin may request read-only backend PDF context: unregistered
-  PDFs receive an ephemeral parse, registered L1-complete PDFs receive durable CTX
-  sections, and `curator_query` is allowed only after L3 completes. Passive chat
-  must never import or register a PDF.
+  PDFs receive an ephemeral parse, and registered L1-complete PDFs receive durable
+  CTX sections. Vault evidence retrieval is not gated on L3 (v0.62.3); only the
+  concept-grounded *framing* of the answer is. Passive chat must never import or
+  register a PDF.
 - The backend does not save query answers as generated Exhibitions. Each query is
   a sessionless curation answer with a `QTR-` trace over selected DB-native search
   and graph evidence.
@@ -1495,13 +1496,32 @@ Rules:
   whole-PDF context and PDF RAG calls for that turn. Local PDF.js text/image
   context is the fast path; backend PDF window/outline and RAG are fallback
   paths when local viewer context is unavailable.
-- For a PDF-focused turn, the plugin must not run `curator_query` as though the
-  relevant PDF were concept-grounded unless that source is L3-complete. L1
-  section serving and L3 workspace querying are separate capabilities.
+- For a PDF-focused turn, the plugin must not **present** an answer as
+  concept-grounded unless the relevant source is L3-complete — but L3 must not
+  gate whether vault evidence is **retrieved** (v0.62.3). Framing is already
+  governed by the `fallback="l3_incomplete"` rule above; withholding retrieval as
+  well made duty 2 unreachable. Measured on a live vault: `l3_status='done'` for
+  **0 of 44 sources**, so the retrieval never ran while any PDF tab was focused,
+  and the same query returned `route: local` with 30 evidence items across 6
+  sources while `community_report_ids` was 0. L1 section serving and L3 concept
+  framing remain separate capabilities.
 - If the latest user message includes an editable Markdown line-range and asks
   to fix, rewrite, polish, translate, or otherwise modify the selected text, the
   assistant must propose an `ai-agent-edit` SEARCH/REPLACE block. Ordinary
   questions about selected text must answer normally without proposing edits.
+- **A primary selection suppresses vault retrieval only for an EDIT request**
+  (v0.62.3). Asking to rewrite, fix, translate or reformat the selection skips
+  the vault query; asking a *question* about the selection does not. The earlier
+  rule skipped it for any selection at all, which disabled the retrieval that
+  duty 2 depends on — "I selected this; what else have I written about it?" is
+  the case that needs it most.
+- **The quick-query popover resolves vault evidence BEFORE the turn** (v0.62.3,
+  §4.2). It issues one backend context fetch for the question, formatted by the
+  same `formatCuratorContextPack` the sidechat uses, and injects it as
+  `<vault_evidence>`. This adds **no tool rounds** and grants the popover no
+  tools — the zero-MCP guarantee is unchanged. The popover previously assembled
+  only from the selection, the current file's outline, pinned refs and citation
+  resolution, so it could never surface the reader's other notes.
 - **Localized-question edit-affordance suppression (v0.23.0).** A `Cmd+Shift+L`
   line-range (and any other primary-focus selection) is BOTH a primary-context
   ref and an editable ref, which previously injected the `<editable_selection>`

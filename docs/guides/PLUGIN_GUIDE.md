@@ -158,6 +158,11 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
   SVG — so dragging across a formula no longer drops it, regardless of Live
   Preview's render timing.
 - **Single button**: A selection only ever shows one button — no toolbar.
+- **It looks at your other notes too** (v0.62.3): before answering, the popover
+  searches your vault for passages that bear on the question and names the note
+  each one came from, so "what else have I written about this?" reaches beyond
+  the file you are reading. It is one lookup done up front — the popover still
+  gets no tools and makes no extra round trips.
 - **Persistent popover**: The popover has just a query input and an **Ask**
   button. There are no preset/quick buttons. Once opened, it stays open while
   you click or scroll elsewhere; close it with **×** or `Esc`.
