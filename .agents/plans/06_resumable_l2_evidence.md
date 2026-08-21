@@ -213,3 +213,49 @@ directly, `curator.entity_relation_extract`'s output model flattens cleanly and
 What is left is the agy CLI model electing to shell out even under a structured-
 output contract, with a denied command failing the entire compile. That is
 ROADMAP "agy sandbox", which now has hard evidence.
+
+## 10. P5 testbed smoke — the half I skipped, and the publish the DoD actually asks for
+
+§8 proved the resume half and I stopped there. The plan's definition of done has
+a second clause — *"the published unit set is identical to what an uninterrupted
+run produces"* — and Hartley publishes nothing (§9), so that clause had only ever
+been shown against a fake client. **I also skipped the testbed smoke that P5
+lists and that the repo contract requires for a CLI-reachable change**, and did
+not say so in the PR. Both are closed here.
+
+**Setup.** `wiki testbed init complex_math_backprop --force`, `wiki migrate`,
+`wiki add`. The scenario's cache DB had to be removed first: `testbed init
+--force` resets the vault files but not `.cache/vaults/<hash>/state.sqlite`, so a
+stale July-4 **schema-v0** DB survived two resets and made the first two attempts
+unreadable. Source 3 is the ResNet PDF: 203 spans, **5 L2 batches**.
+
+**Run 1 — hard interrupt.** `wiki build`, killed with `SIGKILL` after 3 batches
+completed — foreground, the detached daemon `wiki build` spawns, and the
+in-flight `agy` call, all of them. (The first attempt at this measurement was
+contaminated because only the foreground was killed: the surviving daemon
+re-compiled source 3 and raced a second generation. Recorded because the
+confusion cost real time.)
+
+Survived the kill: **66 units for source 3, `generation_id IS NULL`, 0
+published**, all matching the adoption predicate. Sources 1 and 2 had already
+published normally.
+
+**Run 2 — resume to publication.**
+
+| | value |
+|---|---|
+| batches the source needs | 5 |
+| batches adopted | **3** |
+| new extraction calls | **2** |
+| `sources.l2_status` | **`done`** |
+| generation | `GEN-883aa9e5` **authoritative** |
+| units published | **90**, 0 retired |
+| `wiki lint` | **exit 0, 0 errors** (94 warnings, 21 infos) |
+
+So the full contract holds against a real provider through the CLI: a hard-killed
+extraction keeps its finished batches, a re-run pays for only what was missing,
+and the source **publishes**. That is the clause §8 could not show.
+
+Hartley remains unpublished for the unrelated reason in §9. The feature's
+end-to-end behaviour is demonstrated here instead, on a source that can reach
+the publish step.
