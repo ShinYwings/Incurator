@@ -182,3 +182,102 @@ def test_chunking_never_truncates_formula_bearing_unit(dbp: Path) -> None:
         dbp, SmallChunkClient(), units=units, valid_span_ids=["SPAN-1"]
     )
     assert result.ok
+
+
+# --- v0.62.1: one provider refusal must not kill an 87-batch compile ---------
+
+
+class RefusingOnceClient(FakeClient):
+    """Raises on the first call of each batch, succeeds on the retry.
+
+    Models the measured agy behaviour: `-p` mode has nobody to approve a tool
+    request, so agy exits 1 with `permission check failed`. It is nondeterministic
+    — 57% of calls succeeded across the 2026-08-21 attempts — so the same batch
+    re-run usually goes through.
+    """
+
+    def __init__(self, responses: list[str], *, fail_first_n: int = 1) -> None:
+        super().__init__(responses)
+        self._left = fail_first_n
+        self.refusals = 0
+
+    def chat(self, messages, *, json_mode=False, temperature=0.3) -> str:
+        if self._left > 0:
+            self._left -= 1
+            self.refusals += 1
+            raise RuntimeError(
+                'Antigravity CLI exited 1: permission check failed for command '
+                '"python3 -c \'...\'": user denied permission to run command'
+            )
+        return super().chat(messages, json_mode=json_mode, temperature=temperature)
+
+
+def test_a_provider_refusal_retries_the_batch_instead_of_killing_the_compile(
+    dbp: Path,
+) -> None:
+    """`extract_graph_data` guarded validation failures with `continue` but had no
+    `try` around `run_prompt`, and `run_prompt` closes the trace and re-raises. So
+    one refusal propagated out of `compile_source_l2` and killed the whole compile.
+
+    Measured on the live vault: source 45 needs ~87 graph batches and every one
+    must succeed. At the observed 43% refusal rate the expected number of batches
+    completed before the first abort is 1/0.43 ≈ 2.3 — the live run aborted after
+    exactly 2, and P(87 clean) was about 7e-22.
+    """
+    client = RefusingOnceClient([_graph_json()], fail_first_n=1)
+    result = graph_index.extract_graph_data(
+        dbp, client, units=UNITS, valid_span_ids=["SPAN-1"]
+    )
+    assert client.refusals == 1, "the fixture did not actually refuse"
+    assert result.ok, f"a single refusal still failed the run: {result.errors}"
+    assert result.entities, "the retried batch produced nothing"
+
+
+def test_a_batch_that_refuses_every_attempt_fails_without_raising(dbp: Path) -> None:
+    """Exhausting the retries must surface as `ok=False` with the reason, the same
+    shape a validation failure already produces — not an exception that unwinds the
+    caller's staging block.
+    """
+    client = RefusingOnceClient([_graph_json()], fail_first_n=99)
+    result = graph_index.extract_graph_data(
+        dbp, client, units=UNITS, valid_span_ids=["SPAN-1"]
+    )
+    assert result.ok is False
+    assert any("permission check failed" in e for e in result.errors), result.errors
+    assert client.refusals == graph_index._MAX_BATCH_ATTEMPTS
+
+
+def test_a_capacity_refusal_is_not_retried_here(dbp: Path) -> None:
+    """429 is the one refusal this loop must NOT absorb.
+
+    Retrying a rate limit in a tight loop spends the budget against the wall and
+    undoes v0.61.1, whose whole point is that a refused job stays queued and the
+    worker reports how long to wait. Measured on the live run: of 11 graph
+    failures, 5 were capacity and 6 were permission denials — retrying all 11
+    alike was the first draft's mistake.
+
+    Detection asks the client, not the message. Substring matching on error text
+    is what misclassified a permanent failure as transient in `_is_transient`.
+    """
+    from curator import llm
+
+    class CapacityBlockedClient(FakeClient):
+        CAPACITY_KEY = "test-capacity-probe"
+
+        def capacity_blocked_for(self) -> float:
+            return llm.capacity_blocked_for(self.CAPACITY_KEY)
+
+        def chat(self, messages, *, json_mode=False, temperature=0.3) -> str:
+            llm.block_capacity(self.CAPACITY_KEY)
+            raise llm.LLMError("capacity exhausted (429)")
+
+    llm.clear_capacity_block(CapacityBlockedClient.CAPACITY_KEY)
+    try:
+        client = CapacityBlockedClient([_graph_json()])
+        with pytest.raises(llm.LLMError):
+            graph_index.extract_graph_data(
+                dbp, client, units=UNITS, valid_span_ids=["SPAN-1"]
+            )
+        assert client.calls == 0, "chat is counted only on success; sanity"
+    finally:
+        llm.clear_capacity_block(CapacityBlockedClient.CAPACITY_KEY)

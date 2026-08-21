@@ -370,6 +370,15 @@ def compile_source_l2(
     ]
     _emit(on_progress, "status", phase="l2", stage="spans_stored", spans=len(span_ids))
 
+    # A generation still `staged` for this source belongs to a run that DIED —
+    # the failure handler that releases its units lives in an `except` block, so
+    # a SIGKILL or a power cut never reaches it. Measured: killing a compile
+    # mid-graph left GEN-a3863b97 staged with all 5,358 extracted units pinned to
+    # it and ZERO adoptable, so the next run would have re-paid 85 minutes of
+    # extraction. Two compiles for one source never run concurrently, so any
+    # pre-existing staged generation here is by definition abandoned.
+    _release_orphaned_staged_generations(paths.state_db, source_id)
+
     ku_result = knowledge_units.extract_knowledge_units(
         paths.state_db,
         client,
@@ -846,6 +855,34 @@ def _run_publish_gate(
             f"compiler audit blocked publish for source {source_id}: "
             f"{report.publish_blocking}"
         )
+
+
+def _release_orphaned_staged_generations(db_path: Path, source_id: int) -> int:
+    """Release units pinned to a `staged` generation left by a killed run.
+
+    `_release_staged_units_for_resume` runs in an `except` handler, so it covers
+    every failure the process survives and none that it does not. A hard kill
+    strands the extraction: the units keep a `generation_id`, which makes them
+    invisible to `_adoptable_unit_ids`, and nothing else ever cleans them up.
+
+    Returns the number of units released.
+    """
+    with db.connect(db_path) as conn:
+        orphans = [
+            str(r[0]) for r in conn.execute(
+                "SELECT id FROM compiler_generations "
+                "WHERE source_id = ? AND status = 'staged'",
+                (source_id,),
+            ).fetchall()
+        ]
+    released = 0
+    for gen_id in orphans:
+        released += _release_staged_units_for_resume(db_path, gen_id)
+        db.discard_compiler_generation(db_path, gen_id)
+        logger.info(
+            "released orphaned staged generation %s for source %s", gen_id, source_id
+        )
+    return released
 
 
 def _release_staged_units_for_resume(db_path: Path, generation_id: str) -> int:

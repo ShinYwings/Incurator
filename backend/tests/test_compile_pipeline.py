@@ -615,3 +615,43 @@ def test_a_failed_staged_compile_keeps_the_extraction_for_a_resume(
             "AND ku.retired_at IS NULL"
         ).fetchone()[0]
     assert served > 0, "the resumed compile published nothing"
+
+
+def test_a_generation_left_staged_by_a_killed_run_is_released(vault) -> None:
+    """A hard kill never reaches the `except` handler that releases the units.
+
+    Measured after SIGKILLing a live compile mid-graph: GEN-a3863b97 stayed
+    `staged` holding all 5,358 extracted units, and `_adoptable_unit_ids` saw
+    ZERO — so the next run would have re-paid 85 minutes of extraction that was
+    sitting right there. Two compiles for one source never run concurrently, so a
+    pre-existing staged generation is by definition abandoned.
+    """
+    paths = vault
+    assert compile_mod.compile_source_l2(paths, DynamicFakeClient(), 1).ok
+
+    # Simulate the kill: a fresh staged generation owning this source's units.
+    orphan = db.create_compiler_generation(
+        paths.state_db, prompt_contract_version="v3", source_id=1
+    )
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "UPDATE knowledge_units SET generation_id = ? WHERE source_id = 1", (orphan,)
+        )
+        stranded = conn.execute(
+            "SELECT COUNT(*) FROM knowledge_units "
+            "WHERE source_id = 1 AND generation_id IS NULL AND retired_at IS NULL"
+        ).fetchone()[0]
+    assert stranded == 0, "the fixture did not actually strand the units"
+
+    released = compile_mod._release_orphaned_staged_generations(paths.state_db, 1)
+    assert released > 0
+    with db.connect(paths.state_db) as conn:
+        adoptable = conn.execute(
+            "SELECT COUNT(*) FROM knowledge_units "
+            "WHERE source_id = 1 AND generation_id IS NULL AND retired_at IS NULL"
+        ).fetchone()[0]
+        status = conn.execute(
+            "SELECT status FROM compiler_generations WHERE id = ?", (orphan,)
+        ).fetchone()[0]
+    assert adoptable == released, "released units are not adoptable again"
+    assert status == "discarded", "the orphaned generation is still staged"
