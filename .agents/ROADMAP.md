@@ -224,7 +224,78 @@ saying otherwise was stale.
 **NEXT here**: one pass per inventory item recording shipped/open, then delete
 the folders. Not before — that ordering is what went wrong once already.
 
-### 5. Resumable L2 extraction — wanted, needs designing
+### 5. Resumable L2 extraction — SHIPPED in v0.62.0
+
+Live acceptance: 277 extraction calls → **0**, 5,100 s → **~120 s**, measured
+against a baseline snapshot (`prompt_runs` 1941 before and after). The plan and
+its evidence ledger were deleted on merge per the workflow; read them with
+`git show f182efe^:.agents/plans/06_resumable_l2_evidence.md`.
+
+Two changes were needed and the first alone was worthless: per-batch persistence,
+**and** a staged-compile failure releasing that work instead of deleting it. The
+first version shipped only the first and lost all 277 batches again in a live
+run; every unit test passed against it, because they call the extractor directly
+and never reach `compile.py`'s failure handler.
+
+### 5c. Graph extraction is not resumable — the same defect v0.62.0 fixed for L2
+
+**NEW, measured 2026-08-22 after v0.62.1.** Removing the fatality of a refusal
+was necessary and did not make source 45 publishable. Graph output is held **in
+memory** until the publish gate (`graph_index.py:209`, *"Collect parsed objects
+IN MEMORY (no DB writes)"*), so every capacity deferral throws it away.
+
+Measured across three attempt windows, each ending at a 429:
+
+| window | graph calls | usable (`ok`) |
+|---|---|---|
+| 15:15 → 15:24 | 20 | **3** |
+| 15:45 | 1 | 0 |
+| 17:40 → 17:47 | 8 | **3** |
+
+Source 45 needs **~87** batches and every one must land in the same run. At
+**≤3 usable batches per capacity window**, discarded at the end of each, it
+cannot converge — no number of retries reaches 87.
+
+This is the L2 problem again, one layer up: v0.62.0 made extraction survive
+interruption by persisting per batch; graph extraction still does not. The fix
+has a proven shape — persist per batch, key resume on `prompt_runs.input_hash`,
+release rather than delete on failure — but graph rows are entity/relation
+records with different publish semantics, so it needs its own design rather than
+a copy.
+
+**Do not treat this as a gate on the goal.** P6, the definition of done, needs a
+published paper with a bibliography and equations, and 34 sources published on
+2026-08-18. Source 45 is a coverage item.
+
+### 5b. Hartley is still unpublished — agy shells out during graph extraction
+
+**NEW, found by the v0.62.0 live run (2026-08-21).** The staged compile now
+fails in `curator.entity_relation_extract@v2`: 2 of 5 calls returned
+
+> `permission check failed for command "python3 -c '… transcript_full.jsonl …'"`
+
+The model tried to read the CLI's own transcript log to recover its prompt input.
+This is the v0.60.0 class (model computes instead of answering), but **neither of
+that release's causes applies**: the contract's schema flattens cleanly and IS
+sent, and graph extraction is already batched by `client_optimal_chunk_chars`.
+What remains is the agy model electing to run shell commands under a structured-
+output contract, where one denied command fails the whole compile.
+
+**This is a hard blocker for any large source, not an intermittent annoyance.**
+Graph extraction batches by `optimal_chunk_chars` and **every batch must
+succeed** for the generation to publish. Source 45 needs **~87 batches**
+(1,551,159 prompt chars at 18,000 each). The observed agy success rate is
+**57%** (4 ok / 3 failed across today's attempts), so the chance of a clean run
+is about **7×10⁻²²**. Retrying cannot work. Any source past roughly a dozen graph
+batches is effectively unpublishable until this is fixed — and the whole vault's
+large references are in that class.
+
+Fix directions, none investigated yet: grant the agy sandbox a scratch execution
+allowance; route `entity_relation_extract` to a provider that does not shell out;
+or make a denied shell command a retryable per-batch failure instead of a fatal
+compile error. Belongs with the agy-sandbox item.
+
+### 5c. (was 5) Resumable L2 — original problem statement, kept for context
 
 Removed in v0.51.1 rather than repaired (B3 P6). The old mechanism could never
 run: checkpoints were written only inside the branch that required checkpoints
@@ -248,13 +319,17 @@ and then hit a 429 at publish. All-or-nothing discarded every batch — about 90
 minutes. This is the sharpest case this item has: not "interrupted midway" but
 "finished the expensive part and threw it away". Continues ROADMAP 4's P6.
 
-**PLANNED, awaiting approval (2026-08-21)** — `.agents/plans/06_resumable_l2.md`,
-Arena at `.agents/plans/resumable_l2_arena/`. The question above ("what does a
-resumed run return?") is answered by D5. The design needs **no schema change**:
-`prompt_runs.input_hash` already identifies a batch and is stable — Hartley's
-three attempts each produced exactly 277 distinct hashes and the sets are
-identical. Per-batch persist costs 0.05–0.1% of the batch that made the LLM call
-(8.9–17.9 ms against a measured 18,631 ms median).
+**SHIPPED as v0.62.0 (PR #166, merged 2026-08-21).** See item 5 above; the
+Arena record stays at `.agents/plans/resumable_l2_arena/`. The question this item
+kept asking — "what does a resumed run return?" — is answered by accumulating ids
+in the extraction loop, never by querying the source's staged units. Resume needs
+**no schema change**: `prompt_runs.input_hash` already identifies a batch and is
+stable for an unchanged span set.
+
+**Clause 2 of that plan's definition of done was NOT met on this source** and is
+unreachable until ROADMAP 5b: Hartley still publishes nothing, because its staged
+compile dies in graph extraction. The publication half was demonstrated on the
+testbed source instead.
 
 
 **Measured twice, 2026-08-19 and 2026-08-20 — this is now the blocker for one

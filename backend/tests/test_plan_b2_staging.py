@@ -201,10 +201,16 @@ class _NoCallClient:
 
 
 def test_graph_extraction_failure_leaves_no_partial_publish(vault) -> None:
-    # The LLM graph extraction must run BEHIND the publish gate: if it fails, the
-    # staged units are discarded and NO generation is published (§26.3). A prior
-    # design that published first and extracted the graph after would leave a
-    # published generation with no graph.
+    # The LLM graph extraction must run BEHIND the publish gate: if it fails, NO
+    # generation is published (§26.3). A prior design that published first and
+    # extracted the graph after would leave a published generation with no graph.
+    #
+    # Since v0.62.0 the failure RELEASES the extracted units (generation_id set
+    # to NULL) instead of deleting them, so the next run can adopt them rather
+    # than re-pay the provider. This test used to assert zero surviving units;
+    # that assertion was about deletion, not about publication. What it protects
+    # — no graph, nothing published, nothing served — is unchanged and asserted
+    # below, with the release checked explicitly.
     result = compile_mod.compile_source_l2(vault, _GraphFailClient(), 1)
     assert not result.ok  # graph failure aborts the compile
     with db.connect(vault.state_db) as conn:
@@ -212,12 +218,14 @@ def test_graph_extraction_failure_leaves_no_partial_publish(vault) -> None:
         n_auth = conn.execute(
             "SELECT COUNT(*) FROM compiler_generations WHERE status = 'authoritative'"
         ).fetchone()[0]
-        n_units = conn.execute(
-            "SELECT COUNT(*) FROM knowledge_units WHERE retired_at IS NULL"
-        ).fetchone()[0]
-    assert n_ent == 0       # no graph
-    assert n_auth == 0      # nothing published
-    assert n_units == 0     # staged units discarded — no partial state
+        n_units, n_attributed = conn.execute(
+            "SELECT COUNT(*), COUNT(generation_id) FROM knowledge_units "
+            "WHERE retired_at IS NULL"
+        ).fetchone()
+    assert n_ent == 0        # no graph
+    assert n_auth == 0       # nothing published
+    assert n_attributed == 0  # nothing attributed to a generation
+    assert n_units > 0        # ...but the extraction survives for a resume
     assert db.list_serving_units(vault.state_db) == []
 
 

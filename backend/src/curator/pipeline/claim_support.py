@@ -485,10 +485,17 @@ def run_compiler_audit(
     """
     db.refresh_support_freshness(db_path, conn=conn)
     with db._maybe_conn(db_path, conn) as conn:
+        # `generation_id IS NOT NULL` = published. Since v0.62.0 an interrupted
+        # L2 leaves durable generation-less rows for a resume to adopt, and
+        # without this an abandoned extraction reports as audit findings — for a
+        # 673-page source, ~25,000 INFO lines from `wiki lint`. Inert when the
+        # publish gate calls this with its own `conn`: compile.py stamps the
+        # staged generation onto every unit BEFORE the gate runs.
         active = conn.execute(
             "SELECT id, support_status, formula_status, support_reason "
             "FROM knowledge_units "
-            "WHERE retired_at IS NULL AND truth_status = 'source_supported'"
+            "WHERE retired_at IS NULL AND truth_status = 'source_supported' "
+            "AND generation_id IS NOT NULL"
         ).fetchall()
         dangling = [
             r["uid"] for r in conn.execute(
@@ -519,6 +526,7 @@ def run_compiler_audit(
             "SELECT semantic_hash AS h, GROUP_CONCAT(id) AS ids "
             "FROM knowledge_units "
             "WHERE retired_at IS NULL AND semantic_hash IS NOT NULL AND semantic_hash != '' "
+            "AND generation_id IS NOT NULL "
             "GROUP BY semantic_hash HAVING COUNT(*) > 1"
         ).fetchall()
     duplicate_candidates = [sorted(r["ids"].split(",")) for r in dup_rows]

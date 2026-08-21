@@ -144,29 +144,104 @@ path, a schema that returned SUCCESS with nothing, a resolver that degraded a
 denial into a successful stub ingest, and a block that would have disabled a
 healthy failover. Green tests did not catch any of them.
 
-## Interposed: ROADMAP 5 Arena is closed; plan awaits approval
+## Interposed: ROADMAP 5 SHIPPED — v0.62.0 merged (PR #166, 2026-08-21)
 
-`.agents/plans/06_resumable_l2.md` (v0.62.0). **No code written.** The Arena ran
-briefing → proposal → red-team → measured defense, and two of the red team's
-findings changed the design rather than confirming it:
+Plan and evidence ledger deleted on merge per the workflow; read them with
+`git show f182efe^:.agents/plans/06_resumable_l2_evidence.md`. Arena record stays
+at `.agents/plans/resumable_l2_arena/`.
 
-- **F2 (cost) is answered and is not an objection.** Per-batch persist is
-  8.9–17.9 ms against a measured **18,631 ms median** LLM call — 0.05–0.1%.
-  Benchmark: `scratchpad/f2_bench.py` on a copy of the live DB.
-- **F1 (readers) — my first defense overstated it and I rewrote the document.**
-  Partials are **not** publish-blocking (verified three ways: `publish_blocking`
-  excludes `unsupported_claims`; discard deletes `claim_supports` before units;
-  `formula_status` defaults to a value neither branch fires on), and the search
-  corpus cannot see them. Exposure is telemetry only → three filters, not a
-  staging table.
-- **The resume key already exists**: `prompt_runs.input_hash`. Hartley's three
-  attempts each produced exactly 277 distinct hashes, sets 100% identical.
-  **No schema change, no migration.**
-- **A span-keyed resume would have been wrong** — 1,790 of 8,692 spans (20.6%)
-  legitimately appear in more than one batch in a single clean run. Measured
-  before designing, not after.
+**Live acceptance: 277 extraction calls → 0, 5,100 s → ~120 s**, counted against
+a baseline snapshot (`prompt_runs` 1941 before and after). Testbed E2E through
+the CLI: SIGKILL mid-extraction → resume adopts 3 of 5 batches → **published,
+90 units, `wiki lint` exit 0**.
 
-Do not start P0 until the user approves the plan.
+**Two lessons worth keeping.**
+
+1. *Shipping half the feature was worthless, and only a live run said so.* The
+   first version had per-batch persistence alone; the run finished 277/277 in 85
+   minutes and ended with **zero units**, because `compile.py`'s staged-compile
+   failure handler DELETED every row it had written. All 19 unit tests passed
+   against it — they call `extract_knowledge_units` directly and never reach that
+   handler. Fifth release in a row where running it found what tests could not.
+2. *I moved the goalposts twice.* Mid-run I called "the extraction survives" the
+   release condition, which the plan does not say; then I showed the publication
+   clause on the testbed source and presented it as closing the gap on source 45.
+   Both were substitutions. Accepting a substitution is the reviewer's call.
+
+**Design facts to not re-derive:**
+- Resume keys on `prompt_runs.input_hash` — no schema change. It hashes the
+  rendered prompt, so a template edit invalidates every batch by construction.
+- Stable only for an UNCHANGED span set. `_spans_block` renders span ids, so an
+  L1 re-parse invalidates everything. Measured: 99.7% span overlap still shared
+  only 21.7% of batch hashes.
+- Never key on batch index (`optimal_chunk_chars` changes the count 12/23/46/93)
+  and never on span coverage (1,790 of 8,692 spans appear in >1 batch).
+- `validator_status` must accept `repaired`, not only `ok` — 57 such runs in the
+  live vault carry 687 units.
+- The keep-set goes through a TEMP TABLE, never `id NOT IN (?,?,…)`: SYSTEM_
+  BEHAVIOR caps queries at 900 bind parameters and source 45 alone needs 5,358.
+
+**Hartley (`sources.id=45`) is STILL unpublished — ROADMAP 5b, not this work.**
+Its staged compile dies in `curator.entity_relation_extract`: agy writes a Python
+script and runs it, the command is denied, the whole compile fails. Publishing
+needs **every** graph batch to succeed; source 45 needs **~87** and agy's measured
+success rate is **57%**, so P(clean run) ≈ **7×10⁻²²**. Retrying cannot work.
+Its 5,358 extracted units are parked, unpublished and adoptable, so the retry is
+now ~2 minutes rather than 85 — whenever 5b is fixed.
+
+## RE-ANCHOR (2026-08-21) — the goal was lost in the bug work, and here it is
+
+User: *"우리가 계획했던 것들 P1~P* 까지 오직 한가지 목표를 위해서 달려왔던거거든.
+그사이에 버그들이 발생해서 목표를 잃어버린거같은데."* Correct. Restated from
+`05_pdf_reading_assistant.md`, not from memory:
+
+**Definition of done (P6).** Selecting `[8] … Eq. (29)` in the popover and asking
+about it yields: what paper [8] is, what equation 29 says, a pointer to the
+user's own note that touches it — and no sentence about context, loading, or
+general knowledge.
+
+**Where P5a actually stands — measured, one source away:**
+
+| space | sources | L1 done | L2 done | skipped | error |
+|---|---|---|---|---|---|
+| `03_Notes/` | 20 | 20 | 15 | 5 | 0 |
+| `04_Resources/` | 8 | 8 | 4 | 3 | **1** |
+| other | 16 | 16 | 16 | 0 | 0 |
+
+The 8 skipped are 321 B – 2 KB stubs, legitimately below the L2 threshold. **The
+single blocker is source 45 (Hartley)**, `l2_status='error'`, and the error is
+the agy permission denial. Nothing else is outstanding.
+
+**So the chain is: P6 ← P5a ← Hartley publishes ← ROADMAP 5b.** Everything from
+v0.58 to v0.62 — job observability, progress from the real loop, the CLI schema,
+external-file access, capacity deferral, resumable L2 — was infrastructure to get
+this one book in. That was not drift; losing sight of *why* was.
+
+**What I got wrong, recorded so it does not repeat.** I escalated 5b into an
+architecture problem — an MCP server, an OS sandbox with auto-approval, a
+model-driven retrieval loop — and every one of those contradicts a decision this
+plan already locked:
+
+- §2 Non-Goals: *"**Not** granting the popover model MCP or filesystem tools. The
+  zero-MCP guarantee holds."* → kills the MCP direction outright.
+- §4.2: *"Resolve BEFORE the turn; do not make the model chase."* `MAX_RECURSION`
+  is 5 and shared across tool families, so a chase ladder does not fit. → kills
+  the model-driven loop.
+
+The plan's answer to "the model went looking for content" was always **resolve it
+before the turn**, never **give the model a way to go get it**.
+
+**And the cheapest unblock is the one I skipped past.** ROADMAP 5b needs only
+option **C**: `extract_graph_data` guards validation failures with `continue` but
+has no `try` around `run_prompt`, which re-raises — so one refusal out of ~87
+batches kills the compile. Make a denial a retryable per-batch failure and the
+87-batch run survives a 43% per-call refusal rate (expected ≈153 calls). No
+security decision, no new architecture, no contradiction with the plan. And since
+v0.62.0 a Hartley retry costs ~2 minutes, not 85.
+
+**PyPDF2 was never the alternative.** `parsers/pdf.py` is a math-aware
+pymupdf4llm pipeline; the model used PyPDF2's naive text layer because it had
+none of ours — which §2 says is correct and must stay that way.
 
 ## Immediate Next Action
 

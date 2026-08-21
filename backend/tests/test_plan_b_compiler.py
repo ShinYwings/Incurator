@@ -298,6 +298,31 @@ def _seed_gold_claim(paths: cfg.WikiPaths, case_id: str) -> tuple[str, dict]:
         statement=case["statement"], source_span_ids=list(case["declared"]),
         source_id=1,
     )
+    # Attribute it to an authoritative generation, as compile.py does before the
+    # publish gate. Since v0.62.0 the compiler audit skips generation-less rows —
+    # they are an unpublished extraction, not knowledge the vault holds — so an
+    # unstamped fixture unit is invisible to the audit under test. Reuse ONE
+    # generation: a second authoritative one for the same source is itself a
+    # publish-blocking `staged_leftovers` finding.
+    with db.connect(paths.state_db) as conn:
+        row = conn.execute(
+            "SELECT id FROM compiler_generations "
+            "WHERE source_id = 1 AND status = 'authoritative'"
+        ).fetchone()
+        gen_id = str(row[0]) if row else None
+    if gen_id is None:
+        gen_id = db.create_compiler_generation(
+            paths.state_db, prompt_contract_version="v3", source_id=1
+        )
+        with db.connect(paths.state_db) as conn:
+            conn.execute(
+                "UPDATE compiler_generations SET status = 'authoritative' WHERE id = ?",
+                (gen_id,),
+            )
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "UPDATE knowledge_units SET generation_id = ? WHERE id = ?", (gen_id, unit_id)
+        )
     return unit_id, case
 
 

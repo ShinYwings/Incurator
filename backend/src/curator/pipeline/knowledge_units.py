@@ -2,9 +2,13 @@
 
 Refines source spans into typed ``knowledge_units`` via the registered
 ``curator.knowledge_unit_extract`` contract. Every unit must cite real source
-span ids (the prompt validator rejects invented ids). Units are persisted only
-after every extraction batch validates; a failed extraction writes no partial
-artifact.
+span ids (the prompt validator rejects invented ids).
+
+Each batch's units are persisted as it validates, with ``generation_id`` left
+NULL so they are stored but not authoritative; ``compile.py`` stamps the staged
+generation onto the returned ids before the publish gate. An interrupted run
+therefore keeps its completed batches, and a re-run adopts them instead of
+re-paying the provider (SYSTEM_BEHAVIOR L2 item 4).
 """
 
 from __future__ import annotations
@@ -48,6 +52,9 @@ class _BatchResult:
     units: list[_PendingKnowledgeUnit] = field(default_factory=list)
     trace_id: str = ""
     errors: list[str] = field(default_factory=list)
+    # Ids of units adopted from a previous run's identical batch. Already
+    # persisted, so the loop must NOT pass them through `_persist_units`.
+    adopted_ids: list[str] = field(default_factory=list)
 
 
 _MAX_RETRY_DEPTH = 5
@@ -142,24 +149,89 @@ def _batch_hash(batch: list[dict]) -> str:
     return hashlib.sha256(json.dumps(key, separators=(",", ":")).encode()).hexdigest()[:16]
 
 
-def _discard_unpublished_units(db_path: Path, source_id: int) -> None:
-    """Remove source-local units from runs that never reached a generation."""
+def _adoptable_unit_ids(
+    db_path: Path, source_id: int, *, curate_spec_hash: str
+) -> set[str]:
+    """Unpublished units a resumed run may still adopt (SYSTEM_BEHAVIOR L2 §4).
+
+    A unit qualifies when its prompt run matches the ACTIVE contract and curate
+    spec, that run validated (``ok`` or ``repaired`` — a JSON-repair retry still
+    produced validated output), and every span it cites still exists. Anything
+    else is leftover from a configuration or a source that no longer applies.
+    """
+    from .compile import PROMPT_CONTRACT_VERSION
+
+    with db.connect(db_path) as c:
+        rows = c.execute(
+            """
+            SELECT ku.id AS id, ku.source_span_ids AS spans
+              FROM knowledge_units ku
+              JOIN prompt_runs pr ON pr.trace_id = ku.prompt_run_id
+             WHERE ku.source_id = ?
+               AND ku.generation_id IS NULL
+               AND ku.retired_at IS NULL
+               AND pr.prompt_id || '@' || pr.prompt_version = ?
+               AND COALESCE(pr.curate_spec_hash, '') = ?
+               AND pr.validator_status IN ('ok', 'repaired')
+            """,
+            (source_id, PROMPT_CONTRACT_VERSION, curate_spec_hash or ""),
+        ).fetchall()
+        live = {
+            str(r[0]) for r in c.execute(
+                "SELECT id FROM source_spans WHERE source_id = ?", (source_id,)
+            ).fetchall()
+        }
+    keep: set[str] = set()
+    for row in rows:
+        cited = [str(s) for s in json.loads(row["spans"] or "[]")]
+        if cited and all(sid in live for sid in cited):
+            keep.add(str(row["id"]))
+    return keep
+
+
+def _discard_unpublished_units(
+    db_path: Path, source_id: int, *, keep: set[str] | None = None
+) -> None:
+    """Remove source-local units from runs that never reached a generation.
+
+    ``keep`` holds the ids a resume may still adopt; everything else generation-
+    less goes, because it was never authoritative and must not reach the publish
+    gate. Claim supports are deleted before their units so nothing is left
+    dangling — `dangling_supports` is publish-blocking.
+    """
     from ..db_sync import delete_rows_with_tombstones_on_connection
 
+    keep = keep or set()
+
     with db.connect(db_path) as conn:
+        # The kept ids go through a TEMP TABLE, not `id NOT IN (?,?,…)`.
+        # SYSTEM_BEHAVIOR requires queries to stay under 900 bind parameters
+        # ("remaining below SQLite's common 999-variable limit") and
+        # `compile.py:_SQL_VAR_CHUNK` implements that elsewhere. A resumable
+        # source blows straight past it: source 45 alone has 5,358 adoptable
+        # units, and this is the FIRST statement every resumed extraction runs,
+        # so an id list would fail the whole ingest on any conforming build.
+        # `executemany` binds one row at a time and has no such ceiling.
+        conn.execute("CREATE TEMP TABLE IF NOT EXISTS _ku_keep (id TEXT PRIMARY KEY)")
+        conn.execute("DELETE FROM _ku_keep")
+        if keep:
+            conn.executemany(
+                "INSERT OR IGNORE INTO _ku_keep (id) VALUES (?)",
+                [(uid,) for uid in sorted(keep)],
+            )
+        doomed = (
+            "SELECT id FROM knowledge_units WHERE source_id = ? "
+            "AND generation_id IS NULL AND retired_at IS NULL "
+            "AND id NOT IN (SELECT id FROM _ku_keep)"
+        )
         delete_rows_with_tombstones_on_connection(
             conn,
             "claim_supports",
-            "knowledge_unit_id IN ("
-            "SELECT id FROM knowledge_units WHERE source_id = ? "
-            "AND generation_id IS NULL AND retired_at IS NULL)",
+            f"knowledge_unit_id IN ({doomed})",
             (source_id,),
         )
-        conn.execute(
-            "DELETE FROM knowledge_units WHERE source_id = ? "
-            "AND generation_id IS NULL AND retired_at IS NULL",
-            (source_id,),
-        )
+        conn.execute(f"DELETE FROM knowledge_units WHERE id IN ({doomed})", (source_id,))
+        conn.execute("DROP TABLE IF EXISTS _ku_keep")
 
 
 def _run_batch_with_retry(
@@ -172,6 +244,7 @@ def _run_batch_with_retry(
     batch: list[dict],
     label: str,
     curate_spec_hash: str,
+    adoptable: set[str] | None = None,
     depth: int = 0,
 ) -> _BatchResult:
     valid_ids = _unique_span_ids(batch)
@@ -180,6 +253,29 @@ def _run_batch_with_retry(
         spans_block=_spans_block(batch),
         valid_span_ids_block="\n".join(valid_ids),
     )
+
+    # Resume: has this EXACT batch already been extracted and kept?
+    #
+    # The check sits here rather than in the batch loop on purpose. A batch that
+    # failed validation is split and re-run as sub-batches (below), each its own
+    # prompt run; checking only at the top level would re-pay every batch that
+    # previously succeeded only in halves. `_split_batch_for_retry` is
+    # deterministic, so a child's rendered prompt — and therefore its hash —
+    # reproduces exactly like its parent's.
+    if adoptable:
+        adopted = _adopt_existing_batch(
+            db_path,
+            contract,
+            input_obj,
+            source_id=source_id,
+            curate_spec_hash=curate_spec_hash,
+            adoptable=adoptable,
+        )
+        if adopted is not None:
+            trace_id, unit_ids = adopted
+            _log.debug("L2 %s adopted from prompt run %s", label, trace_id)
+            return _BatchResult(trace_id=trace_id, adopted_ids=unit_ids)
+
     try:
         result = prompting.run_prompt(
             db_path,
@@ -223,6 +319,7 @@ def _run_batch_with_retry(
                 batch=left,
                 label=f"{label}.1",
                 curate_spec_hash=curate_spec_hash,
+                adoptable=adoptable,
                 depth=depth + 1,
             )
             if left_result.errors:
@@ -239,18 +336,89 @@ def _run_batch_with_retry(
                 batch=right,
                 label=f"{label}.2",
                 curate_spec_hash=curate_spec_hash,
+                adoptable=adoptable,
                 depth=depth + 1,
             )
             return _BatchResult(
                 units=[*left_result.units, *right_result.units],
                 trace_id=right_result.trace_id or left_result.trace_id or trace_id,
                 errors=[*left_result.errors, *right_result.errors],
+                adopted_ids=[*left_result.adopted_ids, *right_result.adopted_ids],
             )
 
     return _BatchResult(
         trace_id=trace_id,
         errors=_batch_failure_errors(label, batch, result),
     )
+
+
+def _adopt_existing_batch(
+    db_path: Path,
+    contract: Any,
+    input_obj: Any,
+    *,
+    source_id: int,
+    curate_spec_hash: str,
+    adoptable: set[str],
+) -> tuple[str, list[str]] | None:
+    """Find a completed run of this exact batch, and return its kept unit ids.
+
+    Batch identity is ``prompt_runs.input_hash`` — the digest of the fully
+    rendered system+user messages. It covers the batch text, the span ids cited
+    in it, AND the prompt template, so a template edit invalidates every batch by
+    construction and no separate configuration key has to be defined or kept in
+    sync. Rendering here duplicates the render `run_prompt` does internally; that
+    is pure string formatting against a provider round-trip measured at a 18.6 s
+    median, so it is not worth restructuring the runner to share.
+
+    Returns ``None`` when nothing matches, which is also what a run whose units
+    were dropped by the caller's conditional discard gets — ``adoptable`` is the
+    authority on which rows survived, and a run whose units are all gone must be
+    re-done rather than adopted as an empty batch.
+    """
+    rendered = prompting.render_prompt(contract, input_obj)
+    with db.connect(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT ku.id AS id, ku.prompt_run_id AS trace_id
+              FROM knowledge_units ku
+              JOIN prompt_runs pr ON pr.trace_id = ku.prompt_run_id
+             WHERE ku.source_id = ?
+               AND ku.generation_id IS NULL
+               AND ku.retired_at IS NULL
+               AND pr.input_hash = ?
+               AND pr.prompt_id = ?
+               AND pr.prompt_version = ?
+               AND COALESCE(pr.curate_spec_hash, '') = ?
+               AND pr.validator_status IN ('ok', 'repaired')
+             ORDER BY ku.created_at
+            """,
+            (
+                source_id,
+                rendered.input_hash,
+                contract.prompt_id,
+                contract.version,
+                curate_spec_hash or "",
+            ),
+        ).fetchall()
+
+    # Adopt the units of exactly ONE prompt run. `input_hash` is stable across
+    # attempts by design — the same batch re-run months later hashes the same —
+    # so this query can legitimately match rows written by two different runs.
+    # Taking all of them would attribute one batch's output twice.
+    #
+    # An earlier draft guarded with `len(unit_ids) != len(rows)` and a comment
+    # claiming it caught partly-surviving batches. It could never fire: the
+    # caller's conditional discard has already deleted every non-adoptable row,
+    # so `rows` is a subset of `adoptable` by construction.
+    by_trace: dict[str, list[str]] = {}
+    for row in rows:
+        if str(row["id"]) in adoptable:
+            by_trace.setdefault(str(row["trace_id"]), []).append(str(row["id"]))
+    if len(by_trace) != 1:
+        return None
+    trace_id, unit_ids = next(iter(by_trace.items()))
+    return trace_id, unit_ids
 
 
 def _persist_units(
@@ -323,20 +491,28 @@ def extract_knowledge_units(
     ``section_title`` — the just-stored spans carrying their full text (DB stores
     only previews, so the caller passes full text here).
 
-    Extraction is all-or-nothing: staged units from a previous interrupted run
-    are discarded first, then units accumulate in memory and are bulk-persisted
-    only on full success. An interrupted run therefore re-processes every batch.
+    Publication is all-or-nothing; persistence is not. Each batch's units are
+    written as it validates, with ``generation_id`` NULL, so an interrupted run
+    keeps its completed work and a re-run adopts it instead of re-paying the
+    provider. Batch identity is ``prompt_runs.input_hash``, which covers the
+    rendered prompt including the template — see ``_adopt_existing_batch``.
 
-    A checkpoint-resume mechanism used to sit here and was removed in v0.52.0
-    because it could never run — checkpoints were written only inside the branch
-    that required checkpoints to already exist, so the table stayed empty
-    forever (verified: 0 rows across 36 sources and 2,799 units). Resumable L2
-    is still worth having; see the roadmap. It needs designing rather than
-    re-enabling, because the old resume path also returned the staged-unit list,
-    which is empty after a successful publish and would have retired the
-    source's entire authoritative unit set.
+    Generation-less rows from runs that no longer apply are discarded first:
+    a changed contract or curate spec, or spans that no longer exist. Those were
+    never authoritative and must not reach the publish gate.
+
+    A checkpoint-resume mechanism was removed in v0.52.0 because it could never
+    run — checkpoints were written only inside the branch that required
+    checkpoints to already exist, so the table stayed empty forever (verified:
+    0 rows across 36 sources and 2,799 units). It is NOT what this is. Its other
+    defect was returning the staged-unit list as the result, which is empty after
+    a successful publish and would have retired the source's entire authoritative
+    unit set; the loop below accumulates ids instead and cannot reproduce that.
     """
-    _discard_unpublished_units(db_path, source_id)
+    adoptable = _adoptable_unit_ids(
+        db_path, source_id, curate_spec_hash=curate_spec_hash
+    )
+    _discard_unpublished_units(db_path, source_id, keep=adoptable)
 
     if not spans:
         return KnowledgeUnitResult(ok=True)
@@ -394,8 +570,8 @@ def extract_knowledge_units(
     last_trace_id = ""
     all_errors: list[str] = []
 
-    # Accumulate in memory, bulk-persist on full success.
-    pending_units: list[_PendingKnowledgeUnit] = []
+    # Persist per batch; publication stays atomic (SYSTEM_BEHAVIOR L2 items 3-4).
+    all_unit_ids: list[str] = []
     for index, batch in enumerate(batches, start=1):
         result = _run_batch_with_retry(
             db_path,
@@ -406,13 +582,35 @@ def extract_knowledge_units(
             batch=batch,
             label=f"batch {index}/{len(batches)}",
             curate_spec_hash=curate_spec_hash,
+            adoptable=adoptable,
         )
         if result.trace_id:
             last_trace_id = result.trace_id
         if result.errors:
             all_errors.extend(result.errors)
+            # A batch that failed validation is split and re-run as halves, and
+            # one half can validate while the other does not. Persist the half
+            # that did. Its prompt run is already recorded `ok`, so without the
+            # rows `_adopt_existing_batch` finds nothing for that hash and the
+            # next run re-splits the parent and re-pays BOTH halves — for every
+            # retry, indefinitely. The ids are deliberately NOT added to
+            # `all_unit_ids`: this run returns ok=False and must attribute
+            # nothing, and the rows stay `generation_id IS NULL` for a resume.
+            if result.units:
+                _persist_units(db_path, source_id=source_id, pending_units=result.units)
             break
-        pending_units.extend(result.units)
+        # Adopted units are already stored; only fresh ones are written. Both
+        # accumulate HERE, in the loop. A resumed run must never derive its
+        # result by querying the source's staged units: that set filters
+        # `generation_id IS NULL` and is empty after a successful publish, so
+        # the run would attribute zero units to a fresh generation and retire
+        # the source's entire authoritative set (§26.3). That is the exact
+        # defect that made the v0.51.1 resume path unusable.
+        all_unit_ids.extend(result.adopted_ids)
+        if result.units:
+            all_unit_ids.extend(
+                _persist_units(db_path, source_id=source_id, pending_units=result.units)
+            )
 
         # One event per BATCH — the heartbeat that makes a slow L2 and a
         # stopped one distinguishable. Not per LLM call: `_run_batch_with_retry`
@@ -423,14 +621,11 @@ def extract_knowledge_units(
         # finished, so a job spent the whole extraction reporting one
         # unchanging row.
         #
-        # This is an OBSERVATION, NOT A CHECKPOINT. Extraction is
-        # all-or-nothing by design: units accumulate in memory and are
-        # bulk-persisted only on full success, so an interrupted run re-does
-        # every batch. Do not grow this into a resume point — a checkpoint
-        # mechanism lived here and was removed in v0.52.0 because it could never
-        # run, and its resume path returned the staged-unit list, which is empty
-        # after a successful publish and would retire a source's entire
-        # authoritative unit set. Resumable L2 is a separate roadmap item.
+        # This is an OBSERVATION, not the resume mechanism. Resume keys on
+        # `prompt_runs.input_hash` (see `_adopt_existing_batch`), never on this
+        # index: `optimal_chunk_chars` changes the batch count with the provider
+        # — measured 12 / 23 / 46 / 93 for the same source at 60k / 32k / 16k /
+        # 8k — so an index identifies nothing across a configuration change.
         if on_progress is not None:
             try:
                 on_progress(
@@ -439,7 +634,7 @@ def extract_knowledge_units(
                         "phase": "l2",
                         "batch": index,
                         "batches": len(batches),
-                        "units": len(pending_units),
+                        "units": len(all_unit_ids),
                     },
                 )
             except Exception:  # noqa: BLE001 - observation is never fatal
@@ -455,12 +650,6 @@ def extract_knowledge_units(
             ok=False,
             errors=all_errors,
         )
-
-    all_unit_ids = _persist_units(
-        db_path,
-        source_id=source_id,
-        pending_units=pending_units,
-    )
 
     return KnowledgeUnitResult(
         unit_ids=all_unit_ids,

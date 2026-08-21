@@ -626,6 +626,20 @@ What this means in practice:
   that batch, records the failed prompt trace, and publishes no newly extracted
   L2 units.
   Re-running an unchanged build does not duplicate or mutate anything.
+
+  **L2 extraction is resumable (v0.62.0).** The batches that finished before the
+  stop are kept, so re-running the build asks the model only about the batches
+  that did not. Nothing partial is ever *served* — the finished batches sit in
+  the database unpublished until a run completes and publishes them as one
+  generation — but they are no longer thrown away. Before v0.62.0 an interrupted
+  extraction restarted from the first batch, which is how a 673-page book
+  finished all 277 of its batches twice and lost both.
+
+  Resume stops at the source text. If you edit the source, or anything causes it
+  to be re-read and re-split, the pieces the model was asked about are different
+  pieces, and the whole source is extracted again — correctly, since its content
+  changed. The same applies if you switch provider or model, since the batch size
+  depends on the model's context budget.
   On a CLI backend that supports it, L2 now asks for a **value rather than
   prose**: the extraction schema is sent to the model so it returns a structured
   object directly. Before v0.60.0 the model was free to answer a JSON request by
@@ -634,10 +648,14 @@ What this means in practice:
   this widens what a model is allowed to run; it removes the reason to reach for
   a shell at all.
   If the provider refuses with a rate limit, the job is **not** restarted
-  immediately. Restarting a large source re-spends the whole budget before
-  reaching the step that was refused — measured on a 673-page book, twice, at
-  about 90 minutes discarded each time. Instead the queue is left untouched and
-  `wiki jobs run` tells you roughly how long to wait.
+  immediately: the queue is left untouched and `wiki jobs run` tells you roughly
+  how long to wait. Before v0.62.0 this mattered a great deal, because restarting
+  a large source re-spent the whole budget before reaching the step that was
+  refused — measured on a 673-page book, twice, at about 90 minutes discarded
+  each time. Resumable extraction removes most of that cost: a refusal at the
+  compile step now keeps the extraction, so the next attempt goes straight to the
+  step that was refused instead of re-reading the whole book. Waiting for the
+  window to reopen is still the cheaper move.
 - **Generated L2 stays English**: `wiki build` validates generated Atom names and
   statements programmatically. If a model writes Korean or another non-English
   language in generated L2 fields, the runner retries once and then marks L2

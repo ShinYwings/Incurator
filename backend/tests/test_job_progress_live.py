@@ -338,3 +338,24 @@ def test_a_retried_job_records_what_it_discarded(
         "the reason must survive the requeue that overwrites the job row"
     )
     assert "reached" in data, "how far it got is the difference between a bad source and lost work"
+
+
+def test_a_span_id_that_reads_like_a_status_code_is_not_transient() -> None:
+    """`_is_transient` used to substring-match the whole failure message, which
+    embeds up to five `<PREFIX>-<8 hex>` ids. Random hex reads "503" or "429"
+    often enough to matter — measured 1 spurious retry in 15 runs of
+    `test_a_failed_job_still_reports_what_its_history_lost`, whose fixture then
+    saw a retry instead of the terminal event it asserts. A permanent failure
+    was being retried three times because an id happened to read SPAN-13850308.
+    """
+    permanent = (
+        "L2 extraction batch 1/3 failed for spans "
+        "[SPAN-13850308, SPAN-a429bb01]: RuntimeError: permanent provider failure"
+    )
+    assert not ingest_worker._is_transient(permanent)
+    # A real signal in the same shape of message still classifies.
+    assert ingest_worker._is_transient(
+        "L2 extraction batch 1/3 failed for spans [SPAN-13850308]: "
+        "LLMError: 429 rate limit"
+    )
+    assert ingest_worker._is_transient("HTTP 503 from the provider")

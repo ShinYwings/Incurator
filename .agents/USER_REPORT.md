@@ -6,6 +6,94 @@ Agents must check this document and triage the received items into the `To-Do (Q
 
 ## 📝 User Inbox
 
+### 2026-08-21 — [P0] agy runs `python3` on EVERY surface, not just one; a denied command kills the whole operation
+
+User report, verbatim command it tried to run:
+
+```
+python3 -c '
+import PyPDF2
+import re
+pdf_path = "/Users/shin/Library/Mobile Documents/com~apple~CloudDocs/Zotero/[Project] COLMAPFreeReconstruction/Major/MultipleViewGeometryHartley - .pdf"
+with open(pdf_path, "rb") as f:
+  reader = PyPDF2.PdfReader(f)
+  for i in range(len(reader.pages)):
+    text = reader.pages[i].extract_text()
+    if re.search(r"Pl[uü]cker", text, re.IGNORECASE) and re.search(r"epipolar", text, re.IGNORECASE):
+      print(f"Page {i+1}: MATCH")
+'
+```
+→ `permission check failed for command "python3 -c …": user denied permission`
+
+**This is the same root cause as the untriaged 2026-08-09 P0 item below** (the
+agy CLI wipes `permissions.allow` on every invocation, and we only ever grant
+`read_file()`, never a shell allowance). What is NEW here is the **breadth**, and
+it changes the priority:
+
+- That item was observed on the chat/read path.
+- v0.62.0's live runs hit it during **compile-time graph extraction**
+  (`curator.entity_relation_extract`), where it writes a scratch script:
+  `python3 …/brain/<id>/scratch/extract_knus.py`.
+- This report is a **query/search** against a Zotero PDF.
+
+So it is not one prompt behaving badly — the model reaches for a shell on at
+least three unrelated surfaces, and one denial fails the entire operation.
+
+**Measured severity (v0.62.0 evidence).** Publishing a source needs EVERY graph
+batch to succeed. Source 45 needs **~87 batches** (1,551,159 prompt chars at
+18,000 each); observed agy success rate is **57%** (4 ok / 3 failed). P(clean
+run) ≈ **7×10⁻²²**. Any source past roughly a dozen graph batches is
+**unpublishable**, which is every large reference in the vault. Retrying cannot
+help; this is arithmetic, not luck.
+
+**Second hazard in this specific report**: the path it tried to open is under
+`~/Library/Mobile Documents/com~apple~CloudDocs/Zotero/` — the Zotero
+**attachment** directory (the bytes), which is a *separate* macOS TCC grant from
+the Zotero **data** directory (`~/Zotero`, the index). Even a granted shell
+command could still be denied by TCC there. Do not conflate the two.
+
+Fix directions (none investigated): grant agy a scratch execution allowance and
+re-assert it immediately before each `--print` call, verifying it survived;
+route the affected contracts to a provider that does not shell out; or make a
+denied shell command a **retryable per-batch failure** instead of a fatal error
+for the whole compile. Any test must run a real `agy` call and assert the
+permission still holds afterwards — a unit test that only checks we wrote the
+file has passed every time this shipped broken.
+
+Related: ROADMAP 5b, and the 2026-08-09 item below (they should be merged).
+
+### 2026-08-21 — [P1] The DeepSeek API key has to be re-entered after every update
+
+User: *"deepseek api 키가 업데이트때마다 사라져서 다시 등록해야함."*
+
+**Diagnosed; three separate facts combine into it.**
+
+1. **The plugin never persists it, deliberately.** `main.ts:_persistableSettings`
+   strips `deepseekApiKey` from `data.json` so it cannot leak into Obsidian Sync
+   or a git-tracked vault (PLUGIN_SCHEMA §2.4). That reasoning is sound and
+   should not be reverted.
+2. **Its only restore path is an env var that Obsidian does not have.**
+   `main.ts:1280` restores from `process.env.DEEPSEEK_API_KEY`. A GUI-launched
+   Obsidian does not inherit a login shell's environment, so on a normal desktop
+   launch this restores nothing. The key therefore lives in memory only, and an
+   update ends with *"Reload Obsidian to apply the changes"* — which drops it.
+   That is exactly "gone after every update".
+3. **A durable encrypted store already exists and the plugin is not wired to
+   it.** `secret_store.set_secret` (Fernet, `<repo>/.cache/config/secrets/`) is
+   called by `wiki config` and by the MCP tool `curator_set_provider_config`.
+   Checked on this machine: the store **does** hold `secret:deepseek-api-key`,
+   but `.cache/config/config.yml` carries only `api_key_env: DEEPSEEK_API_KEY`
+   and **no `api_key_secret`**, so `llm.py` looks for the env var and never opens
+   the store. And `curator_set_provider_config` has **zero call sites in the
+   plugin** — grepped `plugin/src/` and `plugin/main.ts`.
+
+So the fix is a wire, not a new mechanism: when the key is entered in plugin
+settings, hand it to the backend (`curator_set_provider_config` with `api_key`,
+or the CLI equivalent), let it write `api_key_secret` into the config, and stop
+keeping it in plugin memory at all. The anti-leak property is preserved — the
+plaintext never reaches `data.json` either way.
+
+
 ### 2026-08-09 — [P0] jetski "no output produced": the agy CLI wipes our permission grant on every run
 
 User, correctly angry: *"이거 v30부터 수차례 나온 버그인데 고쳤다고하고 제대로
