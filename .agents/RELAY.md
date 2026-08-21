@@ -189,6 +189,60 @@ success rate is **57%**, so P(clean run) ≈ **7×10⁻²²**. Retrying cannot w
 Its 5,358 extracted units are parked, unpublished and adoptable, so the retry is
 now ~2 minutes rather than 85 — whenever 5b is fixed.
 
+## RE-ANCHOR (2026-08-21) — the goal was lost in the bug work, and here it is
+
+User: *"우리가 계획했던 것들 P1~P* 까지 오직 한가지 목표를 위해서 달려왔던거거든.
+그사이에 버그들이 발생해서 목표를 잃어버린거같은데."* Correct. Restated from
+`05_pdf_reading_assistant.md`, not from memory:
+
+**Definition of done (P6).** Selecting `[8] … Eq. (29)` in the popover and asking
+about it yields: what paper [8] is, what equation 29 says, a pointer to the
+user's own note that touches it — and no sentence about context, loading, or
+general knowledge.
+
+**Where P5a actually stands — measured, one source away:**
+
+| space | sources | L1 done | L2 done | skipped | error |
+|---|---|---|---|---|---|
+| `03_Notes/` | 20 | 20 | 15 | 5 | 0 |
+| `04_Resources/` | 8 | 8 | 4 | 3 | **1** |
+| other | 16 | 16 | 16 | 0 | 0 |
+
+The 8 skipped are 321 B – 2 KB stubs, legitimately below the L2 threshold. **The
+single blocker is source 45 (Hartley)**, `l2_status='error'`, and the error is
+the agy permission denial. Nothing else is outstanding.
+
+**So the chain is: P6 ← P5a ← Hartley publishes ← ROADMAP 5b.** Everything from
+v0.58 to v0.62 — job observability, progress from the real loop, the CLI schema,
+external-file access, capacity deferral, resumable L2 — was infrastructure to get
+this one book in. That was not drift; losing sight of *why* was.
+
+**What I got wrong, recorded so it does not repeat.** I escalated 5b into an
+architecture problem — an MCP server, an OS sandbox with auto-approval, a
+model-driven retrieval loop — and every one of those contradicts a decision this
+plan already locked:
+
+- §2 Non-Goals: *"**Not** granting the popover model MCP or filesystem tools. The
+  zero-MCP guarantee holds."* → kills the MCP direction outright.
+- §4.2: *"Resolve BEFORE the turn; do not make the model chase."* `MAX_RECURSION`
+  is 5 and shared across tool families, so a chase ladder does not fit. → kills
+  the model-driven loop.
+
+The plan's answer to "the model went looking for content" was always **resolve it
+before the turn**, never **give the model a way to go get it**.
+
+**And the cheapest unblock is the one I skipped past.** ROADMAP 5b needs only
+option **C**: `extract_graph_data` guards validation failures with `continue` but
+has no `try` around `run_prompt`, which re-raises — so one refusal out of ~87
+batches kills the compile. Make a denial a retryable per-batch failure and the
+87-batch run survives a 43% per-call refusal rate (expected ≈153 calls). No
+security decision, no new architecture, no contradiction with the plan. And since
+v0.62.0 a Hartley retry costs ~2 minutes, not 85.
+
+**PyPDF2 was never the alternative.** `parsers/pdf.py` is a math-aware
+pymupdf4llm pipeline; the model used PyPDF2's naive text layer because it had
+none of ours — which §2 says is correct and must stay that way.
+
 ## Immediate Next Action
 
 **P5a** — advance the two pending books. Hartley's L1 and 104 vision pages are
