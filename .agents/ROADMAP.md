@@ -227,6 +227,36 @@ first version shipped only the first and lost all 277 batches again in a live
 run; every unit test passed against it, because they call the extractor directly
 and never reach `compile.py`'s failure handler.
 
+### 5c. Graph extraction is not resumable — the same defect v0.62.0 fixed for L2
+
+**NEW, measured 2026-08-22 after v0.62.1.** Removing the fatality of a refusal
+was necessary and did not make source 45 publishable. Graph output is held **in
+memory** until the publish gate (`graph_index.py:209`, *"Collect parsed objects
+IN MEMORY (no DB writes)"*), so every capacity deferral throws it away.
+
+Measured across three attempt windows, each ending at a 429:
+
+| window | graph calls | usable (`ok`) |
+|---|---|---|
+| 15:15 → 15:24 | 20 | **3** |
+| 15:45 | 1 | 0 |
+| 17:40 → 17:47 | 8 | **3** |
+
+Source 45 needs **~87** batches and every one must land in the same run. At
+**≤3 usable batches per capacity window**, discarded at the end of each, it
+cannot converge — no number of retries reaches 87.
+
+This is the L2 problem again, one layer up: v0.62.0 made extraction survive
+interruption by persisting per batch; graph extraction still does not. The fix
+has a proven shape — persist per batch, key resume on `prompt_runs.input_hash`,
+release rather than delete on failure — but graph rows are entity/relation
+records with different publish semantics, so it needs its own design rather than
+a copy.
+
+**Do not treat this as a gate on the goal.** P6, the definition of done, needs a
+published paper with a bibliography and equations, and 34 sources published on
+2026-08-18. Source 45 is a coverage item.
+
 ### 5b. Hartley is still unpublished — agy shells out during graph extraction
 
 **NEW, found by the v0.62.0 live run (2026-08-21).** The staged compile now
