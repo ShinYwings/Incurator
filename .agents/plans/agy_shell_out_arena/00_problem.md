@@ -136,3 +136,66 @@ itself large. If argv is being clipped, every fix below treats a symptom.
 - The Zotero **attachment** directory (iCloud) is a separate macOS TCC grant from
   the Zotero **data** directory (`~/Zotero`). A granted shell command can still be
   denied there. Any sandbox profile must not conflate them.
+
+---
+
+## 9. MEASURED (2026-08-21). Two of the four directions are already dead.
+
+Everything below is a real `agy` invocation on this machine, agy as installed at
+`~/.local/bin/agy`, model `gemini-3.5-flash`. The probe prompt is *"Run exactly
+this shell command and then reply DONE: printf ok > <scratch file>"*, and the
+check is whether the file appeared.
+
+| invocation | denied? | command executed? |
+|---|---|---|
+| no flag — **what the backend does today** | **yes** | no |
+| `--sandbox` | **yes** | no |
+| `--mode accept-edits` | **yes** | no |
+| `--dangerously-skip-permissions` | no | **YES** |
+
+**The failure is now deterministically reproducible on demand.** This whole class
+has been "intermittent" since v0.30; it is not. Ask agy for a shell command in
+`-p` mode without that one flag and it fails, every time.
+
+### 9.1 `--sandbox` does nothing, and the plugin's comment is wrong
+
+`LLMClient.ts:2311` says *"Keep `--sandbox`: in -p mode it auto-proceeds without
+the permission [prompt]"*. Measured: it does not. `--sandbox` produces the
+identical `permission check failed` error as no flag at all.
+
+This matters beyond this Arena. **The plugin is built on that belief**, so the
+plugin's agy calls die on any tool request too — which is exactly the standing
+2026-08-09 P0 (*"jetski 'no output produced'… reported repeatedly since v0.30,
+declared fixed each time, never verified"*). The two reports are one bug, and the
+reason it kept surviving "fixes" is that the flag everyone relied on was inert.
+
+### 9.2 Direction A is dead; B has to be restated
+
+- **A (pass `--sandbox`)** — dead. It changes nothing.
+- **B (A + an OS sandbox)** — the `--sandbox` half is inert, so B is really
+  **`--dangerously-skip-permissions` + real OS containment**. That is a different
+  proposition from what §7 described, and a materially bigger security decision:
+  the flag auto-approves *everything*, so containment stops being defence in
+  depth and becomes the only defence. Note `sandboxWrapper.ts` deliberately
+  **allows all reads** — it only denies writes — so under B' a model could still
+  read any file the user can, including the Zotero attachment tree and anything
+  else on disk.
+- **C (make a denial non-fatal)** — untouched by these measurements and now
+  testable, because the failure reproduces on demand.
+- **D (route to another provider)** — untouched.
+
+### 9.3 What §6 asked, answered: the input is NOT being truncated
+
+A 23,835-character prompt (larger than a real 18,000-char graph batch) passed as
+a single argv element, with a sentinel on the final line, came back with the
+sentinel echoed correctly. `ARG_MAX` is 1,048,576 here. So the model reading
+agy's transcript to recover *"Knowledge units:"* is not compensation for a
+clipped prompt. §6 is closed: it shells out because it chooses to.
+
+### 9.4 Consequence for scope
+
+C fixes the **ingest** surface only. The user's 2026-08-21 report is a **query**
+against a Zotero PDF, and the 2026-08-09 P0 is the **chat** surface; neither is
+helped by retrying a batch. A fix that only makes graph extraction survivable
+leaves two of the three observed surfaces broken, and should say so plainly
+rather than be presented as closing 5b.
