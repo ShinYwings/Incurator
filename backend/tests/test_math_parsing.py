@@ -1,3 +1,5 @@
+import pytest
+
 from curator.ingest_raw import _chunk_text
 
 def test_chunk_text_preserves_latex():
@@ -16,3 +18,19 @@ def test_chunk_text_preserves_latex():
     for i, chunk in enumerate(chunks):
         count = chunk.count("$$")
         assert count % 2 == 0, f"Chunk {i} has broken LaTeX boundary: {count} '$$' markers"
+
+
+@pytest.mark.parametrize("bad_size", [-300, 0])
+def test_chunk_text_rejects_a_non_positive_chunk_size(bad_size: int) -> None:
+    """A non-positive chunk size is a programming error, not a small chunk (v0.61.2).
+
+    The forward-progress guard (`if next_start <= start: next_start = start + 1`)
+    was written to prevent a hang and succeeded — by converting an illegal size
+    into one chunk per character POSITION, each holding nearly the whole
+    remaining text. Measured before the fix: `chunk_size=-300` over 3,000
+    characters emitted 3,000 chunks totalling 810,000 characters, a 270x
+    amplification that never hangs, never raises, and never logs. It only
+    spends. Fail at the boundary instead.
+    """
+    with pytest.raises(ValueError):
+        _chunk_text("x" * 3000, chunk_size=bad_size, overlap=500)

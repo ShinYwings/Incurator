@@ -799,6 +799,17 @@ use typed string prefixes so they are self-describing in traces and frontmatter.
 > carries pre-v12 automatic migration shims. Current databases are created from
 > the full `SCHEMA_SQL`; unsupported legacy `state.sqlite` files must be rebuilt
 > or regenerated from a current JSONL export.
+>
+> **Self-heal is committed before the connection is handed over.** Opening a
+> state DB applies `SCHEMA_SQL`, refreshes any stale trigger body, and stamps
+> `schema_version` — and commits all of it before the caller may use the
+> connection. Stamping the version is DML (an `INSERT` on a new database, an
+> `UPDATE` on one carrying an older version), so leaving it uncommitted would
+> hand the caller a connection already inside an implicit transaction. That
+> breaks any caller that opens its own transaction, and because the resulting
+> error also rolls the stamp back, the database is left in exactly the state
+> that produced it: the self-heal never converges. The stamp is therefore
+> committed on its own, independently of whatever the caller goes on to do.
 
 | Record | Id prefix | Purpose |
 | --- | --- | --- |

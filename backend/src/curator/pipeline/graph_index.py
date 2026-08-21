@@ -17,7 +17,7 @@ from typing import Any
 
 from .. import db, prompting
 from .claim_support import _extract_latex
-from .chunking import client_optimal_chunk_chars
+from .chunking import client_optimal_chunk_chars, subdivision_chars
 
 _log = logging.getLogger(__name__)
 
@@ -102,13 +102,20 @@ def extract_graph_data(
 
     import copy
     refined_units: list[dict] = []
+    # Floored: the bare `max_chars - 500` went NEGATIVE for a client reporting a
+    # budget at or below the overlap allowance, and as a slice bound that keeps
+    # the statement's HEAD only by accident of the value's magnitude — it
+    # amputates the tail, and erases a statement shorter than the shortfall
+    # entirely, leaving the model nothing but `... [TRUNCATED]` to extract from
+    # (v0.61.2).
+    keep_chars = subdivision_chars(max_chars)
     for u in units:
         statement = u.get("statement") or ""
         # Formula-bearing units stay intact: truncating their tail can silently
         # alter the mathematical claim. Oversized prose-only units may truncate.
-        if len(statement) > max_chars - 500 and not _extract_latex(statement):
+        if len(statement) > keep_chars and not _extract_latex(statement):
             u_copy = copy.copy(u)
-            u_copy["statement"] = statement[:max_chars - 500] + "... [TRUNCATED]"
+            u_copy["statement"] = statement[:keep_chars] + "... [TRUNCATED]"
             refined_units.append(u_copy)
         else:
             refined_units.append(u)

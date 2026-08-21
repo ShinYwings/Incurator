@@ -158,6 +158,44 @@ def test_chunking_large_unit_is_truncated(dbp: Path) -> None:
     assert result.ok
 
 
+def test_tiny_reported_chunk_budget_keeps_the_head_of_a_statement(dbp: Path) -> None:
+    """`statement[:max_chars - 500]` is the same unchecked subtraction (v0.61.2).
+
+    As a slice bound rather than a size, a negative value does not explode — it
+    silently amputates the TAIL of every long statement and then labels the
+    result `... [TRUNCATED]`, which reads as a deliberate head-truncation and is
+    not one. With `optimal_chunk_chars = 200` the bound was -300, so a
+    3,000-character statement became its first 2,700 characters' opposite: the
+    last 300 removed and the beginning kept only by accident of the value's
+    magnitude. A statement shorter than 300 characters would vanish entirely.
+
+    Truncation must keep a positive-length HEAD regardless of the reported
+    budget.
+    """
+    from copy import deepcopy
+
+    units = deepcopy(UNITS)
+    units[0]["statement"] = "HEADMARKER " + ("A" * 200)
+
+    seen: list[str] = []
+
+    class TinyBudgetClient:
+        def optimal_chunk_chars(self) -> int:
+            return 200
+
+        def chat(self, messages, **kwargs):
+            seen.append(messages[-1].content)
+            return _graph_json()
+
+    result = graph_index.extract_graph_data(
+        dbp, TinyBudgetClient(), units=units, valid_span_ids=["SPAN-1"]
+    )
+
+    assert result.ok, result.errors
+    assert seen, "no prompt was ever built"
+    assert "HEADMARKER" in seen[0]
+
+
 def test_chunking_never_truncates_formula_bearing_unit(dbp: Path) -> None:
     formula = "$" + ("x" * 25000) + "$"
     units = [

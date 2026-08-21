@@ -327,6 +327,46 @@ def test_chunking_large_span_is_split(vault) -> None:
 
 
 
+def test_tiny_reported_chunk_budget_does_not_explode_batch_count(vault) -> None:
+    """A budget at or below the 500-char overlap allowance must not be a quota bomb.
+
+    `chunk_size=max_chars - 500` had no positivity guarantee, so a client
+    reporting 200 handed `_chunk_text` -300. It answered with one chunk per
+    character POSITION, each holding nearly the whole remaining text — 3,000
+    chunks totalling 810,000 characters for a 3,000-character span. Every one of
+    them then exceeded the tiny batch budget and became its own LLM call.
+    Measured on eight 3,000-character sections: 24,000 refined spans and 3,920
+    batches, where a handful were expected.
+
+    The batch count must scale with the document, not with its character count.
+    """
+    dbp, spans = vault
+    spans[0]["text"] = "A" * 3200
+    span_id = spans[0]["id"]
+
+    class TinyBudgetClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def optimal_chunk_chars(self) -> int:
+            return 200
+
+        def chat(self, messages, **kwargs):
+            self.calls += 1
+            return _units_json(span_id)
+
+    client = TinyBudgetClient()
+    result = ku.extract_knowledge_units(
+        dbp, client, source_id=1, source_title="ResNet", spans=spans
+    )
+
+    assert result.ok, result.errors
+    # 6 sub-chunks at the 1,000-char floor advancing 500 per chunk, each its own
+    # batch under the 200-char budget. Before the fix: 3,200 chunks, 3,200 calls.
+    assert client.calls == 6
+    assert client.calls < len(spans[0]["text"]) / 100
+
+
 def test_a_batch_that_never_succeeded_persists_nothing(vault) -> None:
     """Only a *validated* batch is persisted. This fixture has one batch and it
     raises, so there is nothing to keep — resumability does not mean storing

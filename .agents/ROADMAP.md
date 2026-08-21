@@ -75,6 +75,16 @@ see item 1. It searched neighbouring pages for a label that was never ingested.
   ingest to nothing while reporting success. Hartley is still not ingested — a
   429 at publish, then a folder-permission wall (item 3).
 
+- **v0.61.2 (#TBD) — two latent defects that predate the v0.59.0 line.**
+  `db.claim_next_job` raised `cannot start a transaction within a transaction`
+  on any state DB whose `schema_version` row was missing or stale, and the raise
+  rolled that row back so the next call failed identically — forever. Both
+  in-repo callers were shielded by an incidental `recover_stale_jobs` that runs
+  first, so no user-facing command was failing. Separately, `max_chars - 500`
+  was used as a size and as a slice bound with no positivity guarantee: a client
+  reporting a budget at or below 500 produced 3,920 batches out of an
+  eight-section fixture, now 40.
+
 ### 1. Formula RECOVERY — BLOCKED ON LOCATING THE REGION, and on item 2
 
 **Arena concluded 2026-08-20 with no build.** `.agents/plans/formula_recovery_arena/`

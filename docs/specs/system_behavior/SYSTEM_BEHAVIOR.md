@@ -438,6 +438,15 @@ Workers:
 Job behavior:
 
 - Queued jobs must survive process restart.
+- Claiming a job is an explicit `BEGIN IMMEDIATE` transition, so **a state DB
+  connection must be handed to its caller outside any transaction**. Schema
+  installation and the `schema_version` stamp are committed by the connection
+  helper before the caller receives the connection, never left open across the
+  handover. A connection opened mid-transaction makes the claim illegal
+  (`cannot start a transaction within a transaction`), and because the raise
+  also discards the uncommitted stamp, the next claim fails identically — the
+  failure repeats forever rather than clearing. A claim must therefore succeed
+  against a state DB that no other command has initialised.
 - Running jobs should publish phase/progress in `ingest_jobs` and `job_events`.
 - Failed jobs should mark the relevant layer status as `error` and record
   `layer_error`.
@@ -454,7 +463,18 @@ Sub-agent model:
   run in parallel with independent client instances. Batch size must respect the
   active LLM client's `optimal_chunk_chars` cap, whether the client exposes that
   budget as a property or as a method, bounded by the system maximum, so
-  CLI-backed models are not given oversized extraction prompts. Codex CLI is
+  CLI-backed models are not given oversized extraction prompts. A client's
+  reported budget is taken as given and is never raised to a floor — a small
+  budget is a legitimate report from a small-context local model, and
+  substituting a larger default would overflow the very context the cap exists
+  to protect. **Every size derived from that budget by subtraction must instead
+  floor its own arithmetic**: a span subdivided because it exceeds the budget is
+  subdivided at a positive minimum chunk size, and a statement truncated to fit
+  the budget is truncated at a positive minimum length. A non-positive chunk
+  size is a programming error and must fail loudly at the chunker, never
+  degrade into one chunk per character — that degradation turns a single bad
+  configuration value into thousands of model calls, spending instead of
+  failing. Codex CLI is
   clone-safe for independent batch calls and uses a conservative chunk budget so
   large PDFs do not enter one long `codex exec` request. If a large-source L2
   batch fails prompt validation after the prompt runner's repair retry, the L2
