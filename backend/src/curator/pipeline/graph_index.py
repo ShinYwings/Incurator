@@ -61,10 +61,18 @@ def _units_block(units: list[dict]) -> str:
 
 
 # Attempts per graph batch before it is reported failed. The agy CLI refuses a
-# tool request in `-p` mode and exits 1; measured refusal rate 43%, so 8 attempts
-# leave a per-batch failure chance of 0.43**8 = 0.12%, and ~90% of an 87-batch
-# source completing. Retries are only spent on batches that actually refused.
-_MAX_BATCH_ATTEMPTS = 8
+# tool request in `-p` mode and exits 1, and the refusal is NOT deterministic per
+# input — measured live, the same batch went through on its 3rd and 7th tries.
+#
+# Rate, measured on the live run and split by cause (an earlier reading of "83%"
+# had conflated the two): of 11 failures, 5 were 429 capacity and 6 were
+# permission denials, against 4 successes. Capacity is re-raised, not retried, so
+# the rate that matters here is 6 refusals per 10 non-capacity calls — about 60%.
+# At that rate 30 attempts leave a per-batch failure chance of 0.6**30 ≈ 2e-7.
+#
+# The CAP is not the cost. Expected attempts per batch is 1/0.4 = 2.5, so an
+# 87-batch source costs ~218 calls; the cap only bounds the tail.
+_MAX_BATCH_ATTEMPTS = 30
 
 
 def extract_graph_data(
@@ -162,6 +170,16 @@ def extract_graph_data(
                 )
                 break
             except Exception as exc:  # noqa: BLE001 - see above; never fatal here
+                # A CAPACITY refusal is NOT retried here. Retrying a 429 in a
+                # tight loop spends the budget against a rate limit and undoes
+                # v0.61.1, which exists so a refused job is left queued and the
+                # worker reports how long to wait. Ask the client rather than
+                # matching on the message: `_is_transient`'s substring matching
+                # is exactly what misclassified a permanent failure once already.
+                from ..ingest_worker import _capacity_wait
+
+                if _capacity_wait(client) > 0:
+                    raise
                 refusal = f"{type(exc).__name__}: {exc}"
                 _log.warning(
                     "graph batch %d/%d attempt %d/%d failed: %s",

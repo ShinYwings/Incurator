@@ -245,3 +245,39 @@ def test_a_batch_that_refuses_every_attempt_fails_without_raising(dbp: Path) -> 
     assert result.ok is False
     assert any("permission check failed" in e for e in result.errors), result.errors
     assert client.refusals == graph_index._MAX_BATCH_ATTEMPTS
+
+
+def test_a_capacity_refusal_is_not_retried_here(dbp: Path) -> None:
+    """429 is the one refusal this loop must NOT absorb.
+
+    Retrying a rate limit in a tight loop spends the budget against the wall and
+    undoes v0.61.1, whose whole point is that a refused job stays queued and the
+    worker reports how long to wait. Measured on the live run: of 11 graph
+    failures, 5 were capacity and 6 were permission denials — retrying all 11
+    alike was the first draft's mistake.
+
+    Detection asks the client, not the message. Substring matching on error text
+    is what misclassified a permanent failure as transient in `_is_transient`.
+    """
+    from curator import llm
+
+    class CapacityBlockedClient(FakeClient):
+        CAPACITY_KEY = "test-capacity-probe"
+
+        def capacity_blocked_for(self) -> float:
+            return llm.capacity_blocked_for(self.CAPACITY_KEY)
+
+        def chat(self, messages, *, json_mode=False, temperature=0.3) -> str:
+            llm.block_capacity(self.CAPACITY_KEY)
+            raise llm.LLMError("capacity exhausted (429)")
+
+    llm.clear_capacity_block(CapacityBlockedClient.CAPACITY_KEY)
+    try:
+        client = CapacityBlockedClient([_graph_json()])
+        with pytest.raises(llm.LLMError):
+            graph_index.extract_graph_data(
+                dbp, client, units=UNITS, valid_span_ids=["SPAN-1"]
+            )
+        assert client.calls == 0, "chat is counted only on success; sanity"
+    finally:
+        llm.clear_capacity_block(CapacityBlockedClient.CAPACITY_KEY)
