@@ -62,7 +62,20 @@ file has passed every time this shipped broken.
 
 Related: ROADMAP 5b, and the 2026-08-09 item below (they should be merged).
 
-### 2026-08-21 — [P1] The DeepSeek API key has to be re-entered after every update
+### 2026-08-21 — [P1→P0] The DeepSeek API key has to be re-entered after every update
+
+**REPRODUCED DETERMINISTICALLY, 2026-08-22, and it BLOCKS THE ACCEPTANCE TEST.**
+Deploying the plugin (0.58.0 → 0.62.3) and reloading Obsidian was enough: the
+quick-query popover came back with *"❌ DeepSeek API key is not set."* and P6
+could not be verified. It had blocked P6 once already that day and only got
+through because the provider happened to fall back to Antigravity.
+
+This is not a convenience issue and should not sit at P1. **An update is exactly
+when the key is lost, and an update is exactly when someone would test that the
+release works.** The diagnosis below stands unchanged — the plugin strips the key
+from `data.json` on purpose, its only restore path is an env var a GUI-launched
+Obsidian does not have, and the encrypted store that would fix it has no call
+site in the plugin.
 
 User: *"deepseek api 키가 업데이트때마다 사라져서 다시 등록해야함."*
 
