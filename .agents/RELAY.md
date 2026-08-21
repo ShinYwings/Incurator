@@ -339,10 +339,45 @@ DB-native FTS the vault already runs — the content is indexed and reachable.
 | 3 — find new value | **PARTIAL** — real connections, all intra-note |
 | no meta-narration (§3 gate) | **PASS** |
 
-**Next question to answer, not to assume:** does the popover's pre-turn
-resolution run a vault-wide retrieval at all, or is it scoped to the active file?
-Plan 05 §4.2 locks "resolve BEFORE the turn", so the fix belongs in that
-resolution step, not in giving the model a search tool (§2 forbids that).
+### DIAGNOSED (2026-08-22) — both surfaces, two different causes
+
+The user asked to check the sidechat too. Both fail duty 2, for unrelated reasons.
+
+**Popover — no vault retrieval exists on the path.** `quickQueryContext.ts`
+assembles from exactly four things: the selection, the current file's outline,
+pinned `ContextRef`s, and citation resolution (`resolveSelectionReferencesBlock`).
+Nothing vault-wide. `IncuratorClient.curatorQuery` — the vault-level query — has
+**zero callers anywhere in the plugin**. `IncuratorClient.search` is not it
+either: it routes to `plugin/pdf/search`, scoped to one document.
+
+**Sidechat — the retrieval is wired and then gated off.** It does call
+`client.fetchContext(query, …)` (`ChatSidebarView.ts:2016`), but behind
+`shouldRunCuratorDomainQuery` (`providerContextPolicy.ts:89`), which returns
+false when:
+
+1. `hasPrimarySelectedContext(refs)` — any included ref of type `selection`,
+   `pdf-page`, `image` or `line-range`. **That is the duty-2 scenario itself**:
+   "I selected this — what else have I written about it?" suppresses the very
+   retrieval that would answer it.
+2. `pdfFocused` and no focused source has L3 complete.
+
+**And condition 2 can never pass in this vault.** Measured: `l3_status='done'`
+for **0 of 44 sources** — 34 `error`, 2 `pending`, 8 `skipped`. So with any PDF
+tab focused, the sidechat **never** runs the vault-wide query. Not intermittently;
+never.
+
+**The L3 failure underneath it is one shape, 33 of 34 identical:**
+
+> `l3: Community report prose generation failed: output did not parse into the
+> declared model; Antigravity capacity exhausted (429). Model tried:
+> 'gemini-3.6-flash'.`
+
+So the chain is: **L3 broken vault-wide → the sidechat's vault query is gated off
+whenever a PDF is focused → duty 2 fails.** The popover fails independently,
+because the retrieval was never wired there at all.
+
+**Both fixes belong in pre-turn resolution**, per §4.2 ("resolve BEFORE the turn")
+— not in giving the model a search tool, which §2 forbids.
 
 **Plan 05 is therefore NOT complete.** P5a is one source away and gated on
 ROADMAP 5c; **P6 is open on duty 2**, which is independent of both.
