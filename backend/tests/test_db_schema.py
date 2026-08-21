@@ -355,6 +355,75 @@ def test_artifact_dependency_invalidation(db_path: Path) -> None:
     assert stale_ids == {"REP-1", "SYN-1"}
 
 
+def test_claim_next_job_works_on_a_never_initialised_db(tmp_path: Path) -> None:
+    """A job claim may be the FIRST thing to ever touch a state DB (v0.58.1).
+
+    `_stamp_schema_version` runs DML, which opens an implicit transaction under
+    sqlite3's default isolation level. Leaving it open across `connect`'s yield
+    made `claim_next_job`'s `BEGIN IMMEDIATE` raise "cannot start a transaction
+    within a transaction". `connect` now commits the schema write before handing
+    the connection over.
+    """
+    path = tmp_path / "state.sqlite"
+    assert db.claim_next_job(path) is None
+
+
+def test_failed_claim_cannot_leave_the_db_unstamped(tmp_path: Path) -> None:
+    """The defect's distinguishing property was that it REPEATED.
+
+    The raise skipped `connect`'s commit, so the `schema_version` INSERT rolled
+    back and restored exactly the precondition that produced it — every later
+    call failed identically. A fix that merely stopped the first raise without
+    committing the stamp would leave that loop armed, so assert the row too.
+    """
+    path = tmp_path / "state.sqlite"
+    assert db.claim_next_job(path) is None
+    assert db.claim_next_job(path) is None
+    with sqlite3.connect(path) as conn:
+        rows = conn.execute("SELECT version FROM schema_version").fetchall()
+    assert rows == [(db.SCHEMA_VERSION,)]
+
+
+def test_claim_next_job_works_on_a_stale_schema_version_db(tmp_path: Path) -> None:
+    """The `UPDATE` branch of `_stamp_schema_version` is the same defect.
+
+    It is the branch an EXISTING vault takes the first time a job is claimed
+    after a `SCHEMA_VERSION` bump, so a fix verified only against a fresh
+    database is verified against half the defect.
+    """
+    path = tmp_path / "state.sqlite"
+    db.init_db(path)
+    with sqlite3.connect(path) as conn:
+        conn.execute("UPDATE schema_version SET version = ?", (db.SCHEMA_VERSION - 1,))
+
+    assert db.claim_next_job(path) is None
+
+    with sqlite3.connect(path) as conn:
+        rows = conn.execute("SELECT version FROM schema_version").fetchall()
+    assert rows == [(db.SCHEMA_VERSION,)]
+
+
+def test_claim_next_job_claims_a_queued_job_across_a_version_bump(tmp_path: Path) -> None:
+    """Returning `None` quietly is not the same as claiming.
+
+    The real-world shape of the stale-version case: a vault with work already
+    queued, opened for the first time by a build whose `SCHEMA_VERSION` moved.
+    The claim must take its UPDATE path INSIDE the explicit `BEGIN IMMEDIATE`,
+    not just hit the empty-queue early return.
+    """
+    path = tmp_path / "state.sqlite"
+    job_id = db.enqueue_job(path, source_id=1, job_type="l2_atoms")
+    with sqlite3.connect(path) as conn:
+        conn.execute("UPDATE schema_version SET version = ?", (db.SCHEMA_VERSION - 1,))
+
+    claimed = db.claim_next_job(path)
+
+    assert claimed is not None
+    assert claimed["id"] == job_id
+    assert claimed["state"] == "running"
+    assert db.claim_next_job(path) is None
+
+
 def test_init_db_closes_its_connection_and_leaves_no_wal_sidecars() -> None:
     """init_db must not leak its connection (v0.6.1 hotfix).
 

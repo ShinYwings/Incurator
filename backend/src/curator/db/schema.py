@@ -920,6 +920,24 @@ def connect(db_path: Path) -> Iterator[sqlite3.Connection]:
         if _triggers_need_refresh(conn):
             _refresh_current_triggers(conn)
         _stamp_schema_version(conn)
+        # Commit the schema write BEFORE handing the connection over. Both
+        # branches of `_stamp_schema_version` are DML (INSERT on a new DB,
+        # UPDATE on one carrying an older version), and at sqlite3's default
+        # `isolation_level=""` that opens an implicit transaction which stays
+        # open until an explicit commit. Leaving it open across the `yield`
+        # handed the caller a connection ALREADY inside a transaction, so
+        # `claim_next_job`'s `BEGIN IMMEDIATE` raised "cannot start a
+        # transaction within a transaction" — and because the raise skipped the
+        # post-yield commit, the stamp rolled back and restored exactly the
+        # precondition that produced it. The failure repeated forever instead of
+        # clearing (v0.58.1).
+        #
+        # Committing schema setup separately from the caller's work is not a new
+        # contract: `init_db` commits exactly these statements and nothing else.
+        # Schema DDL plus a version stamp is idempotent and holds no user data,
+        # so no caller wants the schema uncreated because its own insert failed.
+        # Do NOT collapse this into the commit below.
+        conn.commit()
         yield conn
         conn.commit()
     finally:

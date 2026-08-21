@@ -665,6 +665,15 @@ def _loads_json_relaxed(json_str: str) -> dict:
 
 def _chunk_text(text: str, chunk_size: int = 30000, overlap: int = 2500) -> list[str]:
     """Split text into chunks, ensuring LaTeX math ($$..$$) and code blocks (```..```) are not split."""
+    if chunk_size <= 0:
+        # A non-positive size is a programming error, not a small chunk. The
+        # forward-progress guard below was written to prevent a hang and
+        # succeeded — by turning an illegal size into one chunk per character
+        # POSITION, each holding nearly the whole remaining text: 3,000 chunks
+        # totalling 810,000 characters for a 3,000-character input, then one LLM
+        # call per chunk downstream. It never hangs, never raises and never
+        # logs; it only spends. Fail here instead (v0.58.1).
+        raise ValueError(f"chunk_size must be positive, got {chunk_size}")
     length = len(text)
     if length <= chunk_size:
         return [text]

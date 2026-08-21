@@ -18,7 +18,11 @@ from pathlib import Path
 from typing import Any
 
 from .. import db, prompting
-from .chunking import client_optimal_chunk_chars
+from .chunking import (
+    CHUNK_OVERLAP_CHARS,
+    client_optimal_chunk_chars,
+    subdivision_chars,
+)
 
 _log = logging.getLogger(__name__)
 
@@ -347,8 +351,16 @@ def extract_knowledge_units(
         span_len = _span_len(s)
 
         if span_len > max_chars:
-            # Subdivide the massive span text
-            sub_texts = _chunk_text(text, chunk_size=max_chars - 500, overlap=500)
+            # Subdivide the massive span text. The size is floored: a client
+            # reporting a budget at or below the overlap allowance produced a
+            # NEGATIVE chunk size, which `_chunk_text` absorbed into one chunk
+            # per character position — 3,920 batches for eight 3,000-char
+            # sections (v0.58.1).
+            sub_texts = _chunk_text(
+                text,
+                chunk_size=subdivision_chars(max_chars),
+                overlap=CHUNK_OVERLAP_CHARS,
+            )
             for i, sub in enumerate(sub_texts):
                 refined_spans.append(
                     {
