@@ -243,6 +243,34 @@ v0.62.0 a Hartley retry costs ~2 minutes, not 85.
 pymupdf4llm pipeline; the model used PyPDF2's naive text layer because it had
 none of ours — which §2 says is correct and must stay that way.
 
+### Correction from the user (2026-08-22): Hartley is an INSTRUMENT
+
+> *"어 Hartley 계속 파는거 좋은거 같은데, 그거할때 버그가 많이 드러나니까."*
+
+The audit above treated source 45 as a **coverage item**. That undersells it: it
+is the project's best **defect-finding instrument**, and the audit's own table is
+the evidence. Every release from v0.58.0 to v0.62.2 came out of running it, and
+every one was found by **running** rather than by a test:
+
+- a progress writer wired to a path an L2 job never invokes
+- a schema that returned SUCCESS with an empty structure
+- a resolver that degraded a permission denial into a successful stub ingest
+- a rate-limited job restarting into the same wall
+- an extraction completed 277/277 and then deleted at publish
+- one refusal killing an 87-batch compile
+- a killed run stranding 5,358 units on a staged generation
+- a connection handed to the caller already inside a transaction
+- `max_chars - 500` going negative and becoming one chunk per character
+
+No other source exercises those paths — 673 pages, 8,905 spans, 277 extraction
+batches, ~87 graph batches, vision transcription, provider capacity limits. The
+small papers all pass without touching any of it.
+
+**So both, and neither gates the other.** Hartley keeps running as a stress case;
+P6 is the acceptance test and needs a published paper with a bibliography and
+equations, which 34 sources have satisfied since 08-18. **The mistake was never
+working on Hartley — it was letting it stand in for the goal.**
+
 ## Immediate Next Action
 
 **P5a** — advance the two pending books. Hartley's L1 and 104 vision pages are
