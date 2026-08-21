@@ -930,7 +930,7 @@ def connect(db_path: Path) -> Iterator[sqlite3.Connection]:
         # transaction within a transaction" — and because the raise skipped the
         # post-yield commit, the stamp rolled back and restored exactly the
         # precondition that produced it. The failure repeated forever instead of
-        # clearing (v0.58.1).
+        # clearing (v0.61.2).
         #
         # Committing schema setup separately from the caller's work is not a new
         # contract: `init_db` commits exactly these statements and nothing else.

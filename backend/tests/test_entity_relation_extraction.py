@@ -159,7 +159,7 @@ def test_chunking_large_unit_is_truncated(dbp: Path) -> None:
 
 
 def test_tiny_reported_chunk_budget_keeps_the_head_of_a_statement(dbp: Path) -> None:
-    """`statement[:max_chars - 500]` is the same unchecked subtraction (v0.58.1).
+    """`statement[:max_chars - 500]` is the same unchecked subtraction (v0.61.2).
 
     As a slice bound rather than a size, a negative value does not explode — it
     silently amputates the TAIL of every long statement and then labels the

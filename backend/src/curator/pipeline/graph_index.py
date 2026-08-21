@@ -88,7 +88,7 @@ def extract_graph_data(
     # the statement's HEAD only by accident of the value's magnitude — it
     # amputates the tail, and erases a statement shorter than the shortfall
     # entirely, leaving the model nothing but `... [TRUNCATED]` to extract from
-    # (v0.58.1).
+    # (v0.61.2).
     keep_chars = subdivision_chars(max_chars)
     for u in units:
         statement = u.get("statement") or ""

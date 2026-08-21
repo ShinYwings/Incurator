@@ -355,7 +355,7 @@ def extract_knowledge_units(
             # reporting a budget at or below the overlap allowance produced a
             # NEGATIVE chunk size, which `_chunk_text` absorbed into one chunk
             # per character position — 3,920 batches for eight 3,000-char
-            # sections (v0.58.1).
+            # sections (v0.61.2).
             sub_texts = _chunk_text(
                 text,
                 chunk_size=subdivision_chars(max_chars),

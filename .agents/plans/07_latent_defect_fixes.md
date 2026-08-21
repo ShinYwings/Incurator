@@ -1,4 +1,4 @@
-# v0.58.1 Master Implementation Plan — two latent defects
+# v0.61.2 Master Implementation Plan — two latent defects
 
 Date: 2026-08-18
 Status: APPROVED — Arena concluded. Patch release; no new capability, no schema
@@ -59,7 +59,7 @@ count, and `_chunk_text` refuses a non-positive `chunk_size` outright.
 - `scripts/backend-check ruff` and `scripts/backend-check mypy` clean.
 - `plugin/` untouched; `npx vitest run -c ./plugin/vitest.config.ts` unaffected
   and still green.
-- All four build manifests agree on `0.58.1`. Spec titles stay on the `v0.58`
+- All four build manifests agree on `0.61.2`. Spec titles stay on the `v0.58`
   line — a patch bump does not touch them (`test_spec_sync.py::_active_line`).
 - `CHANGELOG.md` carries a `### Fixed` section and nothing else, which is what
   makes this a Patch under the 0.x SemVer criteria in `CLAUDE.md`.
@@ -191,7 +191,7 @@ planning established:
   broken.
 - **No schema change**, so no migration and no `SCHEMA_VERSION` bump.
 - **Version reality**: all four manifests at `0.58.0`; spec titles on `v0.58.0`,
-  which satisfies the `v0.58` line for `0.58.1`.
+  which satisfies the `v0.61` line for `0.61.2`.
 - **Concurrent work**: `feature/v0.59.0-job-progress` exists locally, unpushed,
   and touches the job path. It will need a rebase; `0.59.0 > 0.58.1`, so merge
   order does not create a version regression as long as v0.59.0 lands second.
@@ -234,6 +234,6 @@ planning established:
   `VAULT_ROOT=testbed wiki jobs list/run` against a testbed vault, exercising the
   claim path end to end. Verify: no `cannot start a transaction` anywhere and the
   queue drains or reports empty.
-- **P6 — Release.** Bump all four manifests to `0.58.1`, write the `### Fixed`
+- **P6 — Release.** Bump all four manifests to `0.61.2`, write the `### Fixed`
   changelog entry, remove ROADMAP item 12, delete this plan and its evidence
-  ledger, `chore(release): v0.58.1`, push, PR.
+  ledger, `chore(release): v0.61.2`, push, PR.

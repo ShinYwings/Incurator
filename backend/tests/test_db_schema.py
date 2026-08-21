@@ -356,7 +356,7 @@ def test_artifact_dependency_invalidation(db_path: Path) -> None:
 
 
 def test_claim_next_job_works_on_a_never_initialised_db(tmp_path: Path) -> None:
-    """A job claim may be the FIRST thing to ever touch a state DB (v0.58.1).
+    """A job claim may be the FIRST thing to ever touch a state DB (v0.61.2).
 
     `_stamp_schema_version` runs DML, which opens an implicit transaction under
     sqlite3's default isolation level. Leaving it open across `connect`'s yield

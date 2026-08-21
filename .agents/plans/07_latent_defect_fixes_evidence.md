@@ -1,4 +1,4 @@
-# Evidence Ledger — v0.58.1 latent defect fixes
+# Evidence Ledger — v0.61.2 latent defect fixes
 
 Date: 2026-08-18
 Plan: `.agents/plans/07_latent_defect_fixes.md`
@@ -110,7 +110,7 @@ property §5 of the plan makes a stop condition.
   `plugin/package.json`, `plugin/manifest.json`, `plugin/package-lock.json`
   (both `version` and `packages[""].version`).
 - Spec titles read `(v0.58.0)`. `test_spec_sync.py::_active_line` compares only
-  `MAJOR.MINOR`, so `0.58.1` satisfies them unchanged.
+  `MAJOR.MINOR`, so `0.61.2` satisfies them unchanged.
 
 ## 7. Post-fix validation
 
@@ -213,3 +213,110 @@ coverage check, not the regression proof. The regression proof is the direct
 
 No LLM-dependent smoke was attempted: neither defect is LLM-behavioural, and
 both regression paths are exercised deterministically with fake clients.
+
+
+## 8. Rebase deep-check (2026-08-21): v0.58.0 base -> v0.61.1
+
+The branch sat unpushed while `master` advanced **40 commits** — v0.59.0 (#160),
+v0.60.0 (#162), v0.61.0 (#163) and v0.61.1 (#164) all merged. Before rebasing,
+every surface this change touches was re-read on `origin/master` to answer two
+questions: is the defect still there, and can applying the fix break anything
+that landed meanwhile.
+
+### 8.1 Are the defects still present? Yes — untouched by all 40 commits
+
+Read directly out of `origin/master` at `96357ab` (v0.61.1):
+
+| site | state on v0.61.1 |
+|---|---|
+| `db/schema.py connect()` | no commit between `_stamp_schema_version` and `yield` — **intact** |
+| `pipeline/knowledge_units.py:351` | `chunk_size=max_chars - 500` — **intact** |
+| `pipeline/graph_index.py:90,92` | `statement[:max_chars - 500]` — **intact** |
+| `ingest_raw.py _chunk_text` | no non-positive guard — **intact** |
+| `pipeline/chunking.py` | unchanged from the original two-function file |
+
+Neither defect appears anywhere in `master`'s `ROADMAP.md` or `USER_REPORT.md`.
+Nobody fixed them and nobody logged them.
+
+### 8.2 Could applying the fix break what landed meanwhile?
+
+**Defect 1 — the blast radius is still exactly one caller.** `git grep` for
+explicit transactions across `backend/src` on `master` returns a single hit:
+`db/jobs.py:112`. No new code opens its own transaction, so no new caller can
+observe the connection's transaction state at all. `claim_next_job` is still
+reached only through `run_next_job`, which is reached only from
+`run_queued_jobs` (`commands/jobs.py:68`, after `recover_stale_jobs` at `:65`)
+and `IngestWorker.run` (`ingest_worker.py:725`, after `recover_stale_jobs` at
+`:710`). The shielding relation in §3 therefore still holds on v0.61.1, and the
+changelog's "`wiki jobs run` was not failing for users" is still accurate.
+
+**Defect 2 — v0.59.0 landed new code in the exact loop being changed.** #160
+added an `on_progress` parameter to `extract_knowledge_units` and emits one
+`extracted` event per batch carrying `{"batch": index, "batches": len(batches)}`.
+That hunk sits *after* `pending_units.extend(...)`; the floor sits *before*
+`batches` is built. No textual conflict, and the interaction is favourable: the
+denominator that v0.59.0 reports to the user becomes the truthful one. Under the
+old code a misconfigured budget would have reported `batch 1/3920`.
+
+**The one real collision, found and cleared by measurement.** v0.59.0 also added
+`backend/tests/test_job_progress_live.py`, whose `StubLLMClient` declares
+`optimal_chunk_chars = 1200` and whose docstring explicitly reasons about
+`_chunk_text(chunk_size=max_chars - 500, overlap=500)` — it even cites the 1,148
+batch figure at `200`. `1200 - 500 = 700`, which is *below* the 1,000 floor, so
+the floor lands squarely inside the range that test chose. That is the single
+place in the repo where this fix could have changed an existing test's behaviour.
+
+It does not, and not by luck. The subdivision branch is guarded by
+`span_len > max_chars`, and the fixture's sections measure ~360 characters
+(`("Sentence about topic %d. " % i) * 12` = 288 chars, plus id/title/+50 in
+`_span_len`) against a 1,200-char budget. `360 > 1200` is False, so
+`_chunk_text` is never called in that file and the floor is unreachable there.
+The test's batch count comes entirely from the packing loop, which this change
+does not touch. Verified by running it: 8 passed.
+
+The three older tests that pass `optimal_chars=160` still pass unmodified, for
+the same structural reason plus §3's argument.
+
+**`_chunk_text` callers are still the same three.** `ingest_raw.py:788`,
+`ingest_raw.py:1859`, `knowledge_units.py:351`. No new caller appeared that
+could trip the new `ValueError`, which is the plan's §5 stop condition.
+
+**`ingest_raw.py` changed, but nowhere near the chunker.** Its 20 added lines are
+all inside `_resolve_reference_source` (v0.61.0's `ParserAccessDenied` path),
+~500 lines above `_chunk_text`.
+
+**Docs.** `master` edited `SYSTEM_BEHAVIOR.md`, `SCHEMA.md` and `USER_GUIDE*.md`
+but none of the specific paragraphs edited here (job-behavior list, the
+`optimal_chunk_chars` sentence, the v0.33.0 schema-policy block, the "No partial
+builds" bullet). The rebase produced **zero conflicts** across all three commits.
+
+**D2 holdout.** `master` did not touch `D2_HOLDOUT_RESULT.yml` or
+`db/schema.py`, so the re-arm's `prior_schema_sha256` (`900f6236…`) is still the
+correct baseline — confirmed by hashing `origin/master`'s copy. Only the new
+hash needed recomputing after the version references in comments were
+retargeted. Note that `db/schema.py` also appears at line 78 under
+`prior_sha256:` inside `l2_checkpoint_removal_v0511_rearm`; that is a historical
+record and must not be updated. The live block is the single `file_sha256:` at
+line 528, which is what both tests read.
+
+### 8.3 What the rebase changed in this work
+
+- Version target `0.58.1` -> **`0.61.2`**. The original bump would now be a
+  downgrade. Still a Patch: the changelog entry is `### Fixed` only.
+- Spec titles are on `v0.61.0`; `0.61.2` keeps the `v0.61` line, so
+  `test_spec_sync.py` needs no title edit.
+- ROADMAP item renumbered **12 -> 13**: `master` opened its own item 12
+  (`Drafts not yet planned`) while this branch was unpushed.
+- The `(v0.58.1)` markers in code comments, test docstrings, the D2 re-arm key
+  and its reason text were all retargeted to `v0.61.2`.
+
+### 8.4 Post-rebase validation (v0.61.1 base)
+
+- `scripts/backend-check pytest` — **1,658 passed, 7 skipped, 4 xfailed** (523s).
+- `scripts/backend-check ruff` — clean. `scripts/backend-check mypy` — clean,
+  130 source files.
+- `npx vitest run -c ./plugin/vitest.config.ts` — **1,070 passed, 3 skipped**.
+- `test_job_progress_live.py` specifically — 8 passed.
+- Both defect reproductions re-run against the v0.61.1 codebase: claim returns
+  `None` twice with `schema_version` committed, stale-version claim heals, and
+  the 8x3,000-char fixture yields **40 batches** where it yielded 3,920.

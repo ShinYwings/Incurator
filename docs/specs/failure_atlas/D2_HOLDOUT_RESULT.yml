@@ -490,11 +490,11 @@ evaluated_code:
       unchanged. The consumed holdout cannot be rerun after run_count=3; these
       hashes re-arm the existing drift tripwire without claiming a new holdout
       result.
-  v0581_connect_commits_schema_rearm:
-    date: '2026-08-18'
+  v0612_connect_commits_schema_rearm:
+    date: '2026-08-21'
     prior_schema_sha256: 900f623640bb0d01c907ae0012c1569bbee41618957a4e98fe76e30ff489acb8
     reason: >-
-      v0.58.1 adds one `conn.commit()` inside `db/schema.py connect()`, placed
+      v0.61.2 adds one `conn.commit()` inside `db/schema.py connect()`, placed
       after `_stamp_schema_version` and before the `yield`, plus the comment
       explaining it. Nothing else in the file changes: no DDL, no trigger body,
       no constant, no query. The edit fixes `claim_next_job`, whose
@@ -525,7 +525,7 @@ evaluated_code:
     backend/src/curator/retrieval/embedding.py: 0829ac7c7a870879b3f164687cf21a22e347e508bfdba15a4430b2e8b11e3db1
     backend/src/curator/retrieval/chunking.py: 8c45af7ba7457f5930fc05c0a3f0de10eb6cc424c4b70b722510dd2decd59255
     backend/src/curator/db/__init__.py: 9d9b18355372e1f77534aef353a07c3ee1f3e9ce3413ffec7d8030da86a4a16c
-    backend/src/curator/db/schema.py: 7dec1c462058f50906ecda154c929996b6f1b94aa4b09a9a4a5a64f5498726be
+    backend/src/curator/db/schema.py: 66abfe23cf7ea5812de55bf440d4eb81e5a97b3560e95d546ab40c65388f0016
     backend/src/curator/db/_entities.py: 1e2ca9715e13f00e852bb0432102305232798ba18a12c250ff0d53a0e33edfba
     backend/src/curator/db/jobs.py: 068d2111bcfab902d56ea6ded90e1c29db77abc6331ad1427f9ec9f2433f1dfc
     backend/src/curator/db/sources.py: 45a1f5fc10709e6e996d8578c2b1770bfb7bce303db0db7e2d874885391de999

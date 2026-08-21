@@ -22,7 +22,7 @@ def test_chunk_text_preserves_latex():
 
 @pytest.mark.parametrize("bad_size", [-300, 0])
 def test_chunk_text_rejects_a_non_positive_chunk_size(bad_size: int) -> None:
-    """A non-positive chunk size is a programming error, not a small chunk (v0.58.1).
+    """A non-positive chunk size is a programming error, not a small chunk (v0.61.2).
 
     The forward-progress guard (`if next_start <= start: next_start = start + 1`)
     was written to prevent a hang and succeeded — by converting an illegal size

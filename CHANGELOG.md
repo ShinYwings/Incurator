@@ -2,6 +2,57 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.61.2] - 2026-08-21
+### Fixed
+- **A job could never be claimed on a state database nothing had initialised —
+  and the failure repeated forever.** Opening a state DB stamps its
+  `schema_version` row, which is DML, and Python's `sqlite3` opens an implicit
+  transaction for that write. The commit came *after* the connection was handed
+  to its caller, so the caller received a connection already inside a
+  transaction and `claim_next_job`'s `BEGIN IMMEDIATE` raised `cannot start a
+  transaction within a transaction`. The raise then skipped the commit, rolling
+  the stamp back and restoring exactly the state that produced the error, so
+  every later call failed identically. The same applied to an existing vault the
+  first time a job was claimed after a `SCHEMA_VERSION` bump, which takes the
+  `UPDATE` branch of the same stamp.
+
+  Schema installation and the version stamp are now committed before the
+  connection is handed over.
+
+  To be precise about who this affected: `wiki jobs run` and the MCP background
+  worker were **not** failing, because both call `recover_stale_jobs` first and
+  that commits the stamp on their behalf. What was broken is
+  `db.claim_next_job` on its own — protected only by an incidental line
+  ordering that nothing tested or documented.
+
+- **A tiny reported context window turned one document into thousands of model
+  calls.** L2 extraction subdivided an oversized span at `chunk_size = budget -
+  500` with nothing keeping that positive. A client reporting a budget at or
+  below 500 produced a negative size, which the chunker's forward-progress guard
+  absorbed into one chunk per character *position*, each holding nearly the
+  whole remaining text: 3,000 chunks totalling 810,000 characters from a
+  3,000-character span, then one LLM call per chunk. Measured on eight
+  3,000-character sections: **3,920 batches, now 40**. No shipped provider
+  reports a window that small, so nobody was billed for this — but a single bad
+  configuration value armed it, and it failed by spending rather than by
+  failing.
+
+  Sizes derived from the reported budget now carry a positive floor, and the
+  chunker rejects a non-positive size outright instead of absorbing it. The
+  budget itself is still used exactly as the client reports it: a small-context
+  local model is never handed a larger default, which would only move the
+  overflow to the provider.
+
+- **Entity extraction could be handed an empty statement labelled
+  `[TRUNCATED]`.** The graph-extraction path carried the same unchecked
+  `budget - 500`, there as a slice bound. Negative, it amputated the tail of
+  every long statement instead of keeping its head, and erased any statement
+  shorter than the shortfall completely — leaving the model nothing but the
+  truncation marker to extract entities and relations from.
+
+  All three were re-verified against v0.61.1 before this release: none of the
+  forty commits between v0.58.0 and v0.61.1 touched any of them.
+
 ## [0.61.1] - 2026-08-20
 ### Fixed
 - **A rate-limited job no longer restarts from scratch into the same wall.**

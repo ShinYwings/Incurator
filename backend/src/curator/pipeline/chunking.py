@@ -29,7 +29,7 @@ def subdivision_chars(max_chars: int) -> int:
     position, each holding nearly the whole remaining text — 3,000 chunks
     totalling 810,000 characters for a 3,000-character span, then one LLM call
     per chunk. Used as a slice bound it silently amputated the tail of every
-    statement, and erased short ones outright (v0.58.1).
+    statement, and erased short ones outright (v0.61.2).
     """
     return max(MIN_SUBDIVISION_CHARS, max_chars - CHUNK_OVERLAP_CHARS)
 

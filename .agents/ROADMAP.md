@@ -385,7 +385,7 @@ Eliminating it entirely is a configuration choice, not a code change: a vision
 model reached over an API takes image bytes directly and needs no filesystem
 grant. Recommended in both guides.
 
-### 12. Two latent defects found while working on v0.59.0 — PLANNED (v0.58.1)
+### 13. Two latent defects found alongside v0.59.0 — PLANNED (v0.61.2)
 
 Both reproduce on `master` with no local changes; neither belongs in the
 v0.59.0 job-progress PR. Reported directly by the user, so they never passed

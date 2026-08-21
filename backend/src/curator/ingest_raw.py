@@ -672,7 +672,7 @@ def _chunk_text(text: str, chunk_size: int = 30000, overlap: int = 2500) -> list
         # POSITION, each holding nearly the whole remaining text: 3,000 chunks
         # totalling 810,000 characters for a 3,000-character input, then one LLM
         # call per chunk downstream. It never hangs, never raises and never
-        # logs; it only spends. Fail here instead (v0.58.1).
+        # logs; it only spends. Fail here instead (v0.61.2).
         raise ValueError(f"chunk_size must be positive, got {chunk_size}")
     length = len(text)
     if length <= chunk_size:
