@@ -391,13 +391,28 @@ def _published(dbp: Path, source_id: int = 1) -> list[dict]:
     ]
 
 
-def _stamp_generation(dbp: Path, unit_ids: list[str], gen_id: str = "GEN-test") -> None:
-    """Stand in for what compile.py does immediately after extraction returns."""
+def _stamp_generation(dbp: Path, unit_ids: list[str]) -> str:
+    """Stand in for what compile.py does immediately after extraction returns.
+
+    The `compiler_generations` row is created too, not just the foreign key.
+    Production never has a unit pointing at a generation that does not exist,
+    and several live readers (`materializer`, `runtime_state`) JOIN that table —
+    a dangling id would make them treat these rows as unpublished and quietly
+    weaken every test built on this helper.
+    """
+    gen_id = db.create_compiler_generation(
+        dbp, prompt_contract_version="v3", source_id=1
+    )
     with db.connect(dbp) as conn:
+        conn.execute(
+            "UPDATE compiler_generations SET status = 'authoritative' WHERE id = ?",
+            (gen_id,),
+        )
         for uid in unit_ids:
             conn.execute(
                 "UPDATE knowledge_units SET generation_id = ? WHERE id = ?", (gen_id, uid)
             )
+    return gen_id
 
 
 def _two_batch_fixture(dbp: Path, spans: list[dict]) -> list[dict]:
@@ -624,3 +639,101 @@ def test_discard_keeps_adoptable_units_and_deletes_the_rest(vault) -> None:
     stale = [u for u in db.list_knowledge_units_for_source(dbp, 1) if u["id"] in
              {k["id"] for k in kept}]
     assert stale == [], "the unadoptable partial was left behind"
+
+
+def test_the_adopt_render_matches_the_render_run_prompt_records(vault) -> None:
+    """Resume is only correct while two independent renders agree.
+
+    `_adopt_existing_batch` renders the batch itself to compute `input_hash`;
+    `run_prompt` renders again internally. Nothing links them. Add a `context=`
+    or any other render-affecting argument to one and not the other and every
+    hash misses — resume silently stops working, with no exception and no log,
+    just a full re-payment of the provider. This pins the equality against the
+    hash a REAL run recorded, so it keeps holding as the runner evolves.
+    """
+    dbp, spans = vault
+    client = FakeClient([_units_json(spans[0]["id"])])
+    result = ku.extract_knowledge_units(
+        dbp, client, source_id=1, source_title="ResNet", spans=spans
+    )
+    assert result.ok, result.errors
+
+    with db.connect(dbp) as conn:
+        recorded = conn.execute(
+            "SELECT input_hash FROM prompt_runs WHERE trace_id = ?", (result.trace_id,)
+        ).fetchone()[0]
+
+    contract = prompting.REGISTRY.get("curator.knowledge_unit_extract")
+    valid_ids = ku._unique_span_ids(spans)
+    rendered = prompting.render_prompt(
+        contract,
+        contract.input_model(
+            source_title="ResNet",
+            spans_block=ku._spans_block(spans),
+            valid_span_ids_block="\n".join(valid_ids),
+        ),
+    )
+    assert rendered.input_hash == recorded, (
+        "the adoption render diverged from the render run_prompt performs; "
+        "resume would silently re-pay for every batch"
+    )
+
+
+def test_a_split_batch_keeps_the_half_that_validated(vault) -> None:
+    """A batch can fail validation, split, and have one half succeed.
+
+    The successful half's prompt run is recorded `ok`. If its units are not
+    persisted, `_adopt_existing_batch` finds nothing for that hash, so the next
+    run re-splits the parent and re-pays BOTH halves — every retry, forever.
+    """
+    dbp, spans = vault
+    spans.append(_add_span(dbp, "The second span is extracted on its own.", "Second"))
+
+    # One batch holding both spans: the whole-batch call fails validation, the
+    # left slice validates, the right slice does not.
+    bad = _units_json("SPAN-invented")
+    client = FakeClient(
+        [bad, bad, _units_json(spans[0]["id"]), bad, bad], optimal_chars=60000
+    )
+    result = ku.extract_knowledge_units(
+        dbp, client, source_id=1, source_title="ResNet", spans=spans
+    )
+    assert not result.ok, "the fixture was supposed to fail the right slice"
+
+    with db.connect(dbp) as conn:
+        kept, attributed = conn.execute(
+            "SELECT COUNT(*), COUNT(generation_id) FROM knowledge_units WHERE source_id = 1"
+        ).fetchone()
+    assert kept > 0, "the half that validated was thrown away"
+    assert attributed == 0, "a failed extraction attributed units to a generation"
+
+
+def test_discard_handles_more_kept_units_than_sqlites_variable_limit(vault) -> None:
+    """The keep-set must not become one bind parameter per unit.
+
+    SYSTEM_BEHAVIOR requires queries to stay under 900 bind parameters,
+    "remaining below SQLite's common 999-variable limit", and
+    `compile.py:_SQL_VAR_CHUNK` implements that elsewhere. A resumable source
+    blows past it immediately — source 45 has 5,358 adoptable units — and this
+    runs as the FIRST statement of every resumed extraction, so an `id NOT IN
+    (?,?,…)` list would fail the whole ingest on a conforming build.
+    """
+    dbp, spans = vault
+    keep: set[str] = set()
+    with db.connect(dbp) as conn:
+        for i in range(1500):  # comfortably past both 999 and 900
+            uid = db.upsert_knowledge_unit(
+                dbp, unit_type="claim", canonical_name=f"u{i}", statement="s",
+                source_span_ids=[spans[0]["id"]], source_id=1, conn=conn,
+            )
+            keep.add(uid)
+        doomed = db.upsert_knowledge_unit(
+            dbp, unit_type="claim", canonical_name="doomed", statement="s",
+            source_span_ids=[spans[0]["id"]], source_id=1, conn=conn,
+        )
+
+    ku._discard_unpublished_units(dbp, 1, keep=keep)
+
+    surviving = {u["id"] for u in db.list_knowledge_units_for_source(dbp, 1)}
+    assert keep <= surviving, "kept units were deleted"
+    assert doomed not in surviving, "a unit outside the keep-set survived"

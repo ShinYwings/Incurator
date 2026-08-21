@@ -146,7 +146,7 @@ def _batch_hash(batch: list[dict]) -> str:
 
 
 def _adoptable_unit_ids(
-    db_path: Path, source_id: int, *, curate_spec_hash: str, conn: Any = None
+    db_path: Path, source_id: int, *, curate_spec_hash: str
 ) -> set[str]:
     """Unpublished units a resumed run may still adopt (SYSTEM_BEHAVIOR L2 §4).
 
@@ -157,7 +157,7 @@ def _adoptable_unit_ids(
     """
     from .compile import PROMPT_CONTRACT_VERSION
 
-    with db._maybe_conn(db_path, conn) as c:
+    with db.connect(db_path) as c:
         rows = c.execute(
             """
             SELECT ku.id AS id, ku.source_span_ids AS spans
@@ -198,27 +198,36 @@ def _discard_unpublished_units(
     from ..db_sync import delete_rows_with_tombstones_on_connection
 
     keep = keep or set()
-    exclude = ""
-    params: tuple[Any, ...] = (source_id,)
-    if keep:
-        placeholders = ",".join("?" for _ in keep)
-        exclude = f" AND id NOT IN ({placeholders})"
-        params = (source_id, *sorted(keep))
 
     with db.connect(db_path) as conn:
+        # The kept ids go through a TEMP TABLE, not `id NOT IN (?,?,…)`.
+        # SYSTEM_BEHAVIOR requires queries to stay under 900 bind parameters
+        # ("remaining below SQLite's common 999-variable limit") and
+        # `compile.py:_SQL_VAR_CHUNK` implements that elsewhere. A resumable
+        # source blows straight past it: source 45 alone has 5,358 adoptable
+        # units, and this is the FIRST statement every resumed extraction runs,
+        # so an id list would fail the whole ingest on any conforming build.
+        # `executemany` binds one row at a time and has no such ceiling.
+        conn.execute("CREATE TEMP TABLE IF NOT EXISTS _ku_keep (id TEXT PRIMARY KEY)")
+        conn.execute("DELETE FROM _ku_keep")
+        if keep:
+            conn.executemany(
+                "INSERT OR IGNORE INTO _ku_keep (id) VALUES (?)",
+                [(uid,) for uid in sorted(keep)],
+            )
+        doomed = (
+            "SELECT id FROM knowledge_units WHERE source_id = ? "
+            "AND generation_id IS NULL AND retired_at IS NULL "
+            "AND id NOT IN (SELECT id FROM _ku_keep)"
+        )
         delete_rows_with_tombstones_on_connection(
             conn,
             "claim_supports",
-            "knowledge_unit_id IN ("
-            "SELECT id FROM knowledge_units WHERE source_id = ? "
-            f"AND generation_id IS NULL AND retired_at IS NULL{exclude})",
-            params,
+            f"knowledge_unit_id IN ({doomed})",
+            (source_id,),
         )
-        conn.execute(
-            "DELETE FROM knowledge_units WHERE source_id = ? "
-            f"AND generation_id IS NULL AND retired_at IS NULL{exclude}",
-            params,
-        )
+        conn.execute(f"DELETE FROM knowledge_units WHERE id IN ({doomed})", (source_id,))
+        conn.execute("DROP TABLE IF EXISTS _ku_keep")
 
 
 def _run_batch_with_retry(
@@ -389,17 +398,23 @@ def _adopt_existing_batch(
             ),
         ).fetchall()
 
-    # The query repeats `adoptable`'s generation/retired filters rather than
-    # relying on the intersection below, and that is not belt-and-braces: the
-    # length check compares against `rows`, so `rows` must be drawn from the same
-    # population `adoptable` was computed from. Widen the query and a batch whose
-    # units are all adoptable starts failing the check against unrelated rows.
-    unit_ids = [str(r["id"]) for r in rows if str(r["id"]) in adoptable]
-    if not unit_ids or len(unit_ids) != len(rows):
-        # Partly-surviving batches are not adopted: the batch is the unit of
-        # resume, so half of one is worth nothing and re-running is correct.
+    # Adopt the units of exactly ONE prompt run. `input_hash` is stable across
+    # attempts by design — the same batch re-run months later hashes the same —
+    # so this query can legitimately match rows written by two different runs.
+    # Taking all of them would attribute one batch's output twice.
+    #
+    # An earlier draft guarded with `len(unit_ids) != len(rows)` and a comment
+    # claiming it caught partly-surviving batches. It could never fire: the
+    # caller's conditional discard has already deleted every non-adoptable row,
+    # so `rows` is a subset of `adoptable` by construction.
+    by_trace: dict[str, list[str]] = {}
+    for row in rows:
+        if str(row["id"]) in adoptable:
+            by_trace.setdefault(str(row["trace_id"]), []).append(str(row["id"]))
+    if len(by_trace) != 1:
         return None
-    return str(rows[0]["trace_id"]), unit_ids
+    trace_id, unit_ids = next(iter(by_trace.items()))
+    return trace_id, unit_ids
 
 
 def _persist_units(
@@ -561,6 +576,16 @@ def extract_knowledge_units(
             last_trace_id = result.trace_id
         if result.errors:
             all_errors.extend(result.errors)
+            # A batch that failed validation is split and re-run as halves, and
+            # one half can validate while the other does not. Persist the half
+            # that did. Its prompt run is already recorded `ok`, so without the
+            # rows `_adopt_existing_batch` finds nothing for that hash and the
+            # next run re-splits the parent and re-pays BOTH halves — for every
+            # retry, indefinitely. The ids are deliberately NOT added to
+            # `all_unit_ids`: this run returns ok=False and must attribute
+            # nothing, and the rows stay `generation_id IS NULL` for a resume.
+            if result.units:
+                _persist_units(db_path, source_id=source_id, pending_units=result.units)
             break
         # Adopted units are already stored; only fresh ones are written. Both
         # accumulate HERE, in the loop. A resumed run must never derive its
