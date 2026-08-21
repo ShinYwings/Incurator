@@ -648,7 +648,9 @@ What this means in practice:
   how long to wait. Before v0.62.0 this mattered a great deal, because restarting
   a large source re-spent the whole budget before reaching the step that was
   refused — measured on a 673-page book, twice, at about 90 minutes discarded
-  each time. Resumable extraction removes most of that cost; waiting for the
+  each time. Resumable extraction removes most of that cost: a refusal at the
+  compile step now keeps the extraction, so the next attempt goes straight to the
+  step that was refused instead of re-reading the whole book. Waiting for the
   window to reopen is still the cheaper move.
 - **Generated L2 stays English**: `wiki build` validates generated Atom names and
   statements programmatically. If a model writes Korean or another non-English

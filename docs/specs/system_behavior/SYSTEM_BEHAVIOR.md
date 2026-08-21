@@ -538,6 +538,28 @@ Batch Atom extraction (`_extract_atoms_from_chunk`) relies on the LLM adhering t
    the active contract or `curate_spec_hash`, and rows citing spans that no
    longer exist, are deleted; claim supports are deleted before their units.
 
+   **A failed staged compile releases its extraction instead of deleting it.**
+   Until v0.62.0 any staged-compile failure ran a copy-on-stage discard that
+   DELETED the generation's `knowledge_units` and their `claim_supports`. That
+   is what made per-batch persistence worthless in the case it exists for:
+   measured live, a 673-page source completed all 277 extraction batches
+   (81.5 minutes, every prompt run `ok`), the staged compile hit a 429, and the
+   handler removed every row the extraction had just written.
+
+   The handler now sets `generation_id = NULL` on those rows and leaves their
+   claim supports attached. Nothing becomes servable — NULL is not an
+   authoritative generation — and the rows are exactly what the skip predicate
+   adopts on the next run. The rows it touches are only that run's extraction
+   output: the post-extraction stamp is the sole writer of the staged
+   `generation_id` outside the publish transaction, and `reconcile_source`'s
+   carry-forward runs inside that transaction and rolls back first, so a
+   previously authoritative unit can never be un-published here.
+
+   Released rows do not accumulate: the next extraction for the source either
+   adopts them or deletes them by conditional discard, and any that survive to
+   the next successful publish are retired by the prior-generation retirement,
+   which already covers `generation_id IS NULL`.
+
    **Resume is bounded by span identity.** The rendered prompt carries span ids,
    so an L1 re-run that mints new ids invalidates every batch, and a source whose
    spans changed re-runs in full. This is all-or-nothing against L1 by design:

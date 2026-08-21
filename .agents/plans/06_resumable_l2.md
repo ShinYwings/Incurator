@@ -29,6 +29,14 @@ work discarded per attempt.
   exists in the schema.
 - **No change to publish semantics.** §26.3 staging, the publish gate, the
   atomic flip, and `reconcile_source` are untouched.
+
+  > **VIOLATED AT P5, deliberately.** This non-goal is what made the plan wrong.
+  > Live acceptance showed the feature does not save the case it was built for:
+  > extraction finished 277/277 and the staged-compile failure handler deleted
+  > every row. The handler now releases those rows (`generation_id = NULL`)
+  > instead of deleting them — a change to what a staged discard does, i.e. to
+  > staging semantics. The publish gate, the atomic flip and `reconcile_source`
+  > remain untouched. See `06_resumable_l2_evidence.md` §7.
 - **No resume across a contract or configuration change.** A changed prompt
   template, contract version, or `curate_spec_hash` re-runs everything. That is
   correct, not a limitation.

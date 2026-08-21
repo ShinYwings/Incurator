@@ -10,7 +10,15 @@ All notable changes to Incurator are documented here.
   minutes** of provider work per attempt, at a median batch latency of 18.6 s
   across 1,811 real extract calls.
 
-  Each batch's units are now persisted as it validates, with `generation_id`
+  Two things had to change, and shipping only the first would have been a
+  feature that misses its own headline case. Batches are now persisted as they
+  validate, **and** a failed staged compile releases that work instead of
+  deleting it — the failure handler used to run a copy-on-stage discard that
+  removed every row the extraction had written, which is precisely what happened
+  to the book above. Caught by running it, not by a test: the unit tests call the
+  extractor directly and never reach that handler.
+
+  Each batch's units are persisted as it validates, with `generation_id`
   left NULL. That marker already meant "extracted, not authoritative" on the
   writer side, and `compile.py` stamps the staged generation onto the returned
   ids before the publish gate runs, so **publication is unchanged**: a partial is

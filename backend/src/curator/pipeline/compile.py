@@ -498,8 +498,15 @@ def compile_source_l2(
         # KEEP broad: transactional rollback boundary — ANY staged-compile failure
         # must discard the staged generation and surface (l2 error), so a partial
         # generation is never published.
-        _discard_staged_units(paths.state_db, gen_id)
+        # NOT a delete: the extraction is the expensive half and it survives the
+        # failure so the next run can adopt it (SYSTEM_BEHAVIOR L2 item 4).
+        released = _release_staged_units_for_resume(paths.state_db, gen_id)
         db.discard_compiler_generation(paths.state_db, gen_id)
+        if released:
+            logger.info(
+                "staged compile failed for source %s; kept %d extracted unit(s) "
+                "for a resume", source_id, released,
+            )
         db.set_source_layer_status(
             paths.state_db, source_id, "l2", "error", error=f"staged compile failed: {e}"
         )
@@ -841,27 +848,43 @@ def _run_publish_gate(
         )
 
 
-def _discard_staged_units(db_path: Path, generation_id: str) -> None:
-    """Delete a staged generation's knowledge_units + their claim_supports
-    (copy-on-stage discard, §26.3). The staged rows are distinct from the prior
-    authoritative generation's rows, so this never touches served state."""
-    from ..db_sync import delete_rows_with_tombstones_on_connection
+def _release_staged_units_for_resume(db_path: Path, generation_id: str) -> int:
+    """Return a failed generation's extracted units to the resumable pool.
 
+    Until v0.62.0 this DELETED the staged rows, and that is what made per-batch
+    persistence worthless in the case it was built for. Measured live: a
+    673-page source completed all 277 extraction batches (81.5 minutes, every
+    run `ok`), the staged compile hit a 429, and this function removed every row
+    the extraction had just written. A resume then found nothing.
+
+    Setting `generation_id = NULL` leaves exactly the rows the resume predicate
+    looks for (`_adoptable_unit_ids`), and leaves nothing servable: NULL is not
+    an authoritative generation, search materialization joins
+    `compiler_generations`, and the compiler audit filters on it (§20.1).
+
+    The rows this touches are ONLY this run's extraction output. The stamp at
+    the top of the staging block is the sole writer of `generation_id = gen_id`
+    outside the publish transaction, and `reconcile_source`'s carry-forward runs
+    inside `with db.connect(...)`, which rolls back before this handler runs —
+    verified, not assumed. So a previously authoritative unit can never be
+    un-published here.
+
+    Claim supports are deliberately KEPT with their units: an adopted unit is
+    adopted whole, and deleting supports whose units survive is what
+    `dangling_supports` (publish-blocking) is designed to catch.
+
+    Leftovers do not accumulate. The next extraction for the source either
+    adopts them or deletes them by conditional discard, and any that survive to
+    the next successful publish are retired by
+    `_retire_prior_generation_units`, which retires `generation_id IS NULL`.
+    """
     with db.connect(db_path) as conn:
-        unit_ids = [
-            str(r[0]) for r in conn.execute(
-                "SELECT id FROM knowledge_units WHERE generation_id = ?",
-                (generation_id,),
-            ).fetchall()
-        ]
-        for uid in unit_ids:
-            delete_rows_with_tombstones_on_connection(
-                conn,
-                "claim_supports",
-                "knowledge_unit_id = ?",
-                (uid,),
-            )
-        conn.execute("DELETE FROM knowledge_units WHERE generation_id = ?", (generation_id,))
+        cursor = conn.execute(
+            "UPDATE knowledge_units SET generation_id = NULL, updated_at = ? "
+            "WHERE generation_id = ?",
+            (db._now_iso(), generation_id),
+        )
+        return int(cursor.rowcount or 0)
 
 
 def _retire_prior_generation_units(
