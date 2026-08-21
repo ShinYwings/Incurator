@@ -81,3 +81,41 @@ The surfaces split, and they need different fixes:
 Ordering matters: (1) removes the reason, (2) removes the fatality, (3) bounds
 the damage. Shipping (3) alone would have been the workaround the repo rules
 specifically prohibit.
+
+---
+
+## 5. MEASURED: an MCP server does NOT avoid the permission gate
+
+Registered a one-tool stdio MCP server with `agy mcp add`, probed in `-p` mode,
+then removed it.
+
+| invocation | result |
+|---|---|
+| MCP tool call, no flag | **`permission check failed for mcp "incurator-probe/vault_secret_word": user denied permission for mcp(...)`** |
+| MCP tool call, `--sandbox` | **denied**, identical message |
+| MCP tool call, `--dangerously-skip-permissions` | **`ORCHID-7741`** — works |
+
+**MCP is behind the same gate as the shell.** It gives the model a better tool;
+it does not get the tool past the door. So option ①-a inherits the entire
+security cost of B' — auto-approval — and with that flag on, the model can still
+shell out anyway. MCP restricts nothing; it only adds an option beside the shell.
+
+This is the fact that decides ① between its two shapes:
+
+| | ①-a MCP server | ①-b content in the prompt |
+|---|---|---|
+| permission surface | **needs `--dangerously-skip-permissions`** | **none** — it is just text |
+| agy config involved | yes (and agy is known to rewrite its own config) | no |
+| works for other providers | agy/CLI only | **all of them** — Ollama, DeepSeek, Claude |
+| model can drill down iteratively | **yes** | no — one shot, we retrieve first |
+| bounded by | per-call latency | `optimal_chunk_chars` (18,000 for agy) |
+| testable without a live provider | hard | **yes** |
+
+A 23,835-character prompt was already measured to round-trip intact with its
+final line preserved, so ①-b's channel is proven.
+
+**They are complementary, not exclusive.** ①-b stands alone and costs nothing.
+①-a only becomes worth having *if* auto-approval is enabled anyway for the
+compile surface — at which point an MCP tool is what the model should reach for
+instead of PyPDF2. Sequencing therefore stays: ①-b first, C next, B'+①-a as one
+decision after that.
