@@ -1,7 +1,8 @@
 # v0.62.0 Master Implementation Plan — Resumable L2 Extraction
 
 Date: 2026-08-21
-Status: AWAITING USER APPROVAL — Arena debate concluded; no code written yet.
+Status: APPROVED (user, 2026-08-21). P0 complete — see
+`06_resumable_l2_evidence.md`. D1 and D4 amended by P0 findings, marked inline.
 
 Arena record: `.agents/plans/resumable_l2_arena/`
 (`00_problem.md`, `01_proposal_lead_architect.md`, `02_critique_redteam.md`,
@@ -17,6 +18,28 @@ only for the batches that had not completed — verified by counting
 `prompt_runs` rows for the second attempt. The published unit set is identical
 to what an uninterrupted run produces.
 
+> **STATUS: clause 1 MET on source 45. Clause 2 UNMET on source 45, and
+> unreachable in this release.** Recording it rather than restating the
+> criterion — mid-run I called "the extraction survives" the release condition,
+> which is not what this document says, and then showed the publication clause on
+> a different source. Both of those were substitutions.
+>
+> - **Clause 1**: cold 277 calls / 5,100 s → resume **0 calls / ~120 s**, counted
+>   against a snapshot (`prompt_runs` 1941 before and after).
+> - **Clause 2 on source 45**: it has never published, and cannot here. Its
+>   staged compile dies in `entity_relation_extract`, where the agy CLI writes a
+>   Python script and runs it; the denied command fails the whole compile.
+>   Measured: source 45 needs **~87 graph batches** (1,551,159 prompt chars at
+>   18,000 per batch) and **every one must succeed**. Observed agy success rate
+>   today is **4 ok / 3 failed = 57%**, so P(all 87 succeed) ≈ **7×10⁻²²**. This
+>   is not an unlucky run; it is unreachable, and the cause is ROADMAP 5b, not
+>   this feature.
+> - **Clause 2 elsewhere**: shown end to end on the testbed ResNet source —
+>   `SIGKILL` → resume adopts 3 of 5 batches → **published, 90 units, `wiki lint`
+>   exit 0**. That is real evidence for the feature and it is **not** the same as
+>   satisfying this document. The substitution is the reviewer's call to accept
+>   or reject, not mine.
+
 The cost this removes is measured, not estimated: Hartley completed **all 277
 batches twice** (08-19, 08-20) and lost both at the publish step to a 429. At the
 measured median extract latency of **18,631 ms**, that is ~86 minutes of provider
@@ -28,6 +51,14 @@ work discarded per attempt.
   exists in the schema.
 - **No change to publish semantics.** §26.3 staging, the publish gate, the
   atomic flip, and `reconcile_source` are untouched.
+
+  > **VIOLATED AT P5, deliberately.** This non-goal is what made the plan wrong.
+  > Live acceptance showed the feature does not save the case it was built for:
+  > extraction finished 277/277 and the staged-compile failure handler deleted
+  > every row. The handler now releases those rows (`generation_id = NULL`)
+  > instead of deleting them — a change to what a staged discard does, i.e. to
+  > staging semantics. The publish gate, the atomic flip and `reconcile_source`
+  > remain untouched. See `06_resumable_l2_evidence.md` §7.
 - **No resume across a contract or configuration change.** A changed prompt
   template, contract version, or `curate_spec_hash` re-runs everything. That is
   correct, not a limitation.
@@ -69,6 +100,25 @@ The three hash sets are **100% identical** (277 ∩ 277 ∩ 277 = 277). The batc
 identity is stable across attempts; the surplus runs are retries of the same
 277 batches.
 
+> **AMENDED AT P0 (2026-08-21) — this was stated too strongly.** The stop
+> condition fired: no other source reproduces identical hash sets. The cause is
+> measured: `_spans_block` renders each span's **id** into the prompt, so
+> `input_hash` depends on span identity, and an L1 re-run mints new ids. Source
+> 45's own 08-18 → 08-19 pair fails too (14.7% span overlap → 12.7% hash
+> overlap), so this is a property of span identity, not of Hartley.
+>
+> **Corrected D1**: `input_hash` is a stable batch identity **given an unchanged
+> span set** — which is exactly the condition a resume runs under. Restricted to
+> the 23 attempt pairs vault-wide that share an identical span set, **18 have
+> identical hash sets and the other 5 are in a strict subset relation**, the
+> extras being validation-split sub-batches. No pair crosses or is disjoint.
+>
+> A changed span set correctly re-runs everything. Note the sharp edge, measured
+> on source 37: **99.7% span overlap still shares only 21.7% of hashes**, because
+> one changed span shifts the packer and invalidates every batch after it.
+> Partial span reuse buys nothing; this is correct for a changed source.
+> Full detail in `06_resumable_l2_evidence.md` §6.
+
 **D2 — Resume is keyed on the batch, never on the span or the batch index.**
 Both alternatives were measured and both are wrong:
 - *batch index* — `optimal_chunk_chars` changes the batch count
@@ -87,13 +137,29 @@ Lock granularity improves (277 × ~9 ms instead of one × 0.5–1.3 s).
 
 **D4 — The skip predicate.** Before issuing batch *B*, render it and look for a
 prior run with: `input_hash = H(B)`, `prompt_id||'@'||prompt_version =
-PROMPT_CONTRACT_VERSION`, `curate_spec_hash =` current, `validator_status='ok'`,
+PROMPT_CONTRACT_VERSION`, `curate_spec_hash =` current, **`validator_status IN ('ok','repaired')`**,
 whose knowledge_units are still present with **`generation_id IS NULL AND
 retired_at IS NULL`**. If found, skip the LLM call and adopt those unit ids.
 
 The `generation_id IS NULL` clause is what makes a published source
 non-resumable (D-non-goal 4): published units belong to the authoritative
 generation and must never be re-adopted into a new one.
+
+> **REFINED AT P0.** The check goes at the top of **`_run_batch_with_retry`**,
+> not at the top of the batch loop. P0 found that the five same-span attempt
+> pairs whose hash sets differ do so only because of validation splits — a batch
+> that failed and succeeded as two halves records the children as their own
+> prompt runs, and the failed parent is not `ok`. Checking only at the loop level
+> would re-pay every such batch in full. `_split_batch_for_retry` is
+> deterministic (midpoint by `_span_len`), so a child's `input_hash` is
+> reproducible exactly like its parent's, and one predicate placed at the
+> recursion entry covers both.
+>
+> **`repaired` counts as success.** `finish_prompt_run` writes `ok` only when
+> `retry_count == 0` and `repaired` when a JSON-repair retry was used — both are
+> validated output. The live vault has 57 `repaired` extract runs carrying **687
+> knowledge units**; a predicate keyed on `'ok'` alone would re-pay every one of
+> them. The predicate is `validator_status IN ('ok','repaired')`.
 
 **D5 — What a resumed run returns.** `extract_knowledge_units` returns the union
 of adopted ids and newly persisted ids, accumulated **in the loop**, exactly as
@@ -172,10 +238,12 @@ Recorded before any code is written; the full ledger lands in
 
 ## 7. Execution Phases
 
-- **P0 — Research & measured baseline.** Reproduce D1 on a **second** source
-  (36 or 37) — two attempts, hash sets must match. Capture the pre-change
-  `run_compiler_audit` report on the live DB copy for the P4 diff. Write the
-  evidence ledger. *Verify: hash sets identical; report captured.*
+- **P0 — Research & measured baseline. DONE.** D1 did **not** reproduce
+  naively; the stop condition fired and the cause was measured rather than
+  guessed (span identity, not Hartley). D1 restated and D4 refined above;
+  evidence in `06_resumable_l2_evidence.md`. Audit baseline captured at
+  `scratchpad/audit_before.json`, sha256 `f5de509f…e45674`, **publish_blocking =
+  0 on the live vault** — the F1 defense confirmed on real data.
 - **P1 — Contract specification (docs-first).** `SYSTEM_BEHAVIOR.md` gains the
   resume predicate (D4) and the return-value rule (D5); `SCHEMA.md` records that
   `generation_id IS NULL` now denotes a *durable* in-progress extraction and

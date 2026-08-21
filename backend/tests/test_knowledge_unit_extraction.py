@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import tempfile
 from pathlib import Path
 
 import pytest
 
-from curator import db
+from curator import db, prompting
 from curator.llm import ChatMessage
 from curator.pipeline import knowledge_units as ku
 from curator.pipeline import source_spans as ss
@@ -123,7 +124,11 @@ def test_invented_span_rejected_and_not_persisted(vault) -> None:
     assert db.list_knowledge_units_for_source(dbp, 1) == []
 
 
-def test_failed_late_batch_leaves_no_partial_units(vault) -> None:
+def test_failed_late_batch_publishes_nothing(vault) -> None:
+    """A late failure publishes nothing. Since v0.62.0 the earlier batches are
+    still *persisted* — unpublished, `generation_id IS NULL` — so a re-run can
+    adopt them. The guarantee that matters is that none of them is authoritative.
+    """
     dbp, spans = vault
     spans.append(_add_span(dbp, "Batch two content is intentionally unrecoverable.", "Second"))
     client = FakeClient(
@@ -135,7 +140,11 @@ def test_failed_late_batch_leaves_no_partial_units(vault) -> None:
     )
     assert not result.ok
     assert result.errors
-    assert db.list_knowledge_units_for_source(dbp, 1) == []
+    units = db.list_knowledge_units_for_source(dbp, 1)
+    assert units, "the batch that succeeded should have been kept for a resume"
+    assert all(u["generation_id"] is None for u in units), (
+        "a failed extraction published units"
+    )
 
 
 def test_property_chunk_budget_is_respected(vault) -> None:
@@ -175,7 +184,10 @@ def test_provider_exception_leaves_no_partial_units(vault) -> None:
     assert not result.ok
     assert "capacity exhausted" in result.errors[0]
     assert client.calls == 2
-    assert db.list_knowledge_units_for_source(dbp, 1) == []
+    # The first batch survives for a resume; nothing is published (v0.62.0).
+    assert all(
+        u["generation_id"] is None for u in db.list_knowledge_units_for_source(dbp, 1)
+    )
     with db.connect(dbp) as conn:
         statuses = [
             row[0]
@@ -315,14 +327,10 @@ def test_chunking_large_span_is_split(vault) -> None:
 
 
 
-def test_an_interrupted_extraction_stages_nothing(vault) -> None:
-    """A failed extraction leaves no partial credit — exactly one call is made.
-
-    Documents the behavior that has always been in force. A checkpoint-resume
-    mechanism existed until v0.52.0 but could never run (its only writer sat
-    inside the branch that required checkpoints to already exist), so an
-    interrupted build has always restarted from scratch. Removing it changed no
-    behavior; this pins what remains.
+def test_a_batch_that_never_succeeded_persists_nothing(vault) -> None:
+    """Only a *validated* batch is persisted. This fixture has one batch and it
+    raises, so there is nothing to keep — resumability does not mean storing
+    output that never passed validation.
     """
     dbp, spans = vault
 
@@ -340,13 +348,14 @@ def test_an_interrupted_extraction_stages_nothing(vault) -> None:
         ).fetchone()[0] == 0, "a failed extraction left units behind"
 
 
-def test_a_late_batch_failure_discards_the_earlier_batches(vault) -> None:
-    """The scenario the removal's cost is measured in: batch N of many fails.
+def test_a_late_batch_failure_keeps_the_earlier_batches(vault) -> None:
+    """The scenario resumable L2 exists for: batch N of many fails.
 
-    `_persist_units` runs once, after the loop, only when no batch errored — so
-    work from batches 1..N-1 is lost. That is the cost resumable L2 was meant to
-    avoid, and this pins it so a future per-batch persistence change has to face
-    the guarantee it breaks. A single-batch fixture cannot express this.
+    This test used to assert the opposite — that batches 1..N-1 were discarded —
+    and said so explicitly: "pins it so a future per-batch persistence change has
+    to face the guarantee it breaks". v0.62.0 is that change. The guarantee it
+    actually protected was that nothing partial is *published*, and that is what
+    the assertion now checks; the earlier batches are kept, unpublished.
     """
     dbp, spans = vault
     extra = _add_span(dbp, "Bottleneck blocks cut compute per layer.", "Design")
@@ -364,10 +373,367 @@ def test_a_late_batch_failure_discards_the_earlier_batches(vault) -> None:
     assert result.ok is False
     assert client.calls >= 2, "the fixture did not actually produce two batches"
     with db.connect(dbp) as conn:
-        staged = conn.execute(
-            "SELECT COUNT(*) FROM knowledge_units WHERE source_id = 1"
-        ).fetchone()[0]
-    assert staged == 0, (
-        "units from the batches that succeeded were persisted; extraction is "
-        "supposed to be all-or-nothing"
+        kept, published = conn.execute(
+            "SELECT COUNT(*), COUNT(generation_id) FROM knowledge_units "
+            "WHERE source_id = 1"
+        ).fetchone()
+    assert kept > 0, "the successful batch was discarded; a resume has nothing to adopt"
+    assert published == 0, "a failed extraction published units"
+
+
+# --- v0.62.0: resumable L2 extraction (SYSTEM_BEHAVIOR L2 item 4) -------------
+
+
+def _published(dbp: Path, source_id: int = 1) -> list[dict]:
+    return [
+        u for u in db.list_knowledge_units_for_source(dbp, source_id)
+        if u["generation_id"] is not None
+    ]
+
+
+def _stamp_generation(dbp: Path, unit_ids: list[str]) -> str:
+    """Stand in for what compile.py does immediately after extraction returns.
+
+    The `compiler_generations` row is created too, not just the foreign key.
+    Production never has a unit pointing at a generation that does not exist,
+    and several live readers (`materializer`, `runtime_state`) JOIN that table —
+    a dangling id would make them treat these rows as unpublished and quietly
+    weaken every test built on this helper.
+    """
+    gen_id = db.create_compiler_generation(
+        dbp, prompt_contract_version="v3", source_id=1
     )
+    with db.connect(dbp) as conn:
+        conn.execute(
+            "UPDATE compiler_generations SET status = 'authoritative' WHERE id = ?",
+            (gen_id,),
+        )
+        for uid in unit_ids:
+            conn.execute(
+                "UPDATE knowledge_units SET generation_id = ? WHERE id = ?", (gen_id, uid)
+            )
+    return gen_id
+
+
+def _two_batch_fixture(dbp: Path, spans: list[dict]) -> list[dict]:
+    return [*spans, _add_span(dbp, "Bottleneck blocks cut compute per layer.", "Design")]
+
+
+class InterruptingClient(FakeClient):
+    """Raises KeyboardInterrupt on the Nth call.
+
+    KeyboardInterrupt, not Exception, and deliberately: `_run_batch_with_retry`
+    catches `Exception`, so an ordinary error is absorbed into an error result
+    and the run finishes tidily. A resume test built on that would pass against
+    code that never resumes — which is exactly how an earlier vision-resume test
+    passed against unfixed code.
+    """
+
+    def __init__(self, responses, *, interrupt_on: int, **kw) -> None:
+        super().__init__(responses, **kw)
+        self._interrupt_on = interrupt_on
+
+    def chat(self, messages, *, json_mode=False, temperature=0.3) -> str:
+        if self.calls + 1 == self._interrupt_on:
+            self.calls += 1
+            raise KeyboardInterrupt("user stopped the build")
+        return super().chat(messages, json_mode=json_mode, temperature=temperature)
+
+
+def _unit_content(dbp: Path, source_id: int = 1) -> list[tuple[str, str]]:
+    return sorted(
+        (u["canonical_name"], u["statement"])
+        for u in db.list_knowledge_units_for_source(dbp, source_id)
+    )
+
+
+def _clean_vault(root: Path, model_spans: list[dict]) -> tuple[Path, list[dict]]:
+    """A second vault holding the same span TEXTS as `model_spans`."""
+    dbp = root / "state.sqlite"
+    db.init_db(dbp)
+    with db.connect(dbp) as conn:
+        conn.execute(
+            "INSERT INTO sources (relpath, content_hash, file_type, bytes, added_at) "
+            "VALUES (?, ?, ?, ?, datetime('now'))",
+            ("04_Resources/resnet.md", "h", "md", 1),
+        )
+    out: list[dict] = []
+    for s in model_spans:
+        recs = ss.spans_from_sections(
+            [{"id": s["section_title"].lower(), "title": s["section_title"],
+              "page": 1, "text": s["text"]}]
+        )
+        ids = ss.store_source_spans(dbp, 1, "04_Resources/resnet.md", recs)
+        out.append({"id": ids[0], "text": recs[0].text,
+                    "section_title": recs[0].section_title})
+    return dbp, out
+
+
+def _relabel(responses: list[str], old_spans: list[dict], new_spans: list[dict]) -> list[str]:
+    """Point canned responses at the second vault's span ids."""
+    mapping = {o["id"]: n["id"] for o, n in zip(old_spans, new_spans)}
+    out = []
+    for r in responses:
+        for old_id, new_id in mapping.items():
+            r = r.replace(old_id, new_id)
+        out.append(r)
+    return out
+
+
+def test_a_resumed_run_only_calls_for_the_batch_that_did_not_finish(vault) -> None:
+    """The whole point: batch 1 is not re-paid."""
+    dbp, spans = vault
+    both = _two_batch_fixture(dbp, spans)
+
+    first = InterruptingClient(
+        [_units_json(both[0]["id"])], interrupt_on=2, optimal_chars=160
+    )
+    with pytest.raises(KeyboardInterrupt):
+        ku.extract_knowledge_units(
+            dbp, first, source_id=1, source_title="ResNet", spans=both
+        )
+    assert first.calls == 2
+    kept = db.list_knowledge_units_for_source(dbp, 1)
+    assert kept, "batch 1 was lost, so there is nothing to resume from"
+
+    second = FakeClient([_units_json(both[1]["id"])], optimal_chars=160)
+    result = ku.extract_knowledge_units(
+        dbp, second, source_id=1, source_title="ResNet", spans=both
+    )
+    assert result.ok, result.errors
+    assert second.calls == 1, (
+        f"the resumed run made {second.calls} calls; batch 1 should have been adopted"
+    )
+    assert len(result.unit_ids) == 2, "the adopted batch is missing from the result"
+
+
+def test_a_resumed_run_yields_the_same_units_as_an_uninterrupted_one(vault) -> None:
+    dbp, spans = vault
+    both = _two_batch_fixture(dbp, spans)
+    responses = [_units_json(both[0]["id"]), _units_json(both[1]["id"])]
+
+    interrupted = InterruptingClient(list(responses), interrupt_on=2, optimal_chars=160)
+    with pytest.raises(KeyboardInterrupt):
+        ku.extract_knowledge_units(
+            dbp, interrupted, source_id=1, source_title="ResNet", spans=both
+        )
+    resumed = ku.extract_knowledge_units(
+        dbp, FakeClient([responses[1]], optimal_chars=160),
+        source_id=1, source_title="ResNet", spans=both,
+    )
+    assert resumed.ok, resumed.errors
+    resumed_units = _unit_content(dbp)
+
+    # A clean vault, same span texts, same responses, no interruption. Span ids
+    # are minted per (source_id, content_hash) row, so the second vault's ids
+    # differ; the units are compared by content, which is what "the same units"
+    # means here. Span linkage is pinned by test_extract_persists_units.
+    with tempfile.TemporaryDirectory() as tmp:
+        clean_dbp, clean_spans = _clean_vault(Path(tmp), both)
+        clean = ku.extract_knowledge_units(
+            clean_dbp, FakeClient(_relabel(responses, both, clean_spans), optimal_chars=160),
+            source_id=1, source_title="ResNet", spans=clean_spans,
+        )
+        assert clean.ok, clean.errors
+        clean_units = _unit_content(clean_dbp)
+        assert len(resumed.unit_ids) == len(clean.unit_ids)
+    assert resumed_units == clean_units
+
+
+def test_a_changed_prompt_template_re_runs_every_batch(vault, monkeypatch) -> None:
+    """`input_hash` covers the rendered prompt, so a template edit invalidates
+    every batch by construction — no separate configuration key exists."""
+    dbp, spans = vault
+    both = _two_batch_fixture(dbp, spans)
+    responses = [_units_json(both[0]["id"]), _units_json(both[1]["id"])]
+
+    first = InterruptingClient(list(responses), interrupt_on=2, optimal_chars=160)
+    with pytest.raises(KeyboardInterrupt):
+        ku.extract_knowledge_units(
+            dbp, first, source_id=1, source_title="ResNet", spans=both
+        )
+    assert db.list_knowledge_units_for_source(dbp, 1)
+
+    # PromptContract is frozen, so the edited contract is swapped in at the
+    # registry rather than mutated in place.
+    contract = prompting.REGISTRY.get("curator.knowledge_unit_extract")
+    edited = dataclasses.replace(
+        contract, system_template=contract.system_template + "\n\nAn added instruction."
+    )
+    monkeypatch.setattr(
+        prompting.REGISTRY, "get",
+        lambda pid: edited if pid == "curator.knowledge_unit_extract" else contract,
+    )
+
+    second = FakeClient(list(responses), optimal_chars=160)
+    result = ku.extract_knowledge_units(
+        dbp, second, source_id=1, source_title="ResNet", spans=both
+    )
+    assert result.ok, result.errors
+    assert second.calls == 2, "a changed template must not adopt the old batch"
+
+
+def test_an_already_published_source_is_not_resumed(vault) -> None:
+    """Published units belong to the authoritative generation. Adopting them into
+    a new one would attribute another generation's rows to this run.
+
+    This is a GUARD, not a feature test: before resume exists it passes
+    vacuously, because nothing is ever adopted. Mutation-checked at P3, with a
+    result worth recording — dropping the `generation_id IS NULL` clause from
+    `_adoptable_unit_ids` OR from `_adopt_existing_batch` leaves this test green,
+    because each gate masks the other. Removing BOTH turns it red. So the test
+    pins the property (a published unit is never adopted) but cannot localise
+    which gate enforces it; do not read a green run here as either clause being
+    individually covered.
+    """
+    dbp, spans = vault
+    both = _two_batch_fixture(dbp, spans)
+    responses = [_units_json(both[0]["id"]), _units_json(both[1]["id"])]
+
+    done = ku.extract_knowledge_units(
+        dbp, FakeClient(list(responses), optimal_chars=160),
+        source_id=1, source_title="ResNet", spans=both,
+    )
+    assert done.ok, done.errors
+    _stamp_generation(dbp, done.unit_ids)
+    assert len(_published(dbp)) == len(done.unit_ids)
+
+    again = FakeClient(list(responses), optimal_chars=160)
+    result = ku.extract_knowledge_units(
+        dbp, again, source_id=1, source_title="ResNet", spans=both
+    )
+    assert result.ok, result.errors
+    assert again.calls == 2, "a published source must be re-extracted in full"
+    assert set(result.unit_ids).isdisjoint(set(done.unit_ids)), (
+        "the new run adopted the authoritative generation's rows"
+    )
+
+
+def test_discard_keeps_adoptable_units_and_deletes_the_rest(vault) -> None:
+    """Conditional discard: rows citing spans that are gone cannot be adopted."""
+    dbp, spans = vault
+    both = _two_batch_fixture(dbp, spans)
+
+    first = InterruptingClient(
+        [_units_json(both[0]["id"])], interrupt_on=2, optimal_chars=160
+    )
+    with pytest.raises(KeyboardInterrupt):
+        ku.extract_knowledge_units(
+            dbp, first, source_id=1, source_title="ResNet", spans=both
+        )
+    kept = db.list_knowledge_units_for_source(dbp, 1)
+    assert kept
+
+    # The span basis disappears — the partial can no longer be adopted.
+    with db.connect(dbp) as conn:
+        conn.execute("DELETE FROM source_spans WHERE id = ?", (both[0]["id"],))
+
+    second = FakeClient(
+        [_units_json(both[0]["id"]), _units_json(both[1]["id"])], optimal_chars=160
+    )
+    result = ku.extract_knowledge_units(
+        dbp, second, source_id=1, source_title="ResNet", spans=both
+    )
+    assert result.ok, result.errors
+    assert second.calls == 2, "an unadoptable partial must not be reused"
+    stale = [u for u in db.list_knowledge_units_for_source(dbp, 1) if u["id"] in
+             {k["id"] for k in kept}]
+    assert stale == [], "the unadoptable partial was left behind"
+
+
+def test_the_adopt_render_matches_the_render_run_prompt_records(vault) -> None:
+    """Resume is only correct while two independent renders agree.
+
+    `_adopt_existing_batch` renders the batch itself to compute `input_hash`;
+    `run_prompt` renders again internally. Nothing links them. Add a `context=`
+    or any other render-affecting argument to one and not the other and every
+    hash misses — resume silently stops working, with no exception and no log,
+    just a full re-payment of the provider. This pins the equality against the
+    hash a REAL run recorded, so it keeps holding as the runner evolves.
+    """
+    dbp, spans = vault
+    client = FakeClient([_units_json(spans[0]["id"])])
+    result = ku.extract_knowledge_units(
+        dbp, client, source_id=1, source_title="ResNet", spans=spans
+    )
+    assert result.ok, result.errors
+
+    with db.connect(dbp) as conn:
+        recorded = conn.execute(
+            "SELECT input_hash FROM prompt_runs WHERE trace_id = ?", (result.trace_id,)
+        ).fetchone()[0]
+
+    contract = prompting.REGISTRY.get("curator.knowledge_unit_extract")
+    valid_ids = ku._unique_span_ids(spans)
+    rendered = prompting.render_prompt(
+        contract,
+        contract.input_model(
+            source_title="ResNet",
+            spans_block=ku._spans_block(spans),
+            valid_span_ids_block="\n".join(valid_ids),
+        ),
+    )
+    assert rendered.input_hash == recorded, (
+        "the adoption render diverged from the render run_prompt performs; "
+        "resume would silently re-pay for every batch"
+    )
+
+
+def test_a_split_batch_keeps_the_half_that_validated(vault) -> None:
+    """A batch can fail validation, split, and have one half succeed.
+
+    The successful half's prompt run is recorded `ok`. If its units are not
+    persisted, `_adopt_existing_batch` finds nothing for that hash, so the next
+    run re-splits the parent and re-pays BOTH halves — every retry, forever.
+    """
+    dbp, spans = vault
+    spans.append(_add_span(dbp, "The second span is extracted on its own.", "Second"))
+
+    # One batch holding both spans: the whole-batch call fails validation, the
+    # left slice validates, the right slice does not.
+    bad = _units_json("SPAN-invented")
+    client = FakeClient(
+        [bad, bad, _units_json(spans[0]["id"]), bad, bad], optimal_chars=60000
+    )
+    result = ku.extract_knowledge_units(
+        dbp, client, source_id=1, source_title="ResNet", spans=spans
+    )
+    assert not result.ok, "the fixture was supposed to fail the right slice"
+
+    with db.connect(dbp) as conn:
+        kept, attributed = conn.execute(
+            "SELECT COUNT(*), COUNT(generation_id) FROM knowledge_units WHERE source_id = 1"
+        ).fetchone()
+    assert kept > 0, "the half that validated was thrown away"
+    assert attributed == 0, "a failed extraction attributed units to a generation"
+
+
+def test_discard_handles_more_kept_units_than_sqlites_variable_limit(vault) -> None:
+    """The keep-set must not become one bind parameter per unit.
+
+    SYSTEM_BEHAVIOR requires queries to stay under 900 bind parameters,
+    "remaining below SQLite's common 999-variable limit", and
+    `compile.py:_SQL_VAR_CHUNK` implements that elsewhere. A resumable source
+    blows past it immediately — source 45 has 5,358 adoptable units — and this
+    runs as the FIRST statement of every resumed extraction, so an `id NOT IN
+    (?,?,…)` list would fail the whole ingest on a conforming build.
+    """
+    dbp, spans = vault
+    keep: set[str] = set()
+    with db.connect(dbp) as conn:
+        for i in range(1500):  # comfortably past both 999 and 900
+            uid = db.upsert_knowledge_unit(
+                dbp, unit_type="claim", canonical_name=f"u{i}", statement="s",
+                source_span_ids=[spans[0]["id"]], source_id=1, conn=conn,
+            )
+            keep.add(uid)
+        doomed = db.upsert_knowledge_unit(
+            dbp, unit_type="claim", canonical_name="doomed", statement="s",
+            source_span_ids=[spans[0]["id"]], source_id=1, conn=conn,
+        )
+
+    ku._discard_unpublished_units(dbp, 1, keep=keep)
+
+    surviving = {u["id"] for u in db.list_knowledge_units_for_source(dbp, 1)}
+    assert keep <= surviving, "kept units were deleted"
+    assert doomed not in surviving, "a unit outside the keep-set survived"

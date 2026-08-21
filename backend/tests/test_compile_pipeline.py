@@ -535,3 +535,83 @@ def test_l3_failure_message_survives_the_l4_status_write(vault) -> None:
     # When L3 is the failure, L4 legitimately was not attempted — and now only
     # then does the message say so.
     assert "l4: L3 prerequisite failed; synthesis not attempted" in error
+
+
+# --- v0.62.0: a failed staged compile must not throw the extraction away ------
+
+
+def test_a_failed_staged_compile_keeps_the_extraction_for_a_resume(
+    vault, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The case resumable L2 exists for, and the one its first version missed.
+
+    Measured live before this test existed: a 673-page source completed all 277
+    extraction batches — 81.5 minutes, every prompt run `ok` — the staged compile
+    hit a 429, and the failure handler deleted every row the extraction had just
+    written. Per-batch persistence had moved the work out of memory and into rows
+    that the next handler removed. The unit tests all passed, because they call
+    `extract_knowledge_units` directly and never reach this handler.
+    """
+    paths = vault
+
+    def refuse(*_a, **_k):
+        raise RuntimeError("Antigravity capacity exhausted (429).")
+
+    real_extract_graph_data = compile_mod.graph_index.extract_graph_data
+    monkeypatch.setattr(compile_mod.graph_index, "extract_graph_data", refuse)
+    failed = compile_mod.compile_source_l2(paths, DynamicFakeClient(), 1)
+    assert not failed.ok
+    assert "429" in (failed.error or "")
+
+    with db.connect(paths.state_db) as conn:
+        kept, published = conn.execute(
+            "SELECT COUNT(*), COUNT(generation_id) FROM knowledge_units WHERE source_id = 1"
+        ).fetchone()
+        generations = conn.execute(
+            "SELECT status FROM compiler_generations WHERE source_id = 1"
+        ).fetchall()
+    assert kept > 0, "the extraction was deleted; a resume has nothing to adopt"
+    assert published == 0, "a failed compile left units attributed to a generation"
+    assert [r[0] for r in generations] == ["discarded"]
+
+    # Supports must survive with their units — a support whose unit is gone is
+    # `dangling_supports`, which is publish-blocking.
+    with db.connect(paths.state_db) as conn:
+        orphans = conn.execute(
+            "SELECT COUNT(*) FROM claim_supports cs "
+            "LEFT JOIN knowledge_units ku ON ku.id = cs.knowledge_unit_id "
+            "WHERE ku.id IS NULL"
+        ).fetchone()[0]
+    assert orphans == 0
+
+    # The retry adopts the kept extraction instead of re-paying for it.
+    class CountingClient(DynamicFakeClient):
+        def __init__(self) -> None:
+            self.extract_calls = 0
+
+        def chat(self, messages, *, json_mode=False, temperature=0.3) -> str:
+            text = "\n".join(m.content for m in messages)
+            if "Extract the knowledge units" in text:
+                self.extract_calls += 1
+            return super().chat(messages, json_mode=json_mode, temperature=temperature)
+
+    # Restore just this patch. `monkeypatch.undo()` would also revert conftest's
+    # autouse config isolation, which repoints path resolution mid-test.
+    monkeypatch.setattr(
+        compile_mod.graph_index, "extract_graph_data", real_extract_graph_data
+    )
+    retry = CountingClient()
+    ok = compile_mod.compile_source_l2(paths, retry, 1)
+    assert ok.ok, ok.error
+    assert retry.extract_calls == 0, (
+        f"the resumed compile made {retry.extract_calls} extraction call(s); "
+        "the kept batches should have been adopted"
+    )
+    with db.connect(paths.state_db) as conn:
+        served = conn.execute(
+            "SELECT COUNT(*) FROM knowledge_units ku "
+            "JOIN compiler_generations g ON g.id = ku.generation_id "
+            "WHERE ku.source_id = 1 AND g.status = 'authoritative' "
+            "AND ku.retired_at IS NULL"
+        ).fetchone()[0]
+    assert served > 0, "the resumed compile published nothing"

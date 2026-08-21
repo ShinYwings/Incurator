@@ -156,7 +156,13 @@ def _collect_knowledge_units(
                     tuple(knowledge_unit_ids),
                 ).fetchall()
             )
-        all_units = conn.execute("SELECT * FROM knowledge_units").fetchall()
+        # Published units only. Unfiltered, this collected the durable
+        # generation-less rows a resumable L2 leaves behind (v0.62.0).
+        # NOTE: it still does not filter `retired_at`; that predates this change
+        # and is left alone deliberately rather than widened here.
+        all_units = conn.execute(
+            "SELECT * FROM knowledge_units WHERE generation_id IS NOT NULL"
+        ).fetchall()
     span_set = set(source_span_ids)
     known = {str(row["id"]) for row in rows}
     for row in all_units:

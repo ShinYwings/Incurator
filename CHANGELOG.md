@@ -2,6 +2,79 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.62.0] - 2026-08-21
+### Added
+- **L2 extraction is resumable.** An interrupted run used to discard every batch
+  it had finished. Measured on a 673-page book: it completed **all 277
+  extraction batches twice** and lost both at the publish step — about **86
+  minutes** of provider work per attempt, at a median batch latency of 18.6 s
+  across 1,811 real extract calls.
+
+  Two things had to change, and shipping only the first would have been a
+  feature that misses its own headline case. Batches are now persisted as they
+  validate, **and** a failed staged compile releases that work instead of
+  deleting it — the failure handler used to run a copy-on-stage discard that
+  removed every row the extraction had written, which is precisely what happened
+  to the book above. Caught by running it, not by a test: the unit tests call the
+  extractor directly and never reach that handler.
+
+  Each batch's units are persisted as it validates, with `generation_id`
+  left NULL. That marker already meant "extracted, not authoritative" on the
+  writer side, and `compile.py` stamps the staged generation onto the returned
+  ids before the publish gate runs, so **publication is unchanged**: a partial is
+  stored, never served. Search materialization joins `compiler_generations` on
+  `generation_id`, so no partial can reach the search corpus.
+
+  Resume keys on `prompt_runs.input_hash` — the digest of the fully rendered
+  system+user messages — so there is **no new table, no new column and no
+  migration**. It covers the batch text, the span ids in it, and the prompt
+  template, which means a template edit invalidates every batch by construction
+  rather than by a configuration key someone has to remember to bump. Across the
+  same book's three attempts the hash set was **277 distinct values every time,
+  and identical across all three**.
+
+  Two simpler keys were measured and rejected. A batch index cannot work because
+  `optimal_chunk_chars` changes the batch count with the provider — 12 / 23 / 46
+  / 93 for one source. Span coverage cannot work because **1,790 of that book's
+  8,692 spans (20.6%) appear in more than one batch** within a single clean run,
+  so a span-keyed resume would have skipped work that was never done.
+
+  The skip check runs at every level of batch narrowing, not only at the top, so
+  a batch that previously succeeded only as split halves is not re-paid; and it
+  accepts `repaired` as well as `ok`, because a JSON-repair retry still produced
+  validated output (57 such runs in the reference vault carry 687 units).
+
+  **Verified on the real thing.** The same 673-page source was run cold — 277
+  calls, 85 minutes — and then resumed: **0 extraction calls, 277/277 reached in
+  about two minutes**, counted against a snapshot taken immediately before
+  (`prompt_runs` 1941 before and 1941 after).
+
+  Resume stops at the source text: an L1 re-parse mints new span ids and the
+  whole source is re-extracted. That is deliberate, and sharp — measured at
+  **99.7% span overlap the batch hashes still shared only 21.7%**, because one
+  changed span shifts the packer and invalidates everything after it.
+
+### Changed
+- **The compiler audit and synthesis dependency collection read published units
+  only.** Now that a generation-less row can survive a crash, three table-wide
+  scans would have reported an abandoned extraction as if it were knowledge —
+  for the 673-page book, roughly 25,000 INFO lines out of `wiki lint`. They now
+  require `generation_id IS NOT NULL`. Verified inert on real data: the audit
+  report over a 233 MB vault is **byte-identical before and after**.
+- A structural test now fails any new table-wide read of `knowledge_units` that
+  neither filters on `generation_id` nor records why a partial is harmless
+  there. The habit was real — `synthesis_audit` read the whole table with no
+  filter at all.
+
+### Fixed
+- **A random span id no longer classifies a permanent failure as transient.**
+  Retry classification substring-matched the whole failure message, and an L2
+  batch failure embeds up to five `<PREFIX>-<8 hex>` ids. Random hex reads "503"
+  or "429" often enough to matter: **1 spurious retry in 15 runs** of a single
+  test, whose failing run carried `SPAN-13850308`. A permanent provider failure
+  was being requeued and re-run three times whenever an id happened to look like
+  a status code.
+
 ## [0.61.1] - 2026-08-20
 ### Fixed
 - **A rate-limited job no longer restarts from scratch into the same wall.**

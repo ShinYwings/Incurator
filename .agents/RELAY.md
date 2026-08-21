@@ -144,29 +144,42 @@ path, a schema that returned SUCCESS with nothing, a resolver that degraded a
 denial into a successful stub ingest, and a block that would have disabled a
 healthy failover. Green tests did not catch any of them.
 
-## Interposed: ROADMAP 5 Arena is closed; plan awaits approval
+## Interposed: ROADMAP 5 SHIPPED — v0.62.0 on `release/v0.62.0`
 
-`.agents/plans/06_resumable_l2.md` (v0.62.0). **No code written.** The Arena ran
-briefing → proposal → red-team → measured defense, and two of the red team's
-findings changed the design rather than confirming it:
+Plan `06_resumable_l2.md`, evidence `06_resumable_l2_evidence.md`. Backend 1,658
+pass, plugin 1,070, ruff + mypy clean.
 
-- **F2 (cost) is answered and is not an objection.** Per-batch persist is
-  8.9–17.9 ms against a measured **18,631 ms median** LLM call — 0.05–0.1%.
-  Benchmark: `scratchpad/f2_bench.py` on a copy of the live DB.
-- **F1 (readers) — my first defense overstated it and I rewrote the document.**
-  Partials are **not** publish-blocking (verified three ways: `publish_blocking`
-  excludes `unsupported_claims`; discard deletes `claim_supports` before units;
-  `formula_status` defaults to a value neither branch fires on), and the search
-  corpus cannot see them. Exposure is telemetry only → three filters, not a
-  staging table.
-- **The resume key already exists**: `prompt_runs.input_hash`. Hartley's three
-  attempts each produced exactly 277 distinct hashes, sets 100% identical.
-  **No schema change, no migration.**
-- **A span-keyed resume would have been wrong** — 1,790 of 8,692 spans (20.6%)
-  legitimately appear in more than one batch in a single clean run. Measured
-  before designing, not after.
+**Live acceptance passed: 277 extraction calls → 0, 5,100 s → ~120 s**, counted
+against a baseline snapshot (`prompt_runs` 1941 before and after).
 
-Do not start P0 until the user approves the plan.
+**The lesson worth keeping.** The first version shipped per-batch persistence
+alone and was *worthless*: the live run finished 277/277 in 85 minutes and ended
+with zero units, because `compile.py`'s staged-compile failure handler DELETED
+every row the extraction had written. All 19 unit tests passed against it — they
+call `extract_knowledge_units` directly and never reach that handler. Running it
+found what the tests could not, for the fifth release in a row. The handler now
+releases (`generation_id = NULL`) instead of deleting.
+
+That fix crossed the plan's own "no change to publish semantics" non-goal. The
+non-goal is what made the plan wrong; the plan records the violation inline
+rather than being quietly edited.
+
+**Design facts to not re-derive:**
+- Resume keys on `prompt_runs.input_hash` — no schema change. It hashes the
+  rendered prompt, so a template edit invalidates every batch by construction.
+- Stable only for an UNCHANGED span set. `_spans_block` renders span ids, so an
+  L1 re-parse invalidates everything. Measured: 99.7% span overlap still shared
+  only 21.7% of batch hashes.
+- Never key on batch index (`optimal_chunk_chars` changes the count 12/23/46/93)
+  and never on span coverage (1,790 of 8,692 spans appear in >1 batch).
+- `validator_status` must accept `repaired`, not only `ok` — 57 such runs in the
+  live vault carry 687 units.
+
+**Hartley is STILL unpublished, behind a new and unrelated blocker.** The staged
+compile now fails in `curator.entity_relation_extract@v2`: agy runs
+`python3 -c` to read its own transcript log and the denied command kills the
+compile. Neither v0.60.0 cause applies — the schema flattens and is sent, and
+graph extraction is already batched. See ROADMAP 5b.
 
 ## Immediate Next Action
 

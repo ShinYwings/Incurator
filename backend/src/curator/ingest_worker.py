@@ -32,8 +32,16 @@ _TRANSIENT_SIGNALS = (
 )
 
 
+# Typed ids are `<PREFIX>-<8 hex>` from `uuid4().hex[:8]`, and failure messages
+# embed up to five of them. Random hex hits "503" or "429" often enough to
+# matter: measured 1 spurious "transient" classification in 15 runs of a single
+# L2-failure test, i.e. a permanent provider failure retried three times because
+# a span id happened to read SPAN-13850308. Strip the ids before matching.
+_TYPED_ID = re.compile(r"\b[A-Z]{3,4}-[0-9a-fA-F]{8}\b")
+
+
 def _is_transient(error: str) -> bool:
-    low = error.lower()
+    low = _TYPED_ID.sub(" ", error).lower()
     return any(sig in low for sig in _TRANSIENT_SIGNALS)
 
 
