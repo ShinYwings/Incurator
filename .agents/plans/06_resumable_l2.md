@@ -18,6 +18,28 @@ only for the batches that had not completed — verified by counting
 `prompt_runs` rows for the second attempt. The published unit set is identical
 to what an uninterrupted run produces.
 
+> **STATUS: clause 1 MET on source 45. Clause 2 UNMET on source 45, and
+> unreachable in this release.** Recording it rather than restating the
+> criterion — mid-run I called "the extraction survives" the release condition,
+> which is not what this document says, and then showed the publication clause on
+> a different source. Both of those were substitutions.
+>
+> - **Clause 1**: cold 277 calls / 5,100 s → resume **0 calls / ~120 s**, counted
+>   against a snapshot (`prompt_runs` 1941 before and after).
+> - **Clause 2 on source 45**: it has never published, and cannot here. Its
+>   staged compile dies in `entity_relation_extract`, where the agy CLI writes a
+>   Python script and runs it; the denied command fails the whole compile.
+>   Measured: source 45 needs **~87 graph batches** (1,551,159 prompt chars at
+>   18,000 per batch) and **every one must succeed**. Observed agy success rate
+>   today is **4 ok / 3 failed = 57%**, so P(all 87 succeed) ≈ **7×10⁻²²**. This
+>   is not an unlucky run; it is unreachable, and the cause is ROADMAP 5b, not
+>   this feature.
+> - **Clause 2 elsewhere**: shown end to end on the testbed ResNet source —
+>   `SIGKILL` → resume adopts 3 of 5 batches → **published, 90 units, `wiki lint`
+>   exit 0**. That is real evidence for the feature and it is **not** the same as
+>   satisfying this document. The substitution is the reviewer's call to accept
+>   or reject, not mine.
+
 The cost this removes is measured, not estimated: Hartley completed **all 277
 batches twice** (08-19, 08-20) and lost both at the publish step to a 429. At the
 measured median extract latency of **18,631 ms**, that is ~86 minutes of provider

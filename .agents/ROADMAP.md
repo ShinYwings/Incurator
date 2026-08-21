@@ -238,8 +238,21 @@ This is the v0.60.0 class (model computes instead of answering), but **neither o
 that release's causes applies**: the contract's schema flattens cleanly and IS
 sent, and graph extraction is already batched by `client_optimal_chunk_chars`.
 What remains is the agy model electing to run shell commands under a structured-
-output contract, where one denied command fails the whole compile. Belongs with
-the agy-sandbox item.
+output contract, where one denied command fails the whole compile.
+
+**This is a hard blocker for any large source, not an intermittent annoyance.**
+Graph extraction batches by `optimal_chunk_chars` and **every batch must
+succeed** for the generation to publish. Source 45 needs **~87 batches**
+(1,551,159 prompt chars at 18,000 each). The observed agy success rate is
+**57%** (4 ok / 3 failed across today's attempts), so the chance of a clean run
+is about **7×10⁻²²**. Retrying cannot work. Any source past roughly a dozen graph
+batches is effectively unpublishable until this is fixed — and the whole vault's
+large references are in that class.
+
+Fix directions, none investigated yet: grant the agy sandbox a scratch execution
+allowance; route `entity_relation_extract` to a provider that does not shell out;
+or make a denied shell command a retryable per-batch failure instead of a fatal
+compile error. Belongs with the agy-sandbox item.
 
 ### 5c. (was 5) Resumable L2 — original problem statement, kept for context
 

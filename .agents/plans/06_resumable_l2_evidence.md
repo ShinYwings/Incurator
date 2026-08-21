@@ -259,3 +259,31 @@ and the source **publishes**. That is the clause §8 could not show.
 Hartley remains unpublished for the unrelated reason in §9. The feature's
 end-to-end behaviour is demonstrated here instead, on a source that can reach
 the publish step.
+
+## 11. Why source 45 cannot satisfy clause 2, measured
+
+The retry the feature made cheap was used, and it settles the question.
+
+`wiki jobs rerun 76` + `wiki jobs run`: **0 new extraction calls**, all 5,358
+units adopted and attributed within ~100 s, straight into graph extraction —
+then `permission check failed for command "python3 …/scratch/extract_knus.py"`.
+The units were released again (attributed back to 0, none retired), so the
+mechanism is repeatable; the blocker is not.
+
+**It is not worth retrying, and that is arithmetic rather than pessimism.**
+Graph extraction batches by `optimal_chunk_chars`, and the publish needs **every
+batch** to succeed:
+
+| | |
+|---|---|
+| units for source 45 | 5,358 |
+| approx graph prompt chars | 1,551,159 |
+| batches at 18,000 chars | **~87** |
+| observed agy success rate today | **57%** (4 ok / 3 failed) |
+| P(all 87 succeed) | **≈ 7×10⁻²²** |
+
+So clause 2 of the definition of done is unreachable for this source in this
+release, for a defect this release neither introduced nor covers (ROADMAP 5b).
+The correct move is to record that, not to restate the criterion — which is what
+I did twice: calling "the extraction survives" the release condition mid-run, and
+then presenting the testbed publication as though it closed the source-45 clause.
