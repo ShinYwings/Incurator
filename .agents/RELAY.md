@@ -51,8 +51,9 @@ complied with the prohibitions. That is exactly what the user complained about.
 - [ ] **P5a — Vault coverage.** The remaining ingest half: the `[Source]`
       spaces (`03_Notes/`, `04_Resources/`), NOT `00_System/`. Partly underway —
       see the live-vault state below.
-- [x] **P6 — Live acceptance. PASSED 2026-08-22**, driven through the real
-      Obsidian popover (`Cmd+Shift+K`) on the live vault. See below.
+- [ ] **P6 — Live acceptance. RUN 2026-08-22, duty 2 FAILED.** Duties 1 and 3
+      and the no-narration gate hold; the assistant never leaves the current
+      note. See below.
 
 Out-of-plan work that shipped alongside: v0.53.3 (#152) narration removal,
 v0.54.1 (#155) the backend `ANTIGRAVITY_*` scrub, v0.56.1 (#157) the agy
@@ -272,7 +273,7 @@ P6 is the acceptance test and needs a published paper with a bibliography and
 equations, which 34 sources have satisfied since 08-18. **The mistake was never
 working on Hartley — it was letting it stand in for the goal.**
 
-## P6 — LIVE ACCEPTANCE PASSED (2026-08-22)
+## P6 — LIVE ACCEPTANCE RUN (2026-08-22): duty 2 FAILS
 
 Run in the user's actual Obsidian, not a harness. Selection: the Plücker–Quadric
 constraint line in their own note `03_Notes/Papers/3DRec/3D Line Mapping
@@ -304,8 +305,47 @@ with *"❌ DeepSeek API key is not set."* — the USER_REPORT item filed on
 2026-08-21 — and only went through after the provider fell back to Antigravity.
 That item is not a convenience issue: **it blocks the acceptance test.**
 
-**Plan 05 is therefore complete except P5a**, which is one source (45) away and
-gated on ROADMAP 5c, not on the goal.
+### CORRECTION (same day): I called this a PASS. It is not.
+
+The user: *"다른 노트에 plucker coordinates 관련된거 많은데, MultipleViewGeometry랑
+research notes 에…"* — and they are right.
+
+**Duty 2 is not met.** The answer surfaced sections of the note the selection came
+from. That is not "my own notes"; it is the same note. And the question asked for
+other notes **explicitly** — *"내가 쓴 **다른 노트** 중 관련된 게 있어?"* — and it
+still did not leave the file.
+
+Measured on the live vault: **21 published sources** match `plucker OR plücker`,
+including exactly the ones the user names.
+
+| source | hits |
+|---|---|
+| `03_Notes/Vision/Silhouette Based Reconstruction.md` | **59** |
+| `04_Resources/References/3D Line Mapping Revisited…` | 30 |
+| `02_Wiki/CUDA_GaussianSplatting_고급/…` (7 files) | 18, 7, 6, 5, 4, 4, 3… |
+| `03_Notes/Papers/EWA splatting.md` | 8 |
+| **`03_Notes/Vision/MultipleViewGeometry.md`** | **4** |
+| `03_Notes/Vision/Auto Calibration.md` | 3 |
+
+**None was surfaced.** The retrieval that would have found them is the same
+DB-native FTS the vault already runs — the content is indexed and reachable.
+
+**Revised verdict:**
+
+| duty | result |
+|---|---|
+| 1 — read with me | **PASS** |
+| 2 — remind me what I wrote | **FAIL** — never leaves the current note |
+| 3 — find new value | **PARTIAL** — real connections, all intra-note |
+| no meta-narration (§3 gate) | **PASS** |
+
+**Next question to answer, not to assume:** does the popover's pre-turn
+resolution run a vault-wide retrieval at all, or is it scoped to the active file?
+Plan 05 §4.2 locks "resolve BEFORE the turn", so the fix belongs in that
+resolution step, not in giving the model a search tool (§2 forbids that).
+
+**Plan 05 is therefore NOT complete.** P5a is one source away and gated on
+ROADMAP 5c; **P6 is open on duty 2**, which is independent of both.
 
 ## Immediate Next Action
 
