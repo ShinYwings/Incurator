@@ -214,7 +214,34 @@ saying otherwise was stale.
 **NEXT here**: one pass per inventory item recording shipped/open, then delete
 the folders. Not before — that ordering is what went wrong once already.
 
-### 5. Resumable L2 extraction — wanted, needs designing
+### 5. Resumable L2 extraction — SHIPPED in v0.62.0
+
+Live acceptance: 277 extraction calls → **0**, 5,100 s → **~120 s**, measured
+against a baseline snapshot (`prompt_runs` 1941 before and after). Evidence:
+`.agents/plans/06_resumable_l2_evidence.md` §8.
+
+Two changes were needed and the first alone was worthless: per-batch persistence,
+**and** a staged-compile failure releasing that work instead of deleting it. The
+first version shipped only the first and lost all 277 batches again in a live
+run; every unit test passed against it, because they call the extractor directly
+and never reach `compile.py`'s failure handler.
+
+### 5b. Hartley is still unpublished — agy shells out during graph extraction
+
+**NEW, found by the v0.62.0 live run (2026-08-21).** The staged compile now
+fails in `curator.entity_relation_extract@v2`: 2 of 5 calls returned
+
+> `permission check failed for command "python3 -c '… transcript_full.jsonl …'"`
+
+The model tried to read the CLI's own transcript log to recover its prompt input.
+This is the v0.60.0 class (model computes instead of answering), but **neither of
+that release's causes applies**: the contract's schema flattens cleanly and IS
+sent, and graph extraction is already batched by `client_optimal_chunk_chars`.
+What remains is the agy model electing to run shell commands under a structured-
+output contract, where one denied command fails the whole compile. Belongs with
+the agy-sandbox item.
+
+### 5c. (was 5) Resumable L2 — original problem statement, kept for context
 
 Removed in v0.51.1 rather than repaired (B3 P6). The old mechanism could never
 run: checkpoints were written only inside the branch that required checkpoints

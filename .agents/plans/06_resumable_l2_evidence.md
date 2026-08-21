@@ -158,3 +158,58 @@ discard does is a change to staging semantics. It needs the user's decision.
 loss as the motivating measurement for a feature that does not prevent it. Either
 the fix lands, or that entry must be rewritten to say the feature covers
 interruption during extraction only.
+
+## 8. P5 live acceptance — PASSED after the §7 fix
+
+`_release_staged_units_for_resume` shipped, then the same job was run again
+against the real vault.
+
+**Cold run (2026-08-21 06:39→08:04 UTC).** 277 extraction calls, 85.0 minutes
+wall, 85.0 minutes of provider latency, every run `ok`. The staged compile failed
+again — a different error this time (see §9). **5,358 knowledge_units survived
+with `generation_id IS NULL`**, all 5,358 matching the adoption predicate. Under
+the deleted-rows behaviour of §7 this number was 0.
+
+**Resume run.** `wiki jobs rerun 76` then `wiki jobs run`:
+
+| | cold | resume |
+|---|---|---|
+| extraction calls | **277** | **0** |
+| wall clock to 277/277 | **5,100 s** | **~120 s** |
+| provider time | 85.0 min | 0 |
+
+The call count was measured against a baseline snapshot taken immediately before
+the resume: `prompt_runs` for `curator.knowledge_unit_extract` on source 45 was
+**1941 before and 1941 after**. The plan's §1 definition of done — *"the
+restarted run issues LLM calls only for the batches that had not completed"* —
+is met exactly: none had.
+
+For contrast, every cold attempt this source has ever made:
+
+| window | calls | wall | provider |
+|---|---|---|---|
+| 08-20 11:30→12:56 | 277 | 85.8 m | 86.0 m |
+| 08-20 16:19→18:47 | 461 | 147.8 m | 139.3 m |
+| 08-20 20:31→21:52 | 277 | 81.4 m | 81.5 m |
+| 08-21 06:39→08:04 | 277 | 85.0 m | 85.0 m |
+
+## 9. Hartley is still unpublished, now behind a DIFFERENT blocker
+
+Not a regression of this work, and not in scope for v0.62.0.
+
+The staged compile now fails in graph extraction: `curator.entity_relation_extract@v2`,
+2 of 5 calls `failed` with
+
+> `Antigravity CLI exited 1: permission check failed for command "python3 -c '…
+> transcript_full.jsonl … content.find("Knowledge units:") …'"`
+
+The model tried to recover its own prompt input by reading the CLI's transcript
+log from disk. This is the v0.60.0 failure class — the model computing an answer
+instead of returning one — but **the schema is not the cause here**: checked
+directly, `curator.entity_relation_extract`'s output model flattens cleanly and
+`_schema_for` therefore sends it. Graph extraction is also already batched by
+`client_optimal_chunk_chars`, so it is not an input-size overflow either.
+
+What is left is the agy CLI model electing to shell out even under a structured-
+output contract, with a denied command failing the entire compile. That is
+ROADMAP "agy sandbox", which now has hard evidence.
