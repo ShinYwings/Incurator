@@ -51,7 +51,8 @@ complied with the prohibitions. That is exactly what the user complained about.
 - [ ] **P5a — Vault coverage.** The remaining ingest half: the `[Source]`
       spaces (`03_Notes/`, `04_Resources/`), NOT `00_System/`. Partly underway —
       see the live-vault state below.
-- [ ] **P6 — Live acceptance.** The definition-of-done question, end to end.
+- [x] **P6 — Live acceptance. PASSED 2026-08-22**, driven through the real
+      Obsidian popover (`Cmd+Shift+K`) on the live vault. See below.
 
 Out-of-plan work that shipped alongside: v0.53.3 (#152) narration removal,
 v0.54.1 (#155) the backend `ANTIGRAVITY_*` scrub, v0.56.1 (#157) the agy
@@ -270,6 +271,41 @@ small papers all pass without touching any of it.
 P6 is the acceptance test and needs a published paper with a bibliography and
 equations, which 34 sources have satisfied since 08-18. **The mistake was never
 working on Hartley — it was letting it stand in for the goal.**
+
+## P6 — LIVE ACCEPTANCE PASSED (2026-08-22)
+
+Run in the user's actual Obsidian, not a harness. Selection: the Plücker–Quadric
+constraint line in their own note `03_Notes/Papers/3DRec/3D Line Mapping
+Revisited.md` — `Dual Quadric Q*와 Plücker Line L = [lᵀ, mᵀ]ᵀ 사이의 대수적
+관통/접합 손실 LᵀM(Q)L = 0 적용`. Opened the quick-query popover with
+`Cmd+Shift+K` and asked: *"이 제약이 무슨 뜻이야? 내가 쓴 다른 노트 중 관련된 게
+있어?"*
+
+**All three duties, in one answer, with no meta-narration:**
+
+1. **Read with me** — explained the constraint and what the equation does:
+   *"3D 공간상의 선(Plücker Line)과 물체의 표면을 나타내는 2차 곡면(Dual
+   Quadric)이 기하학적으로 올바르게 만나도록 강제하는 수학적 조건(LᵀM(Q)L = 0)…
+   최적화 과정에서 손실(Loss) 함수로 사용함으로써…"*
+2. **Remind me what I wrote** — pointed at the user's own note **by section
+   title**: *"작성하신 현재 노트의 하단에 이와 직접적으로 관련된 내용이 정리되어
+   있습니다. "4. Plucker Coordinates 기반 Quadric 사용할 때 참고할만한 점"
+   섹션을…"*
+3. **Find new value** — named two sub-items and *why* each connects, which the
+   selection alone does not contain: **4.2 하드 제약 대신 소프트 제약** (how the
+   algebraic constraint is actually applied in optimisation) and **4.6 Quadric
+   Triangulation 실패 시 대처** (what to do when the constraint does not hold).
+
+**No sentence about context, loading, retrieval state, or general knowledge** —
+the §3 gate the whole v0.53.x line existed to fix.
+
+**P6 also surfaced a live blocker before it could run.** The first attempt failed
+with *"❌ DeepSeek API key is not set."* — the USER_REPORT item filed on
+2026-08-21 — and only went through after the provider fell back to Antigravity.
+That item is not a convenience issue: **it blocks the acceptance test.**
+
+**Plan 05 is therefore complete except P5a**, which is one source (45) away and
+gated on ROADMAP 5c, not on the goal.
 
 ## Immediate Next Action
 
