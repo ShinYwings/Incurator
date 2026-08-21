@@ -3,6 +3,8 @@ import {
   buildActiveBackgroundContext,
   buildPrimarySelectionBlock,
   buildQuickQueryMessages,
+  buildQuickQueryRetrievalQuery,
+  QUICK_QUERY_RETRIEVAL_SELECTION_CHARS,
 } from "./quickQueryContext";
 import { boundaryConstraints, POPOVER_PROFILE } from "./promptRegistry";
 import type { ActiveContext } from "../types";
@@ -275,5 +277,34 @@ describe("duty 2 — the popover surfaces the reader's own notes (v0.62.3)", () 
       question: "what is this?",
     });
     expect(messages.find((m) => m.role === "user")!.content).not.toContain("<vault_evidence");
+  });
+});
+
+describe("the popover's retrieval query (v0.62.4)", () => {
+  it("prepends the selection, because the question is usually deictic", () => {
+    // Shipped in v0.62.3 as the question alone, and it looked like the whole fix
+    // had failed. Measured against the live vault: the question alone returned
+    // 0 evidence items from 0 sources; selection + question returned 35 items
+    // across 9 sources. "이 제약이 무슨 뜻이야?" has no topical term at all —
+    // the topic is in the passage the reader selected.
+    const q = buildQuickQueryRetrievalQuery(
+      "Plücker Line - Quadric 제약: Dual Quadric Q*와 Plücker Line 사이의 손실",
+      "이 제약이 무슨 뜻이야?"
+    );
+    expect(q).toContain("Plücker");
+    expect(q).toContain("Quadric");
+    expect(q).toContain("이 제약이 무슨 뜻이야?");
+  });
+
+  it("caps the selection so a page-long drag does not become the query", () => {
+    const q = buildQuickQueryRetrievalQuery("A".repeat(5000), "what is this?");
+    expect(q.length).toBeLessThan(QUICK_QUERY_RETRIEVAL_SELECTION_CHARS + 200);
+    expect(q).toContain("what is this?");
+  });
+
+  it("still produces a usable query when there is no selection", () => {
+    expect(buildQuickQueryRetrievalQuery("", "what is a Plücker line?")).toBe(
+      "what is a Plücker line?"
+    );
   });
 });

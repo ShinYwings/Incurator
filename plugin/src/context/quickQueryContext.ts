@@ -149,6 +149,27 @@ export function buildPinnedSourcesBlock(refs: ContextRef[] | undefined): string 
   return `<pinned_sources>\n${entries.join("\n")}\n</pinned_sources>`;
 }
 
+/** Retrieval query for the popover's pre-turn vault fetch.
+ *
+ * The question alone is not enough, and shipping it that way made the fix look
+ * like it had failed. A popover question is usually deictic — "이 제약이 무슨
+ * 뜻이야?", "what does this mean?" — so it carries no topical term at all, and
+ * the topic lives in the SELECTION. Measured against the live vault: the question
+ * alone returned **0 evidence items from 0 sources**; the selection prepended to
+ * it returned **35 items across 9 sources**.
+ *
+ * The selection is capped because a drag can span a page: retrieval needs the
+ * subject, not the whole passage. */
+export const QUICK_QUERY_RETRIEVAL_SELECTION_CHARS = 600;
+
+export function buildQuickQueryRetrievalQuery(
+  selectedText: string,
+  question: string
+): string {
+  const selection = (selectedText || "").trim().slice(0, QUICK_QUERY_RETRIEVAL_SELECTION_CHARS);
+  return [selection, (question || "").trim()].filter(Boolean).join("\n\n");
+}
+
 export function buildQuickQueryMessages(args: QuickQueryMessageArgs): LLMMessage[] {
   const background = buildActiveBackgroundContext(args.activeContext, {
     selectedText: args.selectedText,

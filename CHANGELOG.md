@@ -2,6 +2,19 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.62.4] - 2026-08-22
+### Fixed
+- **The popover's vault search now looks for the passage you selected, not just
+  the words you typed.** v0.62.3 wired the retrieval and then handed it the
+  question alone — and a popover question is almost always deictic ("이 제약이
+  무슨 뜻이야?", "what does this mean?"), so it carries no topic at all. The
+  subject is in the selection.
+
+  Measured live against the vault: the question alone returned **0 evidence items
+  from 0 sources**, and the answer said as much — *"검색 결과 추가로 매칭된 노트는
+  없었다"*. The selection prepended to it returns **35 items across 9 sources**.
+  The selection is capped so a page-long drag does not become the query.
+
 ## [0.62.3] - 2026-08-22
 ### Fixed
 - **The assistant now surfaces your other notes, not just the one you are in.**

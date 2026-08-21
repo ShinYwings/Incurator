@@ -3,6 +3,7 @@ import type ObsidianAIAgent from "../../main";
 import type { LLMMessage, StreamChunk } from "../types";
 import {
   buildQuickQueryMessages as buildQuickQueryContextMessages,
+  buildQuickQueryRetrievalQuery,
   type QuickQueryTurn,
 } from "../context/quickQueryContext";
 import { formatCuratorContextPack } from "../context/providerContextFormat";
@@ -554,11 +555,16 @@ export class QuickQueryPopover {
     try {
       const client = this.plugin.incuratorClient;
       if (client?.available) {
-        const pack = await client.fetchContext(question, {
+        // The SELECTION carries the topic; the question is usually deictic.
+        const retrievalQuery = buildQuickQueryRetrievalQuery(
+          this.capturedSelection,
+          question
+        );
+        const pack = await client.fetchContext(retrievalQuery, {
           workspacePath: this.vaultWorkspacePath(),
           limitTokens: QUICK_QUERY_VAULT_EVIDENCE_TOKENS,
         });
-        if (pack.ok) vaultEvidenceBlock = formatCuratorContextPack(pack, question);
+        if (pack.ok) vaultEvidenceBlock = formatCuratorContextPack(pack, retrievalQuery);
       }
     } catch {
       vaultEvidenceBlock = undefined;
