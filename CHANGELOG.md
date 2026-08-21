@@ -2,6 +2,33 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.62.1] - 2026-08-22
+### Fixed
+- **One provider refusal no longer kills an 87-batch compile.** Graph extraction
+  guarded validation failures but had no `try` around the prompt runner, which
+  closes its trace and re-raises — so a single refusal unwound the caller's
+  staging block and failed the whole source. That is fatal at scale because
+  publishing needs **every** batch: measured on a 673-page book, ~87 batches at a
+  43% refusal rate meant the run aborted after 2 (expected 1/0.43 = 2.3) and the
+  chance of a clean pass was about 7×10⁻²². The refusal is not deterministic —
+  live, the same batch went through on its 3rd and 7th tries — so a refused batch
+  is now retried, and exhausting the attempts reports the reason instead of
+  raising.
+- **A rate limit is not retried in that loop.** Splitting the live failures by
+  cause gave 5 of 11 as 429 and 6 as permission denials. Hammering a 429 spends
+  the budget against the wall and undoes v0.61.1, whose point is that a refused
+  job stays queued and the worker says how long to wait. Capacity now propagates,
+  detected by asking the client's own capacity block rather than by matching the
+  message — substring matching on error text is what misclassified a permanent
+  failure as transient in v0.62.0.
+- **A killed run no longer strands its extraction.** The handler that releases
+  a failed generation's units lives in an `except` block, so it covers every
+  failure the process survives and none that it does not. Measured after killing
+  a compile mid-graph: the generation stayed `staged` holding all **5,358**
+  extracted units with **zero** adoptable, so the next run would have re-paid 85
+  minutes of extraction that was sitting right there. A pre-existing staged
+  generation is now released before extraction starts.
+
 ## [0.62.0] - 2026-08-21
 ### Added
 - **L2 extraction is resumable.** An interrupted run used to discard every batch
