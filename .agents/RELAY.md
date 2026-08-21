@@ -144,25 +144,29 @@ path, a schema that returned SUCCESS with nothing, a resolver that degraded a
 denial into a successful stub ingest, and a block that would have disabled a
 healthy failover. Green tests did not catch any of them.
 
-## Interposed: ROADMAP 5 SHIPPED — v0.62.0 on `release/v0.62.0`
+## Interposed: ROADMAP 5 SHIPPED — v0.62.0 merged (PR #166, 2026-08-21)
 
-Plan `06_resumable_l2.md`, evidence `06_resumable_l2_evidence.md`. Backend 1,658
-pass, plugin 1,070, ruff + mypy clean.
+Plan and evidence ledger deleted on merge per the workflow; read them with
+`git show f182efe^:.agents/plans/06_resumable_l2_evidence.md`. Arena record stays
+at `.agents/plans/resumable_l2_arena/`.
 
-**Live acceptance passed: 277 extraction calls → 0, 5,100 s → ~120 s**, counted
-against a baseline snapshot (`prompt_runs` 1941 before and after).
+**Live acceptance: 277 extraction calls → 0, 5,100 s → ~120 s**, counted against
+a baseline snapshot (`prompt_runs` 1941 before and after). Testbed E2E through
+the CLI: SIGKILL mid-extraction → resume adopts 3 of 5 batches → **published,
+90 units, `wiki lint` exit 0**.
 
-**The lesson worth keeping.** The first version shipped per-batch persistence
-alone and was *worthless*: the live run finished 277/277 in 85 minutes and ended
-with zero units, because `compile.py`'s staged-compile failure handler DELETED
-every row the extraction had written. All 19 unit tests passed against it — they
-call `extract_knowledge_units` directly and never reach that handler. Running it
-found what the tests could not, for the fifth release in a row. The handler now
-releases (`generation_id = NULL`) instead of deleting.
+**Two lessons worth keeping.**
 
-That fix crossed the plan's own "no change to publish semantics" non-goal. The
-non-goal is what made the plan wrong; the plan records the violation inline
-rather than being quietly edited.
+1. *Shipping half the feature was worthless, and only a live run said so.* The
+   first version had per-batch persistence alone; the run finished 277/277 in 85
+   minutes and ended with **zero units**, because `compile.py`'s staged-compile
+   failure handler DELETED every row it had written. All 19 unit tests passed
+   against it — they call `extract_knowledge_units` directly and never reach that
+   handler. Fifth release in a row where running it found what tests could not.
+2. *I moved the goalposts twice.* Mid-run I called "the extraction survives" the
+   release condition, which the plan does not say; then I showed the publication
+   clause on the testbed source and presented it as closing the gap on source 45.
+   Both were substitutions. Accepting a substitution is the reviewer's call.
 
 **Design facts to not re-derive:**
 - Resume keys on `prompt_runs.input_hash` — no schema change. It hashes the
@@ -174,12 +178,16 @@ rather than being quietly edited.
   and never on span coverage (1,790 of 8,692 spans appear in >1 batch).
 - `validator_status` must accept `repaired`, not only `ok` — 57 such runs in the
   live vault carry 687 units.
+- The keep-set goes through a TEMP TABLE, never `id NOT IN (?,?,…)`: SYSTEM_
+  BEHAVIOR caps queries at 900 bind parameters and source 45 alone needs 5,358.
 
-**Hartley is STILL unpublished, behind a new and unrelated blocker.** The staged
-compile now fails in `curator.entity_relation_extract@v2`: agy runs
-`python3 -c` to read its own transcript log and the denied command kills the
-compile. Neither v0.60.0 cause applies — the schema flattens and is sent, and
-graph extraction is already batched. See ROADMAP 5b.
+**Hartley (`sources.id=45`) is STILL unpublished — ROADMAP 5b, not this work.**
+Its staged compile dies in `curator.entity_relation_extract`: agy writes a Python
+script and runs it, the command is denied, the whole compile fails. Publishing
+needs **every** graph batch to succeed; source 45 needs **~87** and agy's measured
+success rate is **57%**, so P(clean run) ≈ **7×10⁻²²**. Retrying cannot work.
+Its 5,358 extracted units are parked, unpublished and adoptable, so the retry is
+now ~2 minutes rather than 85 — whenever 5b is fixed.
 
 ## Immediate Next Action
 

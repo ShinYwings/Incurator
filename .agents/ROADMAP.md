@@ -217,8 +217,9 @@ the folders. Not before — that ordering is what went wrong once already.
 ### 5. Resumable L2 extraction — SHIPPED in v0.62.0
 
 Live acceptance: 277 extraction calls → **0**, 5,100 s → **~120 s**, measured
-against a baseline snapshot (`prompt_runs` 1941 before and after). Evidence:
-`.agents/plans/06_resumable_l2_evidence.md` §8.
+against a baseline snapshot (`prompt_runs` 1941 before and after). The plan and
+its evidence ledger were deleted on merge per the workflow; read them with
+`git show f182efe^:.agents/plans/06_resumable_l2_evidence.md`.
 
 Two changes were needed and the first alone was worthless: per-batch persistence,
 **and** a staged-compile failure releasing that work instead of deleting it. The
@@ -278,13 +279,17 @@ and then hit a 429 at publish. All-or-nothing discarded every batch — about 90
 minutes. This is the sharpest case this item has: not "interrupted midway" but
 "finished the expensive part and threw it away". Continues ROADMAP 4's P6.
 
-**PLANNED, awaiting approval (2026-08-21)** — `.agents/plans/06_resumable_l2.md`,
-Arena at `.agents/plans/resumable_l2_arena/`. The question above ("what does a
-resumed run return?") is answered by D5. The design needs **no schema change**:
-`prompt_runs.input_hash` already identifies a batch and is stable — Hartley's
-three attempts each produced exactly 277 distinct hashes and the sets are
-identical. Per-batch persist costs 0.05–0.1% of the batch that made the LLM call
-(8.9–17.9 ms against a measured 18,631 ms median).
+**SHIPPED as v0.62.0 (PR #166, merged 2026-08-21).** See item 5 above; the
+Arena record stays at `.agents/plans/resumable_l2_arena/`. The question this item
+kept asking — "what does a resumed run return?" — is answered by accumulating ids
+in the extraction loop, never by querying the source's staged units. Resume needs
+**no schema change**: `prompt_runs.input_hash` already identifies a batch and is
+stable for an unchanged span set.
+
+**Clause 2 of that plan's definition of done was NOT met on this source** and is
+unreachable until ROADMAP 5b: Hartley still publishes nothing, because its staged
+compile dies in graph extraction. The publication half was demonstrated on the
+testbed source instead.
 
 
 **Measured twice, 2026-08-19 and 2026-08-20 — this is now the blocker for one
