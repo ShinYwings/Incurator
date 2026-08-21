@@ -9,6 +9,8 @@ declared entities; the prompt validator enforces that. Records land in the
 
 from __future__ import annotations
 
+import logging
+
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -16,6 +18,8 @@ from typing import Any
 from .. import db, prompting
 from .claim_support import _extract_latex
 from .chunking import client_optimal_chunk_chars
+
+_log = logging.getLogger(__name__)
 
 __all__ = [
     "GraphExtractionResult", "GraphData",
@@ -54,6 +58,13 @@ def _units_block(units: list[dict]) -> str:
             f'{u["id"]} ({u.get("unit_type","claim")}) [{spans}]: {u.get("statement","")}'
         )
     return "\n".join(lines)
+
+
+# Attempts per graph batch before it is reported failed. The agy CLI refuses a
+# tool request in `-p` mode and exits 1; measured refusal rate 43%, so 8 attempts
+# leave a per-batch failure chance of 0.43**8 = 0.12%, and ~90% of an 87-batch
+# source completing. Retries are only spent on batches that actually refused.
+_MAX_BATCH_ATTEMPTS = 8
 
 
 def extract_graph_data(
@@ -120,20 +131,53 @@ def extract_graph_data(
 
     contract = prompting.REGISTRY.get("curator.entity_relation_extract")
 
-    for batch in batches:
+    for index, batch in enumerate(batches, start=1):
         input_obj = contract.input_model(
             units_block=_units_block(batch),
             valid_span_ids_block="\n".join(valid_span_ids),
         )
-        result = prompting.run_prompt(
-            db_path,
-            client,
-            contract,
-            input_obj,
-            validation_context={"valid_span_ids": set(valid_span_ids)},
-            source_span_ids=valid_span_ids,
-            curate_spec_hash=curate_spec_hash,
-        )
+        # A provider exception used to escape this loop entirely: validation
+        # failures were guarded by the `continue` below, but `run_prompt` closes
+        # its trace and RE-RAISES, so one refusal unwound the caller's staging
+        # block and killed the compile.
+        #
+        # That is fatal at scale because publishing needs EVERY batch. Measured
+        # on the live vault: source 45 needs ~87 batches, agy refused 43% of
+        # calls (4 ok / 3 failed), so the expected number of batches completed
+        # before the first abort was 1/0.43 = 2.3 — the run aborted after 2 —
+        # and P(87 clean) was about 7e-22. The refusal is nondeterministic, so
+        # re-running the same batch usually goes through.
+        result = None
+        refusal = ""
+        for attempt in range(1, _MAX_BATCH_ATTEMPTS + 1):
+            try:
+                result = prompting.run_prompt(
+                    db_path,
+                    client,
+                    contract,
+                    input_obj,
+                    validation_context={"valid_span_ids": set(valid_span_ids)},
+                    source_span_ids=valid_span_ids,
+                    curate_spec_hash=curate_spec_hash,
+                )
+                break
+            except Exception as exc:  # noqa: BLE001 - see above; never fatal here
+                refusal = f"{type(exc).__name__}: {exc}"
+                _log.warning(
+                    "graph batch %d/%d attempt %d/%d failed: %s",
+                    index, len(batches), attempt, _MAX_BATCH_ATTEMPTS, refusal,
+                )
+
+        if result is None:
+            # Exhausted. Report it the same way a validation failure reports —
+            # ok=False with the reason — so the caller's error boundary stays the
+            # single place that decides what a failed graph means.
+            all_ok = False
+            all_errors.append(
+                f"graph batch {index}/{len(batches)} failed after "
+                f"{_MAX_BATCH_ATTEMPTS} attempts: {refusal}"
+            )
+            continue
 
         if result.trace_id:
             last_trace_id = result.trace_id
