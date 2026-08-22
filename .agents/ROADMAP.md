@@ -331,7 +331,7 @@ the point, but it will move search results noticeably.
 **Deferred, and to be planned via a MULTI-AGENT Arena debate when it comes up
 (user directive, 2026-08-22).** Priority is below ROADMAP 5c.
 
-### 5c. Graph extraction is not resumable — the same defect v0.62.0 fixed for L2
+### 5c. Graph extraction is not resumable — CLOSED in v0.63.0 (#171)
 
 **NEW, measured 2026-08-22 after v0.62.1.** Removing the fatality of a refusal
 was necessary and did not make source 45 publishable. Graph output is held **in
@@ -371,7 +371,7 @@ a copy.
 published paper with a bibliography and equations, and 34 sources published on
 2026-08-18. Source 45 is a coverage item.
 
-### 5d. Every graph batch re-sends all 8,905 span ids — 87% of each prompt
+### 5d. Every graph batch re-sent all 8,905 span ids — CLOSED in v0.63.0 (#171)
 
 **NEW, measured 2026-08-23 during the P5 live run.** The user asked why runs die
 with a capacity error while their quota is fine. Their quota *is* fine. The run
@@ -418,7 +418,7 @@ false-positives by matching bare `"429"` against agy's `--log-file` output. A
 real 26 KB agy log was captured and checked against all eight phrases: **zero
 matches**. The backend's classifier is not implicated here.
 
-### 5b. Hartley is still unpublished — agy shells out during graph extraction
+### 5b. agy shells out during graph extraction — Hartley PUBLISHED anyway (v0.63.0)
 
 **NEW, found by the v0.62.0 live run (2026-08-21).** The staged compile now
 fails in `curator.entity_relation_extract@v2`: 2 of 5 calls returned
