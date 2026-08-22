@@ -201,23 +201,36 @@ Whenever a user requests a new feature, reports a bug, or uses the `/goal` comma
     found something, including regressions the author had just introduced. Merge
     only when CI is green and the review's findings are fixed or recorded.
 
-    **Escalate to the user — do not decide alone — when:**
+    **Plans are authored autonomously, with multi-agent** (user directive,
+    2026-08-23: *"계획서 필요할때도 너가 알아서 계획서 멀티에이전트로 짜"*). Step 4
+    and the Review Feedback Loop no longer stop for approval by default: run the
+    Arena with real parallel agents — independent proposals, genuine
+    cross-critique, adversarial verification of the findings — and proceed to
+    implementation from the synthesis. A plan the agent wrote alone and then
+    agreed with is not an Arena.
 
-    - the change alters a **stored contract**: DB schema, `SCHEMA_VERSION`,
-      cross-device transport, a prompt contract, or a public CLI/MCP/plugin API;
-    - it changes **what the product is** rather than whether it works: a feature's
-      shape, what gets ingested, what the layers mean, roadmap priority;
-    - it would **delete, overwrite or migrate the user's data**, or reindex their
-      vault;
-    - the version line moves to **1.0**;
-    - two readings of the request lead to **materially different work**, and the
-      code cannot settle which;
-    - a **plan** is required (Step 4 and the Review Feedback Loop still STOP for
-      approval — the delegation covers reviewing and merging, not skipping plans).
+    **The standing tiebreaker is stability** (same directive: *"업데이트 하는
+    방향은 시스템이 안정되는 방향으로"*). When two designs are defensible, take the
+    one that leaves the system more stable — fewer moving contracts, louder
+    failures, smaller blast radius — even when the other is more capable. That is
+    a decision rule to APPLY, not a reason to ask.
 
-    Everything else — bug fixes, tests, docs, refactors inside a settled
-    contract, version bumps, release mechanics — the agent takes to merge itself
-    and reports what it did.
+    **Escalate to the user — do not decide alone — when the decision is
+    genuinely ambiguous** (*"결정이 헷갈릴때"*): when the tiebreaker above does not
+    resolve it, when two readings of what the user wants lead to materially
+    different work, or when the choice is about **what the product should be**
+    rather than how to build it. Also stop, per the repo's general safety rules,
+    before anything that **deletes, overwrites or migrates the user's data** or
+    reindexes their vault, and before declaring **1.0**.
+
+    A stored-contract change — DB schema, `SCHEMA_VERSION`, cross-device
+    transport, a prompt contract, a public CLI/MCP/plugin API — is **not** an
+    automatic escalation any more. It IS an automatic *plan*, a release of its
+    own, and a migration rehearsal (Phase D of the roadmap). Escalate only if the
+    plan surfaces a real fork the tiebreaker cannot settle.
+
+    Everything else — bug fixes, tests, docs, refactors, version bumps, release
+    mechanics — the agent takes to merge itself and reports what it did.
 
 ---
 
