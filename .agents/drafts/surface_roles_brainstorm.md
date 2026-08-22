@@ -139,3 +139,58 @@ ChatGPT account`. That is its own defect to file, not evidence about codex.
    assumed — compare the evidence each path retrieves for the same question.
 5. **Where exactly is agy's PDF ceiling?** Between 4.1 MB and 21 MB. Worth
    knowing if agy stays a routed provider for document questions.
+
+
+## 7. ANSWERED: does dropping LLM query expansion cost quality? It depends on the input — and the split matches the surfaces
+
+The user was explicit that the sidechat trades time for quality, so this was
+measured rather than assumed. `derive_search_query` runs an LLM to turn the
+message into an English search query, costing **11.6–50 s**, and falls back to
+`re.sub(r"[^A-Za-z0-9_./+-]+", " ", message)` on failure.
+
+### Case A — a term-rich mixed-script selection (what the POPOVER sends)
+
+| path | produced | hits | sources | top sources | keeps `Plücker` | cost |
+|---|---|---|---|---|---|---|
+| LLM | `Plücker Line Quadric constraint Dual Quadric intersection tangency loss` | 1500 | 28 | 37,14,25,16,18,34 | yes | **12.6 s** |
+| current fallback | `Pl cker Line - Quadric … L T M Q L 0 .` | 1310 | 27 | 37,14,16,25,18,34 | **no** | 0 s |
+| **Unicode-aware fallback** | `Plücker Line Quadric 제약 Dual Quadric …` | **1508** | **28** | 37,14,25,18,16,34 | **yes** | **0 s** |
+
+**The expansion buys essentially nothing here.** A Unicode-aware normalizer
+matches it — same source count, same top six — for free.
+
+**And the current fallback has a real bug independent of all this.** The
+character class strips every non-ASCII character, so `Plücker` becomes `Pl cker`.
+Measured: `"Plücker"` and `"plucker"` each return **172 hits across 22 sources**
+(FTS normalizes the diacritic), while `"Pl" AND "cker"` returns **0**. The single
+most discriminating term in the query is destroyed, and the fallback compensates
+by matching junk tokens (`L`, `T`, `Q`, `m`) — more hits, worse precision.
+
+### Case B — a pure-Korean question (what the SIDECHAT often gets)
+
+Question: *"내가 쓴 노트 중에 카메라 보정이랑 관련된 게 있어?"*
+
+| path | produced | hits | sources |
+|---|---|---|---|
+| LLM (11.6 s) | `camera calibration` | **415** | **24** |
+| Unicode fallback (0 s) | `내가 노트 중에 카메라 보정이랑 관련된 있어` | 56 | 13 |
+
+**Here the expansion earns its cost.** The index is English; Korean tokens
+largely are not in it. The LLM crossing the language boundary is the whole value,
+and it is exactly what the docstring claims ("an honest empty for pure non-Latin
+input").
+
+### Conclusion
+
+The answer maps onto the surface split the user proposed, without being forced to:
+
+- **Popover** sends selection + question → term-rich, mixed script → **drop the
+  expansion**, use a Unicode-aware normalizer. Saves 12–50 s at no measured cost.
+- **Sidechat** takes a typed question, often pure Korean → **keep the expansion**.
+  The user already accepted the trade: *"sidechat은 시간 걸리더라도 답변 품질을
+  높이는 게 우선."*
+
+**Caveat, stated rather than buried:** these comparisons rank by raw FTS hit
+count. The real pipeline is BM25 + vector + RRF + reranking, so hit counts are a
+proxy for recall, not the final ordering. The Case-A equivalence and the Case-B
+gap are both large enough to act on; a close call would need the full pipeline.
