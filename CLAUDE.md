@@ -200,7 +200,32 @@ Whenever a user requests a new feature, reports a bug, or uses the `/goal` comma
 10. **Version Bump & Changelog**: Update the version strings in all relevant configuration files (`pyproject.toml`, `package.json`, `manifest.json`, `package-lock.json`) AND update `CHANGELOG.md` with the release notes for this version. **MINOR/MAJOR SPEC-LINE SYNC (mandatory whenever the `MAJOR.MINOR` line changes — e.g. `0.16.x → 0.17.0`)**: `backend/tests/test_spec_sync.py` derives the active version from the build manifests (`backend/pyproject.toml` plus the `plugin/` JSON manifests, including `plugin/package-lock.json` — the single source of truth, read directly, NOT from installed package metadata) and hard-asserts that (a) all build manifests agree on the version and (b) every static spec title (first line of `docs/specs/curator_schema/SCHEMA.md`, `docs/specs/system_behavior/SYSTEM_BEHAVIOR.md`, `docs/specs/plugin_schema/PLUGIN_SCHEMA.md`, and `docs/specs/search_engine/SEARCH_ENGINE_SCHEMA.md`) declares the active `vX.Y` line. So on any minor/major bump you MUST also bump the `(vX.Y.Z)` suffix in all four spec-file titles to the new line. There is no `ACTIVE_VERSION` constant to maintain and no dev-venv reinstall is needed — because the test reads the manifest directly, it validates identically locally and in CI. Pure patch bumps that keep the same minor line do not touch the spec titles.
 11. **Plan Deletion**: **Delete** the implemented plan file(s) from the workspace. The plan's historical context will be statically preserved in the Git history for this version.
 12. **Release Commit**: Create a final release commit explicitly named `chore(release): vX.Y.Z`.
-13. **Push & PR (Zero-Interaction Auto-Pilot)**: Push the branch to the remote repository. Create a GitHub Pull Request that includes a detailed PR Description (Why, What, How). **CRITICAL**: Once the workflow begins, agents MUST auto-approve their own steps and operate with zero user interaction. Do not pause to ask the user for confirmation on intermediate code changes or terminal commands. The human user's ONLY responsibility is to review and merge the final Pull Request on GitHub.
+13. **Push, PR, Review & Merge (Zero-Interaction Auto-Pilot)**: Push the branch to the remote repository. Create a GitHub Pull Request that includes a detailed PR Description (Why, What, How). **CRITICAL**: Once the workflow begins, agents MUST auto-approve their own steps and operate with zero user interaction. Do not pause to ask the user for confirmation on intermediate code changes or terminal commands.
+
+    **The agent code-reviews and merges its own PR** (user directive, 2026-08-23:
+    *"앞으로 PR도 너가 코드리뷰하고 머지하고 알아서 해도 될거같은데? 내 판단이
+    필요한 시스템관련 결정때만 나 불러줘"*). Run the review as a real adversarial
+    pass, not a formality — every merge in this repo so far that was reviewed
+    found something, including regressions the author had just introduced. Merge
+    only when CI is green and the review's findings are fixed or recorded.
+
+    **Escalate to the user — do not decide alone — when:**
+
+    - the change alters a **stored contract**: DB schema, `SCHEMA_VERSION`,
+      cross-device transport, a prompt contract, or a public CLI/MCP/plugin API;
+    - it changes **what the product is** rather than whether it works: a feature's
+      shape, what gets ingested, what the layers mean, roadmap priority;
+    - it would **delete, overwrite or migrate the user's data**, or reindex their
+      vault;
+    - the version line moves to **1.0**;
+    - two readings of the request lead to **materially different work**, and the
+      code cannot settle which;
+    - a **plan** is required (Step 4 and the Review Feedback Loop still STOP for
+      approval — the delegation covers reviewing and merging, not skipping plans).
+
+    Everything else — bug fixes, tests, docs, refactors inside a settled
+    contract, version bumps, release mechanics — the agent takes to merge itself
+    and reports what it did.
 
 ---
 
