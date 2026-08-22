@@ -1182,7 +1182,7 @@ Configure the LLM backends that power Incurator's intelligence. The system maint
 | `antigravity-cli` | CLI | Inference via Google Antigravity CLI (`agy`) (Fast, reliable free option). Also exposes Claude / GPT-OSS models alongside Gemini 3.5 Flash / 3.1 Pro |
 | `claude-code` | CLI | Inference via official Anthropic `claude` command (Sonnet 4.6 / Fable 5 / Opus 4.8 / Haiku 4.5) |
 | `codex-cli` | CLI | Inference via official OpenAI `codex` command (GPT-5.6 Sol / Terra / Luna, plus visible GPT-5.5 compatibility) |
-| `deepseek-api` | API key | Inference via DeepSeek's OpenAI-compatible API (`DEEPSEEK_API_KEY` or an encrypted local backend secret; current models `deepseek-v4-flash` / `deepseek-v4-pro`) |
+| `deepseek-api` | API key | Inference via DeepSeek's OpenAI-compatible API (`DEEPSEEK_API_KEY` or an encrypted local backend secret; current models `deepseek-v4-flash` / `deepseek-v4-pro` / `deepseek-v4-flash-vision-exp`, all with a 1M-token context window) |
 
 ```bash
 # Set up both Primary and Fallback at once via the wizard

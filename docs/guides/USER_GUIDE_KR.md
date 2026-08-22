@@ -1130,7 +1130,7 @@ Incurator의 지능을 담당하는 LLM 백엔드를 설정합니다. 시스템�
 | `antigravity-cli` | CLI | Google Antigravity CLI (`agy`)를 통한 추론 (가장 빠르고 안정적인 무료 옵션). Gemini 3.5 Flash / 3.1 Pro 외에 Claude·GPT-OSS 모델도 노출됩니다 |
 | `claude-code` | CLI | Anthropic 공식 `claude` 명령어를 통한 추론 (Sonnet 4.6 / Fable 5 / Opus 4.8 / Haiku 4.5) |
 | `codex-cli` | CLI | OpenAI 공식 `codex` 명령어를 통한 추론 (GPT-5.6 Sol / Terra / Luna 및 노출되는 GPT-5.5 호환 모델) |
-| `deepseek-api` | API key | DeepSeek의 OpenAI 호환 API를 통한 추론 (`DEEPSEEK_API_KEY` 또는 암호화된 로컬 backend secret; 현재 모델 `deepseek-v4-flash` / `deepseek-v4-pro`) |
+| `deepseek-api` | API key | DeepSeek의 OpenAI 호환 API를 통한 추론 (`DEEPSEEK_API_KEY` 또는 암호화된 로컬 backend secret; 현재 모델 `deepseek-v4-flash` / `deepseek-v4-pro` / `deepseek-v4-flash-vision-exp`, 모두 1M 토큰 컨텍스트) |
 
 ```bash
 # 위자드를 따라 Primary와 Fallback을 한 번에 설정

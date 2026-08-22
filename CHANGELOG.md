@@ -49,6 +49,17 @@ All notable changes to Incurator are documented here.
   every graph batch boundary and silently invalidate the entire cache.
 
 ### Changed
+- **Model catalogue refreshed, and the default model moves with it.** Added
+  **Gemini 3.7 Flash** (Antigravity), **Claude Opus 5** and **Claude Sonnet 5**,
+  and DeepSeek's **`deepseek-v4-flash-vision-exp`**. The catalogue's first entry
+  per provider *is* that provider's default, so a new install now defaults to
+  `gemini-3.7-flash` and `claude-opus-5`. **An existing configuration is
+  untouched** — a pinned `llm.primary` keeps whatever it names.
+
+  Also corrects a real error: DeepSeek's context window was recorded as **128K
+  when all three models carry 1M**, so the Model row under-reported the window
+  eightfold.
+
 - `SCHEMA_VERSION` 13 → 14 (additive: one new machine-local table, absent from
   the cross-device export). **Devices that upgrade at different times stop
   syncing until both are on v14** — the export format itself is unchanged.
