@@ -501,3 +501,26 @@ than recording a flat PASS.
    live DB is `.cache/vaults/13ed51f8b06cb88e/state.sqlite` (245 MB). Querying
    the vault copy returns "no such table" — I nearly read that as "the note was
    never ingested". Anything reading vault-side state is reading nothing.
+
+
+## ACTIVE BRANCH (2026-08-22): `release/v0.63.0` — resumable graph extraction
+
+Plan: `.agents/plans/06_resumable_graph_extraction.md`
+Evidence: `.agents/plans/06_resumable_graph_evidence.md`
+Base: `6907b3c` on master.
+
+**P0 PASSED** (zero provider calls — `render_prompt` is pure): Hartley's 72
+batch hashes are identical across processes and 72/72 distinct. The batch count
+is **72, not the ~87** the ROADMAP estimated.
+
+**P1 DONE** — `graph_batch_results` table (`SCHEMA_VERSION` 13 → 14) plus
+`put_/get_/count_/delete_graph_batch_results`. 12 tests, mutation-checked: a
+never-committing write is caught by 7 of them including both D2 tests.
+
+**Next: P2** — resume inside `extract_graph_data`: look up `input_hash` before
+`run_prompt`, stage after a validated result, and log `reused N/M, extracted K`
+so a silent full re-pay is impossible (D4).
+
+**Do not skip in P3:** D2's second half is still untested — *the compile's error
+handler must not delete the staged rows*. That is exactly what made v0.62.0
+worthless, and it cannot be tested until the compile integration exists.

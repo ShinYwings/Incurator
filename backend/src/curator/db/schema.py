@@ -17,7 +17,7 @@ from typing import Iterator
 
 from .. import constants as consts
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 # --- Plan C (v0.9.0, SCHEMA §21.1/§21.2) frozen resolution enums -------------
 # Entity-resolution lifecycle (entity_aliases.resolution_status, §21.1).
@@ -503,6 +503,35 @@ CREATE TABLE IF NOT EXISTS graph_relations (
 CREATE INDEX IF NOT EXISTS idx_graph_relations_src ON graph_relations(source_entity_id);
 CREATE INDEX IF NOT EXISTS idx_graph_relations_tgt ON graph_relations(target_entity_id);
 CREATE INDEX IF NOT EXISTS idx_graph_relations_lifecycle ON graph_relations(lifecycle_status);
+
+-- Staged per-batch graph extraction results (v0.63.0, ROADMAP 5c).
+--
+-- Graph extraction batches a source's knowledge units and EVERY batch must
+-- succeed for the generation to publish. Holding them in memory meant a capacity
+-- deferral discarded the whole run: source 45 needs 72 batches and completes <=3
+-- per capacity window, so it could never converge.
+--
+-- This is NOT the graph. Rows here are replayed through `persist_graph_data` at
+-- publish time and deleted in that same transaction, so nothing enters
+-- graph_entities/graph_relations before the publish gate (SCHEMA §26.3). Staging
+-- into the graph tables directly is not an option: graph_entities is globally
+-- deduplicated under UNIQUE(canonical_name, entity_type), so a "staged" entity
+-- would have to UPDATE a row another source already published.
+--
+-- `input_hash` is the resume key -- the same value `prompt_runs` records, over
+-- the fully rendered prompt -- so a cache hit is provably the same prompt rather
+-- than a match on batch index or length.
+CREATE TABLE IF NOT EXISTS graph_batch_results (
+    id          TEXT PRIMARY KEY,        -- GBR-[UUID8]
+    source_id   INTEGER NOT NULL,
+    input_hash  TEXT NOT NULL,           -- prompt_runs.input_hash of this batch
+    trace_id    TEXT NOT NULL DEFAULT '',
+    payload     TEXT NOT NULL,           -- EntityRelationExtractOutput JSON
+    created_at  TEXT NOT NULL,
+    FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_graph_batch_results_key
+    ON graph_batch_results(source_id, input_hash);
 
 -- GraphRAG-style summaries of graph communities, for global reasoning.
 CREATE TABLE IF NOT EXISTS community_reports (
