@@ -240,6 +240,22 @@ Whenever a user requests a new feature, reports a bug, or uses the `/goal` comma
     Everything else — bug fixes, tests, docs, refactors, version bumps, release
     mechanics — the agent takes to merge itself and reports what it did.
 
+    **This is a LOOP, not a one-shot** (user directive, 2026-08-23). One turn of
+    it is:
+
+    > Arena (multi-agent) → implement → PR → **self code-review** → CI → merge →
+    > mark the item done in `.agents/` and delete what the merge closed → take
+    > the next `ROADMAP.md` item → repeat.
+
+    It runs until the roadmap's Active Queue is empty. The Arena does not stop at
+    a document: a plan is finished when its code is merged. Report each turn's
+    outcome; do not go quiet because the authority is standing.
+
+    The loop's stopping points are the escalations above, not the phase
+    boundaries — phases order the work, they do not gate it. In practice the
+    stops are: a stability-vs-**capability** trade, a genuine fork the tiebreaker
+    cannot settle, data deletion/migration, and 1.0.
+
 ---
 
 ## Core Rule: Review Feedback Loop (Plan-First, Proactively)
