@@ -589,6 +589,19 @@ Two defects the Arena verified, both of which must be fixed before any walk:
   `.agents/drafts/pdf_annotation_system.md`
 - Web Search Integration — no current plan; re-plan from current provider,
   privacy, and cost constraints.
+- What the popover and the sidechat are each FOR —
+  `.agents/drafts/surface_roles_brainstorm.md`. A brainstorm, nothing decided.
+  The user asked for it on 2026-08-22 and placed it below the stability work; it
+  carries the measured provider-capability matrix (which CLIs can search the web,
+  which can read a 21 MB PDF), so it is worth keeping even if the role split is
+  never acted on.
+
+**Two drafts were deleted on 2026-08-23 as already answered**, not deferred:
+
+| draft | why |
+|---|---|
+| `11_popover_chat_grounding.md` | shipped in **v0.54.0** — its complaint ("a question it could have answered came back as a report on what it had not received") is that release's own changelog line |
+| `chat_context_compaction.md` | superseded by **B1**, which says so explicitly and carries the measured numbers the draft lacked |
 
 ### I4. Three audits' Arena records, now closed out
 
