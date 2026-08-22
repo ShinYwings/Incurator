@@ -113,18 +113,54 @@ export function mapOpenAIFinishReason(
   return { done: false };
 }
 
+/** Phrases providers actually emit when they refuse for quota or capacity.
+ *
+ *  **Phrases, deliberately — never bare words.** This list used to contain bare
+ *  `"capacity"` and `"quota"`, which are ordinary vocabulary ("register
+ *  capacity", "model capacity", "cache capacity"), and the CLI path matched it
+ *  against the model's own answer. Every answer that used one of those words was
+ *  discarded and reported as a quota failure while the provider was healthy.
+ *
+ *  The asymmetry decides the design: a false positive **destroys an answer the
+ *  user already paid for**, while a false negative costs only the friendly
+ *  "switch provider" hint — the raw CLI error is surfaced either way. So match
+ *  narrowly. Mirrors the backend's `_is_capacity_error` (`llm.py`), extended
+ *  with the API-provider phrasings the plugin also sees. */
+const QUOTA_PHRASES = [
+  "no capacity available",
+  "model_capacity_exhausted",
+  "quota_exhausted",
+  "resource_exhausted",
+  "terminalquotaerror",
+  "exhausted your capacity",
+  "individual quota reached",
+  "quota reached",
+  "quota exceeded",
+  "out of quota",
+  "insufficient balance",
+  "insufficient_quota",
+  "rate limit",
+  "rate_limit",
+  "too many requests",
+];
+
+/** Word-bounded, which does two jobs at once: `14293 tokens` is not an HTTP 429,
+ *  and neither is a typed Curator id like `ATM-429abc12` or `SPAN-429fffff`.
+ *
+ *  The backend guards the same hazard by stripping `\b[A-Z]{3,4}-[0-9a-fA-F]{8}\b`
+ *  before matching (`ingest_worker.py`, after a span id reading `SPAN-13850308`
+ *  made a permanent failure look transient once in every 15 runs). That strip is
+ *  **redundant here and is deliberately not duplicated**: an id's hex run always
+ *  flanks its digits with hex characters, so `\b429\b` can never fire inside
+ *  one. A strip would be code no test exercises, which is worse than absent —
+ *  it would invite someone to weaken this boundary believing the strip covers
+ *  them. The typed-id tests below therefore pin the guarantee, not the
+ *  mechanism. */
+const HTTP_429_RE = /\b429\b/;
+
 export function isQuotaErrorMessage(message: string): boolean {
   const value = message.toLowerCase();
-  return (
-    value.includes("429") ||
-    value.includes("quota") ||
-    value.includes("capacity") ||
-    value.includes("resource_exhausted") ||
-    value.includes("rate limit") ||
-    value.includes("rate_limit") ||
-    value.includes("insufficient balance") ||
-    value.includes("insufficient_quota")
-  );
+  return QUOTA_PHRASES.some((phrase) => value.includes(phrase)) || HTTP_429_RE.test(value);
 }
 
 /** What may be used as evidence that a CLI run failed on quota.

@@ -18,6 +18,19 @@ All notable changes to Incurator are documented here.
   produced **no answer at all** — some CLIs print the refusal there instead of on
   stderr. An answer that came back is delivered, whatever words it contains.
 
+- **The quota detector no longer guesses from bare words.** It now matches the
+  phrases providers actually emit — `RESOURCE_EXHAUSTED`, `No capacity
+  available`, `Individual quota reached`, `insufficient balance`, `rate limit`,
+  and a word-bounded `429` — mirroring the backend's `_is_capacity_error`. This
+  also fixes three sites the answer-scanning patch left open, because they all
+  call the same matcher: the **mid-stream stderr check that kills the running
+  CLI**, and two that match an exception message where a typed id such as
+  `ATM-429abc12` contains "429".
+
+  The asymmetry decides the design: a false positive destroys an answer you
+  already paid for, while a false negative costs only the "switch provider" hint,
+  since the raw CLI error is shown either way.
+
   Verified against a live `agy` 1.1.18, which answered normally throughout,
   confirming the quota was never the problem.
 

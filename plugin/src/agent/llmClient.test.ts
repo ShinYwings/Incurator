@@ -578,6 +578,56 @@ describe("LLM quota errors", () => {
   it("does not invent quota evidence out of an ordinary failure", () => {
     expect(isQuotaErrorMessage(quotaEvidenceFor("segfault", "", ""))).toBe(false);
   });
+
+  it("matches the phrases providers actually emit", () => {
+    // Mirrors the backend's `_is_capacity_error` (llm.py), which has always
+    // matched provider PHRASES rather than bare words.
+    for (const real of [
+      "No capacity available",
+      "MODEL_CAPACITY_EXHAUSTED",
+      "QUOTA_EXHAUSTED",
+      "RESOURCE_EXHAUSTED",
+      "TerminalQuotaError",
+      "you have exhausted your capacity for today",
+      "Individual quota reached",
+      "429 Too Many Requests",
+      "insufficient balance",
+      "Error: rate limit exceeded, retry in 30s",
+    ]) {
+      expect(isQuotaErrorMessage(real)).toBe(true);
+    }
+  });
+
+  it("does not fire on bare words used in ordinary prose", () => {
+    // The words alone are ordinary vocabulary. Only phrases a provider really
+    // emits should count -- a false positive destroys a paid-for answer, while
+    // a false negative only costs the friendly 'switch provider' hint, since
+    // the raw CLI error is surfaced either way.
+    for (const prose of [
+      "register capacity per SM limits occupancy",
+      "the model has enough capacity for this",
+      "your quota of attention is finite",
+      "cache capacity is 48 KB",
+    ]) {
+      expect(isQuotaErrorMessage(prose)).toBe(false);
+    }
+  });
+
+  it("does not read a typed id as an HTTP 429", () => {
+    // The backend hit exactly this hazard and strips typed ids before matching
+    // (ingest_worker.py): a span id reading SPAN-13850308 made a permanent
+    // failure look transient. `ATM-429abc12` contains "429". Here the word
+    // boundary already provides it — an id's hex run flanks its digits with hex
+    // characters — so this pins the guarantee, not a particular mechanism.
+    expect(isQuotaErrorMessage("could not resolve ATM-429abc12")).toBe(false);
+    expect(isQuotaErrorMessage("SPAN-429fffff missing from the batch")).toBe(false);
+    // ...while a real status code still counts
+    expect(isQuotaErrorMessage("HTTP 429 from the provider")).toBe(true);
+  });
+
+  it("does not fire on a digit run that merely contains 429", () => {
+    expect(isQuotaErrorMessage("processed 14293 tokens")).toBe(false);
+  });
 });
 
 describe("MCP tool result display", () => {

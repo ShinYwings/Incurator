@@ -237,36 +237,40 @@ first version shipped only the first and lost all 277 batches again in a live
 run; every unit test passed against it, because they call the extractor directly
 and never reach `compile.py`'s failure handler.
 
-### 12. The plugin's quota detector is a keyword matcher (partially fixed in v0.62.5)
+### 12. The plugin's quota detector was a keyword matcher — FIXED in v0.62.5
 
 **Reported by the user 2026-08-22**: *"agy 지금 사용할때 왜 Error: antigravity
 quota or capacity is currently unavailable가 계속 뜨는거야? plugin quota
 있는데??"* Their quota was fine — `agy` 1.1.18 answered normally from the shell
 throughout the investigation.
 
-**Cause, fixed in v0.62.5.** `LLMClient` classified a finished CLI run by keyword
-matching `stderr + "\n" + stdout`, and stdout **is the model's answer**.
-`isQuotaErrorMessage` looks for `"capacity"`, `"quota"`, `"429"` and
-`"rate limit"` — ordinary vocabulary in CUDA and computer-vision writing. Any
-answer containing one was thrown away, already paid for, and reported as a quota
-failure. Quota evidence now comes from stderr, and from stdout only when there is
-no answer.
+**Two defects, both fixed.**
 
-**Still open: the matcher itself is unguarded substring matching.** Three call
-sites remain:
+1. **The answer was being read as evidence.** `LLMClient` classified a finished
+   CLI run by matching `stderr + "\n" + stdout`, and stdout **is** the answer.
+   Evidence now comes from stderr, and from stdout only when the run produced no
+   answer at all.
+2. **The matcher was bare-word substring matching** — `"capacity"`, `"quota"`,
+   `"429"`, `"rate limit"` — which is ordinary vocabulary. It now matches the
+   phrases providers actually emit, mirroring the backend's `_is_capacity_error`
+   (`llm.py`), with `\b429\b` word-bounded.
 
-- `LLMClient.ts:1738` matches `fullStderr` **mid-stream and kills the child**. If
-  a provider ever writes one of those words to stderr as progress or a warning, a
-  working run dies. Not observed, but nothing prevents it.
-- `LLMClient.ts:1322` and `:1436` match `err.message`. A typed id such as
-  `ATM-429abc12` contains `"429"`. **The backend already hit exactly this** and
-  fixed it by stripping `\b[A-Z]{3,4}-[0-9a-fA-F]{8}\b` before matching
-  (`ingest_worker.py`); the plugin never got the same treatment.
+Fixing the matcher fixed the three sites the first patch had left open — the
+mid-stream stderr kill at `LLMClient.ts:1738` and the two `err.message` matches at
+`:1322`/`:1436` — because all four call the same function.
 
-The durable fix is to stop inferring quota from prose: prefer the provider's exit
-code and structured error where one exists, strip typed ids before matching, and
-require a word boundary for `"429"`. Needs a plan; not urgent now that answers
-are no longer being destroyed.
+**Design note worth keeping.** The asymmetry decides how narrowly to match: a
+false positive **destroys an answer the user already paid for**; a false negative
+costs only the friendly "switch provider" hint, since the raw CLI error is
+surfaced either way. Match narrowly.
+
+**A redundant guard was found and NOT added.** The backend strips typed ids
+(`\b[A-Z]{3,4}-[0-9a-fA-F]{8}\b`) before matching. Mirroring that here was
+implemented, then removed when a mutation check showed **no test could
+distinguish its presence**: an id's hex run always flanks its digits with hex
+characters, so `\b429\b` can never fire inside one. Unexercised defensive code
+is worse than none — it invites someone to weaken the boundary believing the
+strip covers them.
 
 ### 11. Workspace notes are invisible to duty 2
 

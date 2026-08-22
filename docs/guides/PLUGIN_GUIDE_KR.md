@@ -858,7 +858,7 @@ DeepSeek의 OpenAI 호환 API에 API 키로 연결합니다. OAuth 또는 브라
 - **Model**: 백엔드 카탈로그에서 선택합니다. 2026-06-01 기준 현재 DeepSeek API 모델 ID는 `deepseek-v4-flash`, `deepseek-v4-pro`입니다.
 - `deepseek-chat`, `deepseek-reasoner`는 DeepSeek가 2026-07-24 폐기 예정으로 안내한 legacy alias이므로 기본 선택지로 권장하지 않습니다.
 
-어떤 provider에서든 quota 또는 capacity 오류가 발생하면 sidechat에 명확히 표시되어 사용자가 provider/model을 바꾸거나 fallback을 설정할 수 있습니다. **quota 오류 여부는 CLI의 에러 출력으로만 판정하며, 답변 본문은 절대 보지 않습니다** (v0.62.5). 판정기는 "capacity", "quota", "429", "rate limit"을 찾는 키워드 매처인데 이 단어들은 CUDA·컴퓨터 비전 문서에서 일상적으로 쓰이므로, 답변 텍스트를 검사하면 멀쩡한 답변을 버리고 quota 실패로 보고하게 됩니다. stdout은 실행이 **답변을 전혀 내놓지 못했을 때만** 참고합니다 — 일부 CLI가 거부 메시지를 그쪽에 출력하기 때문입니다. CLI provider(예: Antigravity `agy`)가 **답변 없이** 끝나는 경우 — 예를 들어 `Thinking…` 이후 토큰/quota 소진이나 타임아웃 — 이제 무한 스피너나 빈 말풍선 대신 **명확한 에러**를 표시합니다.
+어떤 provider에서든 quota 또는 capacity 오류가 발생하면 sidechat에 명확히 표시되어 사용자가 provider/model을 바꾸거나 fallback을 설정할 수 있습니다. **quota 오류 여부는 CLI의 에러 출력으로만 판정하며, 답변 본문은 절대 보지 않습니다** (v0.62.5). 판정기는 "capacity", "quota", "429", "rate limit"을 찾는 키워드 매처인데 이 단어들은 CUDA·컴퓨터 비전 문서에서 일상적으로 쓰이므로, 답변 텍스트를 검사하면 멀쩡한 답변을 버리고 quota 실패로 보고하게 됩니다. stdout은 실행이 **답변을 전혀 내놓지 못했을 때만** 참고합니다 — 일부 CLI가 거부 메시지를 그쪽에 출력하기 때문입니다. 또한 판정기는 맨 단어가 아니라 **provider가 실제로 내뱉는 구절**(`RESOURCE_EXHAUSTED`, `No capacity available`, `Individual quota reached`, `insufficient balance`, `rate limit`, 단어 경계가 있는 `429`)을 매칭하므로 일반 문장으로는 발화하지 않습니다. CLI provider(예: Antigravity `agy`)가 **답변 없이** 끝나는 경우 — 예를 들어 `Thinking…` 이후 토큰/quota 소진이나 타임아웃 — 이제 무한 스피너나 빈 말풍선 대신 **명확한 에러**를 표시합니다.
 
 Antigravity `agy` print mode는 일반적으로 최종 답변을 stdout에 쓰고
 진행/상태 줄은 stderr에 씁니다. CLI가 성공적으로 종료되었지만 stdout이
