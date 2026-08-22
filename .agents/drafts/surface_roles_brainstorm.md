@@ -80,19 +80,62 @@ The user also rejected my proposed remedy: *"답변을 검색에 묶어야 돼."
 first and folding evidence in later breaks the binding between the answer and its
 evidence. For the sidechat that binding is the point.
 
-## 5. Open questions, not yet answered
+## 5. ANSWERED (2026-08-22): the capability is provider-specific, and claude already has it
 
-1. **Does the provider's search reach the user's own PDFs at all?** No — 21 MB
-   fails. So does "search other pages of the open PDF" mean *we* index and serve
-   them (ROADMAP 10), or that we hand the model a page range to `read_file`?
-   Untested: whether agy can read a *small* PDF, and whether a text extract we
-   write to a temp file is a legitimate channel.
-2. **What happens on a raw-API provider?** The user excluded them ("api 제외").
-   DeepSeek has no built-in search, so the shared floor is not uniform across
-   providers. Does the popover degrade, or does it fall back to our retrieval and
-   accept the latency?
-3. **Is 12.8 s the right target for the popover?** It is 5–8× better than today
-   but still not instant.
-4. **Should the sidechat keep the LLM query expansion at all?** It costs 34–50 s
-   and its own docstring says the ASCII fallback is a real query for exactly the
-   mixed-script input this vault produces.
+The user asked me to judge Q1. Measured across the installed CLIs:
+
+| | agy | claude CLI | codex |
+|---|---|---|---|
+| built-in web search, live | **yes** (877, 2026-08-22) | **yes** (877, 2026-08-22) | untestable — see below |
+| 588 KB PDF | **yes** | **yes** | — |
+| 4.1 MB PDF | **yes** | — | — |
+| **21 MB book** | **FAILS** ("Agent execution terminated") | **YES, and it searches inside it** | — |
+| shell command | denied | — | — |
+| our MCP tools | denied | — | — |
+
+**The finding that decides the design.** Asked whether the 21 MB Hartley book
+covers Plücker line coordinates, the claude CLI answered:
+
+> *"Yes — §3.2.2 \"Lines\" (Ch. 3, Projective Geometry & Transformations of 3D,
+> PDF pp. 88–90) presents the Plücker matrix and defines \"Plücker line
+> coordinates\" explicitly (24 mentions total)."*
+
+Section, chapter, page range, and a mention count. That is **the user's original
+failing question**, answered — the one where agy shelled out to PyPDF2 over 673
+pages and was denied. And note it read the file at the **iCloud Zotero path**, so
+TCC did not block it either.
+
+**So my earlier judgement was wrong in an important way.** I concluded "agy cannot
+open a 21 MB PDF, therefore *we* must serve the pages". The correct statement is
+narrower: **agy** cannot; **claude can, including retrieval within the document**.
+
+**Judgement.** The shared floor should be *"let the provider read the document
+when it can, and fall back to serving pages when it cannot"* — not a single
+strategy for all providers. Consequences:
+
+- For claude-routed users, "reach other pages of the open PDF" **works today**
+  with no new machinery, and ROADMAP 10 is not on their critical path.
+- For agy (>4 MB) and for API providers, we still have to serve it. ROADMAP 10
+  stays necessary, but for a narrower population than I claimed.
+- The capability has to be **probed or declared per provider**, not assumed. The
+  plugin's current "CLI providers get no tools" path is wrong for all three CLIs.
+
+**codex is unmeasurable right now**, and for a config reason rather than a
+capability one: `The 'gpt-5.6-sol' model is not supported when using Codex with a
+ChatGPT account`. That is its own defect to file, not evidence about codex.
+
+## 6. Open questions, not yet answered
+
+1. ~~Does the provider reach the user's PDFs?~~ **Answered in §5** — claude does,
+   agy does not above ~4 MB.
+2. **API providers have no built-in search.** User's call: document it as a known
+   limitation and leave it low on the roadmap — *"당장은 안정적으로 돌아가는 게
+   우선"*. Not a blocker; a documented gap.
+3. **12.8 s for the popover.** User's call: *"빠르면 빠를수록 좋은데 더 좋은 답변을
+   얻을 수 있으면 이 정도도 나쁘지 않아."* Accepted as a target.
+4. **Does dropping the LLM query expansion cost answer quality?** Still open, and
+   the user is explicit that the sidechat trades time for quality: *"sidechat은
+   시간 걸리더라도 답변 품질을 높이는 게 우선."* So this must be **measured**, not
+   assumed — compare the evidence each path retrieves for the same question.
+5. **Where exactly is agy's PDF ceiling?** Between 4.1 MB and 21 MB. Worth
+   knowing if agy stays a routed provider for document questions.
