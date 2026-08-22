@@ -212,8 +212,16 @@ Whenever a user requests a new feature, reports a bug, or uses the `/goal` comma
     **The standing tiebreaker is stability** (same directive: *"업데이트 하는
     방향은 시스템이 안정되는 방향으로"*). When two designs are defensible, take the
     one that leaves the system more stable — fewer moving contracts, louder
-    failures, smaller blast radius — even when the other is more capable. That is
-    a decision rule to APPLY, not a reason to ask.
+    failures, smaller blast radius. That is a decision rule to APPLY, not a
+    reason to ask.
+
+    **But stability does not outrank capability by default** (user correction,
+    2026-08-23: *"다른 쪽이 더 유능해도요. 아 이거는 같이 판단하는게 좋을거같은데?"*).
+    The tiebreaker settles *engineering* trades — two ways to build the same
+    thing. When the stable option means **the product does less**, that is a
+    product decision, not an engineering one, and it goes to the user with both
+    options and what each costs. Do not quietly trade away capability for
+    tidiness.
 
     **Escalate to the user — do not decide alone — when the decision is
     genuinely ambiguous** (*"결정이 헷갈릴때"*): when the tiebreaker above does not
