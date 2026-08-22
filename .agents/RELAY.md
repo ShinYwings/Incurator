@@ -23,17 +23,32 @@ rather than fix twice" and the batch fixed two of three sites.
 
 ## Where to start
 
-The queue is ordered by leverage. The top three:
+The queue is ordered by **stability**, per the user's rule (2026-08-23):
+*"기능을 추가하기보다는 시스템 안정이 우선"*. Phases A→F; within a phase order is
+free, across phases it is not.
 
-1. **Korean questions never reach the global/explore routes** — `router.py:41`
-   is a pure-English regex, verified unchanged. A Korean "synthesise across my
-   sources" is answered from spans alone; L3/L4 are unreachable from the language
-   the user writes in.
-2. **L3 has no resume** — all 36 sources sit at `l3_status='error'` on one
-   capacity refusal. The v0.63.0 shape transfers, but L3's unit of work is a
-   corpus-wide cluster, so the key needs its own design.
-3. **`.curator` state is growing** — `sessions.json` 17 MB (was 15), sync
-   journals 89 MB (was 24), `compress=True` still unused.
+**Phase A is next** — no schema, no contract, nothing that can destabilise a
+release. It makes the system stop lying about its own state, which is the
+precondition for judging anything in B–F:
+
+- **A1** Korean questions never reach the global/explore routes (`router.py:41`
+  is a pure-English regex; 514 community reports exist, so the fix pays off
+  immediately)
+- **A2** query expansion fails silently — three unlogged swallows
+- **A3** 977 units (11%) never enter the index — *report* the gap first
+- **A4** `wiki status` calls the vault healthy with an empty L4
+
+**Two constraints on every release**, recorded at the top of the roadmap: at most
+**one** contract or schema change per release (v0.63.0 carried two), and a **live
+run is a release gate** for anything touching ingest or retrieval.
+
+## Found while sequencing
+
+**L4 has never produced anything** — `synthesis_nodes` 0, SYN files 0, sources at
+`l4_status='done'` 0, while three retrieval modules read that table. This is not
+"L4 failed recently": L3 has 514 community reports dated 2026-08-22 and its
+`error` is a capacity failure on a working layer. L4 has no such history.
+Filed as **C2 — diagnose before designing**.
 
 ## Environment notes
 
