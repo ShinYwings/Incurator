@@ -14,6 +14,7 @@ import {
   OBSIDIAN_DEEPSEEK_SECRET,
 } from "./types";
 import { getIncuratorBackendStatus } from "./utils/incuratorBackendStatus";
+import { logger } from "./utils/logger";
 
 const CUSTOM_MODEL_VALUE = "__custom__";
 
@@ -271,14 +272,23 @@ export class AIAgentSettingTab extends PluginSettingTab {
             .setPlaceholder("sk-...")
             .setValue(this.plugin.settings.deepseekApiKey || "")
             .onChange(async (value) => {
-              const key = value.trim();
-              this.plugin.settings.deepseekApiKey = key;
+              this.plugin.settings.deepseekApiKey = value.trim();
               await this.plugin.saveSettings();
-              // saveSettings deliberately strips the key from data.json, so it
-              // would be memory-only and every update would lose it. Hand it to
-              // the backend, which stores it encrypted and machine-locally.
-              if (key) void this.plugin.incuratorClient?.setSecret(OBSIDIAN_DEEPSEEK_SECRET, key);
             });
+          // Persist on BLUR, not on change. Obsidian fires `onChange` per
+          // keystroke, so writing there spawned one backend process per
+          // character and stored a truncated key each time — and an earlier
+          // partial could land after the complete one, leaving the store holding
+          // a prefix. `saveSettings` deliberately strips the key from
+          // `data.json`, so without this it stays memory-only and every update
+          // loses it.
+          text.inputEl.addEventListener("blur", () => {
+            const key = this.plugin.settings.deepseekApiKey?.trim();
+            if (!key) return;
+            void this.plugin.incuratorClient
+              .setSecret(OBSIDIAN_DEEPSEEK_SECRET, key)
+              .catch((e) => logger.warn("Could not persist the DeepSeek key:", e));
+          });
         });
     }
 

@@ -144,6 +144,10 @@ export class QuickQueryPopover {
    *  was being re-issued for every follow-up. `""` records a miss, so a
    *  timeout is not retried on the next question either. */
   private vaultEvidenceCache: string | undefined;
+
+  /** The in-flight fetch, so a turn that times out does not discard it. The
+   *  result still lands in `vaultEvidenceCache` for the next question. */
+  private vaultEvidencePending: Promise<string> | undefined;
   private isProcessing = false;
   private turns: QuickQueryTurn[] = [];
   private titleEl: HTMLElement | null = null;
@@ -704,36 +708,49 @@ export class QuickQueryPopover {
 
     // The SELECTION carries the topic; the question is usually deictic.
     const retrievalQuery = buildQuickQueryRetrievalQuery(this.capturedSelection, question);
-    try {
-      const pack = await Promise.race([
-        client.fetchContext(retrievalQuery, {
-          workspacePath: this.vaultWorkspacePath(),
-          limitTokens: QUICK_QUERY_VAULT_EVIDENCE_TOKENS,
-        }),
-        new Promise<null>((resolve) =>
-          setTimeout(() => resolve(null), QUICK_QUERY_VAULT_EVIDENCE_TIMEOUT_MS)
-        ),
-      ]);
-      if (!pack) {
-        logger.info(
-          `Vault evidence did not arrive within ${QUICK_QUERY_VAULT_EVIDENCE_TIMEOUT_MS} ms; answering from the selection alone.`
-        );
+
+    // Start it ONCE and keep the promise. Losing the race must not throw the
+    // work away: the fetch runs to completion in the background and its result
+    // lands in the cache, so a follow-up — the common next action — gets the
+    // evidence this turn had to answer without. Racing a fresh fetch each turn
+    // would instead re-pay 59-99 s and keep missing.
+    this.vaultEvidencePending ??= client
+      .fetchContext(retrievalQuery, {
+        workspacePath: this.vaultWorkspacePath(),
+        limitTokens: QUICK_QUERY_VAULT_EVIDENCE_TOKENS,
+      })
+      .then((pack) => {
+        // LABELLED with the question, not the retrieval query: the label says
+        // what the evidence was gathered for, and the retrieval query opens with
+        // the passage the model is already looking at.
+        this.vaultEvidenceCache = pack.ok ? formatCuratorContextPack(pack, question) : "";
+        return this.vaultEvidenceCache;
+      })
+      .catch((e) => {
+        // Logged, not silent. A quiet failure here reads as "it stopped finding
+        // my notes", which is the defect that took a live run to catch.
+        logger.warn("Vault evidence fetch failed; answering from the selection alone:", e);
         this.vaultEvidenceCache = "";
-        return undefined;
-      }
-      // The block is LABELLED with the question, not the retrieval query: the
-      // label tells the model what the evidence was gathered for, and the
-      // retrieval query starts with the passage it is already looking at.
-      this.vaultEvidenceCache = pack.ok ? formatCuratorContextPack(pack, question) : "";
-      return this.vaultEvidenceCache || undefined;
-    } catch (e) {
-      // Logged, not silent. A quiet failure here reads to the user as "it stopped
-      // finding my notes", which is exactly the defect that took a live run to
-      // catch the first time.
-      logger.warn("Vault evidence fetch failed; answering from the selection alone:", e);
-      this.vaultEvidenceCache = "";
+        return "";
+      });
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const evidence = await Promise.race([
+      this.vaultEvidencePending,
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), QUICK_QUERY_VAULT_EVIDENCE_TIMEOUT_MS);
+      }),
+    ]);
+    if (timer) clearTimeout(timer);
+
+    if (evidence === null) {
+      logger.info(
+        `Vault evidence did not arrive within ${QUICK_QUERY_VAULT_EVIDENCE_TIMEOUT_MS} ms; ` +
+          "answering from the selection alone and keeping it for the next question."
+      );
       return undefined;
     }
+    return evidence || undefined;
   }
 
   /** Same resolution the sidechat uses for its vault query, so both surfaces

@@ -206,6 +206,11 @@ export default class ObsidianAIAgent extends Plugin {
       this.manifest.version,
       this.runBackendJsonCommand.bind(this)
     );
+    // The key lives in the backend's encrypted store, so it can only be read
+    // once the client exists. AWAITED: the first request must not race the
+    // restore and report "API key is not set" — which is the very symptom this
+    // is meant to end.
+    await this.restoreDeepseekKeyFromStore();
     this.inlinePrompt = new InlinePromptWidget(this);
     this.quickQuery = new QuickQueryPopover(this);
 
@@ -1283,12 +1288,11 @@ export default class ObsidianAIAgent extends Plugin {
     // backend's encrypted machine-local store. Without the second path the key was
     // memory-only, and a GUI-launched Obsidian has no shell environment — so every
     // update lost it, which is exactly what users reported.
+    // Env only. The encrypted store is read in `onload`, AFTER `incuratorClient`
+    // exists — `loadSettings` runs first, so reaching for the client here got
+    // `undefined` and restored nothing at all.
     const envKey = (typeof process !== "undefined" && process.env?.DEEPSEEK_API_KEY) || "";
-    if (envKey) {
-      this.settings.deepseekApiKey = envKey;
-    } else {
-      void this.restoreDeepseekKeyFromStore();
-    }
+    if (envKey) this.settings.deepseekApiKey = envKey;
     try {
       const configPath = getGlobalRegistryPath(this.settings.incuratorRepoPath);
       if (configPath) {
@@ -1426,9 +1430,11 @@ export default class ObsidianAIAgent extends Plugin {
    *  Best-effort and asynchronous: a missing key is a normal first run, and the
    *  settings panel prompts for one. Logged rather than swallowed, because a
    *  silent failure here reads to the user as "the key vanished again". */
-  private async restoreDeepseekKeyFromStore(): Promise<void> {
+  async restoreDeepseekKeyFromStore(): Promise<void> {
+    // An explicitly exported env var wins; only fall back to the store.
+    if (this.settings.deepseekApiKey) return;
     try {
-      const stored = await this.incuratorClient?.getSecret(OBSIDIAN_DEEPSEEK_SECRET);
+      const stored = await this.incuratorClient.getSecret(OBSIDIAN_DEEPSEEK_SECRET);
       if (stored) this.settings.deepseekApiKey = stored;
     } catch (e) {
       logger.warn("Could not restore the DeepSeek key from the secret store:", e);
