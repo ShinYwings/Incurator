@@ -75,18 +75,6 @@ def _add_unit(
 
 # --- A4: get_stats carries layer health -------------------------------------
 
-def test_stats_report_each_layer_status_count(vault: Path) -> None:
-    paths = cfg.WikiPaths(vault)
-    _add_source(paths.state_db, "a.md", l3="error", l4="error")
-    _add_source(paths.state_db, "b.md", l3="error", l4="error")
-    _add_source(paths.state_db, "c.md", l3="skipped", l4="skipped")
-
-    stats = db.get_stats(paths.state_db)
-    assert stats["layer_status"]["l3"]["error"] == 2
-    assert stats["layer_status"]["l3"]["skipped"] == 1
-    assert stats["layer_status"]["l4"]["done"] == 0
-
-
 def test_stats_report_the_search_index_gap(vault: Path) -> None:
     """The gap that had to be hand-queried: units the vault holds but cannot find."""
     paths = cfg.WikiPaths(vault)
@@ -105,7 +93,7 @@ def test_stats_on_a_missing_db_still_carry_the_keys(tmp_path: Path) -> None:
     """`wiki status` renders these unconditionally, so the empty shape must match."""
     stats = db.get_stats(tmp_path / "absent.sqlite")
     assert stats["units_unindexed"] == 0
-    assert stats["layer_status"]["l4"]["done"] == 0
+    assert stats["units_live"] == 0
 
 
 # --- A4: wiki status says so ------------------------------------------------
@@ -113,8 +101,10 @@ def test_stats_on_a_missing_db_still_carry_the_keys(tmp_path: Path) -> None:
 def test_status_does_not_duplicate_the_pipeline_layer_table(vault: Path, monkeypatch) -> None:
     """`wiki status` already prints a **Pipeline Layer Status** table with
     per-layer done/pending/error/skipped, and `Collections` already prints
-    `L4 Synthesis/ 0`. The first version of A4 restated both, which made the
-    output longer and less legible. Report the gap nothing showed, not the ones
+    `L4 Synthesis/ 0`. The first version of A4 restated both — in the renderer
+    AND as a third `layer_status` computation in `get_stats` that nothing read,
+    alongside the two that already existed (`_layer_status_counts` and
+    `runtime_state`'s own query). Report the gap nothing showed, not the ones
     already covered."""
     paths = cfg.WikiPaths(vault)
     _add_source(paths.state_db, "a.md", l3="error", l4="error")

@@ -15,10 +15,7 @@ All notable changes to Incurator are documented here.
   **Collections** already prints `L4 Synthesis/ 0`. Restating them made the
   output longer and less legible. The index gap is the one signal nothing showed.
 
-- `get_stats` now carries `layer_status`, `units_live`, `units_indexed` and
-  `units_unindexed`. `layer_status` reports **every** known state with a zero
-  rather than only the states that occur, so a caller asking "how many are done"
-  before anything is done gets `0` instead of a `KeyError`.
+- `get_stats` now carries `units_live`, `units_indexed` and `units_unindexed`.
 
   The unit count is scoped to **published** rows. Since v0.62.0 an interrupted
   extraction leaves durable unpublished ones — measured, a single source held
