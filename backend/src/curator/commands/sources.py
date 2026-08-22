@@ -376,3 +376,32 @@ def sources_retry_cmd(
 
     console.print()
     _hint("Run [bold]wiki source ls -s error[/bold] to check remaining errors.")
+
+
+@source_app.command("clear-graph-cache")
+def sources_clear_graph_cache_cmd(
+    source_id: int = typer.Argument(..., help="The source ID whose staged graph batches to drop."),
+) -> None:
+    """Drop a source's staged graph-extraction batches, forcing a fresh extraction.
+
+    Graph extraction stages each validated batch so an interrupted run resumes
+    instead of re-paying for it. A batch that VALIDATES but extracts nonsense is
+    cached the same way and replayed on every subsequent run — and re-ingesting
+    does not clear it, because `wiki add --force` releases and re-adopts the same
+    unit rows, leaving the unit ids and therefore the batch hashes unchanged.
+
+    This is that escape hatch. It costs a full re-extraction of the source's
+    graph, so use it when the graph looks wrong, not routinely.
+    """
+    paths = _resolve_root_or_die()
+    row = ingest_raw.get_source(paths, source_id)
+    if row is None:
+        _err(f"No source with id {source_id}")
+        raise typer.Exit(code=1)
+
+    removed = db.delete_graph_batch_results(paths.state_db, source_id)
+    if removed:
+        _ok(f"Cleared {removed} staged graph batch(es) for source {source_id}. "
+            "The next compile re-extracts them.")
+    else:
+        _ok(f"Source {source_id} had no staged graph batches.")

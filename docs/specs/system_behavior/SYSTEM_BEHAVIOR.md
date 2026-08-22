@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.62.0)
+# Incurator - System Behavior (v0.63.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -587,6 +587,49 @@ Batch Atom extraction (`_extract_atoms_from_chunk`) relies on the LLM adhering t
    batch hashes, because one changed span shifts the packer and invalidates every
    batch after it. An already-published source is likewise never resumed — its
    units carry a `generation_id` and fail the predicate.
+
+   **Resumable graph extraction (v0.63.0).** The same defect one layer up.
+   Graph extraction batches a source's knowledge units and **every batch must
+   succeed** for the generation to publish, yet results were held in memory until
+   the publish gate — so any capacity deferral discarded the whole run. Measured
+   on the reference vault, the largest source completes **at most ~3 usable
+   batches per capacity window**; it could never converge.
+
+   **Staged, not upserted.** Each validated batch is written to
+   `graph_batch_results` (SCHEMA §11.13), keyed `(source_id, input_hash)` on the
+   same rendered-prompt digest L2 uses. Rows are replayed through
+   `persist_graph_data` inside the publish transaction and deleted in that same
+   transaction. **Copy-on-stage is unchanged**: nothing reaches `graph_entities`
+   or `graph_relations` before the gate. Staging into those tables is not an
+   option — `graph_entities` is globally deduplicated under
+   `UNIQUE(canonical_name, entity_type)`, so a staged entity whose name already
+   exists would have to UPDATE a row another source published.
+
+   **Transaction rules are asymmetric, deliberately.** The staging write takes no
+   caller connection: joining the compile's transaction would roll the row back
+   with the failure it exists to survive. The delete does take one, and must —
+   semantically it has to disappear exactly when the generation becomes
+   authoritative, and mechanically the publish transaction holds the write lock.
+
+   **Only validated results are cacheable.** A refusal or a validation failure is
+   never staged, so a poisoned batch cannot be replayed forever by construction.
+   For the narrower case of a batch that validates but extracts nonsense,
+   `wiki source clear-graph-cache <id>` drops a source's staged batches;
+   re-ingesting does not, because `--force` re-adopts the same unit rows and the
+   hashes are unchanged.
+
+   **A cache miss is correct; a silent one is the defect.** Batch boundaries are
+   cut at the client's `optimal_chunk_chars`, so a provider failover resizes every
+   batch and misses every key — a legitimate full re-pay that looks exactly like
+   a run with no cache. Every run therefore logs `reused N/M, extracted K`, and a
+   run that matches nothing while staged rows exist says so explicitly.
+
+   **Unit order must be deterministic.** `list_generation_units` orders by
+   `(created_at, id)`. `created_at` has one-second granularity and L2 inserts a
+   whole batch inside one second — measured, **all 5,358 units of the reference
+   source sit in tie groups**. Without the tiebreaker, tied rows are ordered by
+   SQLite's sorter rather than by the query; a reorder moves every batch boundary
+   and misses every cached batch from the first divergence onward.
 5. **Closed Prompt Traces on Provider Exceptions**: Once a prompt run row is
    opened, any provider exception, timeout, capacity error, or repair-call
    exception must close that `PTR-` as `validator_status='failed'` with the

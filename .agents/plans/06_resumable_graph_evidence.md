@@ -248,3 +248,70 @@ loud-miss test. `ruff` and `mypy` clean.
 the rows survive a failed compile today. **P3 adds delete-on-publish, which is
 the code that could over-delete**, and the test that rolls the real compile back
 and asserts the staged batches survive belongs there. Do not skip it.
+
+
+## P3 — cleanup, and D2's second half
+
+**Changed**
+
+- `pipeline/compile.py` — `db.delete_graph_batch_results(..., conn=conn)` inside
+  the publish transaction, immediately after `_publish_generation`.
+- `commands/sources.py` — `wiki source clear-graph-cache <id>`.
+
+### `conn=conn` is load-bearing for TWO reasons, one of them measured
+
+Semantically, a delete that committed on its own would destroy the resume that a
+rolled-back publish still needs. **Mechanically, the publish transaction holds
+the write lock**: dropping `conn=conn` was measured to fail **12 tests on SQLite
+busy-timeouts** — an 86-second run — not on a wrong result. The comment records
+both, because the second is invisible from reading the code.
+
+### D2's second half is now tested, not just asserted
+
+The plan flagged this as the thing not to skip, because it is exactly what made
+v0.62.0 worthless: that release moved L2 extraction into rows and the compile's
+failure handler deleted those rows, with all 19 unit tests passing because none
+reached the handler.
+
+`test_a_failed_publish_keeps_the_staged_graph_batches` drives the **real
+compile**, fails it at the publish gate — after extraction has staged — and
+asserts the rows survive. It passed on the first run, confirming the failure path
+(`_release_staged_units_for_resume`) touches units only. It stays as the
+regression guard now that a delete exists to be misplaced.
+
+### The escape hatch closes a real trap
+
+Only validated results are staged, so a refusal cannot be cached. The remaining
+case is a batch that **validates but extracts nonsense**: it is cached and
+replayed forever, and **re-ingesting does not clear it** — `wiki add --force`
+releases and re-adopts the same unit rows, so unit ids and therefore batch hashes
+are unchanged. Without the command the only recovery is editing SQLite by hand.
+
+### Validation
+
+| test | result |
+|---|---|
+| publish clears the staged batches | passes; failed before the delete existed |
+| a failed publish keeps them | passes |
+| delete joins the caller's transaction | passes; rows survive a rollback |
+| `clear-graph-cache` (3 cases) | passes |
+
+Mutation-checked: removing the delete fails the publish-clears test; dropping
+`conn=conn` fails 12.
+
+## P4 — docs and specs
+
+- `SCHEMA.md` §11.13 (the table), `SYSTEM_BEHAVIOR.md` §L2 item 4 (resume
+  semantics, extended rather than renumbered), `USER_GUIDE.md` + `_KR.md` (the
+  new command).
+- Version 0.62.5 → **0.63.0** across all four build manifests; all four spec
+  titles bumped to `v0.63.0`. `test_spec_sync.py` passes.
+
+**Recorded for users, not buried:** `SCHEMA_VERSION` 13 → 14 means devices that
+upgrade at different times stop syncing until both are on v14. The export format
+is unchanged — the version stamp is what `db_sync` rejects on.
+
+### A doc inaccuracy noticed, not fixed
+
+`CLAUDE.md` documents `wiki sources list|show|rm`. The CLI group is `source`,
+singular — `wiki sources` is not a command. Pre-existing and out of scope here.

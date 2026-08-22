@@ -263,3 +263,20 @@ def test_generation_units_have_a_deterministic_order(db_path: Path) -> None:
 
     ordered = [str(u["id"]) for u in db.list_generation_units(db_path, "GEN-tie")]
     assert ordered == sorted(ids), "tied timestamps must fall back to a stable id order"
+
+
+def test_delete_joins_the_callers_transaction(db_path: Path) -> None:
+    """Deletion is the one operation that MUST join the publish transaction.
+
+    Staged rows have to disappear exactly when the generation they fed becomes
+    authoritative. If the delete committed on its own, a publish that then rolled
+    back would have destroyed the resume its own failure still needs.
+    """
+    db.put_graph_batch_result(db_path, source_id=1, input_hash="k", payload=_payload())
+
+    with pytest.raises(RuntimeError):
+        with db.connect(db_path) as conn:
+            db.delete_graph_batch_results(db_path, 1, conn=conn)
+            raise RuntimeError("publish failed after the delete")
+
+    assert db.get_graph_batch_result(db_path, 1, "k") is not None

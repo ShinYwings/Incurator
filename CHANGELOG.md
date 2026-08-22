@@ -2,6 +2,41 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.63.0] - 2026-08-22
+### Added
+- **Graph extraction now survives an interruption.** Every graph batch must
+  succeed for a source to publish, and results were held in memory until the
+  publish gate — so a single capacity deferral discarded the whole run. Measured
+  on the reference vault, the largest source completes **at most ~3 usable
+  batches per capacity window**; it could never converge, no matter how many
+  times it was retried.
+
+  Each validated batch is now staged in `graph_batch_results` and replayed at
+  publish time, keyed on the same rendered-prompt digest that L2 resume uses. A
+  fully staged source makes **zero provider calls** on a second run; a run
+  interrupted after one of two batches re-pays exactly one.
+
+  Copy-on-stage is unchanged: nothing reaches `graph_entities` or
+  `graph_relations` before the publish gate, and the staged rows are deleted
+  inside the publish transaction — so a publish that rolls back keeps the resume
+  its own failure still needs.
+
+- **`wiki source clear-graph-cache <id>`** drops a source's staged batches when
+  its graph looks wrong. Re-ingesting does not clear them: `wiki add --force`
+  re-adopts the same unit rows, leaving the batch keys unchanged.
+
+### Fixed
+- **Knowledge units are now listed in a deterministic order.** `created_at` has
+  one-second granularity and L2 inserts a whole batch inside one second — every
+  one of the reference source's 5,358 units sits in a tie group. Tied rows were
+  ordered by SQLite's sorter rather than by the query, so a reorder would move
+  every graph batch boundary and silently invalidate the entire cache.
+
+### Changed
+- `SCHEMA_VERSION` 13 → 14 (additive: one new machine-local table, absent from
+  the cross-device export). **Devices that upgrade at different times stop
+  syncing until both are on v14** — the export format itself is unchanged.
+
 ## [0.62.5] - 2026-08-22
 ### Fixed
 - **Answers about GPUs and vision no longer fail with "quota or capacity is
