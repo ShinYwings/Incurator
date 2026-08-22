@@ -959,7 +959,15 @@ Settings:
 
 Quota or capacity errors from any provider are rendered directly in sidechat so
 the user can switch provider/model or configure a fallback instead of seeing an
-empty answer. If a CLI provider (e.g. Antigravity `agy`) finishes with **no
+empty answer. **A quota error is decided from the CLI's error output, never from
+the answer** (v0.62.5): the detector is a keyword matcher looking for "capacity",
+"quota", "429" and "rate limit", and those are ordinary words in CUDA and
+computer-vision writing, so scanning the answer text discarded good answers and
+reported them as quota failures. Stdout is consulted only when the run produced
+no answer at all, because some CLIs print the refusal there. The detector also
+matches **phrases providers actually emit** (`RESOURCE_EXHAUSTED`, `No capacity
+available`, `Individual quota reached`, `insufficient balance`, `rate limit`, a
+word-bounded `429`) rather than bare words, so ordinary prose cannot trigger it. If a CLI provider (e.g. Antigravity `agy`) finishes with **no
 answer** — for example after `Thinking…` when the token/quota is exhausted or the
 request times out — the plugin now surfaces a clear error instead of spinning
 forever or showing an empty bubble.

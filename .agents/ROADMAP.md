@@ -237,6 +237,41 @@ first version shipped only the first and lost all 277 batches again in a live
 run; every unit test passed against it, because they call the extractor directly
 and never reach `compile.py`'s failure handler.
 
+### 12. The plugin's quota detector was a keyword matcher — FIXED in v0.62.5
+
+**Reported by the user 2026-08-22**: *"agy 지금 사용할때 왜 Error: antigravity
+quota or capacity is currently unavailable가 계속 뜨는거야? plugin quota
+있는데??"* Their quota was fine — `agy` 1.1.18 answered normally from the shell
+throughout the investigation.
+
+**Two defects, both fixed.**
+
+1. **The answer was being read as evidence.** `LLMClient` classified a finished
+   CLI run by matching `stderr + "\n" + stdout`, and stdout **is** the answer.
+   Evidence now comes from stderr, and from stdout only when the run produced no
+   answer at all.
+2. **The matcher was bare-word substring matching** — `"capacity"`, `"quota"`,
+   `"429"`, `"rate limit"` — which is ordinary vocabulary. It now matches the
+   phrases providers actually emit, mirroring the backend's `_is_capacity_error`
+   (`llm.py`), with `\b429\b` word-bounded.
+
+Fixing the matcher fixed the three sites the first patch had left open — the
+mid-stream stderr kill at `LLMClient.ts:1738` and the two `err.message` matches at
+`:1322`/`:1436` — because all four call the same function.
+
+**Design note worth keeping.** The asymmetry decides how narrowly to match: a
+false positive **destroys an answer the user already paid for**; a false negative
+costs only the friendly "switch provider" hint, since the raw CLI error is
+surfaced either way. Match narrowly.
+
+**A redundant guard was found and NOT added.** The backend strips typed ids
+(`\b[A-Z]{3,4}-[0-9a-fA-F]{8}\b`) before matching. Mirroring that here was
+implemented, then removed when a mutation check showed **no test could
+distinguish its presence**: an id's hex run always flanks its digits with hex
+characters, so `\b429\b` can never fire inside one. Unexercised defensive code
+is worse than none — it invites someone to weaken the boundary believing the
+strip covers them.
+
 ### 11. Workspace notes are invisible to duty 2
 
 **NEW, measured 2026-08-22 during the P6 duty-2 re-verification.** The user

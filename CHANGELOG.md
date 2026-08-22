@@ -2,6 +2,44 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.62.5] - 2026-08-22
+### Fixed
+- **Answers about GPUs and vision no longer fail with "quota or capacity is
+  currently unavailable" while your quota is fine.** The provider was never
+  refusing. The plugin classified a finished CLI run by keyword-matching
+  `stderr + "\n" + stdout` — and stdout **is the model's answer**. The matcher
+  looks for `"capacity"`, `"quota"`, `"429"`, and `"rate limit"`, which are
+  ordinary vocabulary in CUDA and computer-vision writing ("register capacity",
+  "cache capacity", "model capacity", "the rate limit of convergence"). Any
+  answer containing one was discarded, already paid for, and reported to the
+  user as a quota failure.
+
+  Quota evidence now comes from `stderr`, and from stdout only when the run
+  produced **no answer at all** — some CLIs print the refusal there instead of on
+  stderr. An answer that came back is delivered, whatever words it contains.
+
+- **The quota detector no longer guesses from bare words.** It now matches the
+  phrases providers actually emit — `RESOURCE_EXHAUSTED`, `No capacity
+  available`, `Individual quota reached`, `insufficient balance`, `rate limit`,
+  and a word-bounded `429` — mirroring the backend's `_is_capacity_error`. This
+  also fixes three sites the answer-scanning patch left open, because they all
+  call the same matcher: the **mid-stream stderr check that kills the running
+  CLI**, and two that match an exception message where a typed id such as
+  `ATM-429abc12` contains "429".
+
+  The asymmetry decides the design: a false positive destroys an answer you
+  already paid for, while a false negative costs only the "switch provider" hint,
+  since the raw CLI error is shown either way.
+
+- **Codex quota refusals are still detected.** Codex prints a JSON event stream
+  to stdout, and the "did we answer at all" check falls back to that stream when
+  no answer text could be extracted. The quota decision no longer inherits that
+  fallback — otherwise a refusal printed inside the event stream would stop
+  stdout being scanned, and the raw JSON would be shown as if it were an answer.
+
+  Verified against a live `agy` 1.1.18, which answered normally throughout,
+  confirming the quota was never the problem.
+
 ## [0.62.4] - 2026-08-22
 ### Fixed
 - **Your API key no longer disappears every time the plugin updates.** Reproduced

@@ -47,6 +47,8 @@ import {
   formatQuotaErrorMessage,
   isAntigravityStatusLine,
   isQuotaErrorMessage,
+  quotaEvidenceFor,
+  userVisibleAnswer,
   mapOpenAIFinishReason,
   normalizeOpenAIContent,
   isEphemeralToolPolicy,
@@ -195,6 +197,8 @@ export {
   formatQuotaErrorMessage,
   isAntigravityStatusLine,
   isQuotaErrorMessage,
+  quotaEvidenceFor,
+  userVisibleAnswer,
   mapOpenAIFinishReason,
   normalizeOpenAIContent,
   sanitizeOpenAIMessages,
@@ -1843,7 +1847,15 @@ export class LLMClient {
             ? codexAnswerText.trim() || trimmedOutput
             : trimmedOutput;
         const aborted = signal.aborted;
-        const combinedForQuota = `${fullStderr}\n${fullOutput}`;
+        // NEVER scan the answer for quota keywords — see `quotaEvidenceFor`.
+        // Deliberately NOT `emittedAnswer`: for codex that falls back to the raw
+        // JSON event stream, which would stop stdout being scanned and hide a
+        // refusal printed inside it.
+        const combinedForQuota = quotaEvidenceFor(
+          fullStderr,
+          fullOutput,
+          userVisibleAnswer(provider, codexAnswerText, trimmedOutput)
+        );
 
         if (aborted) {
           onChunk({ text: "", done: true });
