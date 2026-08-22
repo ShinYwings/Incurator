@@ -11,6 +11,7 @@ import {
   isAntigravityStatusLine,
   isQuotaErrorMessage,
   quotaEvidenceFor,
+  userVisibleAnswer,
   sanitizeOpenAIMessages,
   normalizeOpenAIContent,
   isEphemeralToolPolicy,
@@ -627,6 +628,29 @@ describe("LLM quota errors", () => {
 
   it("does not fire on a digit run that merely contains 429", () => {
     expect(isQuotaErrorMessage("processed 14293 tokens")).toBe(false);
+  });
+
+  it("does not count codex's raw event stream as an answer", () => {
+    // `emittedAnswer` falls back to raw stdout for codex so the "did we answer
+    // at all" branches keep working. Quota evidence must NOT inherit that
+    // fallback: codex prints JSON events to stdout, so treating the event
+    // stream as an answer would stop stdout being scanned and hide a refusal
+    // printed inside it.
+    const events = '{"type":"error","message":"RESOURCE_EXHAUSTED"}';
+    const answer = userVisibleAnswer("openai", "", events);
+    expect(answer).toBe("");
+    expect(isQuotaErrorMessage(quotaEvidenceFor("", events, answer))).toBe(true);
+  });
+
+  it("counts codex's extracted answer text as an answer", () => {
+    const answer = userVisibleAnswer("openai", "  register capacity notes  ", "{...}");
+    expect(answer).toBe("register capacity notes");
+    expect(isQuotaErrorMessage(quotaEvidenceFor("", "{...}", answer))).toBe(false);
+  });
+
+  it("uses stdout as the answer for the streaming CLI providers", () => {
+    expect(userVisibleAnswer("antigravity", "", "  the answer  ")).toBe("the answer");
+    expect(userVisibleAnswer("claude", "", "")).toBe("");
   });
 });
 

@@ -163,14 +163,31 @@ export function isQuotaErrorMessage(message: string): boolean {
   return QUOTA_PHRASES.some((phrase) => value.includes(phrase)) || HTTP_429_RE.test(value);
 }
 
+/** The text that counts as "the model answered", **for the quota decision only**.
+ *
+ *  Not the same as the call site's `emittedAnswer`, which falls back to raw
+ *  stdout for codex so the "did we answer at all" branches keep working. Quota
+ *  evidence must not inherit that fallback: codex prints a JSON event stream to
+ *  stdout, so treating the stream as an answer would stop stdout being scanned
+ *  and hide a refusal printed inside it. */
+export function userVisibleAnswer(
+  provider: LLMProvider,
+  codexAnswerText: string,
+  rawStdout: string
+): string {
+  return provider === "openai" ? codexAnswerText.trim() : rawStdout.trim();
+}
+
 /** What may be used as evidence that a CLI run failed on quota.
  *
- *  **Never the model's answer.** `isQuotaErrorMessage` is a keyword matcher, and
- *  the words it looks for — "capacity", "quota", "429", "rate limit" — are
- *  ordinary vocabulary in CUDA and computer-vision writing. The CLI call site
- *  used to pass `stderr + "\n" + stdout`, where stdout IS the answer, so a
- *  complete and already-paid-for answer was thrown away and reported to the user
- *  as "quota or capacity is currently unavailable" while their quota was fine.
+ *  **Never the model's answer.** The CLI call site used to pass
+ *  `stderr + "\n" + stdout`, where stdout IS the answer, while
+ *  `isQuotaErrorMessage` matched bare `"capacity"` and `"quota"` — ordinary
+ *  vocabulary in CUDA and computer-vision writing. A complete, already-paid-for
+ *  answer was thrown away and reported to the user as "quota or capacity is
+ *  currently unavailable" while their quota was fine. The matcher has since been
+ *  narrowed to provider phrases, but the answer still must never be evidence
+ *  about the provider's health.
  *
  *  Stdout counts only when the run produced no answer at all, because some CLIs
  *  print the refusal there instead of on stderr. */

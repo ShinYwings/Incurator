@@ -31,6 +31,12 @@ All notable changes to Incurator are documented here.
   already paid for, while a false negative costs only the "switch provider" hint,
   since the raw CLI error is shown either way.
 
+- **Codex quota refusals are still detected.** Codex prints a JSON event stream
+  to stdout, and the "did we answer at all" check falls back to that stream when
+  no answer text could be extracted. The quota decision no longer inherits that
+  fallback — otherwise a refusal printed inside the event stream would stop
+  stdout being scanned, and the raw JSON would be shown as if it were an answer.
+
   Verified against a live `agy` 1.1.18, which answered normally throughout,
   confirming the quota was never the problem.
 
