@@ -237,6 +237,27 @@ first version shipped only the first and lost all 277 batches again in a live
 run; every unit test passed against it, because they call the extractor directly
 and never reach `compile.py`'s failure handler.
 
+### 11. Workspace notes are invisible to duty 2
+
+**NEW, measured 2026-08-22 during the P6 duty-2 re-verification.** The user
+expected `01_Workspaces/COLMAP free GS/Research Notes/…` to come back when asking
+"what else have I written about this?". It cannot: `01_Workspaces/` holds **0
+ingested sources**. `ingest_raw.py` discovers files in `02_Wiki`, `03_Notes`,
+`04_Resources`, `06_Archives` — the workspace tree is the Artist Space and is
+deliberately not a source dir.
+
+So duty 2 covers reference and note space but **not the place the user actually
+drafts thinking**, which is where a "didn't I already work this out?" question
+most often points. 12 vault files mention Plücker; 6 of them live under
+`01_Workspaces/` and none are reachable.
+
+This is a **scope decision to revisit, not a retrieval bug** — the trade is real:
+workspace notes are drafts, they churn, and ingesting them would pull unfinished
+text into the DAG. Options not yet evaluated: ingest workspace notes as a
+distinct low-trust class; opt in per workspace through `curate.yml`; or leave
+ingest alone and give retrieval a separate direct-file-search route for the
+active workspace. Needs a plan before any of it.
+
 ### 5c. Graph extraction is not resumable — the same defect v0.62.0 fixed for L2
 
 **NEW, measured 2026-08-22 after v0.62.1.** Removing the fatality of a refusal

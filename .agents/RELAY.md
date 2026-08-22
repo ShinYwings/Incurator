@@ -450,3 +450,54 @@ unanticipated finding: `search()` alone costs 59.7 ms on a full book index.
 
 ROADMAP item 1 (formula recovery) remains blocked on three prerequisites, with
 an Arena record at `.agents/plans/formula_recovery_arena/`.
+
+## P6 duty-2 RE-VERIFICATION (2026-08-22, after v0.62.3 + v0.62.4)
+
+Re-run through the **backend path the popover actually calls**
+(`wiki plugin context fetch --query "<selection>\n\n<question>"`), not by driving
+the editor — the CLI reproduces the same call with no risk to the user's notes.
+
+Selection: the two Plücker–Quadric lines of `03_Notes/Papers/3DRec/3D Line
+Mapping Revisited.md`. Question: *"이거에 대해 내가 다른 데 써놓은 거 있어?"*
+
+**Duty 2 passes at the retrieval layer.** `ok: true`, 33 evidence items, 43
+spans, resolving to **8 distinct notes — 7 of them other than the note being
+read**:
+
+| spans | note |
+|---|---|
+| 15 | `04_Resources/References/3D Line Mapping Revisited2023 - Liu et al. -.md` |
+| 11 | `03_Notes/Vision/Silhouette Based Reconstruction.md` |
+| 9 | `03_Notes/Vision/Auto Calibration.md` |
+| 3 | `03_Notes/Math/Linear Algebra/Layleigh Quotient.md` |
+| 2 | `03_Notes/Math/Numerical Method/Lagrangian Method vs. Regularization.md` |
+| 1 | `03_Notes/Vision/MultipleViewGeometry.md` |
+| 1 | `03_Notes/Papers/3DRec/3D Line Mapping Revisited.md` (the note being read) |
+| 1 | `02_Wiki/CUDA_GaussianSplatting_고급/01_CUDA_고급_개념/02_Warp과_Occupancy.md` |
+
+**`MultipleViewGeometry.md` — the note the user named — does surface**, but with
+a single span against 15 for the top hit. Present, not prominent.
+
+**`Research Notes` cannot surface, and no retrieval fix will change that.**
+`01_Workspaces/` holds **0 ingested sources**; `ingest_raw.py` scans `02_Wiki`,
+`03_Notes`, `04_Resources`, `06_Archives` only, because `01_Workspaces/` is the
+Artist Space. The user expected `01_Workspaces/COLMAP free GS/Research Notes/…`
+to come back. That is an **ingest-scope decision, not a duty-2 defect** — see
+ROADMAP 11.
+
+**The popover's first turn still answers without this evidence.** Measured
+**61 s** for the fetch against the popover's **4 s** budget. v0.62.4 keeps the
+promise alive, so the evidence lands in cache and the **follow-up** gets it; the
+sidechat, which waits, has it on turn 1. Duty 2 is therefore satisfied on the
+second popover turn and the first sidechat turn — worth stating plainly rather
+than recording a flat PASS.
+
+**Two defects found while verifying, both outside P6:**
+
+1. Both notes report **`l3_status=error`, `l4_status=error`** (L1/L2 done, 73 and
+   41 spans). Concepts and synthesis failed, so these notes contribute no graph
+   entities and can only be reached through span search.
+2. The vault's `.curator/state.sqlite` is a **0-byte stub** from 2026-07-30. The
+   live DB is `.cache/vaults/13ed51f8b06cb88e/state.sqlite` (245 MB). Querying
+   the vault copy returns "no such table" — I nearly read that as "the note was
+   never ingested". Anything reading vault-side state is reading nothing.
