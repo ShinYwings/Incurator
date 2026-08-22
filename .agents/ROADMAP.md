@@ -1,91 +1,201 @@
-# Incurator Active Roadmap
+# Incurator Roadmap
 
-Updated: 2026-08-10
+Single queue, single numbering. An item is here because it is **open**; shipped
+work is removed and lives in `CHANGELOG.md` and the Git history.
 
-This file contains only live work. Completed milestones and planning artifacts
-belong in Git history, not the active workspace. New raw reports enter through
-`.agents/USER_REPORT.md`.
+**Consolidated 2026-08-23** from three Arena audits and two umbrella plans that
+had been running in parallel with overlapping numbering (`5c`, `11` and `12` each
+appeared twice). Every item below was re-checked against the code at
+`v0.63.0` — the status lines say what was verified, not what was assumed.
+
+The three audits and where their inventories went:
+
+| audit | verdict |
+|---|---|
+| `system_defect_audit_arena` (code vs spec, 4 domains, ~29 findings) | shipped as B1–B7 across v0.42.2 → v0.50.2. **One survivor: item 6 below.** Walked item by item 2026-08-23. |
+| `curator_state_arena` (storage and state) | **item 4** — several still open and two are *growing*. |
+| `knowledge_value_arena` (does it deliver what it promises?) | **never triaged until now** — its four P1s are items 1, 3, 5 and its two P2s are items 12–13. |
+
+`01_system_stability_overhaul.md` was an umbrella whose remaining workstreams are
+now items 14–17. `03_system_integrity_consolidation.md`'s P8 closure — "delete
+01, 02 and 03" — is what this consolidation finally executes.
 
 ## Active Queue
 
-Verified against the code on 2026-08-07, not against previous roadmap text.
+Ordered by leverage, not by age.
 
-### Shipped since the audits (v0.43.0 → v0.55.0)
+### 1. Korean questions can never reach the global or explore routes
 
-Corroboration gate · B4 · `wiki lint` truthfulness · B3 P1–P4 · vault
-move/delete tracking · the search-index support gate (61% of units were
-unreachable) · language-independent routing, then corrected to enforce the
-English-internal boundary at the backend · the workspace/curation lens on the
-chat surface · entity-description prompt v2 · the sidechat job indicator ·
-add-source state after ingest · Reference-Mode sources resolved by Zotero
-identity · unresolved cross-references named instead of dropped ·
-**image-only extraction loss made visible** (v0.49.0/.1) · **all five of B2's
-sync-integrity items** (v0.49.2 conflict-archive EXDEV, v0.49.3 export-stamp
-race, v0.50.0 truthful import outcome, v0.50.1 single-source trigger
-definitions, v0.50.2 locked device-state RMW) — B2 is closed — and **B3 P5**
-(v0.51.0 truncated-L4 detection) · **v0.53.1** agy permission-rule fix (the
-allow-rule was pruned on every run, causing "jetski: no output produced" on
-headless CLI calls) · **v0.53.2** chat sidebar `fetchPageText` viewer fallback
-(Zotero / untracked PDFs now resolve distant cross-references without backend).
+**From `knowledge_value_arena` [P1]. Re-verified in code 2026-08-23 — unchanged.**
 
-**v0.53.2–v0.55.0 — the reading-assistant line** (the reading-assistant item, now closed, plus the
-prompt defects the same investigation surfaced):
+`retrieval/router.py:41` selects the `global` route with a pure-English regex:
 
-- **v0.53.2** popover grounding relaxed + sidechat pinned sources injected into
-  the popover, within the `local-only` boundary. Shipped straight to master with
-  no PR; reviewed retrospectively during the v0.53.0→v0.55.0 pass, which is
-  where the two defects below came from.
-- **v0.53.3** (#152) the three prompt sites that *instructed* the model to
-  narrate its own retrieval state ("say you could not retrieve the referenced
-  item") are gone. The user was seeing that narration instead of an answer.
-- **v0.54.0** (#153, plan P0) the system prompt now opens with the assistant's
-  three duties — read alongside, remind of prior notes, find new value —
-  instead of a wall of prohibitions. Duty 3 had **zero** instructions anywhere
-  in the stack before this. Budget gated at 17,000 chars / 23 negatives.
-- **v0.54.1** (#155) the `ANTIGRAVITY_*` scrub, which v0.53.2 recorded as
-  shipped "across the entire repo" but had only applied to the plugin. The
-  backend half was written, left uncommitted, and shipped to nobody, so every
-  `wiki`-driven `agy` spawn stayed hijackable by the host IDE daemon.
-- **v0.55.0** (#154, plan P2) `read_pdf_page_image` — renders any page
-  off-screen and reads the pixels, so a rasterized equation answers without the
-  user snipping it. Model-invoked, not heuristic: `isScannedLike` is a
-  whole-page aggregate and the page holding the equation measures 4,193 text
-  chars, so no threshold can see the picture region.
+```python
+_GLOBAL_SIGNALS = re.compile(
+    r"\b(overall|summar(?:y|ize|ise)|across (?:all|the)|in general|big picture|"
+    r"themes?|landscape|state of)\b",
+```
 
-Two master-level defects fixed by fast-forward along the way: hatchling 1.30
-rejecting the backend package metadata (backend CI had gone red with no commit
-causing it), and **the version-consistency gate that had never once run on a
-pull request** — its condition tested `github.ref` against `refs/heads/*`, which
-is never true for a `pull_request` event. That is how v0.53.2 shipped with the
-backend at 0.53.1 and the plugin at 0.53.2.
+`_EXPLORE_SIGNALS` (`:35`) is the same shape. `\b` word boundaries do not even
+behave meaningfully against Hangul, so no Korean phrasing can match — not
+"전체적으로", not "종합해서", not "정리해줘".
 
-Note: v0.48.1 "distant PDF equation references" shipped but was a **no-op** —
-see item 1. It searched neighbouring pages for a label that was never ingested.
+Measured by the audit:
 
-### Recently shipped (moved out of the queue)
+| question | `global` | `explore` |
+|---|---|---|
+| `ellipsoid 형태의 quadric 은 어떻게 매트릭스로 표현되나?` | False | False |
+| `2D GS가 3D보다 …여러 논문을 종합해서 설명해줘` | False | False |
+| `Summarize across all papers how kernel fusion…` | **True** | False |
+| `What are the overall themes in my vault?` | **True** | False |
 
-- **v0.59.0 (#160) — job progress emitted from the loop that runs.** v0.58.0 had
-  attached the writer to `WorkerCallbacks`, which an L2 job never invokes.
-  Remainder: **the L3 phase still has no per-step heartbeat**, because
-  `run_l3_from_existing_atoms` accepts a callbacks factory and never calls it.
-- **v0.60.0 (#162) — the CLI is asked for a value, not for prose.** Nicholson
-  (died at batch 9/15) completes; Hartley (died at 37/277) extracts 277/277 with
-  zero permission denials. The schema must be flattened: unflattened, agy returns
-  SUCCESS with an empty structure and the answer in prose, so every book would
-  ingest to nothing while reporting success. Hartley is still not ingested — a
-  429 at publish, then a folder-permission wall (item 3).
+**The consequence is not a worse answer, it is a different corpus.** The `local`
+route never consults `community_reports` or `synthesis_nodes`, so a Korean
+"synthesise across my sources" question is answered from spans alone — the L3/L4
+layers the whole pipeline exists to build are unreachable from the language the
+user actually writes in.
 
-- **v0.61.2 (#TBD) — two latent defects that predate the v0.59.0 line.**
-  `db.claim_next_job` raised `cannot start a transaction within a transaction`
-  on any state DB whose `schema_version` row was missing or stale, and the raise
-  rolled that row back so the next call failed identically — forever. Both
-  in-repo callers were shielded by an incidental `recover_stale_jobs` that runs
-  first, so no user-facing command was failing. Separately, `max_chars - 500`
-  was used as a size and as a slice bound with no positivity guarantee: a client
-  reporting a budget at or below 500 produced 3,920 batches out of an
-  eight-section fixture, now 40.
+This is the highest-leverage open item precisely because it costs the most and
+is invisible: nothing reports "you asked for a synthesis and got a span search".
 
-### 1. Formula RECOVERY — BLOCKED ON LOCATING THE REGION, and on item 2
+### 2. L3 global clustering has no resume — 36 sources are stuck
+
+**Found 2026-08-23 while diagnosing source 45.** Every one of the vault's
+**36** non-skipped sources reports `l3_status='error'`, and the recorded reason
+is the same for all of them:
+
+```
+L3 global clustering encountered errors:
+  Antigravity capacity exhausted (429). Model tried: 'gemini-3.5-flash'.
+```
+
+L3 is a **global** pass, not a per-source one, so a single capacity refusal
+fails every source at once. And L3 has none of the resumability now built into
+the layers below it: v0.62.0 made L2 extraction resumable, v0.63.0 did the same
+for graph extraction, and **L3 was never touched**. The identical defect, one
+layer up.
+
+The v0.63.0 shape is known to work and is directly transferable — stage each
+completed unit of work keyed on `prompt_runs.input_hash`, release rather than
+delete on failure, replay at publish. What differs is that L3's unit of work is a
+*cluster* over the whole corpus rather than a batch within one source, so the key
+and the staging granularity need their own design rather than a copy.
+
+### 3. Some knowledge units still never enter the search index
+
+**From `knowledge_value_arena` [P1]. Re-measured 2026-08-23 — much improved, not closed.**
+
+| | audit (v0.46.0) | now (v0.63.0) |
+|---|---|---|
+| live `knowledge_units` | 2,799 | 8,994 |
+| indexed | 1,098 | 8,017 |
+| **never indexed** | **1,701 (61%)** | **977 (11%)** |
+
+Whatever shipped between those versions fixed most of it. 977 units the vault
+believes it holds are still unreachable by search, and nothing reports the gap —
+`wiki status` counts units, not indexed units. The remaining 11% has never been
+characterised: it may be one cause or several.
+
+### 3b. Vault coverage — 44 sources registered against a ~101 target
+
+**Plan 05 (`05_pdf_reading_assistant.md`) phase P5, still open.** Duty 2 ("remind
+me what I wrote") is only as true as the corpus behind it, and less than half the
+intended files are registered.
+
+| | |
+|---|---|
+| sources registered | **44** |
+| plan 05's target | **~101** |
+
+Verified 2026-08-23. The plan's other phases are done: P0/P1 shipped (v0.54.0
+#153, v0.56.0 #156), P2 region routing and P3 citation resolution exist
+(`pdfReferenceContext.ts` resolves a bibliography entry and fetches the page),
+P4's provenance block is assembled from resolution results, and P6's duty-2
+acceptance was re-verified at the retrieval layer on 2026-08-23. **P5 is the
+remainder**, which is why that plan is not deleted.
+
+### 4. `.curator` state audit — the remainder
+
+- Losing `.cache/` reports a healthy **empty** vault: `connect()` self-heals a
+  schema into any empty DB and `get_stats` returns zeros. Recovery exists (the
+  in-vault sync journal + `wiki db import`) but is silent and undocumented.
+- Vault rename/move silently mints a new empty DB (cache key is
+  `sha256(resolved_root)[:16]`); also hits `VAULT_ROOT=testbed` from two
+  directories.
+- `sessions.json` 15 MB, **81% re-embedded context** — one note stored 52×, a
+  1.39 MB base64 image, ~1.1 s per send. The 30-session cap is a provable no-op.
+  Supersedes the old "Chat Session Context Compaction" draft.
+- Sync journals never compact — 24 MB, `compress=True` exists unused with gzip
+  measured at 9.86×; tombstones never expire; a stale peer is skipped silently
+  while `autosync` reports success.
+- `wiki sync` claims to rebuild `ledger.md`/`overview.md` and calls neither.
+- `SYSTEM_BEHAVIOR.md` contradicts itself on where `state.sqlite` lives.
+- Arena record: `.agents/plans/curator_state_arena/`
+
+### 5. The curation lens and the vault persona never reach the chat surface
+
+**From `knowledge_value_arena` [P1]. Not re-verified in this pass — carry the
+audit's finding forward and confirm before planning.**
+
+`curate.yml`'s KRS and the vault persona are the mechanism by which curation is
+supposed to be "a dynamic lens applied at retrieval time" (the locked
+architecture decision). The audit found neither reaches chat, which would make
+the lens inert for the surface the user actually uses.
+
+Adjacent to item 4's `policy` block: once the context pack emits
+`policy.applied_filters`, an inert lens becomes *visible* as an empty filter set
+rather than something that has to be inferred.
+
+### 6. Query expansion fails silently — the one survivor of the defect audit
+
+**Verified open 2026-08-23**, the only unshipped item of ~29 in
+`system_defect_audit_arena`.
+
+Three sites swallow every exception with no logging at all:
+
+| site | swallow |
+|---|---|
+| `retrieval/query_expander.py:152` | `except Exception: return {}` — the expander LLM call |
+| `retrieval/query_expander.py:157` | `except Exception: return {}` — parsing its output |
+| `retrieval/expansion.py:98` | `except Exception: extra = {}` — the expander as a whole |
+
+**Why it survived is worth keeping.** The audit classified it as `RC-5(a)`, the
+same class as `CAND-01` and `CAND-02`, and the synthesis said to *"expect a
+duplicate and merge rather than fix twice"*. Batch B4 then fixed CAND-01
+(`lint.py`, now warns with the failure reason) and CAND-02 (`llm_identity.py`,
+now warns with a documented reason) — and dropped the third. **"Merge rather than
+fix twice" was executed as "fix two of three."**
+
+Consequence: when the local expansion model is unavailable or its output does not
+parse, search silently runs unexpanded. Recall drops and nothing anywhere says
+so.
+
+### 7. A source whose parse improved is never re-derived
+
+`l2_status='done'` means a source is never re-parsed, so **a shipped parser fix
+reaches only sources ingested after it**.
+
+Measured on source 37: **646 spans stored, 2,050 computed from the same PDF
+today**, and **4** loss records stored against **437** the current parser finds.
+It was added 2026-08-04; v0.49.0 taught the parser to report unreadable regions
+on 08-08. It has never seen that improvement and never will.
+
+Consequences beyond one source:
+
+- Every stored measurement is a claim about whatever parser ran when that source
+  was last ingested, and nothing says so at the point of reading. This is how
+  ROADMAP 1 came to be scoped against a count that was wrong by 40×.
+- A parser improvement silently splits the corpus into sources that have it and
+  sources that do not, with no surface reporting the split.
+
+Not designed. The obvious approach — record the parser/contract version on the
+source and re-derive when it moves — is a schema and cost question
+(re-parsing the 673-page book takes 79 s; the whole vault is unmeasured), so it
+needs a plan rather than a patch.
+
+**This is upstream of item 1** and should be settled first.
+
+### 8. Formula RECOVERY — BLOCKED ON LOCATING THE REGION, and on item 7
 
 **Arena concluded 2026-08-20 with no build.** `.agents/plans/formula_recovery_arena/`
 (`00_problem_v2.md` … `04_conclusion.md`). Five measurements removed every
@@ -140,139 +250,107 @@ needs its own briefing.
 **Also blocked on item 2**: every number above that comes from `source_spans`
 describes an older parse.
 
-### 2. A source whose parse improved is never re-derived
+### 9. `graph_entities` / `source_spans` transport on a surrogate id
 
-`l2_status='done'` means a source is never re-parsed, so **a shipped parser fix
-reaches only sources ingested after it**.
+Both carry a natural identity — `UNIQUE(canonical_name, entity_type)` and
+`UNIQUE(source_id, content_hash)` — but sync transports them on the surrogate
+`id`, so two devices that independently extract the same thing mint different
+ids. The key lookup misses, the insert collides on content, and convergence has
+to be classified after the fact (v0.50.0 does this via `PRAGMA index_list`).
+`sources` solved the same problem properly with a `sync_key` transport identity,
+so the primary lookup finds converging rows directly and children remap to the
+local id.
 
-Measured on source 37: **646 spans stored, 2,050 computed from the same PDF
-today**, and **4** loss records stored against **437** the current parser finds.
-It was added 2026-08-04; v0.49.0 taught the parser to report unreadable regions
-on 08-08. It has never seen that improvement and never will.
+Nothing remaps `graph_relations.source_entity_id`/`target_entity_id` when an
+entity converges, so the classifier makes the symptom quiet without closing the
+gap. The real fix is a transport identity for both tables plus the id-remap
+plumbing — a schema change touching every referencing column, which is why it
+was left out of v0.50.0 rather than smuggled in.
 
-Consequences beyond one source:
+### 10. Community hierarchy is flat by construction
 
-- Every stored measurement is a claim about whatever parser ran when that source
-  was last ingested, and nothing says so at the point of reading. This is how
-  ROADMAP 1 came to be scoped against a count that was wrong by 40×.
-- A parser improvement silently splits the corpus into sources that have it and
-  sources that do not, with no surface reporting the split.
+`_entities.py` hardcodes `level = 0`; one community holds 176 of 965 entities
+while 152 of 233 are single-relation pairs. §27.4 permits the degraded
+connected-components fallback but requires it be "surfaced by the audit" —
+`config_hash` records it only as an opaque digest and `graph_audit` returns
+violations only.
 
-Not designed. The obvious approach — record the parser/contract version on the
-source and re-derive when it moves — is a schema and cost question
-(re-parsing the 673-page book takes 79 s; the whole vault is unmeasured), so it
-needs a plan rather than a patch.
+### 11. Backend `agy` spawn has no OS sandbox (opened by v0.56.1)
 
-**This is upstream of item 1** and should be settled first.
+`AntigravityCliClient._run` (`backend/src/curator/llm.py`, the Antigravity
+client) spawns `agy` with plain `subprocess.run` — no sandbox wrapper, unlike
+`CodexCliClient`, which passes `--sandbox read-only`. It also sets
+`ANTIGRAVITY_TRUST_WORKSPACE` / `AGY_TRUST_WORKSPACE`.
 
-### 3. ~~External-file access cannot tell "missing" from "not allowed"~~ — SHIPPED v0.61.0 (#163)
+This was latent while the read permission was broken. v0.56.1 fixed that
+permission (it had to — the vision path was dead without it), so the backend
+now spawns an unsandboxed CLI that can read any file the user can, on the code
+path that processes **ingested, untrusted source material**. The trade was
+taken deliberately and is recorded in PLUGIN_SCHEMA §13.5 and in both plugin
+guides.
 
-`probe()` opens the file, because `os.access(R_OK)` returns **True** for a
-TCC-denied one — the audit's own proposed fix would not have worked. A denial
-now reports as `attachment_file_denied` with the folder to grant, found by
-probing ancestors rather than matching a table of macOS locations. `wiki status`
-lists affected sources once; on the live vault it found four, not the one that
-prompted the work.
+**Be clear about what fixing this buys.** The existing sandbox
+(`sandboxWrapper.ts`) is a *write* sandbox: macOS Seatbelt is `(allow default)`
++ `(deny file-write*)`, and Linux bwrap read-only-binds the whole filesystem.
+Applying it to the backend aligns the two spawn paths and adds write and
+process containment — it does **not** close the read exposure, because reads
+were never restricted on either path (`sandboxWrapper.ts:19`: "Reads are
+intentionally still allowed (denying reads breaks the CLI's…)").
 
-Review caught three things worth remembering:
+So this item is worth doing as hardening, and MUST NOT be filed as "the fix for
+the v0.56.1 read grant". Closing that would need a read-restricted profile with
+an allowlist of everything agy needs — designable, but it breaks on every agy
+release, which is why it was not attempted here.
 
-- **The plugin consumes this taxonomy and was not updated**, so the new state
-  showed the user a raw enum string. The states and that `switch` were born in
-  the same commit; they move together.
-- **A documented invariant was broken silently.** XC-1 established that
-  `_resolve_reference_source` degrades on any failure; the denial carve-out is
-  correct but no plan document acknowledged it. The test docstring now states it.
-- `grant_root` stopped at the first *listable* ancestor. Listing and reading are
-  different macOS checks, so it returned nothing for exactly its own use case.
+The exposure is bounded by what else is granted: exactly `read_file(*)` and
+`command(wiki)`, with unapproved tools auto-denied in headless mode. No write
+tool, no arbitrary shell, no network tool. Realistic worst case is a secret
+read into the user's own vault, not remote exfiltration.
 
-**Remainder**: the plugin's own read path (`ExternalPdfView.ts:1385`) still goes
-`existsSync` → `readFileSync` and surfaces a raw Node error. No folder picker
-and no permission request — macOS has no API, and the open question is whether a
-grant obtained by Obsidian reaches the separately spawned backend.
+Eliminating it entirely is a configuration choice, not a code change: a vision
+model reached over an API takes image bytes directly and needs no filesystem
+grant. Recommended in both guides.
 
-### 4. System Integrity Consolidation — the remainder
+### 12. Entity descriptions are frequently circular
 
-- **B2 — COMPLETE** (v0.49.2 → v0.50.2, all five items). The milestone has no
-  P1 left; everything below it is P2/P3.
-- **B3 P5 — DONE** (v0.51.0): a truncated L4 layer is detected instead of
-  frozen as complete. **P6** delete the dead L2 checkpoint-resume (table
-  migration) · **P7** record a reason on legitimate skips — **blocked on a user
-  decision**: `layer_error` is named for errors and `error_reason` already
-  exists, so which column carries a non-error reason is a contract choice, not
-  an implementation detail.
-- **B5 / B7** each require their own Arena plan.
-- Plan: `.agents/plans/03_system_integrity_consolidation.md`,
-  ledger `03_b3_roadmap_evidence.md`.
+**From `knowledge_value_arena` [P2]. Not re-verified — confirm before planning.**
+The audit found graph entity descriptions that restate the entity name rather
+than saying what it is or does, which is what the extraction contract requires.
 
-**Its inventory lives in `system_defect_audit_arena/03_synthesis.md`** — the
-B-batches this item tracks are that synthesis's batches, so the two are one
-piece of work, not two. That folder was briefly deleted as "finished" and
-restored; it is unreadable as status because nobody has walked it item by item.
+### 13. Span segmentation isolates fragments
 
-Sampled against current code (numbers are the SYNTHESIS's, not this
-roadmap's): its item 10 (`recover_stale_jobs` NULLing
-`layer_error`) is **fixed** — the prescribed `CASE WHEN` guard is at
-`db/jobs.py:171`; its item 13 (`wiki sync` promoting `l3/l4_status` from a glob) is
-**fixed**, its docstring says "It used to also promote"; the synthesis's two
-"never ran" domains later did run (`04_g0_exception_hygiene.md`,
-`04_g0_docs_parity.md`). `knowledge_value_arena/` has had no triage at all.
+**From `knowledge_value_arena` [P2]. Not re-verified — confirm before planning.**
+Segmentation produces spans small enough that a claim's supporting context lands
+in a neighbouring span, which weakens both retrieval and claim support.
 
-**P6 is DONE, not pending** — the dead L2 checkpoint-resume was deleted in
-v0.51.1, which is what item 5 (resumable L2) picks up from. The line below
-saying otherwise was stale.
+### 14. Prompt architecture v2
 
-**NEXT here**: one pass per inventory item recording shipped/open, then delete
-the folders. Not before — that ordering is what went wrong once already.
+**From the `01_system_stability_overhaul.md` umbrella.** Establish golden
+fixtures and a cross-provider output-shape metric; version prompt profiles and
+normalise provider output at contract boundaries **without** merging the sidechat
+and popover tool policies.
 
-### 5. Resumable L2 extraction — SHIPPED in v0.62.0
+### 15. Safe decomposition and exception hardening
 
-Live acceptance: 277 extraction calls → **0**, 5,100 s → **~120 s**, measured
-against a baseline snapshot (`prompt_runs` 1941 before and after). The plan and
-its evidence ledger were deleted on merge per the workflow; read them with
-`git show f182efe^:.agents/plans/06_resumable_l2_evidence.md`.
+**From the `01` umbrella.** Characterise behaviour before extracting any
+remaining god-file ownership domain. Replace silent broad catches only where a
+typed boundary outcome is defined and regression-tested — item 6 is the last
+known instance of the untyped kind.
 
-Two changes were needed and the first alone was worthless: per-batch persistence,
-**and** a staged-compile failure releasing that work instead of deleting it. The
-first version shipped only the first and lost all 277 batches again in a live
-run; every unit test passed against it, because they call the extractor directly
-and never reach `compile.py`'s failure handler.
+### 16. Measured performance
 
-### 12. The plugin's quota detector was a keyword matcher — FIXED in v0.62.5
+**From the `01` umbrella.** Benchmark fixed RAG/DAG fixtures *before*
+optimising; accept a change only with a measured speedup and no quality
+regression. Nothing here has been benchmarked, so there is no baseline to
+regress against.
 
-**Reported by the user 2026-08-22**: *"agy 지금 사용할때 왜 Error: antigravity
-quota or capacity is currently unavailable가 계속 뜨는거야? plugin quota
-있는데??"* Their quota was fine — `agy` 1.1.18 answered normally from the shell
-throughout the investigation.
+### 17. Existing-surface UX
 
-**Two defects, both fixed.**
+**From the `01` umbrella.** Confirmed friction in chat, popover, diff and
+dashboard surfaces, validated against real plugin behaviour rather than unit
+tests alone.
 
-1. **The answer was being read as evidence.** `LLMClient` classified a finished
-   CLI run by matching `stderr + "\n" + stdout`, and stdout **is** the answer.
-   Evidence now comes from stderr, and from stdout only when the run produced no
-   answer at all.
-2. **The matcher was bare-word substring matching** — `"capacity"`, `"quota"`,
-   `"429"`, `"rate limit"` — which is ordinary vocabulary. It now matches the
-   phrases providers actually emit, mirroring the backend's `_is_capacity_error`
-   (`llm.py`), with `\b429\b` word-bounded.
-
-Fixing the matcher fixed the three sites the first patch had left open — the
-mid-stream stderr kill at `LLMClient.ts:1738` and the two `err.message` matches at
-`:1322`/`:1436` — because all four call the same function.
-
-**Design note worth keeping.** The asymmetry decides how narrowly to match: a
-false positive **destroys an answer the user already paid for**; a false negative
-costs only the friendly "switch provider" hint, since the raw CLI error is
-surfaced either way. Match narrowly.
-
-**A redundant guard was found and NOT added.** The backend strips typed ids
-(`\b[A-Z]{3,4}-[0-9a-fA-F]{8}\b`) before matching. Mirroring that here was
-implemented, then removed when a mutation check showed **no test could
-distinguish its presence**: an id's hex run always flanks its digits with hex
-characters, so `\b429\b` can never fire inside one. Unexercised defensive code
-is worse than none — it invites someone to weaken the boundary believing the
-strip covers them.
-
-### 11. Workspace notes are invisible to duty 2
+### 18. Workspace notes are invisible to duty 2
 
 **NEW, measured 2026-08-22 during the P6 duty-2 re-verification.** The user
 expected `01_Workspaces/COLMAP free GS/Research Notes/…` to come back when asking
@@ -331,94 +409,19 @@ the point, but it will move search results noticeably.
 **Deferred, and to be planned via a MULTI-AGENT Arena debate when it comes up
 (user directive, 2026-08-22).** Priority is below ROADMAP 5c.
 
-### 5c. Graph extraction is not resumable — CLOSED in v0.63.0 (#171)
+### 19. The backend never asks for folder permission — it guesses paths it may not open
 
-**NEW, measured 2026-08-22 after v0.62.1.** Removing the fatality of a refusal
-was necessary and did not make source 45 publishable. Graph output is held **in
-memory** until the publish gate (`graph_index.py:209`, *"Collect parsed objects
-IN MEMORY (no DB writes)"*), so every capacity deferral throws it away.
+**Triaged in from `USER_REPORT.md` 2026-08-23.** macOS TCC denies `open()` on a
+granted-looking path, so a directory the user never authorised reads as a corrupt
+file rather than as a permission problem.
 
-Measured across three attempt windows, each ending at a 429:
+### 20. The same file registers twice, differing only by Unicode normalisation
 
-| window | graph calls | usable (`ok`) |
-|---|---|---|
-| 15:15 → 15:24 | 20 | **3** |
-| 15:45 | 1 | 0 |
-| 17:40 → 17:47 | 8 | **3** |
+**Triaged in from `USER_REPORT.md` 2026-08-23.** macOS filesystems hand back NFD
+where most tooling produces NFC, so one file becomes two `sources` rows and its
+knowledge is split across both.
 
-Source 45 needs **between 24 and ~71** batches — a range, because the figure has
-been wrong twice (**~87 → 72 → 24**) and each attempt measured a different unit
-set. Graph extraction is fed `list_generation_units`, which returns only
-`support_status = 'verified'` units. Source 45 currently holds 5,358 live units:
-**1,958 verified (24 batches), 3,322 unchecked, 78 failed**. The unchecked ones
-belong to runs that died before validation reached them; a run that completes
-validation would verify most of them, landing near **68**. No single number is
-measured until a run actually finishes validating.
-
-Every batch must land in the same run. At **≤3 usable batches per capacity
-window**, discarded at the end of each, that is 8 windows at best and 23 at
-worst — still unreachable in one run, which is the premise, though not by the
-margin first claimed.
-
-This is the L2 problem again, one layer up: v0.62.0 made extraction survive
-interruption by persisting per batch; graph extraction still does not. The fix
-has a proven shape — persist per batch, key resume on `prompt_runs.input_hash`,
-release rather than delete on failure — but graph rows are entity/relation
-records with different publish semantics, so it needs its own design rather than
-a copy.
-
-**Do not treat this as a gate on the goal.** P6, the definition of done, needs a
-published paper with a bibliography and equations, and 34 sources published on
-2026-08-18. Source 45 is a coverage item.
-
-### 5d. Every graph batch re-sent all 8,905 span ids — CLOSED in v0.63.0 (#171)
-
-**NEW, measured 2026-08-23 during the P5 live run.** The user asked why runs die
-with a capacity error while their quota is fine. Their quota *is* fine. The run
-burns it about **7x faster than it needs to**.
-
-`client_optimal_chunk_chars` (18,000) bounds the **units block only**. The
-rendered prompt also carries `valid_span_ids_block`, which is **every span id of
-the source**, on every batch.
-
-| | source 45 |
-|---|---|
-| units block | 15,981 chars — the budget works |
-| **span id block** | **124,669 chars — 87% of the prompt** |
-| templates | 2,932 chars |
-| **total per batch** | **143,582 chars** |
-| span ids a batch actually cites | min 14, **median 67**, max 99 |
-| span ids a batch is sent | **8,905** |
-| waste factor | **139x** |
-
-Across the source's 24 batches that is **3.45 MB sent** against **476 KB needed**
-— a **7.2x** reduction available for free.
-
-**This is a bigger lever than 5c.** Resume makes an interruption survivable; this
-removes most of the reason to be interrupted.
-
-**It may also be the cause of 5b** — plausible, not proven. 5b's symptom is the
-model running `python3 -c "... transcript_full.jsonl ..."` to *recover its prompt
-input*, which is what a model does when its input did not arrive intact. A
-143 KB prompt through a CLI argument is a strong candidate for that. Worth
-testing directly after the fix: if scoping the span block makes the shell-outs
-stop, 5b closes with it.
-
-**The fix looks cheap.** Send the union of span ids the batch's own units cite,
-not the source's whole list. The validator's contract is unchanged — a model can
-only ground a relation in a span one of its units already carries, so a narrower
-allowed list removes nothing it could legitimately use. Needs a plan: the
-allowed-id list is a prompt contract, so narrowing it changes `input_hash` for
-every batch and invalidates existing staged batches (correctly — they were
-rendered from a different prompt).
-
-**A hypothesis that was WRONG, recorded so it is not re-tried.** Before
-measuring, the suspicion was that `_is_capacity_error(log_text)` (`llm.py:355`)
-false-positives by matching bare `"429"` against agy's `--log-file` output. A
-real 26 KB agy log was captured and checked against all eight phrases: **zero
-matches**. The backend's classifier is not implicated here.
-
-### 5b. agy shells out during graph extraction — Hartley PUBLISHED anyway (v0.63.0)
+### 21. agy shells out during graph extraction — Hartley PUBLISHED anyway (v0.63.0)
 
 **NEW, found by the v0.62.0 live run (2026-08-21).** The staged compile now
 fails in `curator.entity_relation_extract@v2`: 2 of 5 calls returned
@@ -446,181 +449,6 @@ allowance; route `entity_relation_extract` to a provider that does not shell out
 or make a denied shell command a retryable per-batch failure instead of a fatal
 compile error. Belongs with the agy-sandbox item.
 
-### 5c. (was 5) Resumable L2 — original problem statement, kept for context
-
-Removed in v0.51.1 rather than repaired (B3 P6). The old mechanism could never
-run: checkpoints were written only inside the branch that required checkpoints
-to already exist, so `l2_checkpoints` held 0 rows across 36 sources and 2,799
-units. Deleting it changed no behavior.
-
-The cost it was meant to avoid is real. An interrupted L2 build restarts from
-the first batch, so a 40-batch source re-pays every provider round-trip — at the
-measured 8–12 s per CLI round-trip that is 5–8 minutes per retry.
-
-It must be designed, not re-enabled. The removed branch returned
-`list_staged_unit_ids_for_source`, which filters `generation_id IS NULL` and is
-therefore **empty after a successful publish** — a resumed run would have
-attributed zero units to a fresh generation and retired the source's entire
-authoritative unit set under §26.3. Any new design has to decide what a resumed
-run returns, and how a partially-published source is distinguished from an
-unstarted one.
-
-**Measured cost, 2026-08-19**: Hartley completed **all 277 extraction batches**
-and then hit a 429 at publish. All-or-nothing discarded every batch — about 90
-minutes. This is the sharpest case this item has: not "interrupted midway" but
-"finished the expensive part and threw it away". Continues ROADMAP 4's P6.
-
-**SHIPPED as v0.62.0 (PR #166, merged 2026-08-21).** See item 5 above; the
-Arena record stays at `.agents/plans/resumable_l2_arena/`. The question this item
-kept asking — "what does a resumed run return?" — is answered by accumulating ids
-in the extraction loop, never by querying the source's staged units. Resume needs
-**no schema change**: `prompt_runs.input_hash` already identifies a batch and is
-stable for an unchanged span set.
-
-**Clause 2 of that plan's definition of done was NOT met on this source** and is
-unreachable until ROADMAP 5b: Hartley still publishes nothing, because its staged
-compile dies in graph extraction. The publication half was demonstrated on the
-testbed source instead.
-
-
-**Measured twice, 2026-08-19 and 2026-08-20 — this is now the blocker for one
-real source, not a hypothetical.** Hartley (`sources.id=45`, 673 pages, 277
-extraction batches) completed **277/277 both times** and then hit a 429 at the
-staged compile, and both generations are `discarded` with zero surviving units:
-
-```
-GEN-fe8d892e status=discarded created=2026-08-20T12:56:27Z
-GEN-c5d4a51c status=discarded created=2026-08-19T11:19:09Z
-knowledge_units for source 45: none
-```
-
-Roughly 90 minutes of provider work destroyed, twice, at the last step.
-
-Three things make it structural rather than bad luck:
-
-- **The 429 is a burst limit, not exhaustion.** A trivial `agy` call succeeded
-  within a minute of the failure. Quota recovers; the run does not.
-- **Extraction spends the budget that publish then needs.** By the time the
-  staged compile runs, the same window has already absorbed 277 batches.
-- **The retry restarts at batch 1**, so it re-spends the whole budget and
-  arrives at the same wall. `_raise_capacity_error` sets a 300 s backoff on the
-  client instance, but `run_next_job` builds a NEW client per job, so that
-  backoff is discarded — a retry that simply waited five minutes would likely
-  have published.
-
-So a source of this size cannot currently complete, however many times it is
-retried. The cheap half of the fix is not resumability at all: it is honouring
-the capacity backoff across the retry. The expensive half is not discarding a
-completed extraction because the step after it was rate-limited.
-
-
-**Settled 2026-08-21: retrying cannot fix this, and the job history proves it.**
-v0.61.1 made a rate-limited job wait instead of restarting instantly. It helped
-and it was not enough. Every attempt, from the job's own `job_events`:
-
-```
-08-19 11:24  attempt 1  reached 277/277  -> 429 at publish
-08-19 11:26  attempt 2  reached 0/1      -> 429 immediately   (pre-v0.61.1)
-08-19 11:28  attempt 3  reached 0/1      -> 429 immediately
-08-20 12:58  attempt 1  reached 277/277  -> 429 at publish
-08-20 17:46  attempt 1  reached 277/277  -> 429 at publish
-08-20 18:48  attempt 2  reached 183/277  -> 429 mid-extraction  (after a 5-min wait)
-```
-
-The backoff works: the waited retry reached **183** where the instant ones
-reached **0**. But the window recovers roughly 183 batches' worth in five
-minutes and the job needs 277 **plus** the publish that follows — so each
-attempt spends the budget from batch 1 and arrives short. More retries and
-longer backoffs only change where it dies.
-
-**So the expensive half of this item is not an optimisation, it is the only
-path for a source this size.** Preserving a completed extraction across a
-failure of the step after it is what makes Hartley ingestable at all; nothing in
-the retry dimension can substitute for it.
-
-Note what made this diagnosable: `reached` on the retry event (v0.61.1). Without
-it the six rows above would read as six identical failures with a batch counter
-at 1, and "the window is shrinking" would have been invisible.
-
-### 6. `.curator` state audit — the remainder
-
-- Losing `.cache/` reports a healthy **empty** vault: `connect()` self-heals a
-  schema into any empty DB and `get_stats` returns zeros. Recovery exists (the
-  in-vault sync journal + `wiki db import`) but is silent and undocumented.
-- Vault rename/move silently mints a new empty DB (cache key is
-  `sha256(resolved_root)[:16]`); also hits `VAULT_ROOT=testbed` from two
-  directories.
-- `sessions.json` 15 MB, **81% re-embedded context** — one note stored 52×, a
-  1.39 MB base64 image, ~1.1 s per send. The 30-session cap is a provable no-op.
-  Supersedes the old "Chat Session Context Compaction" draft.
-- Sync journals never compact — 24 MB, `compress=True` exists unused with gzip
-  measured at 9.86×; tombstones never expire; a stale peer is skipped silently
-  while `autosync` reports success.
-- `wiki sync` claims to rebuild `ledger.md`/`overview.md` and calls neither.
-- `SYSTEM_BEHAVIOR.md` contradicts itself on where `state.sqlite` lives.
-- Arena record: `.agents/plans/curator_state_arena/`
-
-### 7. `graph_entities` / `source_spans` transport on a surrogate id
-
-Both carry a natural identity — `UNIQUE(canonical_name, entity_type)` and
-`UNIQUE(source_id, content_hash)` — but sync transports them on the surrogate
-`id`, so two devices that independently extract the same thing mint different
-ids. The key lookup misses, the insert collides on content, and convergence has
-to be classified after the fact (v0.50.0 does this via `PRAGMA index_list`).
-`sources` solved the same problem properly with a `sync_key` transport identity,
-so the primary lookup finds converging rows directly and children remap to the
-local id.
-
-Nothing remaps `graph_relations.source_entity_id`/`target_entity_id` when an
-entity converges, so the classifier makes the symptom quiet without closing the
-gap. The real fix is a transport identity for both tables plus the id-remap
-plumbing — a schema change touching every referencing column, which is why it
-was left out of v0.50.0 rather than smuggled in.
-
-### 8. Community hierarchy is flat by construction
-
-`_entities.py` hardcodes `level = 0`; one community holds 176 of 965 entities
-while 152 of 233 are single-relation pairs. §27.4 permits the degraded
-connected-components fallback but requires it be "surfaced by the audit" —
-`config_hash` records it only as an opaque digest and `graph_audit` returns
-violations only.
-
-### 9. Backend `agy` spawn has no OS sandbox (opened by v0.56.1)
-
-`AntigravityCliClient._run` (`backend/src/curator/llm.py`, the Antigravity
-client) spawns `agy` with plain `subprocess.run` — no sandbox wrapper, unlike
-`CodexCliClient`, which passes `--sandbox read-only`. It also sets
-`ANTIGRAVITY_TRUST_WORKSPACE` / `AGY_TRUST_WORKSPACE`.
-
-This was latent while the read permission was broken. v0.56.1 fixed that
-permission (it had to — the vision path was dead without it), so the backend
-now spawns an unsandboxed CLI that can read any file the user can, on the code
-path that processes **ingested, untrusted source material**. The trade was
-taken deliberately and is recorded in PLUGIN_SCHEMA §13.5 and in both plugin
-guides.
-
-**Be clear about what fixing this buys.** The existing sandbox
-(`sandboxWrapper.ts`) is a *write* sandbox: macOS Seatbelt is `(allow default)`
-+ `(deny file-write*)`, and Linux bwrap read-only-binds the whole filesystem.
-Applying it to the backend aligns the two spawn paths and adds write and
-process containment — it does **not** close the read exposure, because reads
-were never restricted on either path (`sandboxWrapper.ts:19`: "Reads are
-intentionally still allowed (denying reads breaks the CLI's…)").
-
-So this item is worth doing as hardening, and MUST NOT be filed as "the fix for
-the v0.56.1 read grant". Closing that would need a read-restricted profile with
-an allowlist of everything agy needs — designable, but it breaks on every agy
-release, which is why it was not attempted here.
-
-The exposure is bounded by what else is granted: exactly `read_file(*)` and
-`command(wiki)`, with unapproved tools auto-denied in headless mode. No write
-tool, no arbitrary shell, no network tool. Realistic worst case is a secret
-read into the user's own vault, not remote exfiltration.
-
-Eliminating it entirely is a configuration choice, not a code change: a vision
-model reached over an API takes image bytes directly and needs no filesystem
-grant. Recommended in both guides.
-
 ## Blocked / Icebox
 
 - None.
@@ -630,7 +458,7 @@ about what the spawned CLI is *permitted* to read; item 2 is about the backend
 being unable to *tell* a denial from a missing file. A sandbox here changes
 which denials happen; item 3 changes whether we can explain them.
 
-### 10. Retrieval and projection leftovers
+### 22. Retrieval and projection leftovers
 
 - Span segmentation isolates single-word fragments
   (`pipeline/source_spans.py` splits on blank lines with no minimum length).
@@ -639,7 +467,7 @@ which denials happen; item 3 changes whether we can explain them.
 - Retro-repair for vaults carrying a dead source row from a pre-v0.46.0 move;
   `wiki lint` reports them but nothing fixes them.
 
-### 11. PDF whole-document search — PLANNED, awaiting approval
+### 23. PDF whole-document search — PLANNED, awaiting approval
 
 `pdfFullDocumentIndex` ("Background page indexing") has **0 consumers** — the
 toggle writes a value nothing reads, so `search_pdf_anchor` can only find
@@ -654,7 +482,7 @@ Two defects the Arena verified, both of which must be fixed before any walk:
 - A naive `notifyContextChanged()` progress tick cascades into an unconditional
   main-thread BM25 search + chip rebuild, ~27 times per book open.
 
-### 12. Drafts not yet planned
+### 24. Drafts not yet planned
 
 - Vault Storage Governance & Quota Visibility —
   `.agents/drafts/vault_storage_governance.md`
@@ -662,3 +490,24 @@ Two defects the Arena verified, both of which must be fixed before any walk:
   `.agents/drafts/pdf_annotation_system.md`
 - Web Search Integration — no current plan; re-plan from current provider,
   privacy, and cost constraints.
+
+### 25. Three audits' Arena records, now closed out
+
+`system_defect_audit_arena/`, `curator_state_arena/` and `knowledge_value_arena/`
+were walked item by item on 2026-08-23 and everything still open was folded into
+the queue above. Those three folders were then deleted, along with
+`01_system_stability_overhaul.md`, `03_system_integrity_consolidation.md` and
+their evidence ledgers; `git log -- .agents/plans/` has them in full.
+
+**What deliberately stayed**, because a live item still points at it:
+
+| kept | why |
+|---|---|
+| `formula_recovery_arena/` | item 8 is its conclusion and cites it |
+| `agy_shell_out_arena/` | item 21 |
+| `04_pdf_background_index.md` + arena | item 23 — planned, awaiting approval, never implemented |
+| `05_pdf_reading_assistant.md` + arena | item 3b — phase P5 is still open |
+
+The ordering matters and is the thing that went wrong before: the folders were
+once deleted as "finished" and had to be restored, because nobody had walked them
+first. Walk, fold, then delete.
