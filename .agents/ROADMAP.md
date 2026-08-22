@@ -371,6 +371,53 @@ a copy.
 published paper with a bibliography and equations, and 34 sources published on
 2026-08-18. Source 45 is a coverage item.
 
+### 5d. Every graph batch re-sends all 8,905 span ids — 87% of each prompt
+
+**NEW, measured 2026-08-23 during the P5 live run.** The user asked why runs die
+with a capacity error while their quota is fine. Their quota *is* fine. The run
+burns it about **7x faster than it needs to**.
+
+`client_optimal_chunk_chars` (18,000) bounds the **units block only**. The
+rendered prompt also carries `valid_span_ids_block`, which is **every span id of
+the source**, on every batch.
+
+| | source 45 |
+|---|---|
+| units block | 15,981 chars — the budget works |
+| **span id block** | **124,669 chars — 87% of the prompt** |
+| templates | 2,932 chars |
+| **total per batch** | **143,582 chars** |
+| span ids a batch actually cites | min 14, **median 67**, max 99 |
+| span ids a batch is sent | **8,905** |
+| waste factor | **139x** |
+
+Across the source's 24 batches that is **3.45 MB sent** against **476 KB needed**
+— a **7.2x** reduction available for free.
+
+**This is a bigger lever than 5c.** Resume makes an interruption survivable; this
+removes most of the reason to be interrupted.
+
+**It may also be the cause of 5b** — plausible, not proven. 5b's symptom is the
+model running `python3 -c "... transcript_full.jsonl ..."` to *recover its prompt
+input*, which is what a model does when its input did not arrive intact. A
+143 KB prompt through a CLI argument is a strong candidate for that. Worth
+testing directly after the fix: if scoping the span block makes the shell-outs
+stop, 5b closes with it.
+
+**The fix looks cheap.** Send the union of span ids the batch's own units cite,
+not the source's whole list. The validator's contract is unchanged — a model can
+only ground a relation in a span one of its units already carries, so a narrower
+allowed list removes nothing it could legitimately use. Needs a plan: the
+allowed-id list is a prompt contract, so narrowing it changes `input_hash` for
+every batch and invalidates existing staged batches (correctly — they were
+rendered from a different prompt).
+
+**A hypothesis that was WRONG, recorded so it is not re-tried.** Before
+measuring, the suspicion was that `_is_capacity_error(log_text)` (`llm.py:355`)
+false-positives by matching bare `"429"` against agy's `--log-file` output. A
+real 26 KB agy log was captured and checked against all eight phrases: **zero
+matches**. The backend's classifier is not implicated here.
+
 ### 5b. Hartley is still unpublished — agy shells out during graph extraction
 
 **NEW, found by the v0.62.0 live run (2026-08-21).** The staged compile now
