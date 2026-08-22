@@ -230,3 +230,36 @@ def test_the_table_appears_on_a_database_that_predates_it() -> None:
             assert conn.execute(
                 "SELECT relpath FROM sources WHERE id = 1").fetchone()[0] \
                 == "03_Notes/pre-existing.md"
+
+
+def test_generation_units_have_a_deterministic_order(db_path: Path) -> None:
+    """The resume key depends on this, so it must not rest on SQLite's sorter.
+
+    `list_generation_units` ordered by `created_at` alone. `created_at` has
+    one-second granularity and L2 inserts a whole batch inside one second —
+    measured on the reference vault, **all 5,358 units of source 45 sit in tie
+    groups**, 279 distinct timestamps with the largest group at 57. Tie order was
+    therefore decided by the sorter rather than the query.
+
+    It measured stable across a `generation_id` re-stamp and a `VACUUM`, but
+    SQLite does not document its sorter as stable. If the plan ever changes, the
+    units block reorders, batch boundaries move, and every graph batch hash from
+    the first divergence onward misses — a silent full re-pay of the whole
+    source.
+    """
+    same_instant = "2026-08-22T08:04:18Z"
+    ids = ["KNU-cccc3333", "KNU-aaaa1111", "KNU-bbbb2222"]
+    with db.connect(db_path) as conn:
+        for unit_id in ids:
+            conn.execute(
+                "INSERT INTO knowledge_units "
+                "(id, source_id, unit_type, canonical_name, statement, "
+                " source_span_ids, generation_id, support_status, "
+                " created_at, updated_at) "
+                "VALUES (?, 1, 'claim', ?, ?, '[]', 'GEN-tie', 'verified', ?, ?)",
+                (unit_id, unit_id, f"statement for {unit_id}",
+                 same_instant, same_instant),
+            )
+
+    ordered = [str(u["id"]) for u in db.list_generation_units(db_path, "GEN-tie")]
+    assert ordered == sorted(ids), "tied timestamps must fall back to a stable id order"

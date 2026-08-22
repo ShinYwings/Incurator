@@ -640,8 +640,18 @@ def list_generation_units(
     Pass ``conn`` to read within a caller's transaction (atomic publish)."""
     with _maybe_conn(db_path, conn) as c:
         rows = c.execute(
+            # `, id` is NOT cosmetic. `created_at` has one-second granularity and
+            # L2 inserts a whole batch inside one second: measured on the
+            # reference vault, ALL 5,358 units of source 45 sit in tie groups
+            # (279 distinct timestamps, largest group 57). Without a tiebreaker
+            # the order of tied rows is decided by SQLite's sorter, which is not
+            # documented as stable. Graph extraction batches these units in
+            # order and keys resume on the rendered prompt's hash, so a reorder
+            # moves every batch boundary and misses every cached batch from the
+            # first divergence onward -- a silent full re-pay of the source.
             "SELECT * FROM knowledge_units WHERE generation_id = ? "
-            "AND retired_at IS NULL AND support_status = 'verified' ORDER BY created_at",
+            "AND retired_at IS NULL AND support_status = 'verified' "
+            "ORDER BY created_at, id",
             (generation_id,),
         ).fetchall()
     return [_decode_unit_row(row) for row in rows]

@@ -190,3 +190,61 @@ backend. It reads as the denylist a new machine-local table should be added to,
 but the exporter uses the `SYNC_TABLES` allowlist instead, so adding to it would
 accomplish nothing. Left alone per the surgical-changes rule; worth a separate
 cleanup.
+
+
+## P2 — resume inside `extract_graph_data`
+
+**Changed**
+
+- `db/_entities.py` — `list_generation_units` now orders by `created_at, id`.
+- `pipeline/graph_index.py` — `extract_graph_data` looks a batch up by
+  `input_hash` before calling the provider, stages a validated result
+  immediately, and logs what it reused. New `_parse_staged_payload` rebuilds a
+  staged batch through the contract's own `output_model`.
+
+**The source id is DERIVED, not passed.** Every unit row already carries
+`source_id`, and a generation belongs to exactly one source, so a parameter would
+only add a way to pass the wrong one. Units spanning several sources disable
+resume with a warning; units with no `source_id` — the back-compat wrapper and
+older tests — simply do not stage.
+
+**Staging is best-effort and never fails a good extraction.** If the cache write
+throws, the run continues and logs it: the cost of losing the row is one re-paid
+batch next time, not a failed compile.
+
+**An unreadable staged payload re-extracts rather than publishing.** A row
+written under an older contract shape would otherwise put a graph into the
+publish transaction that nothing can account for.
+
+### The ordering fix was not cosmetic
+
+`list_generation_units` ordered by `created_at` alone, and every one of source
+45's 5,358 units sits in a tie group (279 distinct timestamps, largest 57).
+Tie order was decided by SQLite's sorter. A unit test with three units sharing one
+timestamp returned them in **insertion order** before the fix — so the hazard is
+real, not theoretical, and a reorder would move every batch boundary and miss
+every cached batch from the first divergence onward.
+
+### Validation
+
+`backend/tests/test_graph_resume.py` — **7 passed**; 30 passed across the three
+related files.
+
+| behavior | measurement |
+|---|---|
+| a fully staged source | **0 provider calls** on the second run |
+| interrupted after batch 1 of 2 | resumed run makes **exactly 1** call |
+| a refused batch | **not** staged (D6) |
+| a validated batch | staged as it completes |
+
+**Mutation-checked.** Disabling the cache hit (`if cached is not None` →
+`if False`) fails the two resume tests; removing the total-miss warning fails the
+loud-miss test. `ruff` and `mypy` clean.
+
+### D2's second half — still open, and now checked
+
+`compile.py`'s failure path releases staged **units** only
+(`_release_staged_units_for_resume`); nothing deletes `graph_batch_results`. So
+the rows survive a failed compile today. **P3 adds delete-on-publish, which is
+the code that could over-delete**, and the test that rolls the real compile back
+and asserts the staged batches survive belongs there. Do not skip it.
