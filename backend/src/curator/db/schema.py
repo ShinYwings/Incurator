@@ -1033,12 +1033,28 @@ def get_stats(db_path: Path) -> dict:
             "WHERE retired_at IS NULL AND generation_id IS NOT NULL"
         ).fetchone()[0]
         units_indexed = conn.execute(
-            "SELECT COUNT(*) FROM search_documents WHERE record_type = 'knowledge_unit'"
+            "SELECT COUNT(*) FROM search_documents sd "
+            "JOIN knowledge_units ku ON ku.id = sd.record_id "
+            "WHERE sd.record_type = 'knowledge_unit' "
+            "  AND ku.retired_at IS NULL AND ku.generation_id IS NOT NULL"
+        ).fetchone()[0]
+        # An ANTI-JOIN, not `live - indexed`. The subtraction is only right while
+        # the index holds no row for a retired, unpublished or deleted unit —
+        # true on the reference vault today (0 such rows) and guaranteed by
+        # nothing. One stale row and the subtraction understates the gap, or
+        # goes negative and gets clamped to zero by `max(0, …)`, which hides the
+        # anomaly instead of reporting it. Same cost, correct by construction.
+        units_unindexed = conn.execute(
+            "SELECT COUNT(*) FROM knowledge_units ku "
+            "LEFT JOIN search_documents sd "
+            "  ON sd.record_type = 'knowledge_unit' AND sd.record_id = ku.id "
+            "WHERE ku.retired_at IS NULL AND ku.generation_id IS NOT NULL "
+            "  AND sd.doc_id IS NULL"
         ).fetchone()[0]
     return {
         "units_live": int(units_live),
         "units_indexed": int(units_indexed),
-        "units_unindexed": max(0, int(units_live) - int(units_indexed)),
+        "units_unindexed": int(units_unindexed),
         "sources_total": sources_total,
         "sources_l1_done": sources_l1_done,
         "sources_curated": sources_curated,

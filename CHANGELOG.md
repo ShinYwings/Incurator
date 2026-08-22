@@ -16,6 +16,9 @@ All notable changes to Incurator are documented here.
   output longer and less legible. The index gap is the one signal nothing showed.
 
 - `get_stats` now carries `units_live`, `units_indexed` and `units_unindexed`.
+  The gap is an **anti-join**, not `live - indexed`: a unit indexed twice, or an
+  index row pointing at a retired or deleted unit, makes the subtraction cancel a
+  real gap and report a healthy index.
 
   The unit count is scoped to **published** rows. Since v0.62.0 an interrupted
   extraction leaves durable unpublished ones — measured, a single source held

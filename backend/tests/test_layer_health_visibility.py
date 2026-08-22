@@ -174,3 +174,63 @@ def test_staged_units_from_an_interrupted_run_are_not_counted_as_a_gap(vault: Pa
     stats = db.get_stats(paths.state_db)
     assert stats["units_live"] == 1
     assert stats["units_unindexed"] == 0, "a staged row is not a search-index gap"
+
+
+def test_a_duplicate_index_row_does_not_cancel_a_real_gap(vault: Path) -> None:
+    """The gap is an ANTI-JOIN, not `live - indexed`, and this is the case that
+    tells them apart.
+
+    Two published units, one indexed TWICE and one not indexed at all.
+    Subtraction says `2 - 2 = 0` and reports a healthy index; the anti-join says
+    one unit is genuinely unreachable. A first version used the subtraction and
+    was correct only because the reference vault happened to hold no duplicate
+    or stale rows — correct by coincidence, guaranteed by nothing.
+    """
+    paths = cfg.WikiPaths(vault)
+    sid = _add_source(paths.state_db, "a.md", l3="done", l4="done")
+    _add_unit(paths.state_db, sid, "KNU-aaaa1111", indexed=True, published=True)
+    _add_unit(paths.state_db, sid, "KNU-bbbb2222", indexed=False, published=True)
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "INSERT INTO search_documents (doc_id, record_type, record_id, "
+            " source_id, body, content_hash, dependency_hash, updated_at) "
+            "VALUES ('DOC-knowledge_unit-KNU-aaaa1111-dup', 'knowledge_unit', "
+            " 'KNU-aaaa1111', ?, 'x', 'h', 'h', '2026-08-23T00:00:00Z')",
+            (sid,),
+        )
+
+    stats = db.get_stats(paths.state_db)
+    assert stats["units_live"] == 2
+    assert stats["units_unindexed"] == 1, (
+        "a duplicate index row cancelled a real gap — this is the subtraction, "
+        "not the anti-join"
+    )
+
+
+def test_a_stale_index_row_does_not_mask_the_gap(vault: Path) -> None:
+    """The gap is an ANTI-JOIN, not `live - indexed`.
+
+    The subtraction is only right while the index holds no row for a retired,
+    unpublished or deleted unit. On the reference vault that was true (0 such
+    rows) and guaranteed by nothing — so the first version was correct by
+    coincidence. One stale row makes the subtraction understate the gap, or go
+    negative and be clamped to zero by `max(0, …)`, hiding the anomaly.
+    """
+    paths = cfg.WikiPaths(vault)
+    sid = _add_source(paths.state_db, "a.md", l3="done", l4="done")
+    _add_unit(paths.state_db, sid, "KNU-aaaa1111", indexed=False, published=True)
+    _add_unit(paths.state_db, sid, "KNU-bbbb2222", indexed=False, published=True)
+    # An index row pointing at a unit that no longer exists.
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "INSERT INTO search_documents (doc_id, record_type, record_id, "
+            " source_id, body, content_hash, dependency_hash, updated_at) "
+            "VALUES ('DOC-knowledge_unit-GONE', 'knowledge_unit', 'KNU-gone0000', "
+            " ?, 'x', 'h', 'h', '2026-08-23T00:00:00Z')",
+            (sid,),
+        )
+
+    stats = db.get_stats(paths.state_db)
+    assert stats["units_live"] == 2
+    assert stats["units_indexed"] == 0, "a row pointing at a missing unit is not coverage"
+    assert stats["units_unindexed"] == 2, "the stale row must not cancel a real gap"
