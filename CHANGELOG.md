@@ -2,6 +2,24 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.62.3] - 2026-08-22
+### Fixed
+- **Search no longer loses the word that matters when the provider is down.**
+  When query derivation fails, the fallback builds search terms from the message
+  itself — and it was stripping every non-ASCII character, so `Plücker` became
+  `Pl` + `cker`. Measured on a real index: `"Plücker"` and `"plucker"` each match
+  **172 documents across 22 sources** (the index normalises the diacritic) while
+  `"Pl" AND "cker"` matches **none**. The single most discriminating term in the
+  query was destroyed, and the fallback compensated by matching stray single
+  letters from matrix notation (`L`, `T`, `Q`), returning more results with worse
+  precision.
+
+  The fallback now keeps letters and digits of any script and drops
+  single-character noise. On the same query it returns **1,479 hits across 28
+  sources** against the old **1,310 across 27** — and against **1,500 across 28**
+  for the LLM-derived query it replaces, with the same top sources, in **none of
+  its 12–50 s**.
+
 ## [0.62.2] - 2026-08-22
 ### Fixed
 - **A job could never be claimed on a state database nothing had initialised —

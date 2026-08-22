@@ -128,3 +128,73 @@ def test_derivation_failure_degrades_to_ascii_terms_not_silence(
     assert is_knowledge is True
     assert "quadric" in query and "ellipsoid" in query
     assert "unavailable" in reason, "the degradation must be stated, not hidden"
+
+
+def test_fallback_keeps_diacritics_it_used_to_shred(tmp_path: Path) -> None:
+    """`Plücker` must survive the fallback. It did not.
+
+    The character class was `[^A-Za-z0-9_./+-]+`, which strips every non-ASCII
+    character — so the single most discriminating term in a query like this
+    became two meaningless fragments, `Pl` and `cker`.
+
+    Measured against the live index before the fix: `"Plücker"` and `"plucker"`
+    each match **172 documents across 22 sources** (FTS normalises the
+    diacritic), while `"Pl" AND "cker"` matches **0**. The fallback then
+    compensated by matching junk single letters (`L`, `T`, `Q`), returning more
+    hits with worse precision.
+    """
+    from curator import config as cfg, db
+
+    paths = cfg.WikiPaths(tmp_path)
+    db.init_db(paths.state_db)
+
+    query, is_knowledge, _ = derive_search_query(
+        paths.state_db,
+        _DeadClient(),
+        "Plücker Line 과 Dual Quadric 의 관통/접합 손실은 무슨 뜻이야?",
+    )
+
+    assert is_knowledge is True
+    assert "Plücker" in query, f"the diacritic term was shredded: {query!r}"
+    assert "Pl cker" not in query
+    assert "Quadric" in query
+
+
+def test_fallback_drops_single_character_noise(tmp_path: Path) -> None:
+    """Matrix notation is not a search term.
+
+    A selected passage carries fragments like `L`, `T`, `Q`, `m` from
+    `L^T M(Q)L = 0`. Each matches almost every document, so they flood the
+    result set: measured, the old fallback returned 1,310 hits against the LLM
+    query's 1,500 while missing the one term that discriminates.
+    """
+    from curator import config as cfg, db
+
+    paths = cfg.WikiPaths(tmp_path)
+    db.init_db(paths.state_db)
+
+    query, _, _ = derive_search_query(
+        paths.state_db, _DeadClient(), "Plücker Line L = [l^T, m^T]^T 은 무엇인가?"
+    )
+
+    assert "Plücker" in query
+    for noise in (" L ", " T ", " m "):
+        assert noise not in f" {query} ", f"single-character noise survived: {query!r}"
+
+
+def test_fallback_still_answers_the_mixed_script_case_it_was_built_for(
+    tmp_path: Path,
+) -> None:
+    """The existing contract must not regress: the pre-existing test asserts
+    `quadric` and `ellipsoid` survive, and Korean terms are now kept too."""
+    from curator import config as cfg, db
+
+    paths = cfg.WikiPaths(tmp_path)
+    db.init_db(paths.state_db)
+
+    query, is_knowledge, _ = derive_search_query(
+        paths.state_db, _DeadClient(), "ellipsoid 형태의 quadric 은 어떻게 표현되나?"
+    )
+    assert is_knowledge is True
+    assert "quadric" in query and "ellipsoid" in query
+    assert "형태의" in query, "Korean terms are searchable content, not punctuation"
