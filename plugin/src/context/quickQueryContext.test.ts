@@ -3,6 +3,8 @@ import {
   buildActiveBackgroundContext,
   buildPrimarySelectionBlock,
   buildQuickQueryMessages,
+  buildQuickQueryRetrievalQuery,
+  QUICK_QUERY_RETRIEVAL_SELECTION_CHARS,
 } from "./quickQueryContext";
 import { boundaryConstraints, POPOVER_PROFILE } from "./promptRegistry";
 import type { ActiveContext } from "../types";
@@ -237,5 +239,72 @@ describe("quick query context builder", () => {
     const system = String(messages[0].content);
     // The system prompt must allow the LLM to use general knowledge as a fallback.
     expect(system).toContain("general knowledge");
+  });
+});
+
+describe("duty 2 — the popover surfaces the reader's own notes (v0.62.3)", () => {
+  it("carries vault evidence into the turn and names it in the system prompt", () => {
+    // The popover had NO vault retrieval on its path: it assembled from the
+    // selection, the current file's outline, pinned refs and citation
+    // resolution, and `IncuratorClient.curatorQuery` had zero callers anywhere.
+    // Measured live, asking "내가 쓴 다른 노트 중 관련된 게 있어?" about a selected
+    // passage returned only sections of the SAME note, while the vault held 21
+    // published sources matching the topic.
+    const block =
+      '<vault_evidence query="Plücker" route="local">\n' +
+      "03_Notes/Vision/Silhouette Based Reconstruction.md — Plücker line coords\n" +
+      "</vault_evidence>";
+    const messages = buildQuickQueryMessages({
+      selectedText: "Dual Quadric Q*와 Plücker Line 사이의 대수적 손실",
+      question: "내가 쓴 다른 노트 중 관련된 게 있어?",
+      vaultEvidenceBlock: block,
+    });
+    const user = messages.find((m) => m.role === "user")!.content;
+    const system = messages.find((m) => m.role === "system")!.content;
+
+    expect(user).toContain("Silhouette Based Reconstruction.md");
+    expect(user).toContain("<vault_evidence");
+    // The block must not be silently present-but-unexplained: the model is told
+    // what it is and to name the note, which is what duty 2 asks for.
+    expect(system).toContain("<vault_evidence>");
+    expect(system).toMatch(/own vault/i);
+    expect(system).toMatch(/name the note/i);
+  });
+
+  it("omits the block entirely when there is no vault evidence", () => {
+    const messages = buildQuickQueryMessages({
+      selectedText: "some text",
+      question: "what is this?",
+    });
+    expect(messages.find((m) => m.role === "user")!.content).not.toContain("<vault_evidence");
+  });
+});
+
+describe("the popover's retrieval query (v0.62.4)", () => {
+  it("prepends the selection, because the question is usually deictic", () => {
+    // Shipped in v0.62.3 as the question alone, and it looked like the whole fix
+    // had failed. Measured against the live vault: the question alone returned
+    // 0 evidence items from 0 sources; selection + question returned 35 items
+    // across 9 sources. "이 제약이 무슨 뜻이야?" has no topical term at all —
+    // the topic is in the passage the reader selected.
+    const q = buildQuickQueryRetrievalQuery(
+      "Plücker Line - Quadric 제약: Dual Quadric Q*와 Plücker Line 사이의 손실",
+      "이 제약이 무슨 뜻이야?"
+    );
+    expect(q).toContain("Plücker");
+    expect(q).toContain("Quadric");
+    expect(q).toContain("이 제약이 무슨 뜻이야?");
+  });
+
+  it("caps the selection so a page-long drag does not become the query", () => {
+    const q = buildQuickQueryRetrievalQuery("A".repeat(5000), "what is this?");
+    expect(q.length).toBeLessThan(QUICK_QUERY_RETRIEVAL_SELECTION_CHARS + 200);
+    expect(q).toContain("what is this?");
+  });
+
+  it("still produces a usable query when there is no selection", () => {
+    expect(buildQuickQueryRetrievalQuery("", "what is a Plücker line?")).toBe(
+      "what is a Plücker line?"
+    );
   });
 });

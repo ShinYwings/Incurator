@@ -26,6 +26,18 @@ export interface QuickQueryMessageArgs {
   /** Pinned context refs from the sidechat (purple pins). Injected as read-only
    *  background so the popover can search/use them without changing tool policy. */
   pinnedContextRefs?: ContextRef[];
+  /** Vault-wide evidence for the question, resolved BEFORE the turn (§4.2) and
+   *  formatted by the same `formatCuratorContextPack` the sidechat uses.
+   *
+   *  Duty 2 — "remind me what I wrote" — needs the reader's OTHER notes, and the
+   *  popover had no vault retrieval on its path at all: it assembled from the
+   *  selection, the current file's outline, pinned refs and citation resolution,
+   *  and `IncuratorClient.curatorQuery` had zero callers anywhere. Measured live:
+   *  asking "이 제약이 무슨 뜻이야? 내가 쓴 다른 노트 중 관련된 게 있어?" surfaced
+   *  only sections of the SAME note, while the vault held 21 published sources
+   *  matching the topic. Pre-resolved here rather than fetched by the model:
+   *  §2 forbids giving the popover tools, and §4.2 forbids making it chase. */
+  vaultEvidenceBlock?: string;
 }
 
 const DEFAULT_BACKGROUND_LIMIT = 12000;
@@ -137,6 +149,27 @@ export function buildPinnedSourcesBlock(refs: ContextRef[] | undefined): string 
   return `<pinned_sources>\n${entries.join("\n")}\n</pinned_sources>`;
 }
 
+/** Retrieval query for the popover's pre-turn vault fetch.
+ *
+ * The question alone is not enough, and shipping it that way made the fix look
+ * like it had failed. A popover question is usually deictic — "이 제약이 무슨
+ * 뜻이야?", "what does this mean?" — so it carries no topical term at all, and
+ * the topic lives in the SELECTION. Measured against the live vault: the question
+ * alone returned **0 evidence items from 0 sources**; the selection prepended to
+ * it returned **35 items across 9 sources**.
+ *
+ * The selection is capped because a drag can span a page: retrieval needs the
+ * subject, not the whole passage. */
+export const QUICK_QUERY_RETRIEVAL_SELECTION_CHARS = 600;
+
+export function buildQuickQueryRetrievalQuery(
+  selectedText: string,
+  question: string
+): string {
+  const selection = (selectedText || "").trim().slice(0, QUICK_QUERY_RETRIEVAL_SELECTION_CHARS);
+  return [selection, (question || "").trim()].filter(Boolean).join("\n\n");
+}
+
 export function buildQuickQueryMessages(args: QuickQueryMessageArgs): LLMMessage[] {
   const background = buildActiveBackgroundContext(args.activeContext, {
     selectedText: args.selectedText,
@@ -159,7 +192,10 @@ export function buildQuickQueryMessages(args: QuickQueryMessageArgs): LLMMessage
     "turns from the same popover as background to resolve references, " +
     "equations, and citations. If pinned sources (wrapped in " +
     "<pinned_sources>) are provided, actively use them to enrich your " +
-    "answer. When the " +
+    "answer. When <vault_evidence> is provided it holds passages from the " +
+    "reader's OWN vault — their earlier notes and the sources they have " +
+    "ingested. Surface what bears on the question and name the note it came " +
+    "from, so they can return to what they already wrote. When the " +
     "selection is itself a POINTER (e.g. \"see Section A4.2\", \"Figure 19.1\", " +
     "\"Eq. (3)\"), answer about the referenced TARGET shown in " +
     "<resolved_cross_references>, using the selection only to identify which " +
@@ -180,6 +216,7 @@ export function buildQuickQueryMessages(args: QuickQueryMessageArgs): LLMMessage
     buildPrimarySelectionBlock(args.selectedText),
     resolvedReferencesBlock,
     background ? `<quick_query_background>\n${background}\n</quick_query_background>` : "",
+    args.vaultEvidenceBlock ?? "",
     pinnedBlock,
     followups,
     `Question: ${args.question}`,

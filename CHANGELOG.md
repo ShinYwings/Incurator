@@ -2,7 +2,7 @@
 
 All notable changes to Incurator are documented here.
 
-## [0.62.3] - 2026-08-22
+## [0.62.4] - 2026-08-22
 ### Fixed
 - **Search no longer loses the word that matters when the provider is down.**
   When query derivation fails, the fallback builds search terms from the message
@@ -19,6 +19,45 @@ All notable changes to Incurator are documented here.
   sources** against the old **1,310 across 27** — and against **1,500 across 28**
   for the LLM-derived query it replaces, with the same top sources, in **none of
   its 12–50 s**.
+### Fixed
+- **The popover's vault search now looks for the passage you selected, not just
+  the words you typed.** v0.62.3 wired the retrieval and then handed it the
+  question alone — and a popover question is almost always deictic ("이 제약이
+  무슨 뜻이야?", "what does this mean?"), so it carries no topic at all. The
+  subject is in the selection.
+
+  Measured live against the vault: the question alone returned **0 evidence items
+  from 0 sources**, and the answer said as much — *"검색 결과 추가로 매칭된 노트는
+  없었다"*. The selection prepended to it returns **35 items across 9 sources**.
+  The selection is capped so a page-long drag does not become the query.
+
+- **The assistant now surfaces your other notes, not just the one you are in.**
+  Selecting a passage and asking *"what else have I written about this?"* used to
+  answer only from the note the selection came from. Both surfaces failed, for
+  two unrelated reasons.
+
+  **The popover had no vault retrieval at all.** It assembled from the selection,
+  the current file's outline, pinned sources and citation resolution — nothing
+  else — and the vault-level query had **zero callers anywhere in the plugin**.
+  It now resolves vault evidence *before* the turn through the same DB-native
+  search the sidebar uses, adding **no tool rounds** and granting the popover no
+  tools.
+
+  **The sidebar had the retrieval wired and then switched it off**, in the two
+  situations that need it most. Any selection suppressed it — which is the case
+  that asks for it — so that now applies only when you ask for an *edit*
+  ("rewrite this", "번역해 줘"), not when you ask a question. And a focused PDF
+  suppressed it unless some open source had L3 complete; measured on a real
+  vault, `l3_status='done'` for **0 of 44 sources**, so with any PDF tab open the
+  vault query never ran at all. L3 decides how an answer may be *framed*, not
+  whether evidence may be *retrieved* — and the retrieval does not need it: the
+  same question returned 30 evidence items across 6 sources with zero L3 reports.
+
+  Measured on the reported case: asking about a Plücker–Quadric constraint
+  surfaced only sections of the current note, while the vault held **21 published
+  sources** on the topic — including the reader's own `Silhouette Based
+  Reconstruction`, `EWA splatting`, `Auto Calibration` and `MultipleViewGeometry`
+  notes.
 
 ## [0.62.2] - 2026-08-22
 ### Fixed

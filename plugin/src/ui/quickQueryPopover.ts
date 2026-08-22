@@ -3,8 +3,17 @@ import type ObsidianAIAgent from "../../main";
 import type { LLMMessage, StreamChunk } from "../types";
 import {
   buildQuickQueryMessages as buildQuickQueryContextMessages,
+  buildQuickQueryRetrievalQuery,
   type QuickQueryTurn,
 } from "../context/quickQueryContext";
+import { formatCuratorContextPack } from "../context/providerContextFormat";
+import { resolveWorkspacePath } from "../context/workspaceScope";
+
+/** Token budget for the popover's pre-turn vault evidence. Deliberately a
+ *  fraction of the sidechat's pack: the popover answers about a selection, and
+ *  the evidence is there to point at the reader's own notes, not to replace the
+ *  passage in front of them. */
+const QUICK_QUERY_VAULT_EVIDENCE_TOKENS = 2500;
 import {
   attachLatexCopyHandler,
   normalizeLatexDelimiters,
@@ -537,6 +546,30 @@ export class QuickQueryPopover {
       }
     }
 
+    // Duty 2 — "remind me what I wrote". Resolved BEFORE the turn (§4.2) through
+    // the SAME DB-native search the sidechat uses; §2 forbids a second retrieval
+    // engine and forbids giving the popover tools, so this is one pre-turn
+    // backend call and zero extra tool rounds. Never fatal: a popover that
+    // cannot reach the vault still answers about the selection.
+    let vaultEvidenceBlock: string | undefined;
+    try {
+      const client = this.plugin.incuratorClient;
+      if (client?.available) {
+        // The SELECTION carries the topic; the question is usually deictic.
+        const retrievalQuery = buildQuickQueryRetrievalQuery(
+          this.capturedSelection,
+          question
+        );
+        const pack = await client.fetchContext(retrievalQuery, {
+          workspacePath: this.vaultWorkspacePath(),
+          limitTokens: QUICK_QUERY_VAULT_EVIDENCE_TOKENS,
+        });
+        if (pack.ok) vaultEvidenceBlock = formatCuratorContextPack(pack, retrievalQuery);
+      }
+    } catch {
+      vaultEvidenceBlock = undefined;
+    }
+
     const messages = buildQuickQueryContextMessages({
       selectedText: this.capturedSelection,
       question,
@@ -544,6 +577,7 @@ export class QuickQueryPopover {
       previousTurns: this.turns,
       resolvedReferencesBlock,
       pinnedContextRefs: this.plugin.getPinnedContextRefs(),
+      vaultEvidenceBlock,
     });
     let raw = "";
 
@@ -646,6 +680,15 @@ export class QuickQueryPopover {
     input.value = "";
     input.placeholder = "Ask a follow-up…";
     inputRow.show();
+  }
+
+  /** Same resolution the sidechat uses for its vault query, so both surfaces
+   *  bind the same workspace. An empty result is fine: the backend resolves
+   *  `workspace_id=default`, which is what a plain vault question wants. */
+  private vaultWorkspacePath(): string {
+    const vaultBase = (this.plugin.app.vault.adapter as any).getBasePath?.() || "";
+    const activeRelpath = this.plugin.app.workspace.getActiveFile()?.path || "";
+    return resolveWorkspacePath(vaultBase, activeRelpath) || vaultBase;
   }
 
   private startThinkingTimer(target: HTMLElement): void {

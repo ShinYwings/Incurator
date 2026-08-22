@@ -6,6 +6,56 @@ Agents must check this document and triage the received items into the `To-Do (Q
 
 ## 📝 User Inbox
 
+### 2026-08-22 — [P0] The quick-query popover now takes 59–99 s, and the cost is measured
+
+User: *"아 응답시간은 느리면 안되는데…."* — correct, and it is a defect in v0.62.3's
+duty-2 fix, not a tuning question. PLUGIN_GUIDE calls this surface *"a lightweight
+`wiki query` aimed at quick lookups while reading"*.
+
+**Measured, twice, on the live vault:** the pre-turn `plugin context fetch` alone
+took **58.8 s** and **99.1 s**. The full live popover answer took **~170 s**.
+
+**Where it goes** — decomposed, not guessed:
+
+| stage | cost |
+|---|---|
+| `wiki` CLI process start | **0.22–0.50 s** — negligible |
+| **`curator.query_search_terms` LLM call** | **67.5 s across 2 runs, max 49.5 s** — the single largest item |
+| local model loads per process (`llama-cpp` embedding + `qwen3-reranker-0.6b`) | most of the remainder |
+| FTS5 + vector + RRF proper | small |
+
+**Two structural causes.**
+
+1. **We ask an LLM what to search for when the user already told us.**
+   `query.py:derive_search_terms` runs a full prompt to turn the message into
+   search terms. Its own docstring says the ASCII fallback *"is a real query for
+   the mixed-script case that dominates this domain ("ellipsoid 형태의
+   quadric")"* — which is exactly what a popover sends, because the selection is
+   term-rich mixed script. The expansion buys little there and costs 34–50 s.
+2. **Every call is a cold process.** The plugin shells out to a fresh `wiki` for
+   each question, so the embedding model and the reranker are loaded from
+   scratch every time. Nothing is warm.
+
+**Three fixes, by leverage — and the third is the one the user's framing points
+at.** They said *"시간이 더 필요한 답변이라면 시간을 더 써도 될 것 같아"*: the point
+is not that slow is forbidden, it is that **the reader should choose when to
+spend it**.
+
+- **(a) Do not block the answer on retrieval.** Start the turn immediately with
+  local context (selection, outline, resolved citations), run the vault fetch in
+  parallel, fold it in if it lands, otherwise offer it as an explicit follow-up.
+  Contained entirely in the plugin. Makes the popover fast again today.
+- **(b) Skip LLM query expansion when the query is already term-rich.** Removes
+  34–50 s. Needs a backend flag, so a contract change and a plan.
+- **(c) Stop paying a cold model load per question.** Structural — a warm backend
+  or a resident service. Largest win, largest change.
+
+Also open from the same review: there is **no timeout** on the fetch, so a hung
+backend blocks the popover forever; every **follow-up re-pays** the same
+retrieval; and the popover has **no edit-request guard**, so "rewrite this" pays
+it too.
+
+
 ### 2026-08-21 — [P0] agy runs `python3` on EVERY surface, not just one; a denied command kills the whole operation
 
 User report, verbatim command it tried to run:
@@ -62,7 +112,20 @@ file has passed every time this shipped broken.
 
 Related: ROADMAP 5b, and the 2026-08-09 item below (they should be merged).
 
-### 2026-08-21 — [P1] The DeepSeek API key has to be re-entered after every update
+### 2026-08-21 — [P1→P0] The DeepSeek API key has to be re-entered after every update
+
+**REPRODUCED DETERMINISTICALLY, 2026-08-22, and it BLOCKS THE ACCEPTANCE TEST.**
+Deploying the plugin (0.58.0 → 0.62.3) and reloading Obsidian was enough: the
+quick-query popover came back with *"❌ DeepSeek API key is not set."* and P6
+could not be verified. It had blocked P6 once already that day and only got
+through because the provider happened to fall back to Antigravity.
+
+This is not a convenience issue and should not sit at P1. **An update is exactly
+when the key is lost, and an update is exactly when someone would test that the
+release works.** The diagnosis below stands unchanged — the plugin strips the key
+from `data.json` on purpose, its only restore path is an env var a GUI-launched
+Obsidian does not have, and the encrypted store that would fix it has no call
+site in the plugin.
 
 User: *"deepseek api 키가 업데이트때마다 사라져서 다시 등록해야함."*
 

@@ -382,6 +382,39 @@ because the retrieval was never wired there at all.
 **Plan 05 is therefore NOT complete.** P5a is one source away and gated on
 ROADMAP 5c; **P6 is open on duty 2**, which is independent of both.
 
+## Duty 2 — fixed in v0.62.3/v0.62.4, live re-run pending one reload
+
+**v0.62.3** wired the two causes: the popover had no vault retrieval at all, and
+the sidechat's gate switched it off for exactly the duty-2 case (any selection,
+and any focused PDF without an L3-complete source — `l3_status='done'` is **0 of
+44**, so that branch could never pass).
+
+**v0.62.4** fixes a defect in v0.62.3 that the live run exposed. The popover sent
+the **question alone** to the retrieval, and a popover question is deictic — *"이
+제약이 무슨 뜻이야?"* carries no topic; the subject is in the SELECTION. The live
+answer ended with *"다른 노트: 검색 결과 추가로 매칭된 노트는 없었다"*, which is the
+model faithfully reporting an empty evidence block.
+
+**Measured against the live vault:**
+
+| retrieval query | evidence | sources |
+|---|---|---|
+| question only (what v0.62.3 shipped) | **0** | **0** |
+| selection + question (v0.62.4) | **35** | **9** |
+
+Both halves are independently verified: the retrieval now returns the right
+sources, and v0.62.3's live run proved the block reaches the prompt (the model
+reported on it). **What is missing is one combined live run**, which needs an
+Obsidian reload — `Cmd+P` is remapped in this vault and the palette route did not
+open, so the reload could not be triggered from here.
+
+v0.62.4 is built and deployed to the vault's plugin directory. A reload picks it
+up; the plugin's own version guard will say so if it is stale.
+
+**Latency is an open concern.** The v0.62.3 run took **~170 s** to answer, against
+seconds before. The pre-turn vault fetch runs a local embedding model, and the
+popover exists for *quick* lookups. Worth measuring before calling duty 2 done.
+
 ## Immediate Next Action
 
 **P5a** — advance the two pending books. Hartley's L1 and 104 vision pages are
