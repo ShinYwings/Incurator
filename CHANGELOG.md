@@ -4,6 +4,34 @@ All notable changes to Incurator are documented here.
 
 ## [0.62.4] - 2026-08-22
 ### Fixed
+- **Your API key no longer disappears every time the plugin updates.** Reproduced
+  deterministically: deploying the plugin and reloading Obsidian was enough, and
+  it blocked the acceptance test twice in one day.
+
+  Three things combined. The key is deliberately stripped from `data.json` so it
+  cannot ride Obsidian Sync or a git-tracked vault — that stays. Its only other
+  restore path was the `DEEPSEEK_API_KEY` environment variable, which a
+  GUI-launched Obsidian does not have. And the encrypted store that would have
+  fixed it had **no way to be reached from the plugin at all**.
+
+  Keys entered in settings are now stored encrypted outside the vault and read
+  back at load. **Obsidian's key and the backend's `wiki config` key stay
+  separate by design** — they may be different accounts or tiers — so they are
+  stored under different names and share only the encryption.
+- **The popover no longer waits a minute and a half to answer.** Its vault lookup
+  is capped at 4 s — measured, the lookup itself takes **59–99 s** — fetched once
+  per popover instead of once per follow-up, and skipped entirely for an edit
+  request. Evidence enriches the answer; it never gates it. A `try/catch` was not
+  enough on its own, because it catches a failure but not slowness, so a stalled
+  backend previously meant no answer at all.
+- **"Can you expand on this?" is a question, not an edit.** The rule that skips
+  vault search for edit requests matched bare keywords, so `expand`, `fix`,
+  `correct` and `format` inside ordinary questions switched the search back off —
+  the exact problem v0.62.3 set out to fix. An edit now has to look like a
+  request: the verb leads the sentence, or the sentence is a Korean imperative,
+  and anything ending in a question mark never counts.
+
+### Fixed
 - **Search no longer loses the word that matters when the provider is down.**
   When query derivation fails, the fallback builds search terms from the message
   itself — and it was stripping every non-ASCII character, so `Plücker` became

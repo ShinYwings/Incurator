@@ -5,6 +5,7 @@ import {
   shouldResolveLatestUserPdfReferences,
   shouldRunCuratorDomainQuery,
   shouldUseBackendPdfContext,
+  isEditRequest,
 } from "./providerContextPolicy";
 
 function ref(overrides: Partial<ContextRef>): ContextRef {
@@ -210,6 +211,35 @@ describe("duty 2 — surfacing the reader's own notes (v0.62.3)", () => {
         query: "What else have I written about Plücker coordinates?",
         pdfFocused: true,
         pdfSourceStatuses: [{ state: "l1_ready", l1Complete: true, l3Complete: false }],
+      })
+    ).toBe(true);
+  });
+});
+
+describe("isEditRequest — an edit is a REQUEST, not a keyword (v0.62.4)", () => {
+  it("treats leading imperatives as edits", () => {
+    for (const q of ["rewrite this", "Please translate this paragraph",
+                     "fix the grammar here", "이거 다시 써줘", "이 부분 번역해 줘",
+                     "요약해 주세요"]) {
+      expect(isEditRequest(q)).toBe(true);
+    }
+  });
+
+  it("does NOT treat questions containing those verbs as edits", () => {
+    // The false positives the bare-keyword regex produced. Each re-suppressed
+    // the vault retrieval that duty 2 depends on.
+    for (const q of ["can you expand on this?", "what does this fix?",
+                     "what format is this in?", "is that correct?",
+                     "번역 논문이 어디 있어?", "이 제약이 무슨 뜻이야?"]) {
+      expect(isEditRequest(q)).toBe(false);
+    }
+  });
+
+  it("keeps the vault query for a question about a selection", () => {
+    expect(
+      shouldRunCuratorDomainQuery({
+        query: "can you expand on this? 내가 쓴 다른 노트 중 관련된 게 있어?",
+        userContextRefs: [ref({ type: "selection", filePath: "note.md" })],
       })
     ).toBe(true);
   });

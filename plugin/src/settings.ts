@@ -11,6 +11,7 @@ import {
   getDefaultModel,
   getModelOption,
   normalizePluginModelEffort,
+  OBSIDIAN_DEEPSEEK_SECRET,
 } from "./types";
 import { getIncuratorBackendStatus } from "./utils/incuratorBackendStatus";
 
@@ -263,15 +264,20 @@ export class AIAgentSettingTab extends PluginSettingTab {
     if (currentProvider === "deepseek") {
       new Setting(providerSection)
         .setName("API key")
-        .setDesc("DeepSeek uses an API key, not OAuth. Leave blank to use DEEPSEEK_API_KEY from the environment.")
+        .setDesc("DeepSeek uses an API key, not OAuth. Stored encrypted outside the vault, so it survives updates. Leave blank to use DEEPSEEK_API_KEY from the environment.")
         .addText((text) => {
           text.inputEl.type = "password";
           text
             .setPlaceholder("sk-...")
             .setValue(this.plugin.settings.deepseekApiKey || "")
             .onChange(async (value) => {
-              this.plugin.settings.deepseekApiKey = value.trim();
+              const key = value.trim();
+              this.plugin.settings.deepseekApiKey = key;
               await this.plugin.saveSettings();
+              // saveSettings deliberately strips the key from data.json, so it
+              // would be memory-only and every update would lose it. Hand it to
+              // the backend, which stores it encrypted and machine-locally.
+              if (key) void this.plugin.incuratorClient?.setSecret(OBSIDIAN_DEEPSEEK_SECRET, key);
             });
         });
     }

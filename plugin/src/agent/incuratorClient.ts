@@ -902,6 +902,33 @@ export class IncuratorClient {
     return [];
   }
 
+  /** Persist a provider secret so it outlives the plugin process.
+   *
+   *  The key is deliberately stripped from `data.json` (PLUGIN_SCHEMA §2.4) so it
+   *  cannot ride Obsidian Sync or a git-tracked vault, and its only other restore
+   *  path was `process.env`, which a GUI-launched Obsidian does not have — so it
+   *  was memory-only and every update lost it. The backend stores it encrypted
+   *  under a machine-local path.
+   *
+   *  The plugin's key and the backend's own are configured SEPARATELY on purpose,
+   *  so this uses its own name. What is shared is the encryption, not the value. */
+  async setSecret(name: string, value: string): Promise<boolean> {
+    if (!value.trim()) return false;
+    const result = await this.callBackendJson(["plugin", "secret", "set", "--name", name, "--value", value]);
+    return Boolean(result && typeof result === "object" && (result as Record<string, unknown>).ok === true);
+  }
+
+  /** Read a stored provider secret, or "" when there is none.
+   *
+   *  Absence is a normal first-run state, not an error: the caller should prompt
+   *  for a key rather than surface a failure. */
+  async getSecret(name: string): Promise<string> {
+    const result = await this.callBackendJson(["plugin", "secret", "get", "--name", name]);
+    if (!result || typeof result !== "object") return "";
+    const record = result as Record<string, unknown>;
+    return typeof record.value === "string" ? record.value : "";
+  }
+
   private async callBackendJson(cmdArgs: string[]): Promise<unknown | null> {
     if (!this.backendJson) return null;
     try {

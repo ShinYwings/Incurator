@@ -1515,6 +1515,21 @@ Rules:
   rule skipped it for any selection at all, which disabled the retrieval that
   duty 2 depends on — "I selected this; what else have I written about it?" is
   the case that needs it most.
+- **The plugin's provider key is persisted OUTSIDE the vault** (v0.62.4). It is
+  still stripped from `data.json` — that rule does not change — but it is now
+  handed to `wiki plugin secret set`, which encrypts it under the machine-local
+  `.cache/config/secrets/`. Restoring at load prefers `process.env`, then the
+  store. Without the second path the key was memory-only, and a GUI-launched
+  Obsidian has no shell environment, so **every plugin update lost it**;
+  reproduced deterministically, and it blocked the acceptance test twice.
+  **The plugin's key and the backend's own are separate by design** — possibly
+  different accounts or tiers — so the plugin stores under
+  `obsidian-deepseek-api-key` while `wiki config provider` uses
+  `deepseek-api-key`. They share the encryption, never the value.
+- **The popover's vault evidence is bounded and cached** (v0.62.4). It waits at
+  most 4 s — measured, the fetch takes 59–99 s — and fetches once per popover
+  rather than once per follow-up. An edit request skips it entirely, matching the
+  sidechat. Evidence is a bonus, never the gate on an answer.
 - **The quick-query popover resolves vault evidence BEFORE the turn** (v0.62.3,
   §4.2). It issues one backend context fetch for the question, formatted by the
   same `formatCuratorContextPack` the sidechat uses, and injects it as
