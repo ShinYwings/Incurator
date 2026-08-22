@@ -156,7 +156,10 @@ LLM이 제안 생성 → Diff 표시 → Accept / Reject
 - **API 키가 업데이트에도 남습니다** (v0.62.4): 설정에 입력한 키는 vault 바깥에
   암호화되어 저장되므로, 업데이트해도 지워지지 않습니다. 다만 Obsidian 쪽 키와
   백엔드 `wiki config` 쪽 키는 **의도적으로 따로** 설정합니다 — 한쪽을 바꿔도
-  다른 쪽은 그대로입니다.
+  다른 쪽은 그대로입니다. 이 키는 **설계상 기기마다 따로**입니다: Obsidian Sync나
+  Syncthing을 타지 않도록 일부러 vault 바깥에 두기 때문에, 사용하는 기기마다 한
+  번씩 입력해야 합니다. 해당 기기에서는 업데이트와 재설치를 넘어 유지되지만, 새
+  기기로 옮겨가지는 않습니다.
 - **다른 노트도 함께 봅니다** (v0.62.3): 답변하기 전에 팝업이 질문과 관련된 구절을
   vault 전체에서 찾아, 각 구절이 어느 노트에서 왔는지 함께 알려줍니다. 그래서 "이거
   관련해서 내가 쓴 다른 게 있어?"가 지금 읽고 있는 파일을 넘어섭니다. 미리 한 번
@@ -678,6 +681,16 @@ PDF 채팅과 PDF 지식 정제는 별도 workflow로 취급합니다.
 
 ## 7. AI 제공자 설정
 
+> [!NOTE]
+> **내장 웹 검색은 CLI 제공자만 가능합니다.** Antigravity(`agy`), Claude, Codex는
+> 각 벤더의 CLI를 그대로 실행하므로 모델이 직접 웹을 검색해 답할 수 있습니다 —
+> 단일 턴 `agy --print` 조회 기준 약 13초로 측정되었습니다. 반면 **DeepSeek API**
+> 제공자는 일반 chat-completions만 사용하고 검색 도구가 주어지지 않으므로,
+> 플러그인이 보내는 컨텍스트(vault 근거, 열린 노트, 선택 영역) 안에서만 답할 수
+> 있습니다. 이는 제공자 API의 한계이지 플러그인 설정이 아니며, 켤 수 있는 옵션이
+> 없습니다. 모델이 웹에서 찾아봐야 하는 질문이라면 그 질문만 CLI 제공자로
+> 전환하세요.
+
 Settings 화면에서는 선택된 model의 context window를 별도 항목으로 만들지 않고
 **Model** 행의 설명에 함께 표시합니다. 이 값은 provider/CLI의 token 용량이며,
 개별 첨부 문서는 전체 model window를 정확히 token 단위로 배정받는 것이 아니라
@@ -841,7 +854,7 @@ DeepSeek의 OpenAI 호환 API에 API 키로 연결합니다. OAuth 또는 브라
 
 설정:
 
-- **API key**: 플러그인 설정에 기기 로컬 키를 저장하거나, 비워둔 뒤 Obsidian 프로세스 환경의 `DEEPSEEK_API_KEY`를 사용합니다.
+- **API key**: 플러그인 설정에 기기 로컬 키를 저장하거나, 비워둔 뒤 Obsidian 프로세스 환경의 `DEEPSEEK_API_KEY`를 사용합니다. 설정에 입력한 키는 입력란에서 포커스가 빠질 때 저장되며, 기기 로컬 `.cache/config/secrets/`에 암호화되어 보관됩니다 — vault에는 절대 들어가지 않으므로 동기화되지 않고, 기기마다 한 번씩 입력해야 합니다.
 - **Model**: 백엔드 카탈로그에서 선택합니다. 2026-06-01 기준 현재 DeepSeek API 모델 ID는 `deepseek-v4-flash`, `deepseek-v4-pro`입니다.
 - `deepseek-chat`, `deepseek-reasoner`는 DeepSeek가 2026-07-24 폐기 예정으로 안내한 legacy alias이므로 기본 선택지로 권장하지 않습니다.
 
@@ -858,7 +871,7 @@ Antigravity `agy` print mode는 일반적으로 최종 답변을 stdout에 쓰�
 
 각 provider의 **Authentication** 행은 현재 상태를 보여줍니다.
 
-- **DeepSeek**은 플러그인에 저장된 키(`✓ API key configured (saved in plugin)`)와 환경 변수로 제공된 키(`✓ Using DEEPSEEK_API_KEY from environment`)를 구분합니다. 저장된 키는 플러그인 `data.json`에 있고 `.curator`에 있지 **않으므로**, `.curator` 삭제나 `wiki reset`으로는 지워지지 않습니다 — **Sign out**으로 제거하세요. 명령 팔레트의 **Check DeepSeek API Key**는 저장된 플러그인 키 또는 `DEEPSEEK_API_KEY`가 보이는지 확인하며, 브라우저 로그인 흐름을 실행하지 않습니다.
+- **DeepSeek**은 플러그인에 저장된 키(`✓ API key configured (saved in plugin)`)와 환경 변수로 제공된 키(`✓ Using DEEPSEEK_API_KEY from environment`)를 구분합니다. v0.62.4부터 저장된 키는 기기 로컬 `.cache/config/secrets/`에 암호화되어 있으며, 플러그인 `data.json`에도 `.curator`에도 있지 **않으므로**, `.curator` 삭제나 `wiki reset`으로는 지워지지 않습니다 — **Sign out**으로 제거하세요. 명령 팔레트의 **Check DeepSeek API Key**는 저장된 플러그인 키 또는 `DEEPSEEK_API_KEY`가 보이는지 확인하며, 브라우저 로그인 흐름을 실행하지 않습니다.
 - **CLI provider**(Antigravity, Claude, Codex)는 각자의 CLI로 인증합니다. 플러그인은 CLI 파일에서 읽을 수 있을 때만(Codex) 계정 이메일을 표시합니다. Antigravity `agy` 1.0.5는 세션을 OS 키체인에 보관하고 계정 조회 명령이 없어, 플러그인은 계정을 추측하지 않고 중립적인 `agy CLI session`으로 표시합니다.
 - **Sign out**은 플러그인이 제어할 수 있는 것(캐시된 자격증명, 저장된 DeepSeek 키, 플러그인이 읽을 수 있는 자격증명 파일)을 정리합니다. CLI provider는 실제 세션을 자체 키체인/설정에 보관하므로, 완전한 로그아웃은 provider CLI(`agy`, `claude`, `codex`) 실행이 추가로 필요할 수 있습니다 — 해당되는 경우 Sign out 알림이 안내합니다.
 

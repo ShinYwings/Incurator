@@ -161,7 +161,11 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
 - **Your API key survives updates** (v0.62.4): keys entered in settings are
   stored encrypted outside the vault, so an update no longer clears them. Note
   that Obsidian's key and the backend's `wiki config` key are configured
-  separately on purpose — setting one does not change the other.
+  separately on purpose — setting one does not change the other. The key is
+  **per-device by design**: it is kept outside the vault precisely so it cannot
+  ride Obsidian Sync or Syncthing, which means you enter it once on each machine
+  you use. It survives updates and reinstalls on that machine, not a move to a
+  new one.
 - **It looks at your other notes too** (v0.62.3): before answering, the popover
   searches your vault for passages that bear on the question and names the note
   each one came from, so "what else have I written about this?" reaches beyond
@@ -761,6 +765,17 @@ For Antigravity CLI 1.1.5+, chat passes the selected model with `--model` and
 the selected level with `--effort`; the latter is required for a base slug such
 as `gemini-3.6-flash`.
 
+> [!NOTE]
+> **Built-in web search is a CLI-provider capability only.** Antigravity
+> (`agy`), Claude, and Codex run their vendor's own CLI, so those providers can
+> answer a question by searching the web themselves — measured at roughly 13 s
+> for a single-turn `agy --print` lookup. The **DeepSeek API** provider speaks
+> plain chat-completions and is given no search tool, so it can only answer from
+> the context the plugin sends it: your vault evidence, the open note, and the
+> selection. This is a limitation of the provider's API, not a plugin setting —
+> there is nothing to enable. If you need the model to look something up on the
+> web, switch to a CLI provider for that question.
+
 The Settings page shows the selected model's context window on the **Model**
 row instead of as a separate setting. This is the provider/CLI token capacity;
 individual attached documents are still clipped by a conservative character
@@ -933,7 +948,10 @@ OAuth or a browser CLI login.
 Settings:
 
 - **API key**: Store a device-local key in plugin settings, or leave it blank and
-  set `DEEPSEEK_API_KEY` in the Obsidian process environment.
+  set `DEEPSEEK_API_KEY` in the Obsidian process environment. A key entered in
+  settings is saved when the field loses focus, encrypted under the machine-local
+  `.cache/config/secrets/` — never in the vault, so it is not synced and must be
+  entered once per device.
 - **Model**: Choose from the backend catalogue. As of 2026-06-01 the current
   DeepSeek API model ids are `deepseek-v4-flash` and `deepseek-v4-pro`.
 - Legacy aliases `deepseek-chat` and `deepseek-reasoner` are not preferred
@@ -959,9 +977,10 @@ Each provider's **Authentication** row shows its current state:
 
 - **DeepSeek** distinguishes a key saved in the plugin (`✓ API key configured
   (saved in plugin)`) from one provided by the environment (`✓ Using
-  DEEPSEEK_API_KEY from environment`). The saved key lives in the plugin's
-  `data.json`, **not** in `.curator`, so deleting `.curator` or running
-  `wiki reset` does not clear it — use **Sign out** to remove it. The command
+  DEEPSEEK_API_KEY from environment`). Since v0.62.4 the saved key lives
+  encrypted in the machine-local `.cache/config/secrets/` — **not** in the
+  plugin's `data.json` and **not** in `.curator` — so deleting `.curator` or
+  running `wiki reset` does not clear it; use **Sign out** to remove it. The command
   palette action **Check DeepSeek API Key** checks for either the saved plugin
   key or `DEEPSEEK_API_KEY`; it does not launch a browser login flow.
 - **CLI providers** (Antigravity, Claude, Codex) authenticate through their own

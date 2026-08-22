@@ -1526,6 +1526,24 @@ Rules:
   different accounts or tiers — so the plugin stores under
   `obsidian-deepseek-api-key` while `wiki config provider` uses
   `deepseek-api-key`. They share the encryption, never the value.
+  **The key is deliberately per-device and MUST NOT travel** (decision,
+  2026-08-22). `.cache/config/secrets/` is repo-local, git-ignored, and its
+  Fernet key is generated per machine, so each device is configured once. Two
+  alternatives were considered against a stated requirement that the key follow
+  the user across devices, and both were rejected:
+  (a) **persist it in `data.json`** — on the reference vault this is already
+  excluded from both git and Syncthing, so it would work today, but the
+  protection then rests entirely on per-device ignore rules that regress
+  silently (Syncthing ignore patterns are per-device, so one new or re-imaged
+  device leaks the key), and `data.json` also carries device-specific backend
+  paths (`incuratorBackendCommand`, `incuratorRepoPath`) that MUST stay local —
+  which is why `.stignore` excludes it in the first place;
+  (b) **move it to the synced `.curator/settings.yml`** — that file does sync and
+  is git-ignored, so it satisfies the requirement, but it leaves the key in
+  plaintext at rest on every device, and encrypting it is meaningless once the
+  decryption key must travel alongside it. One entry per device is the accepted
+  cost; the guide states this so the behavior does not read as the update bug it
+  resembles.
 - **The popover's vault evidence is bounded and cached** (v0.62.4). It waits at
   most 4 s — measured, the fetch takes 59–99 s — and fetches once per popover
   rather than once per follow-up. An edit request skips it entirely, matching the
