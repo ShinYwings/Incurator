@@ -22,7 +22,7 @@ not what was assumed.
 
 | audit | verdict |
 |---|---|
-| `system_defect_audit_arena` (code vs spec, 4 domains, ~29 findings) | shipped as B1–B7 across v0.42.2 → v0.50.2. **One survivor: A2.** |
+| `system_defect_audit_arena` (code vs spec, 4 domains, ~29 findings) | shipped as B1–B7 across v0.42.2 → v0.50.2, and its **last survivor closed in v0.64.0** (#172). |
 | `curator_state_arena` (storage and state) | **phase B** — several open, and two are *growing*. |
 | `knowledge_value_arena` (does it deliver what it promises?) | **never triaged until now** — its four P1s are A1, A3, D2; its two P2s are E1–E2. |
 
@@ -103,65 +103,12 @@ question.
 an internal contract. It is still phase A — no schema, no stored contract, no
 cross-device effect — but it is the largest item in the phase.
 
-### A2. Query expansion fails silently — the one survivor of the defect audit
-
-**Verified open 2026-08-23**, the only unshipped item of ~29 in
-`system_defect_audit_arena`.
-
-Three sites swallow every exception with no logging at all:
-
-| site | swallow |
-|---|---|
-| `retrieval/query_expander.py:152` | `except Exception: return {}` — the expander LLM call |
-| `retrieval/query_expander.py:157` | `except Exception: return {}` — parsing its output |
-| `retrieval/expansion.py:98` | `except Exception: extra = {}` — the expander as a whole |
-
-**Why it survived is worth keeping.** The audit classified it as `RC-5(a)`, the
-same class as `CAND-01` and `CAND-02`, and the synthesis said to *"expect a
-duplicate and merge rather than fix twice"*. Batch B4 then fixed CAND-01
-(`lint.py`, now warns with the failure reason) and CAND-02 (`llm_identity.py`,
-now warns with a documented reason) — and dropped the third. **"Merge rather than
-fix twice" was executed as "fix two of three."**
-
-Consequence: when the local expansion model is unavailable or its output does not
-parse, search silently runs unexpanded. Recall drops and nothing anywhere says
-so.
-
-### A3. Some knowledge units still never enter the search index
-
-**From `knowledge_value_arena` [P1]. Re-measured 2026-08-23 — much improved, not closed.**
-
-| | audit (v0.46.0) | now (v0.63.0) |
-|---|---|---|
-| live `knowledge_units` | 2,799 | 8,994 |
-| indexed | 1,098 | 8,017 |
-| **never indexed** | **1,701 (61%)** | **977 (11%)** |
-
-Whatever shipped between those versions fixed most of it. 977 units the vault
-believes it holds are still unreachable by search, and nothing reports the gap —
-`wiki status` counts units, not indexed units. The remaining 11% has never been
-characterised: it may be one cause or several.
-
-### A4. The system reports healthy with an empty L4 and 36 errored L3s
-
-`wiki status` counts sources, units and pages. It does not report that
-`synthesis_nodes` is empty, that every non-skipped source sits at
-`l3_status='error'`, or that 977 units never reached the index. All three were
-found by hand-querying the DB, which is not a thing a user does.
-
-**Nothing here fixes a pipeline — it makes the pipeline's state legible**, which
-is the precondition for every item in phases B–E. A layer that is empty should
-say so, loudly, in the command whose whole job is to answer "how is my vault
-doing".
-
-Cheap by construction: the counts already exist as queries used elsewhere.
-
 ### A5. Safe decomposition and exception hardening
 
 **From the `01` umbrella.** Characterise behaviour before extracting any
 remaining god-file ownership domain. Replace silent broad catches only where a
-typed boundary outcome is defined and regression-tested — A2 is the last
-known instance of the untyped kind.
+typed boundary outcome is defined and regression-tested. The last known
+untyped instance — query expansion's three silent swallows — closed in v0.64.0.
 
 **Concrete item recovered from the stash stack, 2026-08-23.** Four entries sat
 there; three were shipped or superseded and were dropped, and the fourth
