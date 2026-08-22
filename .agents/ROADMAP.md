@@ -196,9 +196,30 @@ It is the user's disk and Syncthing bandwidth today; it becomes an outage later.
 - `sessions.json` 15 MB, **81% re-embedded context** — one note stored 52×, a
   1.39 MB base64 image, ~1.1 s per send. The 30-session cap is a provable no-op.
   Supersedes the old "Chat Session Context Compaction" draft.
-- Sync journals never compact — 24 MB, `compress=True` exists unused with gzip
-  measured at 9.86×; tombstones never expire; a stale peer is skipped silently
-  while `autosync` reports success.
+- Sync journals never compact — **now 88 MB, up from the audited 24 MB**;
+  `compress=True` exists unused with gzip measured at 9.86×; a stale peer is
+  skipped silently while `autosync` reports success.
+
+  **Re-measured 2026-08-23, and the shape is not what the audit assumed.** Each
+  journal carries exactly **one** header, so it is a full snapshot rewritten on
+  every export, not an accumulating log — deleting one frees nothing, because
+  the next auto-sync writes it again. There is no garbage to sweep here; the
+  only fix is to make the snapshot smaller.
+
+  Two levers, both measured:
+
+  | | |
+  |---|---|
+  | this device's export | **74 MB**, 109,349 rows |
+  | of which `deleted_records` | **46,637 rows — 43%** |
+  | `compress=True` (unused) | gzip measured at **9.86×** |
+
+  And the tombstones are **not** stale records that an expiry policy would sweep:
+  every one of the 46,637 is from **2026-08**, none older than 30 days. They are
+  **retry churn** — 33,506 `claim_supports` and 9,920 `source_spans` deleted and
+  recreated by failed and re-run compiles. With C1 leaving 36 sources retrying
+  L3, this grows for as long as C1 is open. Expiry alone would not have helped;
+  **C1 is upstream of half this file's size.**
 - `wiki sync` claims to rebuild `ledger.md`/`overview.md` and calls neither.
 - `SYSTEM_BEHAVIOR.md` contradicts itself on where `state.sqlite` lives.
 - Arena record: `.agents/plans/curator_state_arena/`
