@@ -173,9 +173,31 @@ def extract_graph_data(
     extracted = 0
 
     for index, batch in enumerate(batches, start=1):
+        # Send only the spans THIS batch can legitimately cite (ROADMAP 5d).
+        #
+        # `client_optimal_chunk_chars` bounds the units block; it does not bound
+        # the rendered prompt, which also carried every span id of the source on
+        # every batch. Measured on the reference vault's largest source: a
+        # 15,981-char units block against a 124,669-char span block — 87% of a
+        # 143,582-char prompt — where the batch cites a median of 67 of those
+        # 8,905 ids. Across 24 batches that is 3.45 MB sent for 476 KB of need,
+        # so the source burned its provider quota about 7x faster than required.
+        #
+        # Narrowing removes nothing the model could legitimately use: a relation
+        # is grounded in the spans its own units carry, and a citation outside
+        # the batch was never supportable. The narrowed list is the CONTRACT, so
+        # validation uses the same set — telling the model one allowed list and
+        # judging it by another is how a prompt and its validator drift apart.
+        batch_span_ids = sorted(
+            {s for u in batch for s in (u.get("source_span_ids") or [])}
+        )
+        # A batch whose units cite nothing would otherwise get an EMPTY allowed
+        # list, which forbids every citation the model could make. Fall back to
+        # the source's list rather than shipping an impossible contract.
+        allowed_span_ids = batch_span_ids or valid_span_ids
         input_obj = contract.input_model(
             units_block=_units_block(batch),
-            valid_span_ids_block="\n".join(valid_span_ids),
+            valid_span_ids_block="\n".join(allowed_span_ids),
         )
 
         # The resume key is the digest of the fully rendered prompt, the same
@@ -226,8 +248,8 @@ def extract_graph_data(
                     client,
                     contract,
                     input_obj,
-                    validation_context={"valid_span_ids": set(valid_span_ids)},
-                    source_span_ids=valid_span_ids,
+                    validation_context={"valid_span_ids": set(allowed_span_ids)},
+                    source_span_ids=allowed_span_ids,
                     curate_spec_hash=curate_spec_hash,
                 )
                 break

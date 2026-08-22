@@ -315,3 +315,58 @@ is unchanged — the version stamp is what `db_sync` rejects on.
 
 `CLAUDE.md` documents `wiki sources list|show|rm`. The CLI group is `source`,
 singular — `wiki sources` is not a command. Pre-existing and out of scope here.
+
+
+## P6 — the span block (ROADMAP 5d), found by the P5 live run
+
+**P5 run 1 did not validate resume, and that is the point of running it live.**
+Batch 1 died on the ROADMAP 5b shell-out, then a capacity error, staging **zero**
+batches — resume had nothing to demonstrate. But measuring *why* found something
+no unit test could have: **the rendered prompt was 8x its own budget.**
+
+`client_optimal_chunk_chars` bounds the units block. It never bounded the prompt,
+which also carried `valid_span_ids_block` — every span id of the source — on
+every batch.
+
+| source 45, per batch | before | after |
+|---|---|---|
+| units block | 15,981 | unchanged |
+| **span id block** | **124,669 (87%)** | scoped to the batch |
+| total prompt | **143,582** | **median 19,938** |
+| across 24 batches | 3,445,968 | **463,793** |
+| | | **7.4x less** |
+
+A batch cites a median of **67** span ids and was being sent **8,905** — a 139x
+waste. This is why the user's quota looked healthy while every run died on
+capacity: it was being spent about seven times faster than the work required.
+
+**Narrowing is a contract change, not a size trim.** The allowed-id list is what
+the prompt tells the model it may cite, so validation uses the same set —
+`validation_context` and `source_span_ids` both narrow with it. Telling the model
+one allowed list and judging it by another is how a prompt and its validator
+drift apart. Nothing legitimate is lost: a relation is grounded in the spans its
+own units carry, and a citation outside the batch was never supportable.
+
+A batch whose units cite nothing falls back to the source list rather than
+shipping an empty allowed set, which would forbid every citation the model could
+make.
+
+**Consequence for resume:** every `input_hash` changes, so batches staged before
+this release are correctly invalidated — they were rendered from a different
+prompt. Source 45 had zero staged, so nothing was lost in practice.
+
+### Validation
+
+`backend/tests/test_graph_batch_span_scope.py` — 4 passed; 21 across the graph
+tests. Mutation-checked: restoring the full source list fails 3 of the 4.
+
+**Measured through the real code path**, not a reimplementation of it — the first
+attempt at this measurement rebuilt the prompt by hand and reported no change,
+which is the probe-vs-production mistake this project has now made three times.
+
+### A hypothesis that was WRONG
+
+Before measuring, the suspicion was that `_is_capacity_error(log_text)`
+(`llm.py:355`) false-positives by matching bare `"429"` against agy's
+`--log-file` output. A real 26 KB agy log was captured and checked against all
+eight phrases: **zero matches**. Recorded in ROADMAP 5d so it is not re-tried.

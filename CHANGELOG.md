@@ -26,6 +26,22 @@ All notable changes to Incurator are documented here.
   re-adopts the same unit rows, leaving the batch keys unchanged.
 
 ### Fixed
+- **A graph batch is no longer sent every span id in the source.** The chunk
+  budget bounded the units block but not the prompt, which also carried the
+  source's whole span-id list on every batch. On the reference vault's largest
+  source that was **124,669 characters of span ids against a 15,981-character
+  units block — 87% of every prompt** — while the batch cites a median of 67 of
+  those 8,905 ids.
+
+  Per batch the prompt drops from **143,582 to a median 19,938 characters**;
+  across the source's 24 batches, from 3.4 MB to 464 KB. **7.4x less.** This is
+  why quota looked healthy while runs kept dying on capacity: it was being spent
+  about seven times faster than the work required.
+
+  Nothing citable is lost — a relation is grounded in the spans its own units
+  carry — and validation narrows with the prompt, so the model is judged by the
+  list it was given.
+
 - **Knowledge units are now listed in a deterministic order.** `created_at` has
   one-second granularity and L2 inserts a whole batch inside one second — every
   one of the reference source's 5,358 units sits in a tie group. Tied rows were
