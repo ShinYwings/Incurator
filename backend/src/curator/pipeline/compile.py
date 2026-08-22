@@ -479,6 +479,17 @@ def compile_source_l2(
                 authored_relation_ids=authored_graph.relation_ids,
                 conn=conn,
             )
+            # The staged graph batches have now been persisted into the graph and
+            # published. Drop them INSIDE this transaction, so they disappear
+            # exactly when the generation becomes authoritative — never before,
+            # and never after a publish that rolled back.
+            #
+            # `conn` is not optional here, for TWO reasons. Semantically, a
+            # delete that committed on its own would destroy the resume that a
+            # rolled-back publish still needs. Mechanically, this transaction
+            # holds the write lock: dropping `conn=conn` was measured to fail 12
+            # tests on SQLite busy-timeouts, not on a wrong result.
+            db.delete_graph_batch_results(paths.state_db, source_id, conn=conn)
             newly_active: list[str] = []
             for relation_id in authored_graph.relation_ids:
                 status = db.compile_relation_lifecycle(

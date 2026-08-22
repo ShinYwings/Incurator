@@ -640,8 +640,18 @@ def list_generation_units(
     Pass ``conn`` to read within a caller's transaction (atomic publish)."""
     with _maybe_conn(db_path, conn) as c:
         rows = c.execute(
+            # `, id` is NOT cosmetic. `created_at` has one-second granularity and
+            # L2 inserts a whole batch inside one second: measured on the
+            # reference vault, ALL 5,358 units of source 45 sit in tie groups
+            # (279 distinct timestamps, largest group 57). Without a tiebreaker
+            # the order of tied rows is decided by SQLite's sorter, which is not
+            # documented as stable. Graph extraction batches these units in
+            # order and keys resume on the rendered prompt's hash, so a reorder
+            # moves every batch boundary and misses every cached batch from the
+            # first divergence onward -- a silent full re-pay of the source.
             "SELECT * FROM knowledge_units WHERE generation_id = ? "
-            "AND retired_at IS NULL AND support_status = 'verified' ORDER BY created_at",
+            "AND retired_at IS NULL AND support_status = 'verified' "
+            "ORDER BY created_at, id",
             (generation_id,),
         ).fetchall()
     return [_decode_unit_row(row) for row in rows]
@@ -3352,3 +3362,97 @@ def get_query_trace_by_context_pack(db_path: Path, pack_id: str) -> dict | None:
         if isinstance(context, dict) and context.get("pack_id") == pack_id:
             return decoded
     return None
+
+
+# --- staged graph extraction batches (v0.63.0, ROADMAP 5c) -------------------
+
+
+def put_graph_batch_result(
+    db_path: Path,
+    *,
+    source_id: int,
+    input_hash: str,
+    payload: str,
+    trace_id: str = "",
+) -> str:
+    """Stage one validated graph-extraction batch so a later run can reuse it.
+
+    **Takes no caller connection, deliberately.** Every other graph writer accepts
+    ``conn=`` so it can join the atomic publish; this one must not. The entire
+    point of the row is to outlive the compile that wrote it, and joining the
+    caller's transaction would roll it back with the failure it exists to
+    survive. That is not hypothetical: v0.62.0 shipped per-batch L2 persistence
+    that was worthless because ``compile.py``'s error handler deleted the staged
+    rows, and all 19 unit tests passed because none of them reached that handler.
+
+    Safe to call outside a transaction because graph extraction runs after the
+    staging block closes (``compile.py``) -- no writer is holding the DB.
+
+    Re-staging the same ``(source_id, input_hash)`` replaces the payload rather
+    than duplicating it, so a re-run after a payload-format change converges.
+    """
+    row_id = _new_id("GBR")
+    now = _now_iso()
+    with connect(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO graph_batch_results
+                (id, source_id, input_hash, trace_id, payload, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(source_id, input_hash) DO UPDATE SET
+                trace_id = excluded.trace_id,
+                payload = excluded.payload,
+                created_at = excluded.created_at
+            """,
+            (row_id, int(source_id), input_hash, trace_id, payload, now),
+        )
+    return row_id
+
+
+def get_graph_batch_result(
+    db_path: Path, source_id: int, input_hash: str
+) -> dict[str, Any] | None:
+    """Return a staged batch, or None when this batch has not been paid for yet.
+
+    A miss is ordinary and correct -- a first run, a resized batch after a
+    provider failover, or shifted unit ids all miss legitimately and re-extract.
+    Callers are responsible for making a miss VISIBLE (D4): a silent full re-pay
+    looks exactly like a run that had no cache at all.
+    """
+    with connect(db_path) as conn:
+        row = conn.execute(
+            "SELECT * FROM graph_batch_results "
+            "WHERE source_id = ? AND input_hash = ?",
+            (int(source_id), input_hash),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def count_graph_batch_results(db_path: Path, source_id: int) -> int:
+    """How many batches are staged for a source. Used for the resume summary."""
+    with connect(db_path) as conn:
+        return int(
+            conn.execute(
+                "SELECT COUNT(*) FROM graph_batch_results WHERE source_id = ?",
+                (int(source_id),),
+            ).fetchone()[0]
+        )
+
+
+def delete_graph_batch_results(
+    db_path: Path, source_id: int, *, conn: sqlite3.Connection | None = None
+) -> int:
+    """Drop a source's staged batches and return how many were removed.
+
+    Unlike the write, this one DOES accept a caller connection: deletion happens
+    inside the publish transaction, so staged rows disappear exactly when the
+    generation they fed becomes authoritative -- never before, and never after a
+    publish that rolled back.
+
+    Source removal is handled by the table's ON DELETE CASCADE, not here.
+    """
+    with _maybe_conn(db_path, conn) as conn:
+        cur = conn.execute(
+            "DELETE FROM graph_batch_results WHERE source_id = ?", (int(source_id),)
+        )
+        return int(cur.rowcount or 0)

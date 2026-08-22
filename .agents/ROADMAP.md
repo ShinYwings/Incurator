@@ -346,11 +346,19 @@ Measured across three attempt windows, each ending at a 429:
 | 15:45 | 1 | 0 |
 | 17:40 → 17:47 | 8 | **3** |
 
-Source 45 needs **72** batches (measured 2026-08-22 by rebuilding the batches
-from the live DB: 5,358 units, 8,905 spans, 18,000-char chunks — the earlier
-"~87" divided total prompt chars by chunk size and overcounted). Every one must
-land in the same run. At **≤3 usable batches per capacity window**, discarded at
-the end of each, it cannot converge — no number of retries reaches 72.
+Source 45 needs **between 24 and ~71** batches — a range, because the figure has
+been wrong twice (**~87 → 72 → 24**) and each attempt measured a different unit
+set. Graph extraction is fed `list_generation_units`, which returns only
+`support_status = 'verified'` units. Source 45 currently holds 5,358 live units:
+**1,958 verified (24 batches), 3,322 unchecked, 78 failed**. The unchecked ones
+belong to runs that died before validation reached them; a run that completes
+validation would verify most of them, landing near **68**. No single number is
+measured until a run actually finishes validating.
+
+Every batch must land in the same run. At **≤3 usable batches per capacity
+window**, discarded at the end of each, that is 8 windows at best and 23 at
+worst — still unreachable in one run, which is the premise, though not by the
+margin first claimed.
 
 This is the L2 problem again, one layer up: v0.62.0 made extraction survive
 interruption by persisting per batch; graph extraction still does not. The fix
@@ -362,6 +370,53 @@ a copy.
 **Do not treat this as a gate on the goal.** P6, the definition of done, needs a
 published paper with a bibliography and equations, and 34 sources published on
 2026-08-18. Source 45 is a coverage item.
+
+### 5d. Every graph batch re-sends all 8,905 span ids — 87% of each prompt
+
+**NEW, measured 2026-08-23 during the P5 live run.** The user asked why runs die
+with a capacity error while their quota is fine. Their quota *is* fine. The run
+burns it about **7x faster than it needs to**.
+
+`client_optimal_chunk_chars` (18,000) bounds the **units block only**. The
+rendered prompt also carries `valid_span_ids_block`, which is **every span id of
+the source**, on every batch.
+
+| | source 45 |
+|---|---|
+| units block | 15,981 chars — the budget works |
+| **span id block** | **124,669 chars — 87% of the prompt** |
+| templates | 2,932 chars |
+| **total per batch** | **143,582 chars** |
+| span ids a batch actually cites | min 14, **median 67**, max 99 |
+| span ids a batch is sent | **8,905** |
+| waste factor | **139x** |
+
+Across the source's 24 batches that is **3.45 MB sent** against **476 KB needed**
+— a **7.2x** reduction available for free.
+
+**This is a bigger lever than 5c.** Resume makes an interruption survivable; this
+removes most of the reason to be interrupted.
+
+**It may also be the cause of 5b** — plausible, not proven. 5b's symptom is the
+model running `python3 -c "... transcript_full.jsonl ..."` to *recover its prompt
+input*, which is what a model does when its input did not arrive intact. A
+143 KB prompt through a CLI argument is a strong candidate for that. Worth
+testing directly after the fix: if scoping the span block makes the shell-outs
+stop, 5b closes with it.
+
+**The fix looks cheap.** Send the union of span ids the batch's own units cite,
+not the source's whole list. The validator's contract is unchanged — a model can
+only ground a relation in a span one of its units already carries, so a narrower
+allowed list removes nothing it could legitimately use. Needs a plan: the
+allowed-id list is a prompt contract, so narrowing it changes `input_hash` for
+every batch and invalidates existing staged batches (correctly — they were
+rendered from a different prompt).
+
+**A hypothesis that was WRONG, recorded so it is not re-tried.** Before
+measuring, the suspicion was that `_is_capacity_error(log_text)` (`llm.py:355`)
+false-positives by matching bare `"429"` against agy's `--log-file` output. A
+real 26 KB agy log was captured and checked against all eight phrases: **zero
+matches**. The backend's classifier is not implicated here.
 
 ### 5b. Hartley is still unpublished — agy shells out during graph extraction
 

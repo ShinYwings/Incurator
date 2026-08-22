@@ -29,9 +29,11 @@ class TestSharedModelsCatalogue(unittest.TestCase):
         self.assertTrue(len(available["antigravity"]) > 0)
 
     def test_default_antigravity_model_from_catalogue(self) -> None:
+        # The catalogue's FIRST entry is the default, so listing newest-first is
+        # a deliberate behavioural choice, not cosmetic ordering.
         self.assertEqual(
             models.get_default_model("antigravity"),
-            "gemini-3.5-flash",
+            "gemini-3.7-flash",
         )
 
     def test_models_json_is_single_source_and_well_formed(self) -> None:
@@ -224,7 +226,14 @@ class TestModelEfforts(unittest.TestCase):
         available = models.get_available_models()
         self.assertEqual(
             [model["id"] for model in available["claude"]],
-            ["claude-sonnet-4-6", "claude-fable-5", "claude-opus-4-8", "claude-haiku-4-5"],
+            [
+                "claude-opus-5",
+                "claude-sonnet-5",
+                "claude-sonnet-4-6",
+                "claude-fable-5",
+                "claude-opus-4-8",
+                "claude-haiku-4-5",
+            ],
         )
         self.assertEqual(
             [model["id"] for model in available["openai"]],

@@ -146,11 +146,95 @@ def extract_graph_data(
 
     contract = prompting.REGISTRY.get("curator.entity_relation_extract")
 
+    # Resume (ROADMAP 5c). A batch that already validated in an earlier run is
+    # replayed from `graph_batch_results` instead of being paid for again.
+    #
+    # The source is DERIVED rather than passed: every unit row already carries
+    # `source_id`, and a generation belongs to exactly one source, so a parameter
+    # would only add a way to pass the wrong one. Callers whose units predate
+    # this (the back-compat wrapper, older tests) simply do not stage.
+    # Guarded like the staging write below: resume is an optimisation, so a
+    # malformed `source_id` must disable it, never kill an extraction that would
+    # otherwise succeed.
+    try:
+        source_ids = {
+            int(u["source_id"]) for u in units if u.get("source_id") is not None
+        }
+    except (TypeError, ValueError):
+        _log.warning("graph resume disabled: units carry a non-integer source_id")
+        source_ids = set()
+    if len(source_ids) > 1:
+        resume_source_id = 0
+        _log.warning(
+            "graph resume disabled: batch units span %d sources %s",
+            len(source_ids), sorted(source_ids),
+        )
+    else:
+        resume_source_id = source_ids.pop() if source_ids else 0
+    staged_before = (
+        db.count_graph_batch_results(db_path, resume_source_id)
+        if resume_source_id
+        else 0
+    )
+    reused = 0
+    extracted = 0
+
     for index, batch in enumerate(batches, start=1):
+        # Send only the spans THIS batch can legitimately cite (ROADMAP 5d).
+        #
+        # `client_optimal_chunk_chars` bounds the units block; it does not bound
+        # the rendered prompt, which also carried every span id of the source on
+        # every batch. Measured on the reference vault's largest source: a
+        # 15,981-char units block against a 124,669-char span block — 87% of a
+        # 143,582-char prompt — where the batch cites a median of 67 of those
+        # 8,905 ids. Across 24 batches that is 3.45 MB sent for 476 KB of need,
+        # so the source burned its provider quota about 7x faster than required.
+        #
+        # Narrowing removes nothing the model could legitimately use: a relation
+        # is grounded in the spans its own units carry, and a citation outside
+        # the batch was never supportable. The narrowed list is the CONTRACT, so
+        # validation uses the same set — telling the model one allowed list and
+        # judging it by another is how a prompt and its validator drift apart.
+        batch_span_ids = sorted(
+            {s for u in batch for s in (u.get("source_span_ids") or [])}
+        )
+        # A batch whose units cite nothing would otherwise get an EMPTY allowed
+        # list, which forbids every citation the model could make. Fall back to
+        # the source's list rather than shipping an impossible contract.
+        allowed_span_ids = batch_span_ids or valid_span_ids
         input_obj = contract.input_model(
             units_block=_units_block(batch),
-            valid_span_ids_block="\n".join(valid_span_ids),
+            valid_span_ids_block="\n".join(allowed_span_ids),
         )
+
+        # The resume key is the digest of the fully rendered prompt, the same
+        # value `run_prompt` records in `prompt_runs.input_hash`. Rendering here
+        # duplicates what the runner does internally; that is pure string
+        # formatting against a provider round-trip measured in seconds.
+        input_hash = ""
+        if resume_source_id:
+            input_hash = prompting.render_prompt(contract, input_obj).input_hash
+            cached = db.get_graph_batch_result(db_path, resume_source_id, input_hash)
+            if cached is not None:
+                staged_trace = str(cached["trace_id"] or "")
+                parsed_cached = _parse_staged_payload(str(cached["payload"]), contract)
+                if parsed_cached is None:
+                    # Unreadable payload — most likely written by an older
+                    # contract shape. Re-extract rather than publish a graph
+                    # nobody can account for.
+                    _log.warning(
+                        "graph batch %d/%d: staged payload unreadable, re-extracting",
+                        index, len(batches),
+                    )
+                else:
+                    for entity in getattr(parsed_cached, "entities", []):
+                        collected_entities.append((entity, staged_trace))
+                    for rel in getattr(parsed_cached, "relations", []):
+                        collected_relations.append((rel, staged_trace))
+                    if staged_trace:
+                        last_trace_id = staged_trace
+                    reused += 1
+                    continue
         # A provider exception used to escape this loop entirely: validation
         # failures were guarded by the `continue` below, but `run_prompt` closes
         # its trace and RE-RAISES, so one refusal unwound the caller's staging
@@ -171,8 +255,8 @@ def extract_graph_data(
                     client,
                     contract,
                     input_obj,
-                    validation_context={"valid_span_ids": set(valid_span_ids)},
-                    source_span_ids=valid_span_ids,
+                    validation_context={"valid_span_ids": set(allowed_span_ids)},
+                    source_span_ids=allowed_span_ids,
                     curate_spec_hash=curate_spec_hash,
                 )
                 break
@@ -213,12 +297,55 @@ def extract_graph_data(
                 all_errors.extend(result.validation.errors)
             continue
 
+        # Stage the validated batch BEFORE collecting it, in its own
+        # transaction, so an interruption after this point does not re-pay it.
+        # Only a validated result is cacheable (D6): caching a refusal would
+        # replay the refusal forever.
+        if resume_source_id and input_hash:
+            try:
+                db.put_graph_batch_result(
+                    db_path,
+                    source_id=resume_source_id,
+                    input_hash=input_hash,
+                    payload=result.parsed.model_dump_json(),
+                    trace_id=result.trace_id or "",
+                )
+            except Exception:  # noqa: BLE001 - staging is an optimisation
+                # Never fail an extraction that succeeded because the cache
+                # could not be written. The cost of losing this row is one
+                # re-paid batch on the next run, not a failed compile.
+                _log.warning(
+                    "graph batch %d/%d: could not stage the result (non-fatal)",
+                    index, len(batches), exc_info=True,
+                )
+        extracted += 1
+
         # Collect parsed objects IN MEMORY (no DB writes); persisted only after
         # the publish gate clears (copy-on-stage, §26.3).
         for entity in getattr(result.parsed, "entities", []):
             collected_entities.append((entity, result.trace_id))
         for rel in getattr(result.parsed, "relations", []):
             collected_relations.append((rel, result.trace_id))
+
+    if resume_source_id:
+        _log.info(
+            "graph batches for source %d: reused %d/%d, extracted %d",
+            resume_source_id, reused, len(batches), extracted,
+        )
+        if staged_before and reused == 0:
+            # The realistic silent failure. Batch boundaries are cut at the
+            # client's chunk size, so a provider failover resizes every batch and
+            # misses every key; shifted unit ids do the same. Both are legitimate
+            # misses that re-pay in full -- and look exactly like a run that
+            # never had a cache. Say which it was.
+            _log.warning(
+                "graph resume matched NOTHING for source %d though %d staged "
+                "batches exist: batch boundaries or unit ids moved, or the "
+                "prompt contract changed (chunk size %d, %d batches this run). "
+                "If the per-batch log says 'staged payload unreadable', it is "
+                "the contract. The source re-pays in full.",
+                resume_source_id, staged_before, max_chars, len(batches),
+            )
 
     return GraphData(
         entities=collected_entities,
@@ -227,6 +354,23 @@ def extract_graph_data(
         ok=all_ok,
         errors=all_errors,
     )
+
+
+def _parse_staged_payload(payload: str, contract: Any) -> Any | None:
+    """Rebuild a staged batch through the contract's own output model.
+
+    Uses the model rather than a hand-rolled dict walk: a resumed run replaces
+    the provider's parsed output with this, so a dropped optional field would
+    publish a DIFFERENT graph than a clean run with nothing to flag it.
+    """
+    model = getattr(contract, "output_model", None)
+    if model is None:
+        return None
+    try:
+        return model.model_validate_json(payload)
+    except Exception:  # noqa: BLE001 - an unreadable row must not be fatal
+        _log.debug("staged graph payload could not be parsed", exc_info=True)
+        return None
 
 
 def persist_graph_data(

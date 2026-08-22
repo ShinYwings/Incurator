@@ -952,8 +952,11 @@ Settings:
   settings is saved when the field loses focus, encrypted under the machine-local
   `.cache/config/secrets/` — never in the vault, so it is not synced and must be
   entered once per device.
-- **Model**: Choose from the backend catalogue. As of 2026-06-01 the current
-  DeepSeek API model ids are `deepseek-v4-flash` and `deepseek-v4-pro`.
+- **Model**: Choose from the backend catalogue. As of 2026-08-23 the current
+  DeepSeek API model ids are `deepseek-v4-flash`, `deepseek-v4-pro`, and
+  `deepseek-v4-flash-vision-exp` (experimental, vision-capable). All three carry
+  a **1M-token context window** — the catalogue previously recorded 128K, which
+  under-reported the window on the Model row by a factor of eight.
 - Legacy aliases `deepseek-chat` and `deepseek-reasoner` are not preferred
   because DeepSeek schedules them for deprecation on 2026-07-24.
 

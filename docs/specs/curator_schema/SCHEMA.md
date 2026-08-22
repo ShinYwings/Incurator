@@ -1,4 +1,4 @@
-# Incurator - Schema & Operating Conventions (v0.62.0)
+# Incurator - Schema & Operating Conventions (v0.63.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -754,7 +754,7 @@ on emitted markdown:
   in the same backend write path. Projection re-emission is an Obsidian
   convenience step, not a retrieval prerequisite.
 
-## 11. SQLite State Schema (`SCHEMA_VERSION = 13`)
+## 11. SQLite State Schema (`SCHEMA_VERSION = 14`)
 
 v0.4.0 set `db.SCHEMA_VERSION` to `7`; v0.8.0 (Plan B) bumps it to `8`; v0.9.0
 (Plan C — Graph Quality) bumps it to `9`. The v0.3.2 tables remain in use.
@@ -790,6 +790,10 @@ use typed string prefixes so they are self-describing in traces and frontmatter.
 > `SCHEMA_VERSION = 11` adds `sources.updated_at` as the source-row LWW clock.
 > `SCHEMA_VERSION = 12` adds `sources.sync_key`, a portable transport identity,
 > and `compiler_generations.updated_at`.
+> `SCHEMA_VERSION = 14` adds `graph_batch_results`, the staging table that makes
+> graph extraction resumable (§11.18). Strictly additive over v13 and
+> machine-local: it is absent from `SYNC_TABLES`, so the cross-device export
+> format is unchanged and only the version stamp moves.
 > `SCHEMA_VERSION = 13` adds the versioned composite-primary-key tombstone
 > transport contract. The SQLite table shape is unchanged: existing scalar
 > tombstones remain valid, while composite tombstones use validated canonical
@@ -1298,6 +1302,56 @@ Search engine tables are specified separately in
 Curator records remain the authoritative source. Search tables are derived
 retrieval state in repo-cache `state.sqlite` and must be rebuilt from Curator
 records by `wiki reindex`.
+
+### 11.13 `graph_batch_results` (v0.63.0)
+
+Staged per-batch graph-extraction results, so an interrupted run resumes instead
+of re-paying batches that already validated.
+
+| column | type | meaning |
+|---|---|---|
+| `id` | TEXT PK | `GBR-[UUID8]` |
+| `source_id` | INTEGER | FK to `sources(id)`, `ON DELETE CASCADE` |
+| `input_hash` | TEXT | the batch's `prompt_runs.input_hash` — the resume key |
+| `trace_id` | TEXT | the `PTR-` run that produced it, for tracing |
+| `payload` | TEXT | `EntityRelationExtractOutput` JSON |
+| `created_at` | TEXT | ISO-8601 UTC |
+
+`UNIQUE(source_id, input_hash)`. Re-staging the same key replaces the payload.
+
+**This table is not the graph.** Graph extraction batches a source's knowledge
+units, and EVERY batch must succeed for the generation to publish. Holding
+results in memory meant one capacity deferral discarded the whole run: the
+reference vault's largest source needs **72** batches and completes **≤3 per
+capacity window**, so it could never converge. Rows here are replayed through
+`persist_graph_data` inside the publish transaction and deleted in that same
+transaction, so nothing reaches `graph_entities` / `graph_relations` before the
+publish gate (§26.3 still holds unchanged).
+
+**Why not stage in the graph tables.** `graph_entities` is globally deduplicated
+under `UNIQUE(canonical_name, entity_type)`, so an entity is not owned by a
+generation. A "staged" entity whose name already exists could not be inserted as
+a second row; it would have to UPDATE the canonical row another source already
+published — mutating authoritative state before the gate, which is the exact
+violation the in-memory design existed to prevent.
+
+**Transaction rules, deliberately asymmetric.**
+
+- The **write takes no caller connection.** Joining the caller's transaction
+  would roll the row back together with the failure it exists to survive.
+- The **delete does take one**, because it belongs inside the publish
+  transaction: staged rows disappear exactly when the generation they fed
+  becomes authoritative, never before, and never after a publish that rolled
+  back.
+
+**Locality.** Absent from `SYNC_TABLES`, so it never appears in a
+`wiki db export` file. The staging state is machine-local by construction — a
+peer's half-finished extraction is meaningless on this machine, since the batch
+boundaries depend on that machine's `client_optimal_chunk_chars`.
+
+A cache miss is ordinary and correct: a resized batch after a provider failover,
+or shifted unit ids, legitimately miss and re-extract. A **silent** miss is the
+defect, so the extractor logs how many batches it reused against how many it ran.
 
 ## 12. Upgraded L1 Source Map
 

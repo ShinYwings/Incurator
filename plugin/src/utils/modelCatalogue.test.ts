@@ -46,7 +46,9 @@ describe("model catalogue helpers", () => {
 
   it("loads the backend models.json catalogue at plugin build time", () => {
     const bundled = getBundledModelCatalogue();
-    expect(getDefaultModel(bundled, "antigravity")).toBe("gemini-3.5-flash");
+    // The catalogue's FIRST entry per provider IS the default, so this order is
+    // a behavioural assertion, not cosmetic.
+    expect(getDefaultModel(bundled, "antigravity")).toBe("gemini-3.7-flash");
     expect(bundled.openai?.map((model) => model.id)).toEqual([
       "gpt-5.6-sol",
       "gpt-5.6-terra",
@@ -54,6 +56,8 @@ describe("model catalogue helpers", () => {
       "gpt-5.5",
     ]);
     expect(bundled.claude?.map((model) => model.id)).toEqual([
+      "claude-opus-5",
+      "claude-sonnet-5",
       "claude-sonnet-4-6",
       "claude-fable-5",
       "claude-opus-4-8",
@@ -64,7 +68,11 @@ describe("model catalogue helpers", () => {
       efforts: ["low", "medium", "high", "xhigh", "max", "ultra"],
       defaultEffort: "low",
     });
-    expect(bundled.claude?.[3]).toMatchObject({ efforts: [], defaultEffort: "" });
+    // By id, not by index: a positional assertion silently moved to a different
+    // model when two were added at the front.
+    expect(
+      bundled.claude?.find((model) => model.id === "claude-haiku-4-5")
+    ).toMatchObject({ efforts: [], defaultEffort: "" });
     expect(bundled.antigravity?.map((model) => model.id)).toContain(
       "claude-opus-4-6-thinking"
     );

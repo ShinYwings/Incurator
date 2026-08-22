@@ -118,6 +118,15 @@ D5's round-trip test.
 
 **P2 — Resume in `extract_graph_data`.** Lookup before `run_prompt`, stage after
 a validated result, D4's logging.
+
+**P2 must first add `, id` to `list_generation_units`' ORDER BY.** It orders by
+`created_at` alone, and `created_at` has one-second granularity: measured on
+source 45, **all 5,358 units sit in tie groups** (279 distinct timestamps,
+largest group 57). Tie order is decided by SQLite's sorter rather than by the
+query. It measured stable across a `generation_id` re-stamp and a `VACUUM`, but
+SQLite does not document its sorter as stable, so the resume key currently rests
+on an implementation detail. If the plan ever changes, batch boundaries move and
+every hash from the first divergence onward misses — a silent full re-pay.
 *Verify:* a test that interrupts after batch 2 of 4 and asserts the resumed run
 issues exactly 2 provider calls and produces the same `GraphData` as an
 uninterrupted run.

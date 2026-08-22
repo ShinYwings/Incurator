@@ -791,6 +791,7 @@ status/history/push입니다.
 | `wiki source show <id>` | 특정 소스의 상세 정보와 처리 상태를 확인합니다. | 소스 오류 진단 시 |
 | `wiki source rm <id>` | 원본 파일은 보존한 채 해당 소스의 전체 생성 의존성 클로저를 원자적으로 retire/제거하고 projection과 검색을 갱신합니다. 다른 등록 소스가 계속 지지하는 공유 그래프 지식만 남습니다. 커밋 후 projection 갱신이 실패해도 제거 성공과 명시적인 `wiki sync --reemit` 복구 지침을 함께 보고합니다. vault 소스 파일까지 지우려면 `--delete-file`을 명시합니다. | 잘못된 소스를 제거할 때 |
 | `wiki source retry <id>` | aggregate 오류뿐 아니라 L1/L2/L3/L4 layer 오류가 있는 소스를 재처리합니다. | 소스 처리 실패 후 재시도 시 |
+| `wiki source clear-graph-cache <id>` | 해당 소스의 staged 그래프 추출 배치를 삭제해 다음 컴파일에서 다시 추출하게 합니다. 그래프 추출은 검증된 배치를 캐시해 중단된 실행이 재지불 없이 재개되도록 하는데, 이 명령이 그 캐시를 비웁니다. 재수집으로는 **지워지지 않습니다** — `wiki add --force`는 같은 unit 행을 다시 채택하므로 배치 키가 그대로입니다. 해당 소스 그래프를 전부 다시 추출하는 비용이 듭니다. | 특정 소스의 그래프가 잘못돼 다시 만들고 싶을 때 |
 
 ### 2-1. 설정 및 LLM 백엔드 관리
 
@@ -1129,7 +1130,7 @@ Incurator의 지능을 담당하는 LLM 백엔드를 설정합니다. 시스템�
 | `antigravity-cli` | CLI | Google Antigravity CLI (`agy`)를 통한 추론 (가장 빠르고 안정적인 무료 옵션). Gemini 3.5 Flash / 3.1 Pro 외에 Claude·GPT-OSS 모델도 노출됩니다 |
 | `claude-code` | CLI | Anthropic 공식 `claude` 명령어를 통한 추론 (Sonnet 4.6 / Fable 5 / Opus 4.8 / Haiku 4.5) |
 | `codex-cli` | CLI | OpenAI 공식 `codex` 명령어를 통한 추론 (GPT-5.6 Sol / Terra / Luna 및 노출되는 GPT-5.5 호환 모델) |
-| `deepseek-api` | API key | DeepSeek의 OpenAI 호환 API를 통한 추론 (`DEEPSEEK_API_KEY` 또는 암호화된 로컬 backend secret; 현재 모델 `deepseek-v4-flash` / `deepseek-v4-pro`) |
+| `deepseek-api` | API key | DeepSeek의 OpenAI 호환 API를 통한 추론 (`DEEPSEEK_API_KEY` 또는 암호화된 로컬 backend secret; 현재 모델 `deepseek-v4-flash` / `deepseek-v4-pro` / `deepseek-v4-flash-vision-exp`, 모두 1M 토큰 컨텍스트) |
 
 ```bash
 # 위자드를 따라 Primary와 Fallback을 한 번에 설정

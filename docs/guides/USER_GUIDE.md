@@ -833,6 +833,7 @@ Summary of major commands following the user workflow.
 | `wiki source show <id>` | Shows details and processing status for a specific source. | Diagnosing source errors |
 | `wiki source rm <id>` | Atomically retires/removes the source's complete generated dependency closure and refreshes projections/search while keeping the original file. Shared graph knowledge survives only when another registered source still supports it. If the post-commit projection refresh fails, removal still reports success with an explicit `wiki sync --reemit` repair instruction. Add `--delete-file` only when you also want to delete a vault source file. | Removing an incorrect source |
 | `wiki source retry <id>` | Reprocesses a failed source, including layer-scoped L1/L2/L3/L4 errors. | Retrying after a processing failure |
+| `wiki source clear-graph-cache <id>` | Drops the source's staged graph-extraction batches so the next compile extracts them again. Graph extraction caches each validated batch so an interrupted run resumes instead of re-paying; this clears that cache. Re-ingesting does **not** — `wiki add --force` re-adopts the same unit rows, so the batch keys are unchanged. Costs a full re-extraction of the source's graph. | The graph for one source looks wrong and you want it rebuilt |
 
 ### 2-1. Settings & LLM Backend Management
 
@@ -1181,7 +1182,7 @@ Configure the LLM backends that power Incurator's intelligence. The system maint
 | `antigravity-cli` | CLI | Inference via Google Antigravity CLI (`agy`) (Fast, reliable free option). Also exposes Claude / GPT-OSS models alongside Gemini 3.5 Flash / 3.1 Pro |
 | `claude-code` | CLI | Inference via official Anthropic `claude` command (Sonnet 4.6 / Fable 5 / Opus 4.8 / Haiku 4.5) |
 | `codex-cli` | CLI | Inference via official OpenAI `codex` command (GPT-5.6 Sol / Terra / Luna, plus visible GPT-5.5 compatibility) |
-| `deepseek-api` | API key | Inference via DeepSeek's OpenAI-compatible API (`DEEPSEEK_API_KEY` or an encrypted local backend secret; current models `deepseek-v4-flash` / `deepseek-v4-pro`) |
+| `deepseek-api` | API key | Inference via DeepSeek's OpenAI-compatible API (`DEEPSEEK_API_KEY` or an encrypted local backend secret; current models `deepseek-v4-flash` / `deepseek-v4-pro` / `deepseek-v4-flash-vision-exp`, all with a 1M-token context window) |
 
 ```bash
 # Set up both Primary and Fallback at once via the wizard

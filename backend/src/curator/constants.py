@@ -100,9 +100,13 @@ DEFAULT_OLLAMA_HOST = "http://127.0.0.1:11434"
 DEFAULT_OLLAMA_MODEL = "qwen2.5:7b"
 DEFAULT_TIMEOUT = 120.0
 
-DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6"
+# These must match the FIRST entry of each provider's list in data/models.json —
+# the catalogue is ordered newest/most-capable first and the head is the default.
+# `test_v021_models.py` asserts the two agree, so a catalogue edit that forgets a
+# constant fails rather than silently disagreeing with the dropdown.
+DEFAULT_CLAUDE_MODEL = "claude-opus-5"
 DEFAULT_CODEX_MODEL = "gpt-5.6-sol"
-DEFAULT_ANTIGRAVITY_MODEL = "gemini-3.5-flash"
+DEFAULT_ANTIGRAVITY_MODEL = "gemini-3.7-flash"
 DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash"
 
 # v0.3.2 DB-native search providers. Qwen3 0.6B GGUFs are chosen

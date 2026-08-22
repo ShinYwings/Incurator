@@ -655,3 +655,40 @@ def test_a_generation_left_staged_by_a_killed_run_is_released(vault) -> None:
         ).fetchone()[0]
     assert adoptable == released, "released units are not adoptable again"
     assert status == "discarded", "the orphaned generation is still staged"
+
+
+def test_publish_clears_the_staged_graph_batches(vault) -> None:
+    """They exist to survive a failure, not to outlive the publish they fed."""
+    paths = vault
+    result = compile_mod.compile_source_l2(paths, DynamicFakeClient(), 1)
+    assert result.ok, result.error
+    with db.connect(paths.state_db) as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM graph_batch_results WHERE source_id = 1"
+        ).fetchone()[0] == 0
+
+
+def test_a_failed_publish_keeps_the_staged_graph_batches(vault, monkeypatch) -> None:
+    """D2's second half, and the reason v0.62.0 shipped worthless.
+
+    That release moved L2 extraction out of memory and into rows — and the
+    compile's failure handler deleted exactly those rows. All 19 unit tests
+    passed because none of them reached the handler; only a live run found it.
+    Graph staging has the identical exposure, so the test has to drive the real
+    compile and fail it AFTER extraction, not assert that a row was written.
+    """
+    paths = vault
+
+    def explode(*_a, **_k):
+        raise RuntimeError("Antigravity capacity exhausted (429).")
+
+    # Fail at the publish gate: graph extraction has already run and staged.
+    monkeypatch.setattr(compile_mod, "_run_publish_gate", explode)
+    failed = compile_mod.compile_source_l2(paths, DynamicFakeClient(), 1)
+    assert not failed.ok
+
+    with db.connect(paths.state_db) as conn:
+        staged = conn.execute(
+            "SELECT COUNT(*) FROM graph_batch_results WHERE source_id = 1"
+        ).fetchone()[0]
+    assert staged > 0, "the failure handler destroyed the extraction it should preserve"

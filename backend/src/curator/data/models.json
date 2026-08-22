@@ -7,11 +7,27 @@
       "install_cmd": "curl -fsSL https://antigravity.google/cli/install.sh | bash",
       "models": [
         {
+          "id": "gemini-3.7-flash",
+          "label": "Gemini 3.7 Flash",
+          "context_window": 1000000,
+          "supports_vision": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "default_effort": "medium"
+        },
+        {
           "id": "gemini-3.5-flash",
           "label": "Gemini 3.5 Flash",
           "context_window": 1000000,
           "supports_vision": true,
-          "efforts": ["low", "medium", "high"],
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "default_effort": "medium"
         },
         {
@@ -19,7 +35,11 @@
           "label": "Gemini 3.6 Flash",
           "context_window": 1000000,
           "supports_vision": true,
-          "efforts": ["low", "medium", "high"],
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "default_effort": "medium"
         },
         {
@@ -27,7 +47,10 @@
           "label": "Gemini 3.1 Pro",
           "context_window": 1000000,
           "supports_vision": true,
-          "efforts": ["low", "high"],
+          "efforts": [
+            "low",
+            "high"
+          ],
           "default_effort": "high"
         },
         {
@@ -49,7 +72,9 @@
           "label": "GPT-OSS 120B",
           "context_window": 128000,
           "supports_vision": false,
-          "efforts": ["medium"],
+          "efforts": [
+            "medium"
+          ],
           "default_effort": "medium"
         }
       ]
@@ -60,11 +85,44 @@
       "install_cmd": "npm install -g @anthropic-ai/claude-code",
       "models": [
         {
+          "id": "claude-opus-5",
+          "label": "Claude Opus 5",
+          "context_window": 1000000,
+          "supports_vision": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "default_effort": "high"
+        },
+        {
+          "id": "claude-sonnet-5",
+          "label": "Claude Sonnet 5",
+          "context_window": 1000000,
+          "supports_vision": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "default_effort": "high"
+        },
+        {
           "id": "claude-sonnet-4-6",
           "label": "Claude Sonnet 4.6",
           "context_window": 1000000,
           "supports_vision": true,
-          "efforts": ["low", "medium", "high", "max"],
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "max"
+          ],
           "default_effort": "high"
         },
         {
@@ -72,7 +130,13 @@
           "label": "Claude Fable 5",
           "context_window": 1000000,
           "supports_vision": true,
-          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "default_effort": "high"
         },
         {
@@ -80,7 +144,13 @@
           "label": "Claude Opus 4.8",
           "context_window": 1000000,
           "supports_vision": true,
-          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "default_effort": "high"
         },
         {
@@ -101,7 +171,14 @@
           "label": "GPT-5.6 Sol",
           "context_window": 272000,
           "supports_vision": true,
-          "efforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
           "default_effort": "low"
         },
         {
@@ -109,7 +186,14 @@
           "label": "GPT-5.6 Terra",
           "context_window": 272000,
           "supports_vision": true,
-          "efforts": ["low", "medium", "high", "xhigh", "max", "ultra"],
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
           "default_effort": "medium"
         },
         {
@@ -117,7 +201,13 @@
           "label": "GPT-5.6 Luna",
           "context_window": 272000,
           "supports_vision": true,
-          "efforts": ["low", "medium", "high", "xhigh", "max"],
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
           "default_effort": "medium"
         },
         {
@@ -125,7 +215,12 @@
           "label": "GPT-5.5",
           "context_window": 272000,
           "supports_vision": true,
-          "efforts": ["low", "medium", "high", "xhigh"],
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh"
+          ],
           "default_effort": "medium"
         }
       ]
@@ -138,18 +233,40 @@
         {
           "id": "deepseek-v4-flash",
           "label": "DeepSeek V4 Flash",
-          "context_window": 128000,
+          "context_window": 1000000,
           "supports_vision": false,
-          "efforts": ["low", "medium", "high"],
-          "default_effort": "medium"
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "default_effort": "medium",
+          "supports_thinking": true
         },
         {
           "id": "deepseek-v4-pro",
           "label": "DeepSeek V4 Pro",
-          "context_window": 128000,
+          "context_window": 1000000,
           "supports_vision": false,
           "supports_thinking": true,
-          "efforts": ["low", "medium", "high"],
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "default_effort": "medium"
+        },
+        {
+          "id": "deepseek-v4-flash-vision-exp",
+          "label": "DeepSeek V4 Flash Vision (Experimental)",
+          "context_window": 1000000,
+          "supports_vision": true,
+          "supports_thinking": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high"
+          ],
           "default_effort": "medium"
         }
       ]

@@ -2,6 +2,68 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.63.0] - 2026-08-22
+### Added
+- **Graph extraction now survives an interruption.** Every graph batch must
+  succeed for a source to publish, and results were held in memory until the
+  publish gate — so a single capacity deferral discarded the whole run. Measured
+  on the reference vault, the largest source completes **at most ~3 usable
+  batches per capacity window**; it could never converge, no matter how many
+  times it was retried.
+
+  Each validated batch is now staged in `graph_batch_results` and replayed at
+  publish time, keyed on the same rendered-prompt digest that L2 resume uses. A
+  fully staged source makes **zero provider calls** on a second run; a run
+  interrupted after one of two batches re-pays exactly one.
+
+  Copy-on-stage is unchanged: nothing reaches `graph_entities` or
+  `graph_relations` before the publish gate, and the staged rows are deleted
+  inside the publish transaction — so a publish that rolls back keeps the resume
+  its own failure still needs.
+
+- **`wiki source clear-graph-cache <id>`** drops a source's staged batches when
+  its graph looks wrong. Re-ingesting does not clear them: `wiki add --force`
+  re-adopts the same unit rows, leaving the batch keys unchanged.
+
+### Fixed
+- **A graph batch is no longer sent every span id in the source.** The chunk
+  budget bounded the units block but not the prompt, which also carried the
+  source's whole span-id list on every batch. On the reference vault's largest
+  source that was **124,669 characters of span ids against a 15,981-character
+  units block — 87% of every prompt** — while the batch cites a median of 67 of
+  those 8,905 ids.
+
+  Per batch the prompt drops from **143,582 to a median 19,938 characters**;
+  across the source's 24 batches, from 3.4 MB to 464 KB. **7.4x less.** This is
+  why quota looked healthy while runs kept dying on capacity: it was being spent
+  about seven times faster than the work required.
+
+  Nothing citable is lost — a relation is grounded in the spans its own units
+  carry — and validation narrows with the prompt, so the model is judged by the
+  list it was given.
+
+- **Knowledge units are now listed in a deterministic order.** `created_at` has
+  one-second granularity and L2 inserts a whole batch inside one second — every
+  one of the reference source's 5,358 units sits in a tie group. Tied rows were
+  ordered by SQLite's sorter rather than by the query, so a reorder would move
+  every graph batch boundary and silently invalidate the entire cache.
+
+### Changed
+- **Model catalogue refreshed, and the default model moves with it.** Added
+  **Gemini 3.7 Flash** (Antigravity), **Claude Opus 5** and **Claude Sonnet 5**,
+  and DeepSeek's **`deepseek-v4-flash-vision-exp`**. The catalogue's first entry
+  per provider *is* that provider's default, so a new install now defaults to
+  `gemini-3.7-flash` and `claude-opus-5`. **An existing configuration is
+  untouched** — a pinned `llm.primary` keeps whatever it names.
+
+  Also corrects a real error: DeepSeek's context window was recorded as **128K
+  when all three models carry 1M**, so the Model row under-reported the window
+  eightfold.
+
+- `SCHEMA_VERSION` 13 → 14 (additive: one new machine-local table, absent from
+  the cross-device export). **Devices that upgrade at different times stop
+  syncing until both are on v14** — the export format itself is unchanged.
+
 ## [0.62.5] - 2026-08-22
 ### Fixed
 - **Answers about GPUs and vision no longer fail with "quota or capacity is

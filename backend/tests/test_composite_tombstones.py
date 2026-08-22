@@ -50,8 +50,12 @@ def _write_rows(
     )
 
 
-def test_schema_v13_is_the_composite_tombstone_boundary() -> None:
-    assert db.SCHEMA_VERSION == 13
+def test_composite_tombstones_landed_at_schema_v13() -> None:
+    """The composite-primary-key tombstone contract landed at v13 and is carried
+    forward unchanged. Assert the floor, not equality: the current version is
+    pinned once in `test_db_schema.py`, and re-pinning it here made an unrelated
+    additive table bump fail a tombstone test for no reason."""
+    assert db.SCHEMA_VERSION >= 13
 
 
 def _insert_source(conn: Any, *, source_id: int = 9) -> None:
@@ -388,7 +392,7 @@ def test_export_rejects_and_preserves_legacy_composite_token(
         ).fetchone()[0] == "legacy-partial-key"
 
 
-def test_v12_database_is_stamped_v13_without_rewriting_legacy_token(
+def test_v12_database_is_stamped_current_without_rewriting_legacy_token(
     db_path: Path,
     tmp_path: Path,
 ) -> None:
@@ -403,7 +407,7 @@ def test_v12_database_is_stamped_v13_without_rewriting_legacy_token(
     with db.connect(db_path) as conn:
         assert conn.execute(
             "SELECT version FROM schema_version"
-        ).fetchone()[0] == 13
+        ).fetchone()[0] == db.SCHEMA_VERSION
         assert conn.execute(
             "SELECT record_id FROM deleted_records "
             "WHERE table_name = 'artifact_dependencies'"
