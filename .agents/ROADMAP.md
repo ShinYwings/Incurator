@@ -346,11 +346,19 @@ Measured across three attempt windows, each ending at a 429:
 | 15:45 | 1 | 0 |
 | 17:40 → 17:47 | 8 | **3** |
 
-Source 45 needs **72** batches (measured 2026-08-22 by rebuilding the batches
-from the live DB: 5,358 units, 8,905 spans, 18,000-char chunks — the earlier
-"~87" divided total prompt chars by chunk size and overcounted). Every one must
-land in the same run. At **≤3 usable batches per capacity window**, discarded at
-the end of each, it cannot converge — no number of retries reaches 72.
+Source 45 needs **between 24 and ~71** batches — a range, because the figure has
+been wrong twice (**~87 → 72 → 24**) and each attempt measured a different unit
+set. Graph extraction is fed `list_generation_units`, which returns only
+`support_status = 'verified'` units. Source 45 currently holds 5,358 live units:
+**1,958 verified (24 batches), 3,322 unchecked, 78 failed**. The unchecked ones
+belong to runs that died before validation reached them; a run that completes
+validation would verify most of them, landing near **68**. No single number is
+measured until a run actually finishes validating.
+
+Every batch must land in the same run. At **≤3 usable batches per capacity
+window**, discarded at the end of each, that is 8 windows at best and 23 at
+worst — still unreachable in one run, which is the premise, though not by the
+margin first claimed.
 
 This is the L2 problem again, one layer up: v0.62.0 made extraction survive
 interruption by persisting per batch; graph extraction still does not. The fix

@@ -33,7 +33,65 @@ Live counts on the reference vault (`.cache/vaults/13ed51f8b06cb88e/state.sqlite
 | `graph_relations` | 1,198 |
 | `community_reports` | 255 |
 
-## P0 — resume-key stability (PASSED, 2026-08-22)
+## P0 — resume-key stability (PASSED on the SECOND attempt; the first measured the wrong input)
+
+**The first P0 run verified something production does not do.** It ordered units
+`ORDER BY id` and fed **all** of the source's units to the batcher.
+`compile.py` feeds `list_generation_units`, which is
+`WHERE generation_id = ? AND retired_at IS NULL AND support_status = 'verified'
+ORDER BY created_at`. Different order, different unit set. The green result was
+real but it was not evidence about the production path — the same class of
+mistake as mutation-testing a handler the test never reaches.
+
+### Corrected measurement
+
+Run against a **copy** of the live DB, using the production filter and ordering,
+re-stamped with a fresh `generation_id` between the two runs to imitate a resume:
+
+| | |
+|---|---|
+| live units on source 45 | 5,358 — **3,322 `unchecked`, 1,958 `verified`, 78 `failed`** |
+| units graph extraction actually sees | **1,958** (verified only) |
+| prompt chars, verified only | 414,021 |
+| **batches** | **24** |
+| hashes stable across a NEW `generation_id` | **yes** |
+| distinct hashes | **24 / 24** |
+
+### The batch count, stated honestly this time
+
+It has now been wrong twice: **~87 → 72 → 24**, because each figure measured a
+different unit set. The defensible statement is a *range*, not a number:
+
+- **24** is the count for the DB **as it stands**, where 3,322 units are
+  `unchecked` — they belong to runs that died before `validate_claim_support`
+  reached them.
+- A run that completes validation would verify most of those. At the observed
+  verified rate among *checked* units (1,958 / 2,036 ≈ 96%), a fully validated
+  source 45 lands near **68** batches; all 5,358 units unfiltered would be 71.
+- So the converged count is **between 24 and ~71**, and no single number should
+  be quoted as measured until a run actually completes validation.
+
+This does not change the design. It does change the urgency argument: at ≤3
+usable batches per capacity window, 24 needs 8 windows and 68 needs 23 — still
+unreachable in one run, which is the whole premise, but not by the margin the
+ROADMAP claimed.
+
+### Residual fragility found while measuring (fix in P2)
+
+`list_generation_units` orders by `created_at` with **no `id` tiebreaker**, and
+`created_at` has one-second granularity: **all 5,358 units sit in tie groups**
+(279 distinct timestamps, largest group 57). Tie order is therefore decided by
+SQLite's sorter, not by the query.
+
+Measured stable across a re-stamp of `generation_id` and across `VACUUM`, and the
+plan is `SEARCH … USING INDEX idx_knowledge_units_generation` + `USE TEMP B-TREE
+FOR ORDER BY`. But SQLite does not document its sorter as stable, so this rests
+on an implementation detail. If the plan ever changes, tie order shifts, batch
+boundaries move, and **every hash from the first divergence onward misses** —
+a silent full re-pay. Adding `, id` to the ORDER BY makes it deterministic by
+construction. **P2 should do this before relying on the key.**
+
+## P0 — original (superseded) measurement
 
 Verified with **zero provider calls**: `render_prompt` is pure, so batches were
 rebuilt from the live DB and hashed in two separate processes.
