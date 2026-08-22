@@ -224,6 +224,56 @@ It is the user's disk and Syncthing bandwidth today; it becomes an outage later.
 - `SYSTEM_BEHAVIOR.md` contradicts itself on where `state.sqlite` lives.
 - Arena record: `.agents/plans/curator_state_arena/`
 
+### B2. There is no retention policy — for anything, backend or plugin
+
+**Filed 2026-08-23 on the user's concern**: *"계속 버전업하면서 부산물들이
+생겨나는데 + 채팅 기록도 늘어나는데 쌓여가는거 어떻게 삭제할지 규칙이 없어서."*
+They are right, and the gap is not one leak — it is the **absence of a rule**.
+B1 lists individual symptoms; this item is the policy they are all missing.
+
+**Measured 2026-08-23 on the reference vault.** Tables that gain a row per
+operation and have **no `DELETE` anywhere in the codebase**:
+
+| table | rows | grows per | delete sites |
+|---|---|---|---|
+| `deleted_records` | **46,637** | every deletion, incl. retry churn | 0 |
+| `prompt_runs` | 3,826 | **every LLM call** | 0 |
+| `query_traces` | 96 | every query | 0 |
+| `compiler_generations` | 112 | every compile | 0 |
+| `job_events` | 5,110 | every job phase | 1 |
+
+Outside the DB, on the vault and the repo cache:
+
+| | size | note |
+|---|---|---|
+| `.curator/sync/*.jsonl` | **88 MB** | full snapshot, rewritten each export; 43% tombstones |
+| `.curator/sessions.json` | **17 MB** | the plugin's chat history — B1 measures 81% re-embedded context, one note stored 52×, a 1.39 MB base64 image, and a 30-session cap that is a provable no-op |
+| `.curator/Collections/` | 15 MB | derived, regenerable |
+| `.cache/vaults/` | 27 dirs | **25 are dead** — one per ephemeral path ever seen, never swept |
+| `.cache/` (before this sweep) | 2.0 GB | held a **516 MB** temp venv from a script that no longer exists, leaked 2026-07-30 |
+
+**What is actually missing.** Every one of these has a *reason* to exist and no
+statement of *how long*. The deliverable is one policy, applied in both places:
+
+- **backend** — a retention window per growing table, a `wiki` command that
+  enforces it, and a line in `wiki status` when something is over budget (A3/A4
+  built the reporting shape to extend);
+- **plugin** — session/chat retention, image handling, and what `data.json`
+  keeps, with the same window expressed once rather than per-surface;
+- **the repo cache** — a sweep for dead vault caches and leaked temp dirs, since
+  nothing has ever swept either.
+
+**This item contains an escalation, not just work.** Retention *length* is a
+capability trade, not an engineering one: `prompt_runs` is what made the v0.63.0
+measurements possible — the 44-call/24-batch evidence came straight out of it —
+so a short window buys disk and costs the ability to explain what happened. Bring
+the proposed windows to the user rather than picking them; the stability
+tiebreaker does not settle this one.
+
+**Sequencing.** C1 is upstream of the largest single number here: 43% of the
+88 MB export is tombstones, and all 46,637 are this month's retry churn from the
+36 sources stuck at L3. Fixing C1 shrinks this before any policy is written.
+
 ## Phase C — Complete the pipeline
 
 Moderate risk. A four-layer system whose top two layers do not run is not
