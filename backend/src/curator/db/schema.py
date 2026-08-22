@@ -996,6 +996,17 @@ def get_stats(db_path: Path) -> dict:
             "sources_l1_done": 0,
             "sources_curated": 0,
             "ingest_runs": 0,
+            # `wiki status` renders these unconditionally, so the empty shape
+            # must match the populated one or a missing DB raises a KeyError.
+            "layer_status": {
+                la: dict.fromkeys(
+                    ("pending", "running", "done", "error", "skipped"), 0
+                )
+                for la in ("l1", "l2", "l3", "l4")
+            },
+            "units_live": 0,
+            "units_indexed": 0,
+            "units_unindexed": 0,
         }
     with connect(db_path) as conn:
         sources_total = conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0]
@@ -1013,7 +1024,48 @@ def get_stats(db_path: Path) -> dict:
         total_input_tokens = int(token_row[0])
         total_output_tokens = int(token_row[1])
         total_cost_usd = float(token_row[2])
+
+        # Layer health. The COUNTS were always visible — `wiki status` has long
+        # printed `L4 Synthesis/  0`. What was missing is the judgement: nothing
+        # said whether zero is expected, so a vault where every source sat at
+        # `l3_status='error'` and L4 had never once produced a row still read as
+        # healthy. Found only by hand-querying the DB (ROADMAP A4).
+        # Every known status is present with a 0, not only the ones that occur.
+        # A reporting dict that raises KeyError on "no source is done yet" is
+        # worse than one that says zero — the caller is asking precisely because
+        # it does not know.
+        _LAYER_STATES = ("pending", "running", "done", "error", "skipped")
+        layer_status: dict[str, dict[str, int]] = {}
+        for layer in ("l1", "l2", "l3", "l4"):
+            rows = conn.execute(
+                f"SELECT {layer}_status, COUNT(*) FROM sources GROUP BY 1"
+            ).fetchall()
+            counts = dict.fromkeys(_LAYER_STATES, 0)
+            for r in rows:
+                counts[str(r[0] or "unknown")] = int(r[1])
+            layer_status[layer] = counts
+
+        # Units the vault believes it holds but cannot find. Nothing reported
+        # this gap; it was 61% of the corpus when the audit measured it.
+        #
+        # `generation_id IS NOT NULL` is required, not tidiness. Since v0.62.0 an
+        # interrupted extraction leaves DURABLE unpublished rows — measured, one
+        # source held 5,358 of them — and those are not indexed *because they are
+        # not published yet*. Counting them would inflate the gap and make this
+        # warning cry wolf during every long ingest, which is the fastest way to
+        # teach a user to ignore it.
+        units_live = conn.execute(
+            "SELECT COUNT(*) FROM knowledge_units "
+            "WHERE retired_at IS NULL AND generation_id IS NOT NULL"
+        ).fetchone()[0]
+        units_indexed = conn.execute(
+            "SELECT COUNT(*) FROM search_documents WHERE record_type = 'knowledge_unit'"
+        ).fetchone()[0]
     return {
+        "layer_status": layer_status,
+        "units_live": int(units_live),
+        "units_indexed": int(units_indexed),
+        "units_unindexed": max(0, int(units_live) - int(units_indexed)),
         "sources_total": sources_total,
         "sources_l1_done": sources_l1_done,
         "sources_curated": sources_curated,

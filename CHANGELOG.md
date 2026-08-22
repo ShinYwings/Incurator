@@ -2,6 +2,41 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.64.0] - 2026-08-23
+### Added
+- **`wiki status` reports knowledge units that search cannot find.** The vault
+  held **977 (11%)** units that had never entered the search index, and nothing
+  said so — the only way to learn it was to query the database by hand. It was
+  **61% of the corpus** when an audit first measured it.
+
+  Deliberately narrow. A first version of this also listed per-layer error counts
+  and "never produced anything", then the command was actually read: the
+  **Pipeline Layer Status** table already prints `L3 | 0 done | 36 error`, and
+  **Collections** already prints `L4 Synthesis/ 0`. Restating them made the
+  output longer and less legible. The index gap is the one signal nothing showed.
+
+- `get_stats` now carries `layer_status`, `units_live`, `units_indexed` and
+  `units_unindexed`. `layer_status` reports **every** known state with a zero
+  rather than only the states that occur, so a caller asking "how many are done"
+  before anything is done gets `0` instead of a `KeyError`.
+
+  The unit count is scoped to **published** rows. Since v0.62.0 an interrupted
+  extraction leaves durable unpublished ones — measured, a single source held
+  **5,358** — and those are absent from the index *because they are not published
+  yet*. Counting them would have inflated the gap and fired this warning through
+  every long ingest.
+
+### Fixed
+- **Query expansion no longer fails silently.** Three sites returned `{}` on any
+  exception with no logging at all: the expander LLM call, parsing its
+  completion, and the expander as a whole. A dead expansion model meant search
+  ran unexpanded — recall dropped and nothing anywhere said why.
+
+  This was `RC-5(a)` in the 2026-08-04 defect audit, the **one survivor of ~29
+  findings**. It outlived the batch meant to fix its class because the synthesis
+  said "expect a duplicate and merge rather than fix twice", and the batch fixed
+  two of the three sites.
+
 ## [0.63.0] - 2026-08-22
 ### Added
 - **Graph extraction now survives an interruption.** Every graph batch must

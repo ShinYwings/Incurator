@@ -2642,4 +2642,39 @@ def _render_lint_report_terminal(report: lint_module.LintReport) -> None:
     return _render_lint_report_terminal_impl(report)
 
 
+
+
+def _render_search_index_gap(stats: dict) -> None:
+    """Report knowledge units the vault holds but search cannot find.
+
+    Deliberately narrow. The first version of this also listed per-layer error
+    counts and "never produced anything" — then `wiki status` was actually read,
+    and the **Pipeline Layer Status** table below already prints exactly that
+    (`L3 | 0 done | 36 error`), and `Collections` already prints
+    `L4 Synthesis/ 0`. Duplicating them made the output longer and less legible,
+    with unlabelled continuation rows that did not say which layer they meant.
+
+    The index gap is the one signal nothing showed. It was **61% of the corpus**
+    when `knowledge_value_arena` measured it and 11% when this shipped, and the
+    only way to see it was to query the DB by hand (ROADMAP A3/A4).
+
+    Silent when the gap is zero: a warning that always prints is a warning nobody
+    reads.
+    """
+    unindexed = int(stats.get("units_unindexed") or 0)
+    if not unindexed:
+        return
+    live = int(stats.get("units_live") or 0)
+    pct = f" ({unindexed / live:.0%})" if live else ""
+    table = Table(title="Search index", show_header=False, box=None, padding=(0, 2))
+    table.add_column(style="dim", width=22)
+    table.add_column()
+    table.add_row(
+        "not indexed",
+        f"[yellow]{unindexed}{pct} knowledge unit(s) the vault holds but "
+        f"search cannot find[/yellow]",
+    )
+    console.print(table)
+
+
 __all__ = [name for name in globals() if not name.startswith("__") or name == "__version__"]

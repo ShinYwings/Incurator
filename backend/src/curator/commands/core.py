@@ -629,6 +629,8 @@ def status(
     pages_table.add_row("[bold]total[/bold]", f"[bold]{l1+l2+l3+l4}[/bold]")
     console.print(pages_table)
 
+    _render_search_index_gap(stats)
+
     _render_pipeline_status(paths)
     active_jobs = db.list_ingest_jobs(paths.state_db, states=("queued", "running"), limit=8)
     if active_jobs:
