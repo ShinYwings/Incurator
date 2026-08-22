@@ -153,9 +153,16 @@ def extract_graph_data(
     # `source_id`, and a generation belongs to exactly one source, so a parameter
     # would only add a way to pass the wrong one. Callers whose units predate
     # this (the back-compat wrapper, older tests) simply do not stage.
-    source_ids = {
-        int(u["source_id"]) for u in units if u.get("source_id") is not None
-    }
+    # Guarded like the staging write below: resume is an optimisation, so a
+    # malformed `source_id` must disable it, never kill an extraction that would
+    # otherwise succeed.
+    try:
+        source_ids = {
+            int(u["source_id"]) for u in units if u.get("source_id") is not None
+        }
+    except (TypeError, ValueError):
+        _log.warning("graph resume disabled: units carry a non-integer source_id")
+        source_ids = set()
     if len(source_ids) > 1:
         resume_source_id = 0
         _log.warning(
@@ -333,8 +340,10 @@ def extract_graph_data(
             # never had a cache. Say which it was.
             _log.warning(
                 "graph resume matched NOTHING for source %d though %d staged "
-                "batches exist: batch boundaries or unit ids moved (chunk size "
-                "%d, %d batches this run). The source re-pays in full.",
+                "batches exist: batch boundaries or unit ids moved, or the "
+                "prompt contract changed (chunk size %d, %d batches this run). "
+                "If the per-batch log says 'staged payload unreadable', it is "
+                "the contract. The source re-pays in full.",
                 resume_source_id, staged_before, max_chars, len(batches),
             )
 

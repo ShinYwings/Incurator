@@ -184,3 +184,18 @@ def test_units_without_a_source_id_simply_do_not_stage(dbp: Path) -> None:
     assert data.ok
     with db.connect(dbp) as conn:
         assert conn.execute("SELECT COUNT(*) FROM graph_batch_results").fetchone()[0] == 0
+
+
+def test_a_malformed_source_id_disables_resume_rather_than_failing(dbp: Path) -> None:
+    """Resume is an optimisation. A unit row carrying a source_id that is not an
+    integer must switch staging off, not kill an extraction that would otherwise
+    succeed — the same rule the staging write follows."""
+    units = [dict(u, source_id="not-an-int") for u in _units()]
+    client = FakeClient([_graph_json("First"), _graph_json("Second")])
+    data = graph_index.extract_graph_data(
+        dbp, client, units=units, valid_span_ids=["SPAN-1"]
+    )
+    assert data.ok
+    assert _names(data) == ["First", "Second"]
+    with db.connect(dbp) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM graph_batch_results").fetchone()[0] == 0
