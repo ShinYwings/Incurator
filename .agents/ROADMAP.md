@@ -273,9 +273,11 @@ Measured across three attempt windows, each ending at a 429:
 | 15:45 | 1 | 0 |
 | 17:40 → 17:47 | 8 | **3** |
 
-Source 45 needs **~87** batches and every one must land in the same run. At
-**≤3 usable batches per capacity window**, discarded at the end of each, it
-cannot converge — no number of retries reaches 87.
+Source 45 needs **72** batches (measured 2026-08-22 by rebuilding the batches
+from the live DB: 5,358 units, 8,905 spans, 18,000-char chunks — the earlier
+"~87" divided total prompt chars by chunk size and overcounted). Every one must
+land in the same run. At **≤3 usable batches per capacity window**, discarded at
+the end of each, it cannot converge — no number of retries reaches 72.
 
 This is the L2 problem again, one layer up: v0.62.0 made extraction survive
 interruption by persisting per batch; graph extraction still does not. The fix

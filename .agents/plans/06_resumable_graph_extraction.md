@@ -95,10 +95,21 @@ change reuse measurement.
 
 ## 7. Execution Phases (Follow TDD and CI at each phase)
 
-**P0 — Prove the key is stable.** Before any code: run graph extraction twice
-against the same unpublished source and capture `input_hash` per batch both
-times. Identical lists → proceed. Different → STOP and redesign the key.
-*Verify:* two captured hash lists compare equal.
+**P0 — Prove the key is stable. DONE 2026-08-22, PASSED.** `render_prompt` is
+pure, so this was verified with **zero provider calls**: rebuild the batches from
+the live DB and compute `input_hash` per batch in two separate processes.
+
+Landed on Hartley itself — `04_Resources/References/MultipleViewGeometryHartley
+- .md`, **5,358 units, 8,905 spans, 72 batches** at the live 18,000-char chunk
+size. All 72 hashes **identical across processes** and **72/72 distinct**, so the
+key neither drifts nor collides.
+
+Two corrections to the briefing from this measurement:
+
+- The batch count is **72, not ~87**. The ROADMAP figure divided total prompt
+  chars by chunk size; real batching packs whole units and does better.
+- At ≤3 usable batches per capacity window, 72 still cannot converge in one run,
+  so the conclusion is unchanged — only the arithmetic is.
 
 **P1 — Schema and DB helpers.** `graph_batch_results` table + migration,
 `db.get_graph_batch_result` / `put_graph_batch_result` / `delete_graph_batch_results`.
