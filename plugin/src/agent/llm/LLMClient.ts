@@ -47,6 +47,7 @@ import {
   formatQuotaErrorMessage,
   isAntigravityStatusLine,
   isQuotaErrorMessage,
+  quotaEvidenceFor,
   mapOpenAIFinishReason,
   normalizeOpenAIContent,
   isEphemeralToolPolicy,
@@ -195,6 +196,7 @@ export {
   formatQuotaErrorMessage,
   isAntigravityStatusLine,
   isQuotaErrorMessage,
+  quotaEvidenceFor,
   mapOpenAIFinishReason,
   normalizeOpenAIContent,
   sanitizeOpenAIMessages,
@@ -1843,7 +1845,8 @@ export class LLMClient {
             ? codexAnswerText.trim() || trimmedOutput
             : trimmedOutput;
         const aborted = signal.aborted;
-        const combinedForQuota = `${fullStderr}\n${fullOutput}`;
+        // NEVER scan the answer for quota keywords — see `quotaEvidenceFor`.
+        const combinedForQuota = quotaEvidenceFor(fullStderr, fullOutput, emittedAnswer);
 
         if (aborted) {
           onChunk({ text: "", done: true });

@@ -10,6 +10,7 @@ import {
   extractAntigravityAnswerFromStderr,
   isAntigravityStatusLine,
   isQuotaErrorMessage,
+  quotaEvidenceFor,
   sanitizeOpenAIMessages,
   normalizeOpenAIContent,
   isEphemeralToolPolicy,
@@ -541,6 +542,41 @@ describe("LLM quota errors", () => {
     const text = formatQuotaErrorMessage("antigravity", "Individual quota reached");
     expect(text).toContain("quota or capacity");
     expect(text).toContain("Switch provider/model");
+  });
+
+  it("never treats the model's own answer as quota evidence", () => {
+    // The reported bug: quota was fine, but every answer failed with "antigravity
+    // quota or capacity is currently unavailable". `isQuotaErrorMessage` is a
+    // keyword matcher and the call site fed it `stderr + "\n" + stdout`, where
+    // stdout IS the answer. "capacity", "quota", "429" and "rate limit" are
+    // ordinary words in CUDA and computer-vision writing, so a complete,
+    // already-paid-for answer was discarded for containing one.
+    const answers = [
+      "CUDA occupancy is limited by register capacity per SM.",
+      "The model's capacity to represent the manifold is bounded.",
+      "See line 429 of the derivation for the Plücker form.",
+      "The rate limit of convergence is quadratic.",
+    ];
+    for (const answer of answers) {
+      const evidence = quotaEvidenceFor("", answer, answer);
+      expect(isQuotaErrorMessage(evidence)).toBe(false);
+    }
+  });
+
+  it("still reads stderr as quota evidence when an answer came back", () => {
+    const evidence = quotaEvidenceFor("RESOURCE_EXHAUSTED", "some answer", "some answer");
+    expect(isQuotaErrorMessage(evidence)).toBe(true);
+  });
+
+  it("reads stdout as quota evidence only when there is no answer", () => {
+    // Some CLIs print the refusal to stdout rather than stderr, so an empty
+    // answer must still be classifiable.
+    expect(isQuotaErrorMessage(quotaEvidenceFor("", "429 rate limit reached", ""))).toBe(true);
+    expect(isQuotaErrorMessage(quotaEvidenceFor("Individual quota reached", "", ""))).toBe(true);
+  });
+
+  it("does not invent quota evidence out of an ordinary failure", () => {
+    expect(isQuotaErrorMessage(quotaEvidenceFor("segfault", "", ""))).toBe(false);
   });
 });
 

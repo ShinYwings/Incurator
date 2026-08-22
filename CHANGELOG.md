@@ -2,6 +2,25 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.62.5] - 2026-08-22
+### Fixed
+- **Answers about GPUs and vision no longer fail with "quota or capacity is
+  currently unavailable" while your quota is fine.** The provider was never
+  refusing. The plugin classified a finished CLI run by keyword-matching
+  `stderr + "\n" + stdout` — and stdout **is the model's answer**. The matcher
+  looks for `"capacity"`, `"quota"`, `"429"`, and `"rate limit"`, which are
+  ordinary vocabulary in CUDA and computer-vision writing ("register capacity",
+  "cache capacity", "model capacity", "the rate limit of convergence"). Any
+  answer containing one was discarded, already paid for, and reported to the
+  user as a quota failure.
+
+  Quota evidence now comes from `stderr`, and from stdout only when the run
+  produced **no answer at all** — some CLIs print the refusal there instead of on
+  stderr. An answer that came back is delivered, whatever words it contains.
+
+  Verified against a live `agy` 1.1.18, which answered normally throughout,
+  confirming the quota was never the problem.
+
 ## [0.62.4] - 2026-08-22
 ### Fixed
 - **Your API key no longer disappears every time the plugin updates.** Reproduced

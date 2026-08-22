@@ -127,6 +127,25 @@ export function isQuotaErrorMessage(message: string): boolean {
   );
 }
 
+/** What may be used as evidence that a CLI run failed on quota.
+ *
+ *  **Never the model's answer.** `isQuotaErrorMessage` is a keyword matcher, and
+ *  the words it looks for — "capacity", "quota", "429", "rate limit" — are
+ *  ordinary vocabulary in CUDA and computer-vision writing. The CLI call site
+ *  used to pass `stderr + "\n" + stdout`, where stdout IS the answer, so a
+ *  complete and already-paid-for answer was thrown away and reported to the user
+ *  as "quota or capacity is currently unavailable" while their quota was fine.
+ *
+ *  Stdout counts only when the run produced no answer at all, because some CLIs
+ *  print the refusal there instead of on stderr. */
+export function quotaEvidenceFor(
+  stderr: string,
+  stdout: string,
+  answer: string
+): string {
+  return answer.trim().length === 0 ? `${stderr}\n${stdout}` : stderr;
+}
+
 export function formatQuotaErrorMessage(provider: LLMProvider, message: string): string {
   const label = provider === "openai" ? "Codex/OpenAI" : provider;
   return (
