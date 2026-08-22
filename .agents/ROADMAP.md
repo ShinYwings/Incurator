@@ -163,6 +163,22 @@ remaining god-file ownership domain. Replace silent broad catches only where a
 typed boundary outcome is defined and regression-tested — A2 is the last
 known instance of the untyped kind.
 
+**Concrete item recovered from the stash stack, 2026-08-23.** Four entries sat
+there; three were shipped or superseded and were dropped, and the fourth
+(`post-pr73 mcp helper follow-up edits`) had **shipped in substance but not in
+shape**. Its behaviour — catching `(OSError, sqlite3.Error,
+search.SearchBackendError)` around `search.update_index` and returning
+`"Search index refresh skipped: …"` as a tool warning, rather than failing a
+write that had already succeeded — is in `mcp/server.py` verbatim. What never
+landed is the **shared helper** it extracted, so that try/except now sits at
+**four** sites (`mcp/server.py:1521`, `:1616`, `:3096`, `:3146`) and two of them
+have widened to a bare `except Exception`.
+
+Not a bug — the behaviour is right at every site. It is precisely this item's
+subject: one typed boundary outcome defined once, instead of four copies that
+have already begun to drift. The original patch is archived locally at
+`.cache/stash-archive-2026-08-23/stash-0.patch`.
+
 ## Phase B — Stop the growth
 
 Bounded, no contract change. These degrade **monotonically**: every week of delay
