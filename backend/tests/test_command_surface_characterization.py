@@ -92,7 +92,9 @@ def test_cli_root_command_tree_is_stable() -> None:
     }
     assert hidden_groups == {"devices", "jobs", "mcp", "models", "plugin", "testbed"}
 
-    assert _command_names(root.commands["source"]) == ["list", "ls", "retry", "rm", "show"]
+    assert _command_names(root.commands["source"]) == [
+        "clear-graph-cache", "list", "ls", "retry", "rm", "show",
+    ]
     assert _command_names(root.commands["db"]) == ["autosync", "export", "import"]
     assert _command_names(root.commands["mcp"]) == ["connect", "install"]
     assert _command_names(root.commands["config"]) == ["get", "models", "provider", "secret", "set"]
