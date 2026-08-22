@@ -77,6 +77,13 @@ export interface MCPServerConfig {
   enabled: boolean;
 }
 
+/** Name the plugin's own DeepSeek key is stored under.
+ *
+ *  Distinct from the backend's `deepseek-api-key`: the two are configured
+ *  separately and may be different accounts or tiers. They share the encrypted
+ *  store, not the value. */
+export const OBSIDIAN_DEEPSEEK_SECRET = "obsidian-deepseek-api-key";
+
 export interface PluginSettings {
   provider: LLMProvider;
   model: string;

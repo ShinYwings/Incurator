@@ -107,6 +107,10 @@ def test_cli_root_command_tree_is_stable() -> None:
         "promote",
         "prompt",
         "query",
+        # v0.62.4: the plugin can persist its provider key outside data.json.
+        # Its key and the backend's are configured separately on purpose, so this
+        # stores under its own name and shares only the encryption.
+        "secret",
         "source",
         "synthesis",
         "trace",

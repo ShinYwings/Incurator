@@ -58,6 +58,59 @@ plugin_trace_app = typer.Typer(name="trace", no_args_is_help=True, add_completio
 plugin_app.add_typer(plugin_trace_app, name="trace")
 plugin_synthesis_app = typer.Typer(name="synthesis", no_args_is_help=True, add_completion=False)
 plugin_app.add_typer(plugin_synthesis_app, name="synthesis")
+plugin_secret_app = typer.Typer(name="secret", no_args_is_help=True, add_completion=False)
+plugin_app.add_typer(plugin_secret_app, name="secret")
+
+
+@plugin_secret_app.command("set")
+def plugin_secret_set(
+    name: str = typer.Option(..., "--name", help="Secret name, e.g. deepseek-api-key."),
+    value: str = typer.Option(..., "--value", help="Secret value to encrypt and store."),
+) -> None:
+    """Store a provider secret so it survives a plugin update.
+
+    The plugin's key and the backend's are configured SEPARATELY and on purpose —
+    they can be different accounts or different tiers. This command therefore
+    stores under whatever name the caller gives (the plugin uses
+    `obsidian-deepseek-api-key`, the backend's own `wiki config provider` uses
+    `deepseek-api-key`); it shares the encryption, not the value.
+
+    The plugin deliberately strips its API key from `data.json` (PLUGIN_SCHEMA
+    §2.4) so it cannot ride Obsidian Sync or a git-tracked vault, and its only
+    other restore path was `process.env`, which a GUI-launched Obsidian does not
+    have. So the key was memory-only and every update lost it — reproduced
+    deterministically: deploying the plugin and reloading was enough, and it
+    blocked the acceptance test twice in one day.
+
+    The value is encrypted at rest by `secret_store` under the machine-local
+    `.cache/config/secrets/`. The response never echoes it back.
+    """
+    from .. import secret_store
+
+    if not value.strip():
+        _print_json({"ok": False, "name": name, "error": "empty secret value"})
+        return
+    reference = secret_store.set_secret(name, value)
+    _print_json({"ok": True, "name": name, "reference": reference})
+
+
+@plugin_secret_app.command("get")
+def plugin_secret_get(
+    name: str = typer.Option(..., "--name", help="Secret name, e.g. deepseek-api-key."),
+) -> None:
+    """Return a stored provider secret, or an explicit absence.
+
+    Absence is `ok: true, present: false` rather than an error: a first run has
+    no key, and the plugin needs to prompt for one rather than surface a crash.
+    """
+    from .. import secret_store
+
+    try:
+        value = secret_store.get_secret(f"secret:{name}")
+    except Exception:  # noqa: BLE001 - absent, unreadable, or a foreign key
+        _log.debug("secret %s unavailable", name, exc_info=True)
+        value = ""
+    _print_json({"ok": True, "name": name, "present": bool(value), "value": value})
 plugin_correction_app = typer.Typer(name="correction", no_args_is_help=True, add_completion=False)
 plugin_app.add_typer(plugin_correction_app, name="correction")
 plugin_models_app = typer.Typer(name="models", no_args_is_help=True, add_completion=False)

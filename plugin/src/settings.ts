@@ -11,8 +11,10 @@ import {
   getDefaultModel,
   getModelOption,
   normalizePluginModelEffort,
+  OBSIDIAN_DEEPSEEK_SECRET,
 } from "./types";
 import { getIncuratorBackendStatus } from "./utils/incuratorBackendStatus";
+import { logger } from "./utils/logger";
 
 const CUSTOM_MODEL_VALUE = "__custom__";
 
@@ -263,7 +265,7 @@ export class AIAgentSettingTab extends PluginSettingTab {
     if (currentProvider === "deepseek") {
       new Setting(providerSection)
         .setName("API key")
-        .setDesc("DeepSeek uses an API key, not OAuth. Leave blank to use DEEPSEEK_API_KEY from the environment.")
+        .setDesc("DeepSeek uses an API key, not OAuth. Stored encrypted outside the vault, so it survives updates. Leave blank to use DEEPSEEK_API_KEY from the environment.")
         .addText((text) => {
           text.inputEl.type = "password";
           text
@@ -273,6 +275,20 @@ export class AIAgentSettingTab extends PluginSettingTab {
               this.plugin.settings.deepseekApiKey = value.trim();
               await this.plugin.saveSettings();
             });
+          // Persist on BLUR, not on change. Obsidian fires `onChange` per
+          // keystroke, so writing there spawned one backend process per
+          // character and stored a truncated key each time — and an earlier
+          // partial could land after the complete one, leaving the store holding
+          // a prefix. `saveSettings` deliberately strips the key from
+          // `data.json`, so without this it stays memory-only and every update
+          // loses it.
+          text.inputEl.addEventListener("blur", () => {
+            const key = this.plugin.settings.deepseekApiKey?.trim();
+            if (!key) return;
+            void this.plugin.incuratorClient
+              .setSecret(OBSIDIAN_DEEPSEEK_SECRET, key)
+              .catch((e) => logger.warn("Could not persist the DeepSeek key:", e));
+          });
         });
     }
 

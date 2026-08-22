@@ -3,8 +3,13 @@ import type ObsidianAIAgent from "../../main";
 import type { LLMMessage, StreamChunk } from "../types";
 import {
   buildQuickQueryMessages as buildQuickQueryContextMessages,
+  buildQuickQueryRetrievalQuery,
   type QuickQueryTurn,
 } from "../context/quickQueryContext";
+import { formatCuratorContextPack } from "../context/providerContextFormat";
+import { resolveWorkspacePath } from "../context/workspaceScope";
+import { isEditRequest } from "../context/providerContextPolicy";
+import { logger } from "../utils/logger";
 import {
   attachLatexCopyHandler,
   normalizeLatexDelimiters,
@@ -110,11 +115,39 @@ interface QuickQueryDragState {
   up: (e: MouseEvent) => void;
 }
 
+/** Token budget for the popover's pre-turn vault evidence. Deliberately a
+ *  fraction of the sidechat's pack: the popover answers about a selection, and
+ *  the evidence is there to point at the reader's own notes, not to replace the
+ *  passage in front of them. */
+const QUICK_QUERY_VAULT_EVIDENCE_TOKENS = 2500;
+
+/** How long the answer will wait for vault evidence before going without it.
+ *
+ *  Measured on a live vault, the fetch takes **59-99 s** — an LLM call that
+ *  writes search terms, plus a cold embedding and reranker load on every
+ *  invocation. This surface is documented as "a lightweight `wiki query` aimed
+ *  at quick lookups while reading", so it cannot wait for that.
+ *
+ *  A `try/catch` was not enough: it catches a throw, not slowness, so a hung
+ *  backend meant the popover never answered at all. This bounds the wait; the
+ *  evidence is a bonus, never the gate. */
+const QUICK_QUERY_VAULT_EVIDENCE_TIMEOUT_MS = 4000;
+
 export class QuickQueryPopover {
   private plugin: ObsidianAIAgent;
   private buttonEl: HTMLElement | null = null;
   private popoverEl: HTMLElement | null = null;
   private capturedSelection = "";
+
+  /** One fetch per popover. `runQuery` is also the follow-up path and the
+   *  selection does not change between turns, so the same 59-99 s retrieval
+   *  was being re-issued for every follow-up. `""` records a miss, so a
+   *  timeout is not retried on the next question either. */
+  private vaultEvidenceCache: string | undefined;
+
+  /** The in-flight fetch, so a turn that times out does not discard it. The
+   *  result still lands in `vaultEvidenceCache` for the next question. */
+  private vaultEvidencePending: Promise<string> | undefined;
   private isProcessing = false;
   private turns: QuickQueryTurn[] = [];
   private titleEl: HTMLElement | null = null;
@@ -537,6 +570,13 @@ export class QuickQueryPopover {
       }
     }
 
+    // Duty 2 — "remind me what I wrote". Resolved BEFORE the turn (§4.2) through
+    // the SAME DB-native search the sidechat uses; §2 forbids a second retrieval
+    // engine and forbids giving the popover tools, so this is one pre-turn
+    // backend call and zero extra tool rounds. Never fatal: a popover that
+    // cannot reach the vault still answers about the selection.
+    const vaultEvidenceBlock = await this.vaultEvidenceFor(question);
+
     const messages = buildQuickQueryContextMessages({
       selectedText: this.capturedSelection,
       question,
@@ -544,6 +584,7 @@ export class QuickQueryPopover {
       previousTurns: this.turns,
       resolvedReferencesBlock,
       pinnedContextRefs: this.plugin.getPinnedContextRefs(),
+      vaultEvidenceBlock,
     });
     let raw = "";
 
@@ -646,6 +687,79 @@ export class QuickQueryPopover {
     input.value = "";
     input.placeholder = "Ask a follow-up…";
     inputRow.show();
+  }
+
+  /** Vault evidence for this turn, or nothing — never a reason to stall.
+   *
+   *  Three things the first version got wrong, all found by review:
+   *  - **No timeout.** The fetch measures 59-99 s and the `try/catch` only
+   *    caught throws, so a hung backend blocked the answer indefinitely.
+   *  - **Every follow-up re-paid it.** `runQuery` is also the follow-up path and
+   *    the selection does not change, so the same query was re-issued each time.
+   *    One popover, one fetch.
+   *  - **Edit requests paid too.** "rewrite this" does not use vault evidence;
+   *    the sidechat already skips retrieval for those and this did not. */
+  private async vaultEvidenceFor(question: string): Promise<string | undefined> {
+    if (isEditRequest(question)) return undefined;
+    if (this.vaultEvidenceCache !== undefined) return this.vaultEvidenceCache || undefined;
+
+    const client = this.plugin.incuratorClient;
+    if (!client?.available) return undefined;
+
+    // The SELECTION carries the topic; the question is usually deictic.
+    const retrievalQuery = buildQuickQueryRetrievalQuery(this.capturedSelection, question);
+
+    // Start it ONCE and keep the promise. Losing the race must not throw the
+    // work away: the fetch runs to completion in the background and its result
+    // lands in the cache, so a follow-up — the common next action — gets the
+    // evidence this turn had to answer without. Racing a fresh fetch each turn
+    // would instead re-pay 59-99 s and keep missing.
+    this.vaultEvidencePending ??= client
+      .fetchContext(retrievalQuery, {
+        workspacePath: this.vaultWorkspacePath(),
+        limitTokens: QUICK_QUERY_VAULT_EVIDENCE_TOKENS,
+      })
+      .then((pack) => {
+        // LABELLED with the question, not the retrieval query: the label says
+        // what the evidence was gathered for, and the retrieval query opens with
+        // the passage the model is already looking at.
+        this.vaultEvidenceCache = pack.ok ? formatCuratorContextPack(pack, question) : "";
+        return this.vaultEvidenceCache;
+      })
+      .catch((e) => {
+        // Logged, not silent. A quiet failure here reads as "it stopped finding
+        // my notes", which is the defect that took a live run to catch.
+        logger.warn("Vault evidence fetch failed; answering from the selection alone:", e);
+        this.vaultEvidenceCache = "";
+        return "";
+      });
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const evidence = await Promise.race([
+      this.vaultEvidencePending,
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), QUICK_QUERY_VAULT_EVIDENCE_TIMEOUT_MS);
+      }),
+    ]);
+    if (timer) clearTimeout(timer);
+
+    if (evidence === null) {
+      logger.info(
+        `Vault evidence did not arrive within ${QUICK_QUERY_VAULT_EVIDENCE_TIMEOUT_MS} ms; ` +
+          "answering from the selection alone and keeping it for the next question."
+      );
+      return undefined;
+    }
+    return evidence || undefined;
+  }
+
+  /** Same resolution the sidechat uses for its vault query, so both surfaces
+   *  bind the same workspace. An empty result is fine: the backend resolves
+   *  `workspace_id=default`, which is what a plain vault question wants. */
+  private vaultWorkspacePath(): string {
+    const vaultBase = (this.plugin.app.vault.adapter as any).getBasePath?.() || "";
+    const activeRelpath = this.plugin.app.workspace.getActiveFile()?.path || "";
+    return resolveWorkspacePath(vaultBase, activeRelpath) || vaultBase;
   }
 
   private startThinkingTimer(target: HTMLElement): void {
