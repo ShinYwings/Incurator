@@ -252,8 +252,22 @@ Whenever a user requests a new feature, reports a bug, or uses the `/goal` comma
     it is:
 
     > Arena (multi-agent) → implement → PR → **self code-review** → CI → merge →
-    > mark the item done in `.agents/` and delete what the merge closed → take
-    > the next `ROADMAP.md` item → repeat.
+    > mark the item done in `.agents/`, delete what the merge closed, and **prune
+    > the branches and worktrees the merge finished** → take the next
+    > `ROADMAP.md` item → repeat.
+
+    The prune is part of the cleanup, not an afterthought (user directive,
+    2026-08-23): delete the merged local branch, drop any agent worktree whose
+    work has landed, and `git fetch --prune`. A branch squash-merged into
+    `master` still reports as *unmerged* — `git branch --merged` will not list
+    it — so confirm by content (its release is in `CHANGELOG.md`) before
+    force-deleting, and check a worktree is clean and fully merged before
+    removing it.
+
+    **Never `git stash pop` here.** The stash is a shared stack that can hold
+    someone else's months-old WIP; a reflexive `stash`/`stash pop` pair around a
+    branch switch once dragged an unrelated conflicted change onto a release
+    branch. Commit instead, or use `git stash create` and keep the ref.
 
     It runs until the roadmap's Active Queue is empty. The Arena does not stop at
     a document: a plan is finished when its code is merged. Report each turn's
