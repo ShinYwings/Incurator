@@ -251,12 +251,50 @@ drafts thinking**, which is where a "didn't I already work this out?" question
 most often points. 12 vault files mention Plücker; 6 of them live under
 `01_Workspaces/` and none are reachable.
 
-This is a **scope decision to revisit, not a retrieval bug** — the trade is real:
-workspace notes are drafts, they churn, and ingesting them would pull unfinished
-text into the DAG. Options not yet evaluated: ingest workspace notes as a
-distinct low-trust class; opt in per workspace through `curate.yml`; or leave
-ingest alone and give retrieval a separate direct-file-search route for the
-active workspace. Needs a plan before any of it.
+**DECIDED 2026-08-22 (user): shape A — spans without projection.** The user's
+scope is narrower than "ingest workspace notes": they want the agent to *cite*
+workspace content when answering, with **no DAG promotion, not even L1**.
+
+Measured to settle the design:
+
+- Everything searchable lives in `search_documents`, built by
+  `materialize_search_documents` SELECTing from DAG tables. "Searchable" today
+  means "projected from a DAG record", so workspace text must land in some
+  table the materializer reads.
+- A CTX page is emitted **per source, not per span** (54 pages against 11,461
+  spans), and `reemit_projections` is a separate function from
+  `store_source_spans`. So span storage and L1 projection are separable.
+- `source_span` is 11,461 of ~17,000 search documents — the dominant corpus.
+
+**Shape A**: store workspace text as `source_spans` under an index-only source
+flag, stop before the LLM, **emit no CTX page** and stay out of `index.md`. The
+whole FTS5 + vector + RRF + rerank stack is reused unchanged, and the existing
+`WHERE l2_status = 'done'` gate (`ingest_llm.py:251`) already makes the climb to
+L2/L3/L4 unreachable.
+
+**Shape B** (rejected): a parallel document store — new table, materializer
+branch, retrieval route, embedding path. Literally not L1, but it pays heavy
+engineering to move the same bytes to a different table and then has to re-solve
+ranking fusion across two corpora. The boundary the user cares about is enforced
+by the L2 gate and by skipping projection, not by which table holds the text.
+
+**Two guardrails, non-negotiable in any implementation:**
+
+1. **Exclude `01_Workspaces/**/.agents/` and `curate.yml`.** 13 of the 89
+   workspace markdown files are agent bookkeeping and their content is
+   *instructions* (e.g. `linear_algebra_verifier/SKILL.md`). Retrieved text
+   enters the model's context, so indexing instruction files creates a
+   prompt-injection surface inside the knowledge base.
+2. **Label draft-tier evidence.** A workspace note is where the user writes down
+   what they were *trying*, including things they later rejected. Answers must be
+   able to distinguish it from a verified `03_Notes/` conclusion. The relpath is
+   already carried; only the label is missing.
+
+Volume: 76 markdown files, 512 KB — roughly doubles the current corpus, which is
+the point, but it will move search results noticeably.
+
+**Deferred, and to be planned via a MULTI-AGENT Arena debate when it comes up
+(user directive, 2026-08-22).** Priority is below ROADMAP 5c.
 
 ### 5c. Graph extraction is not resumable — the same defect v0.62.0 fixed for L2
 
