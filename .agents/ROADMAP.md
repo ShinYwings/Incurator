@@ -53,39 +53,55 @@ they make every later measurement trustworthy. **You cannot stabilise what you
 cannot see**, and this project has repeatedly lost time to state it never
 measured.
 
-### A1. Korean questions can never reach the global or explore routes
+### A1. The route signal is destroyed at the boundary, not at the regex
 
-**From `knowledge_value_arena` [P1]. Re-verified in code 2026-08-23 — unchanged.**
+**Corrected 2026-08-23 by measuring the real path.** `knowledge_value_arena`
+filed this as "route selection is English-only"; that reading is wrong, and so
+was the first correction of it.
 
-`retrieval/router.py:41` selects the `global` route with a pure-English regex:
+`router.py:20` documents the English-only regex as **deliberate**: internals are
+English by contract, `QueryRequest.english_query` exists for exactly this, and
+v0.47.0 already reverted an attempt to make the regex multilingual — *"that fixed
+the symptom by making the INTERNALS multilingual, which is the opposite of the
+contract"*. The boundary fix it shipped instead **works**: `english_query` is
+populated at `plugin_api/context.py:60`.
 
-```python
-_GLOBAL_SIGNALS = re.compile(
-    r"\b(overall|summar(?:y|ize|ise)|across (?:all|the)|in general|big picture|"
-    r"themes?|landscape|state of)\b",
-```
+**The defect is what the boundary produces.** Measured end to end against the
+live vault:
 
-`_EXPLORE_SIGNALS` (`:35`) is the same shape. `\b` word boundaries do not even
-behave meaningfully against Hangul, so no Korean phrasing can match — not
-"전체적으로", not "종합해서", not "정리해줘".
-
-Measured by the audit:
-
-| question | `global` | `explore` |
+| Korean question | derived `english_query` | route |
 |---|---|---|
-| `ellipsoid 형태의 quadric 은 어떻게 매트릭스로 표현되나?` | False | False |
-| `2D GS가 3D보다 …여러 논문을 종합해서 설명해줘` | False | False |
-| `Summarize across all papers how kernel fusion…` | **True** | False |
-| `What are the overall themes in my vault?` | **True** | False |
+| `2D GS가 3D보다 나은 점을 **여러 논문을 종합해서** 설명해줘` | `advantages of 2D GS over 3D` | **local** |
+| `내 볼트 **전체의 주제를 정리**해줘` | *(empty string)* | **local** |
 
-**The consequence is not a worse answer, it is a different corpus.** The `local`
-route never consults `community_reports` or `synthesis_nodes`, so a Korean
-"synthesise across my sources" question is answered from spans alone — the L3/L4
-layers the whole pipeline exists to build are unreachable from the language the
-user actually writes in.
+`derive_search_query` extracts **what to search for** and discards **what kind of
+question it is**. "여러 논문을 종합해서" — synthesise across several papers — does
+not survive into the English query, so `_GLOBAL_SIGNALS` has nothing to match.
+The second case returned an empty string, and `working_query`'s
+`(english_query or question)` fallback then silently handed the router the raw
+Korean.
 
-This is the highest-leverage open item precisely because it costs the most and
-is invisible: nothing reports "you asked for a synthesis and got a span search".
+**Adding Korean to the regex would not fix this**, which is why the v0.47.0
+revert was right. An English question routed through the same extractor loses its
+intent the same way — the extractor is doing its job, and routing is reading a
+signal that no longer exists by the time it looks.
+
+Two candidate shapes, neither chosen:
+
+1. `derive_search_query` already returns `(search_query, is_knowledge, reason)`
+   and has understood the message. Have it return the **intent** too, so routing
+   reads a derived signal rather than re-deriving one from surface keywords.
+2. Use the `curator.query_router` LLM contract, which `router.py`'s own docstring
+   says "exists for the ambiguous case" — currently unused on this path.
+
+Shape 1 is cheaper and keeps routing deterministic. Shape 2 costs a round trip
+per query. **Also fix the empty-string case regardless**: an extractor returning
+nothing should be an explicit outcome, not a silent fallback to the untranslated
+question.
+
+**Phase A caveat:** option 1 changes what `derive_search_query` returns, which is
+an internal contract. It is still phase A — no schema, no stored contract, no
+cross-device effect — but it is the largest item in the phase.
 
 ### A2. Query expansion fails silently — the one survivor of the defect audit
 
