@@ -820,7 +820,7 @@ Summary of major commands following the user workflow.
 | :--- | :--- | :--- |
 | `wiki init <path>` | Initializes a Curator vault. | First-time setup |
 | `wiki config <key>` | Modifies model and environment settings. | Changing providers or preferences |
-| `wiki status` | Checks vault health and statistics. | Checking overall system health |
+| `wiki status` | Checks vault health and statistics. Reports a **Search index** warning when the vault holds knowledge units that search cannot find — a gap nothing surfaced before v0.64.0, and one that was 61% of the corpus when it was first measured. Silent when the index is complete. | Checking overall system health |
 | `wiki persona` | Show and update the vault persona. | Adjusting curation direction |
 
 ### 2. Knowledge Ingestion & Management

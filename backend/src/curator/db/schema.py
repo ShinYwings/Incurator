@@ -996,6 +996,11 @@ def get_stats(db_path: Path) -> dict:
             "sources_l1_done": 0,
             "sources_curated": 0,
             "ingest_runs": 0,
+            # `wiki status` renders these unconditionally, so the empty shape
+            # must match the populated one or a missing DB raises a KeyError.
+            "units_live": 0,
+            "units_indexed": 0,
+            "units_unindexed": 0,
         }
     with connect(db_path) as conn:
         sources_total = conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0]
@@ -1013,7 +1018,43 @@ def get_stats(db_path: Path) -> dict:
         total_input_tokens = int(token_row[0])
         total_output_tokens = int(token_row[1])
         total_cost_usd = float(token_row[2])
+
+        # Units the vault believes it holds but cannot find. Nothing reported
+        # this gap; it was 61% of the corpus when the audit measured it.
+        #
+        # `generation_id IS NOT NULL` is required, not tidiness. Since v0.62.0 an
+        # interrupted extraction leaves DURABLE unpublished rows — measured, one
+        # source held 5,358 of them — and those are not indexed *because they are
+        # not published yet*. Counting them would inflate the gap and make this
+        # warning cry wolf during every long ingest, which is the fastest way to
+        # teach a user to ignore it.
+        units_live = conn.execute(
+            "SELECT COUNT(*) FROM knowledge_units "
+            "WHERE retired_at IS NULL AND generation_id IS NOT NULL"
+        ).fetchone()[0]
+        units_indexed = conn.execute(
+            "SELECT COUNT(*) FROM search_documents sd "
+            "JOIN knowledge_units ku ON ku.id = sd.record_id "
+            "WHERE sd.record_type = 'knowledge_unit' "
+            "  AND ku.retired_at IS NULL AND ku.generation_id IS NOT NULL"
+        ).fetchone()[0]
+        # An ANTI-JOIN, not `live - indexed`. The subtraction is only right while
+        # the index holds no row for a retired, unpublished or deleted unit —
+        # true on the reference vault today (0 such rows) and guaranteed by
+        # nothing. One stale row and the subtraction understates the gap, or
+        # goes negative and gets clamped to zero by `max(0, …)`, which hides the
+        # anomaly instead of reporting it. Same cost, correct by construction.
+        units_unindexed = conn.execute(
+            "SELECT COUNT(*) FROM knowledge_units ku "
+            "LEFT JOIN search_documents sd "
+            "  ON sd.record_type = 'knowledge_unit' AND sd.record_id = ku.id "
+            "WHERE ku.retired_at IS NULL AND ku.generation_id IS NOT NULL "
+            "  AND sd.doc_id IS NULL"
+        ).fetchone()[0]
     return {
+        "units_live": int(units_live),
+        "units_indexed": int(units_indexed),
+        "units_unindexed": int(units_unindexed),
         "sources_total": sources_total,
         "sources_l1_done": sources_l1_done,
         "sources_curated": sources_curated,

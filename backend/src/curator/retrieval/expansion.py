@@ -13,10 +13,13 @@ Two tiers are used because a naive single-vector probe is not enough:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Callable
 
 from . import lexical
+
+_log = logging.getLogger(__name__)
 
 __all__ = ["ExpandedQuery", "expand", "Expander"]
 
@@ -97,7 +100,15 @@ def expand(
     if expander is not None:
         try:
             extra = expander(raw) or {}
-        except Exception:
+        except Exception:  # noqa: BLE001 - expansion degrades, never fails a query
+            # Degrading is right; degrading SILENTLY is not. Search then runs
+            # unexpanded, recall drops, and nothing anywhere says why — the
+            # defect audit filed this as RC-5(a) and it outlived the batch that
+            # was meant to fix its class.
+            _log.warning(
+                "query expander failed for %r; searching without expansion",
+                raw[:120], exc_info=True,
+            )
             extra = {}
         for term in extra.get("lex_terms", []) or []:
             if term and term not in exp.lex_terms_expanded:

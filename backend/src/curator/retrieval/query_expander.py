@@ -13,12 +13,16 @@ expander returns ``{}`` and the engine runs Tier-1 (deterministic) expansion onl
 
 from __future__ import annotations
 
+import logging
+
 import json
 import re
 from pathlib import Path
 from typing import Any, Callable, cast
 
 from .. import config as cfg
+
+_log = logging.getLogger(__name__)
 
 __all__ = ["LlamaCppExpander", "build_query_expander"]
 
@@ -149,12 +153,21 @@ class LlamaCppExpander:
                 top_p=0.8,
                 repeat_penalty=1.1,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 - expansion degrades, never fails a query
+            _log.warning(
+                "local expansion model call failed; searching without expansion",
+                exc_info=True,
+            )
             return {}
         try:
             completion = cast(dict[str, Any], result)
             text = str(completion["choices"][0]["text"])
-        except Exception:
+        except Exception:  # noqa: BLE001 - same: a malformed completion degrades
+            _log.warning(
+                "local expansion model returned an unreadable completion; "
+                "searching without expansion",
+                exc_info=True,
+            )
             return {}
         return _parse_structured_expansion_lines(text, raw)
 
