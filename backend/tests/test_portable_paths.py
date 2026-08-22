@@ -66,7 +66,7 @@ def test_resolve_ref_uses_machine_local_root(tmp_path: Path) -> None:
     assert resolve_ref("@zotero_library/storage/KEY/paper.pdf", {"zotero_library": library}) == pdf
 
 
-def test_fresh_v13_sources_schema_has_portable_sync_identity(tmp_path: Path) -> None:
+def test_fresh_sources_schema_has_portable_sync_identity(tmp_path: Path) -> None:
     state_db = tmp_path / "state.sqlite"
     db.init_db(state_db)
 
@@ -76,7 +76,6 @@ def test_fresh_v13_sources_schema_has_portable_sync_identity(tmp_path: Path) -> 
             for row in conn.execute("PRAGMA table_info(sources)").fetchall()
         }
 
-    assert db.SCHEMA_VERSION == 13
     assert {"external_ref", "import_origin_ref", "sync_key"} <= columns
     assert "external_path" not in columns
     assert "import_origin" not in columns

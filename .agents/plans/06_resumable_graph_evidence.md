@@ -90,3 +90,45 @@ exist until P2/P3. A test that rolls back the real compile path is a P3
 deliverable and must not be skipped there.
 
 `ruff` clean, `mypy` clean (130 source files).
+
+### The version bump had consequences worth recording
+
+`SCHEMA_VERSION` 13 → 14 broke **7 tests** that the P1 unit tests did not touch.
+The bump is nonetheless correct, checked against the spec rather than assumed:
+`SCHEMA.md`'s version history bumps for **any** DDL change, not only for changes
+to the export format — v6 bumped for search tables that are excluded from export,
+and v13 bumped while stating "the SQLite table shape is unchanged".
+
+Consequence, recorded because it is real: `db_sync.py:974` **rejects an export
+whose `schema_version` differs from local**. Devices that upgrade at different
+times stop syncing until both are on v14. The export *format* is unchanged —
+`graph_batch_results` is absent from the `SYNC_TABLES` allowlist — so this is a
+version-stamp break, not a shape break.
+
+What the 7 failures were:
+
+| test | what it was |
+|---|---|
+| `test_schema_version_is_13` | the intentional pin — renamed, now asserts 14 |
+| `test_spec_declares_matching_schema_version` | fixed by updating `SCHEMA.md` |
+| `test_schema_v13_is_the_composite_tombstone_boundary` | a **redundant** second pin of the same integer; changed to assert the floor (`>= 13`) and renamed, since an additive table has no business failing a tombstone test |
+| `test_v12_database_is_stamped_v13_…` | incidental literal → `db.SCHEMA_VERSION` |
+| `test_fresh_v13_sources_schema_…` | incidental pin removed; the test is about portable columns |
+| `test_the_frozen_evaluated_files_are_untouched` | the D2 drift tripwire |
+| `test_d2_holdout_result_is_single_run_frozen_…` | same |
+
+**The D2 tripwire was re-armed, not silenced.** `D2_HOLDOUT_RESULT.yml` freezes a
+retrieval evaluation against content hashes of the code that produced it, with a
+documented `*_rearm` procedure: record the prior hash and argue the change cannot
+affect the metric. Only `db/schema.py` and `db/_entities.py` drifted; all seven
+files the holdout actually exercises still match, as do `db/__init__.py`,
+`db/jobs.py`, `db/sources.py`. The new table is absent from the search
+projection, so the FTS5 corpus is byte-identical.
+
+### Dead code noticed, not touched
+
+`db_sync.EXCLUDE_TABLES` (`db_sync.py:71`) is referenced **nowhere** in the
+backend. It reads as the denylist a new machine-local table should be added to,
+but the exporter uses the `SYNC_TABLES` allowlist instead, so adding to it would
+accomplish nothing. Left alone per the surgical-changes rule; worth a separate
+cleanup.
