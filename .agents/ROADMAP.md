@@ -263,12 +263,60 @@ statement of *how long*. The deliverable is one policy, applied in both places:
 - **the repo cache** — a sweep for dead vault caches and leaked temp dirs, since
   nothing has ever swept either.
 
-**This item contains an escalation, not just work.** Retention *length* is a
-capability trade, not an engineering one: `prompt_runs` is what made the v0.63.0
-measurements possible — the 44-call/24-batch evidence came straight out of it —
-so a short window buys disk and costs the ability to explain what happened. Bring
-the proposed windows to the user rather than picking them; the stability
-tiebreaker does not settle this one.
+### The shape, decided by the user 2026-08-23
+
+*"도움되는거는 최대한 오래 있어도 좋지. 이외의 것들은 다른데서 보통 어떻게 규칙을
+정하는지 보고 그거 따라해 … 가비지컬렉터같은거 만들거면 backend에서 하게하고
+dashboard에다가 GC 탭 만들어서 … radiobutton 같은걸로 삭제 주기 사용자에게
+선택지 줘서 선택하면 backend에 그대로 적용되게 (다른애들처럼 명령어 만들고
+명령어 실행하는구조로)."*
+
+So: **a backend garbage collector with user-chosen windows, driven by a CLI
+command, surfaced as a Dashboard GC tab** — the same command-underneath shape
+every other dashboard control already uses. Not a new mechanism; a new policy on
+the existing one.
+
+**Windows follow prevailing convention rather than invention**, per the same
+directive. What the industry actually does: operational logs **30–90 days**;
+[ChatGPT](https://help.openai.com/en/articles/8983778-chat-and-file-retention-policies-in-chatgpt)
+retains API inputs/outputs 30 days for abuse monitoring and purges deleted chats
+within 30 days; [ChatGPT Business/Enterprise](https://blog.stackaware.com/p/chatgpt-team-data-retention-security-compliance)
+allows custom windows in 30-day increments with a 90-day floor;
+[Google Chat](https://support.google.com/vault/answer/7657597?hl=en) keeps
+messages 30 days past a deletion policy. **30 / 90 / keep** is the offer to
+mirror.
+
+Proposed classification — the Arena should challenge it, not inherit it:
+
+| item | class | proposed default | why |
+|---|---|---|---|
+| `prompt_runs` | **diagnostic, valuable** | keep (or 1 year) | this table *is* how v0.63.0 was explained — the 44-call/24-batch evidence came out of it. The user's *"도움되는거는 최대한 오래"* points here. |
+| `query_traces` | diagnostic | 90 days | same family, far lower value per row |
+| `job_events` | operational log | 30 days | textbook 30-day case |
+| `compiler_generations` | history | prune `discarded`, keep `authoritative` | status, not age, is the right axis |
+| `sessions.json` (chat) | **the user's own writing** | user-chosen, default keep | not a log. Deleting someone's notes on a timer needs their explicit choice, which is exactly what the GC tab is for. |
+| `deleted_records` | **correctness-bearing** | see the trap below | |
+| dead `.cache/vaults/` dirs | garbage | sweep, no window | the path no longer exists; nothing to date |
+| leaked `.cache` temp dirs | garbage | sweep >7 days | a 516 MB venv sat there for 3 weeks |
+| `Collections/` | derived | never a GC target | regenerate, do not expire |
+
+### The trap this plan must not walk into
+
+**Tombstone retention is a correctness constraint, not a preference.** A
+`deleted_records` row is what tells a peer "this was deleted, do not resurrect
+it". Expire it before a peer has synced, and that peer's next import **brings the
+deleted row back** — silently, and looking exactly like a legitimate insert. So
+the window for this table is bounded below by *how long a device may stay
+offline*, not by taste, and it cannot be a free radio-button choice like the
+others without a floor and a warning.
+
+A GC written from the table list alone would get this wrong, which is why it
+gets an Arena rather than a patch.
+
+**Still an escalation, but a narrower one.** The user has now set the shape and
+the convention; what remains for them is confirming the per-item windows above
+once the Arena has argued them — especially `prompt_runs` (diagnostic value vs
+disk) and `sessions.json` (their own writing).
 
 **Sequencing.** C1 is upstream of the largest single number here: 43% of the
 88 MB export is tombstones, and all 46,637 are this month's retry churn from the
