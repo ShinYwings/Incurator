@@ -86,45 +86,41 @@ claimed, and every document that placed `state.sqlite` inside the vault is
 corrected with a test that fails if one does it again. The rest:
 
 
-- Losing `.cache/` reports a healthy **empty** vault: `connect()` self-heals a
-  schema into any empty DB and `get_stats` returns zeros. Recovery exists (the
-  in-vault sync journal + `wiki db import`) but is silent and undocumented.
-- Vault rename/move silently mints a new empty DB (cache key is
-  `sha256(resolved_root)[:16]`); also hits `VAULT_ROOT=testbed` from two
-  directories.
-- `sessions.json` — **re-measured 2026-08-23, and it is worse and simpler than
-  the audit said.** The audit reported "81% re-embedded context"; the real figure
-  is **93.9%**, and it is one field.
+- **Closed in v0.69.2** — losing `.cache/`, opening the vault on a second
+  device, and renaming or moving the vault all mint a brand-new empty database
+  (the cache key is `sha256(resolved_root)[:16]`), and `wiki status` reported
+  zeros exactly like a never-ingested vault. It now says so, in text and in
+  `--json`, naming the sync journal and the `wiki db import` that restores it.
 
-  14.52 MB, 11 sessions, 310 messages. Actual conversation text is **0.87 MB
-  (5.9%)**. `contextRefs` is **13.98 MB (93.9%)**.
+  The minting itself stays — the database is machine-local by design, so
+  Syncthing never reconciles two devices writing one SQLite file. What was wrong
+  was the silence, not the re-keying.
 
-  | field | values | distinct | size | deduped | redundant |
-  |---|---|---|---|---|---|
-  | `imageBase64` | 9 | 5 | 5.94 MB | 3.10 MB | 48% |
-  | `content` | 369 | 140 | 5.31 MB | 1.82 MB | 66% |
-  | `outline` | 99 | **3** | 1.90 MB | **0.04 MB** | **98%** |
+- `sessions.json` — **mostly closed in v0.69.4.** Re-measuring the audit's "81%
+  re-embedded context" gave **93.9%**, and the cause was three unrelated things
+  rather than one: payload nothing reads, six full rewrites per message, and a
+  session cap that never capped.
 
-  **~8.2 MB of 14.5 MB is byte-identical duplication.** One ref payload is stored
-  23×; three distinct outlines are stored 99 times between them. Largest single
-  value: a 1.33 MB base64 image.
+  | | before | after |
+  |---|---|---|
+  | file | **17.31 MB** | **7.25 MB** |
+  | full-file writes per message | **6** | **1** |
+  | I/O per message | **~104 MB** | **~7 MB** |
 
-  **This is not a retention question and must not wait for B2.** Deduplication is
-  lossless — nothing the user wrote is lost, because only byte-identical payloads
-  collapse, and a note that changed between two messages produces two different
-  payloads that stay separate. It is redundancy with zero information value.
+  **What remains is not waste — it is a user-visible trade, and it belongs to
+  B2.** `imageBase64` on auto refs is **4.07 MB**, and the transcript renders it
+  as an inline chip thumbnail. Dropping it removes something the user can see, so
+  it is a retention choice, not a cleanup. Five distinct values across nine
+  copies, largest 1.33 MB.
 
-  It is also *upstream* of B2 rather than competing with it: B2's proposed default
-  for chat history is **keep**, on the grounds that it is the user's own writing.
-  Halving the file first is what makes "keep" affordable.
+  Also for B2: **`deletedSessionIds` is unbounded** — 59 tombstones against 11
+  live sessions, unioned on every merge, pruned nowhere.
 
-  The 30-session cap is a provable no-op — there are 11 sessions, and the size is
-  in the refs, not the count. There are also **59 `deletedSessionIds`** against 11
-  live sessions.
+  Recorded for whoever touches the file next: **it syncs across devices**, so a
+  schema change here is cross-device transport (v0.69.3 fixed a comment claiming
+  otherwise), and `mergeSessionData` is **whole-session last-write-wins** — two
+  devices editing one session lose a whole message list, not a message.
 
-  Supersedes the old "Chat Session Context Compaction" draft. **Plugin-side
-  persisted schema, so it takes a plan and its own release** (CLAUDE.md: a stored
-  contract is an automatic plan and a migration rehearsal).
 - Sync journals never compact — **now 88 MB, up from the audited 24 MB**;
   `compress=True` exists unused with gzip measured at 9.86×; a stale peer is
   skipped silently while `autosync` reports success.
