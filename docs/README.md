@@ -28,11 +28,11 @@ The Artist resides in the **Workspace**, their personal studio. They express pro
 
 ## 🌟 Why This System?
 
-Incurators broadly aim for a closed loop — ingest, process, retrieve, feed back. Incurator is an Incurator too, but differentiates itself from others in two key ways.
+LLM Wikis broadly aim for a closed loop — ingest, process, retrieve, feed back. Incurator is an LLM Wiki too, but differentiates itself from others in two key ways.
 
 ### 1. Specification-Driven Curation
 
-Generic Incurators retrieve knowledge as-is. Incurator's Curator does more. When a human defines project goals and knowledge requirements in `curate.yml`, the query-time Curation lens selects and ranks relevant live graph evidence without freezing a workspace-specific subset. This keeps retrieval scoped while avoiding stale staged artifacts.
+Generic LLM Wikis retrieve knowledge as-is. Incurator's Curator does more. When a human defines project goals and knowledge requirements in `curate.yml`, the query-time Curation lens selects and ranks relevant live graph evidence without freezing a workspace-specific subset. This keeps retrieval scoped while avoiding stale staged artifacts.
 
 ### 2. Prior Knowledge Correction
 

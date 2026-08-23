@@ -39,9 +39,9 @@ Incurator의 궁극적인 목표는 **"노트 필기를 잘 하기 위한 (노�
 
 제텔카스텐과 Incurator의 공통된 아이디어는 결국 **"사전 지식을 '요약 ➡️ 원자화 ➡️ 개념(Concept) 생성 ➡️ 개념들의 합성'이라는 요약·정제 프로세스를 통해 발전시킨다"**는 것입니다.
 
-## 2. Incurator의 한계
+## 2. LLM Wiki의 한계
 
-대부분의 Incurator는 초기 Raw 데이터를 넣은 이후의 과정(Ingest, Wiki 생성)을 인간의 개입 없이 LLM이 전담하는 구조를 가집니다. 여기서 심각한 문제점 두 가지가 발생합니다.
+대부분의 LLM Wiki는 초기 Raw 데이터를 넣은 이후의 과정(Ingest, Wiki 생성)을 인간의 개입 없이 LLM이 전담하는 구조를 가집니다. 여기서 심각한 문제점 두 가지가 발생합니다.
 
 ### A. 질 좋은 Synthesis 창출의 한계 (Reasoning 부족)
 
@@ -53,7 +53,7 @@ LLM은 데이터를 정해진 규칙에 따라 분해하고 재조립하는 데�
 
 ## 3. Incurator의 접근: 역할 분리와 Local Model의 도입
 
-**Incurator 역시 Incurator입니다.** 다만, 위의 한계를 해결하기 위해 파이프라인의 역할을 명확히 분리합니다.
+**Incurator 역시 LLM Wiki입니다.** 다만, 위의 한계를 해결하기 위해 파이프라인의 역할을 명확히 분리합니다.
 
 데이터를 분해하고 재조립하는 과정(`Summary -> Atoms -> Concept`)은 고도의 추론 능력이 거의 필요하지 않습니다. LLM이 매우 잘 해낼 수 있으면서도 인간의 개입 역시 최소화해도 되는 영역입니다.
 
@@ -97,7 +97,7 @@ The Artist resides in the **Workspace**, the painter's studio where projects or 
 
 ## 5. 시스템의 핵심: 세 가지 차별점
 
-Incurator는 대부분 지식의 닫힌 순환(수집 → 처리 → 활용 → 재입력)을 지향합니다. Incurator도 이 흐름을 따르는 Incurator지만, 세 가지 측면에서 다른 Incurator들과 차별화됩니다.
+LLM Wiki는 대부분 지식의 닫힌 순환(수집 → 처리 → 활용 → 재입력)을 지향합니다. Incurator도 이 흐름을 따르는 LLM Wiki지만, 세 가지 측면에서 다른 LLM Wiki들과 차별화됩니다.
 
 첫째, **맞춤형 지식 전달**입니다. `curate.yml`의 프로젝트 목적과 필요 지식은 쿼리 시점의 동적 Curation lens로 작동하여 live graph에서 관련 근거를 선별하고 랭킹합니다. 워크스페이스별 고정 전시물을 저장하지 않으므로 stale subset 없이 도메인 오염을 줄입니다.
 

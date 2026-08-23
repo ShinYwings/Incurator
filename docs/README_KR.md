@@ -32,7 +32,7 @@ Incurator는 파편화된 데이터를 구조화된 **방향성 비순환 그래
 
 ## 🌟 왜 이 시스템인가요?
 
-Incurator는 대부분 지식의 닫힌 순환(수집 → 처리 → 활용 → 재입력)을 지향합니다. Incurator도 이 흐름을 따르는 Incurator지만, 두 가지 측면에서 다른 Incurator들과 차별화됩니다.
+LLM Wiki는 대부분 지식의 닫힌 순환(수집 → 처리 → 활용 → 재입력)을 지향합니다. Incurator도 이 흐름을 따르는 LLM Wiki지만, 두 가지 측면에서 다른 LLM Wiki들과 차별화됩니다.
 
 ### 1. 맞춤형 지식 전달 (Specification-Driven Curation)
 

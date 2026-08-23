@@ -23,9 +23,9 @@ The shared belief between Zettelkasten and Incurator is that **"prior knowledge 
 
 ---
 
-## 2. Problems with Existing Systems
+## 2. Problems with Existing LLM Wiki Systems
 
-Most current Incurator implementations allow the LLM to handle everything (Ingest, Wiki generation) after the initial raw data is provided, without human intervention. This leads to two critical problems:
+Most current LLM Wiki implementations allow the LLM to handle everything (Ingest, Wiki generation) after the initial raw data is provided, without human intervention. This leads to two critical problems:
 
 ### A. Limitations in Quality Synthesis (Lack of Reasoning)
 LLMs excel at decomposing and reassembling data according to rules. However, because many systems rely on scaling model size for "brute force" reasoning, they struggle to find truly valuable "Insights" between raw files to build new knowledge. **Human-in-the-loop (HITL) intervention is essential for high-quality Synthesis.**
