@@ -351,7 +351,18 @@ def update_ledger(paths: cfg.WikiPaths) -> None:
             "SELECT COUNT(*) as n, MAX(last_ingested) as last FROM sources WHERE status='curated'"
         ).fetchone()
         curated_sources = row["n"] if row else 0
-        last_ingested = row["last"] if row else ""
+        last_ingested = (row["last"] if row else "") or ""
+        if not last_ingested:
+            # Fall back to the publish log. `last_ingested` was only ever written
+            # on a source's first transition out of the pending set, so a vault
+            # curated before v0.69.7 has 0 non-NULL values and this line reported
+            # "never" over a fully built DAG. The generations table has carried
+            # the real dates the whole time.
+            gen = conn.execute(
+                "SELECT MAX(published_at) AS last FROM compiler_generations "
+                "WHERE status = 'authoritative' AND source_id IS NOT NULL"
+            ).fetchone()
+            last_ingested = (gen["last"] if gen else "") or ""
 
     lines = [
         "---",
