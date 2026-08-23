@@ -180,3 +180,91 @@ def test_wiki_gc_run_refuses_without_confirmation(tmp_path: Path, monkeypatch) -
     assert doomed.exists(), "declining the prompt still deleted the directory"
     assert result.exit_code == 1
     assert gc_mod.dead_vault_caches(cache)
+
+
+def _cli_vault(tmp_path: Path):
+    from curator import config as cfg
+
+    paths = cfg.WikiPaths(tmp_path / "vault")
+    paths.internal.mkdir(parents=True, exist_ok=True)
+    cfg.save_config(paths, cfg.DEFAULT_CONFIG)
+    db.init_db(paths.state_db)
+    return paths
+
+
+def test_wiki_gc_run_reports_an_unreadable_chat_store_instead_of_crashing(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The CLI boundary, which the module-level tests do not exercise.
+
+    `gc_run` wraps the prune in `except UnreadableSessionStore`. Nothing asserted
+    that the wrapper works, so the behaviour the changelog claims as fixed was
+    untested at the surface a user actually touches.
+    """
+    from typer.testing import CliRunner
+
+    from curator.cli import app
+
+    paths = _cli_vault(tmp_path)
+    store = paths.internal / "sessions.json"
+    store.write_text("{ not json", encoding="utf-8")
+    before = store.read_bytes()
+    monkeypatch.setattr("curator.commands.gc._repo_cache_root", lambda: tmp_path / "cache")
+    monkeypatch.setenv("VAULT_ROOT", str(paths.root))
+
+    result = CliRunner().invoke(
+        app, ["config", "set", "gc.sessions_retention_days", "30"]
+    )
+    assert result.exit_code == 0, result.stdout
+
+    result = CliRunner().invoke(app, ["gc", "run", "--yes"])
+
+    assert result.exit_code == 0, result.stdout
+    assert "unreadable" in " ".join(result.stdout.split()).lower(), result.stdout
+    assert store.read_bytes() == before, "an unreadable store was rewritten"
+
+
+def test_wiki_gc_plan_does_not_report_a_corrupt_store_as_clean(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """SYSTEM_BEHAVIOR §32: false success is forbidden."""
+    from typer.testing import CliRunner
+
+    from curator.cli import app
+
+    paths = _cli_vault(tmp_path)
+    (paths.internal / "sessions.json").write_text("{ not json", encoding="utf-8")
+    monkeypatch.setattr("curator.commands.gc._repo_cache_root", lambda: tmp_path / "cache")
+    monkeypatch.setenv("VAULT_ROOT", str(paths.root))
+    CliRunner().invoke(app, ["config", "set", "gc.sessions_retention_days", "30"])
+
+    out = " ".join(CliRunner().invoke(app, ["gc", "plan"]).stdout.split())
+
+    assert "UNREADABLE" in out.upper(), out
+    assert "0 session(s) past the window" not in out, out
+
+
+def test_wiki_gc_json_exposes_the_prompt_run_cap(tmp_path: Path, monkeypatch) -> None:
+    """The dashboard reads `--json`; a number only humans can see is not surfaced."""
+    import json as _json
+
+    from typer.testing import CliRunner
+
+    from curator.cli import app
+
+    paths = _cli_vault(tmp_path)
+    with db.connect(paths.state_db) as conn:
+        for i in range(4):
+            conn.execute(
+                "INSERT INTO prompt_runs (trace_id, prompt_id, prompt_version, family, "
+                "role, model_provider, input_hash, created_at) "
+                "VALUES (?, 'curator.x', 'v1', 'query', 'w', 'fake', ?, ?)",
+                (f"PTR-{i}", f"h{i}", f"2026-08-0{i + 1}T00:00:00Z"),
+            )
+    monkeypatch.setattr("curator.commands.gc._repo_cache_root", lambda: tmp_path / "cache")
+    monkeypatch.setenv("VAULT_ROOT", str(paths.root))
+    CliRunner().invoke(app, ["config", "set", "gc.prompt_runs_keep", "1"])
+
+    payload = _json.loads(CliRunner().invoke(app, ["gc", "plan", "--json"]).stdout)
+
+    assert payload["prompt_runs_prunable"] == 3

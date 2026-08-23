@@ -145,7 +145,11 @@ def test_a_corrupt_store_is_reported_not_crashed_or_overwritten(tmp_path: Path) 
     policy = {"gc": {"sessions_retention_days": 30}}
 
     count, size = plan_session_prune(paths, policy)
-    assert count == 0 and size > 0, "plan must report, not raise"
+    assert size > 0, "plan must report, not raise"
+    assert count == -1, (
+        "an unreadable store returned 0, which is what a healthy store past no "
+        "sessions returns -- SYSTEM_BEHAVIOR §32: false success is forbidden"
+    )
 
     with pytest.raises(UnreadableSessionStore):
         prune_sessions(paths, policy)

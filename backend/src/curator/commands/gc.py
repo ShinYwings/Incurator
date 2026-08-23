@@ -8,7 +8,7 @@ from .common import *
 
 gc_app = typer.Typer(
     name="gc",
-    help="Reclaim disk that carries no cross-device meaning, and report what grows but must be kept.",
+    help="Reclaim disk safely, apply the retention you have opted into, and report what grows but must be kept.",
     no_args_is_help=True,
     add_completion=False,
     rich_markup_mode="rich",
@@ -77,7 +77,15 @@ def gc_plan(
     days = gc_mod._session_retention_days(config)
     if sessions_bytes:
         console.print("\n[bold]Chat history[/bold]")
-        if days <= 0:
+        if sessions_n < 0:
+            # -1 means the store could not be parsed. Printing "0 past the
+            # window" here would report a corrupt file as healthy.
+            _warn(
+                f".curator/sessions.json — {gc_mod._human(sessions_bytes)}, "
+                f"UNREADABLE. Retention cannot run and `wiki gc run` will leave "
+                f"it untouched rather than overwrite what it cannot parse."
+            )
+        elif days <= 0:
             console.print(
                 f"  [cyan].curator/sessions.json[/cyan] — {gc_mod._human(sessions_bytes)}, "
                 f"retention [bold]off[/bold] (nothing is ever removed)"
@@ -123,7 +131,14 @@ def gc_run(
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation prompt."),
     json_output: bool = typer.Option(False, "--json", help="Machine-readable JSON summary.", hidden=True),
 ) -> None:
-    """Delete the reclaimable items. Nothing synced is ever touched."""
+    """Delete the reclaimable items and apply any retention you have opted into.
+
+    Synced data is never touched by DEFAULT — the chat window and the
+    `prompt_runs` cap are both off until set — but when either is configured this
+    command does delete synced rows, and says so before acting. An earlier
+    version of this docstring claimed "nothing synced is ever touched", which
+    stopped being true the moment the cap shipped.
+    """
     from .. import gc as gc_mod
 
     paths, plan, config = _build()

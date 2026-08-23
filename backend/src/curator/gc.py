@@ -17,9 +17,15 @@ nothing in this codebase tracks whether every peer has seen a given tombstone
 Expiring one early silently resurrects deleted data on the next import from a
 device that was offline.
 
-So this module reclaims ONLY what carries no cross-device meaning, and reports
-the rest with the reason it is being left alone. A GC that quietly turns local
-tidying into fleet-wide deletion would be a far worse bug than the disk it saves.
+So nothing here deletes a synced row QUIETLY. What carries no cross-device
+meaning is reclaimed outright; what does is off by default, opted into by an
+explicit setting, and announced as reaching every device before it happens. The
+rest is reported with the reason it is being left alone.
+
+A GC that turned local tidying into silent fleet-wide deletion would be a far
+worse bug than the disk it saves — which is why the `prompt_runs` cap added in
+v0.71.0 is opt-in, refuses to touch a run any artifact still references, and says
+"every device" in the confirmation prompt.
 """
 
 from __future__ import annotations
@@ -250,7 +256,13 @@ SESSION_RETENTION_CHOICES = (0, 30, 90, 180, 365)
 
 def prompt_runs_keep(config: dict) -> int:
     """How many unreferenced prompt runs to keep. 0 = keep everything (default)."""
-    raw = ((config or {}).get("gc") or {}).get("prompt_runs_keep", 0)
+    section = (config or {}).get("gc")
+    if not isinstance(section, dict):
+        # `gc: off` in settings.yml parses to a string; `.get` on it raised
+        # AttributeError and took the whole command down instead of degrading to
+        # "not configured".
+        return 0
+    raw = section.get("prompt_runs_keep", 0)
     try:
         keep = int(raw)
     except (TypeError, ValueError):
@@ -259,7 +271,13 @@ def prompt_runs_keep(config: dict) -> int:
 
 
 def _session_retention_days(config: dict) -> int:
-    raw = ((config or {}).get("gc") or {}).get("sessions_retention_days", 0)
+    section = (config or {}).get("gc")
+    if not isinstance(section, dict):
+        # `gc: off` in settings.yml parses to a string; `.get` on it raised
+        # AttributeError and took the whole command down instead of degrading to
+        # "not configured".
+        return 0
+    raw = section.get("sessions_retention_days", 0)
     try:
         days = int(raw)
     except (TypeError, ValueError):
@@ -270,7 +288,9 @@ def _session_retention_days(config: dict) -> int:
 def plan_session_prune(paths, config: dict, *, now: datetime | None = None) -> tuple[int, int]:
     """(sessions that would be removed, bytes the file currently occupies).
 
-    Read-only. Returns (0, size) when retention is off, which is the default.
+    Read-only. Returns ``(0, size)`` when retention is off, which is the default,
+    and ``(-1, size)`` when the store cannot be parsed — a distinct value because
+    reporting an unreadable file as "0 past the window" is false success.
     """
     days = _session_retention_days(config)
     path = paths.internal / "sessions.json"
@@ -285,8 +305,11 @@ def plan_session_prune(paths, config: dict, *, now: datetime | None = None) -> t
     try:
         doomed, _kept, _tombstones = _split_sessions(path, days, now)
     except UnreadableSessionStore:
-        # Read-only reporting must not fail on a file it refuses to touch.
-        return 0, size
+        # Read-only reporting must not FAIL on a file it refuses to touch -- but
+        # it must not report success either. Returning 0 here was indistinguishable
+        # from "nothing is past the window", so a corrupt store read as healthy.
+        # SYSTEM_BEHAVIOR §32: "False success is forbidden."
+        return -1, size
     return len(doomed), size
 
 
@@ -385,15 +408,31 @@ def prune_sessions(paths, config: dict, *, now: datetime | None = None) -> int:
 #: `input_hash` to decide whether prose needs regenerating. Delete a referenced
 #: run and the lookup returns None, the skip fails, and finished reports are
 #: re-sent to the provider — silently, with no error. On the reference vault that
-#: is 330 reports and roughly 1,381 calls.
-_PROMPT_RUN_REFERENCE_TABLES = (
-    "knowledge_units",
-    "graph_entities",
-    "graph_relations",
-    "community_reports",
-    "curation_plans",
-    "insight_candidates",
-    "synthesis_nodes",
+#: is 238 live reports carrying prose and a run — 238 calls to rewrite them.
+#: (1,381 is the LIFETIME count of report-write calls, not the re-bill cost;
+#: an earlier draft of this comment conflated the two and overstated it ~6x.)
+#: (table, column) rather than a bare table name, because the column is NOT
+#: always `prompt_run_id`. `graph_batch_results.trace_id` holds the same value
+#: under a different name, and missing it is not hypothetical: that table is the
+#: graph-extraction resume cache (v0.63.0). A batch stages its `trace_id` there
+#: as soon as it validates, and the matching `graph_entities`/`graph_relations`
+#: rows are not written until the WHOLE source finishes — so between a mid-run
+#: capacity refusal and the resume, the run is referenced by that table ALONE.
+#: Delete it there and the resume writes `graph_entities.prompt_run_id` pointing
+#: at a row that no longer exists.
+_PROMPT_RUN_REFERENCES: tuple[tuple[str, str], ...] = (
+    ("knowledge_units", "prompt_run_id"),
+    ("graph_entities", "prompt_run_id"),
+    ("graph_relations", "prompt_run_id"),
+    ("community_reports", "prompt_run_id"),
+    ("curation_plans", "prompt_run_id"),
+    ("insight_candidates", "prompt_run_id"),
+    ("synthesis_nodes", "prompt_run_id"),
+    ("graph_batch_results", "trace_id"),
+    # Documented as "PTR- of model validation". No production caller wires a real
+    # trace id in yet, so this is pre-emptive — but the day formula recovery goes
+    # live, a scan keyed on column NAME would silently stop protecting it.
+    ("claim_supports", "validator_trace_id"),
 )
 
 
@@ -406,11 +445,11 @@ def referenced_prompt_runs(conn) -> set[str]:
     import json
 
     referenced: set[str] = set()
-    for table in _PROMPT_RUN_REFERENCE_TABLES:
+    for table, column in _PROMPT_RUN_REFERENCES:
         try:
             rows = conn.execute(
-                f"SELECT DISTINCT prompt_run_id FROM {table} "
-                f"WHERE COALESCE(prompt_run_id,'') <> ''"
+                f"SELECT DISTINCT {column} FROM {table} "
+                f"WHERE COALESCE({column},'') <> ''"
             ).fetchall()
         except sqlite3.OperationalError as exc:
             # ONLY a table this schema version does not have. Anything else — a
@@ -453,7 +492,12 @@ def plan_prompt_run_cap(state_db: Path, keep: int) -> int:
 
 
 def _prompt_runs_over_cap(conn, keep: int) -> list[str]:
-    """Unreferenced runs beyond the newest `keep`, oldest first."""
+    """Unreferenced runs beyond the newest `keep`.
+
+    Still newest-first within that tail — the slice preserves the `created_at
+    DESC` order it was taken from. Deletion order does not matter to any caller,
+    but an earlier docstring said "oldest first", which was simply untrue.
+    """
     referenced = referenced_prompt_runs(conn)
     rows = conn.execute(
         "SELECT trace_id FROM prompt_runs ORDER BY created_at DESC, trace_id DESC"

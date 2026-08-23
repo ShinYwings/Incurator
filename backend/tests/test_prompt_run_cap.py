@@ -10,8 +10,9 @@ counts and not in bytes: a run is ~31x larger than the tombstone it leaves.
 L3 resume reads — `generate_report_prose` compares the referenced run's
 `input_hash` to decide whether prose needs regenerating. Delete a referenced run
 and the lookup returns None, the skip fails, and finished reports are re-sent to
-the provider silently. On the reference vault that is 330 reports and roughly
-1,381 provider calls, undoing a fix from ten releases earlier.
+the provider silently. On the reference vault that is 238 live reports carrying
+prose and a run, so 238 calls to rewrite them — undoing a fix from two releases
+earlier. (1,381 is the LIFETIME report-write call count, not the re-bill cost.)
 
 Seven tables carry `prompt_run_id`, and `query_traces.prompt_trace_ids` is a JSON
 array a plain join would miss.
@@ -124,24 +125,50 @@ def test_the_cap_is_off_by_default(tmp_path: Path) -> None:
     assert len(_ids(path)) == 5
 
 
-def test_reference_scan_covers_every_table_carrying_the_column(tmp_path: Path) -> None:
-    """A table added later that carries `prompt_run_id` must be in the scan, or
-    the cap silently starts deleting live references."""
+def test_reference_scan_covers_every_column_that_holds_a_run_id(tmp_path: Path) -> None:
+    """Keyed on the RELATIONSHIP, not the column name.
+
+    The first version of this test looked only for columns literally named
+    `prompt_run_id` — and so was structurally incapable of noticing
+    `graph_batch_results.trace_id`, which holds the same value under a different
+    name. That table is the graph-extraction resume cache: a batch stages its
+    trace id there the moment it validates, while the matching
+    `graph_entities`/`graph_relations` rows are not written until the whole
+    source finishes. Between a mid-run capacity refusal and the resume, the run
+    is referenced by that table ALONE, and the cap would have deleted it.
+
+    A test that cannot fail for the bug it is named after is worse than no test,
+    because it is read as coverage.
+    """
     path = _db(tmp_path)
     with db.connect(path) as conn:
-        carrying = {
+        tables = [
             t
             for (t,) in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name NOT LIKE 'sqlite_%'"
             ).fetchall()
-            if conn.execute(
-                "SELECT 1 FROM pragma_table_info(?) WHERE name='prompt_run_id'", (t,)
-            ).fetchone()
-        }
-    from curator.gc import _PROMPT_RUN_REFERENCE_TABLES
+        ]
+        holders = set()
+        for table in tables:
+            if table in ("prompt_runs", "deleted_records"):
+                continue
+            for row in conn.execute(f"SELECT name FROM pragma_table_info('{table}')"):
+                name = str(row[0])
+                if "prompt_run" in name or name.endswith("trace_id"):
+                    holders.add((table, name))
 
-    missing = carrying - set(_PROMPT_RUN_REFERENCE_TABLES)
-    assert not missing, f"tables carrying prompt_run_id but not scanned: {sorted(missing)}"
+    from curator.gc import _PROMPT_RUN_REFERENCES
+
+    scanned = set(_PROMPT_RUN_REFERENCES)
+    # `query_traces` is scanned separately: its ids live in a JSON array, and its
+    # own `trace_id` is the QTR- identity rather than a run reference.
+    holders = {(t, c) for (t, c) in holders if t != "query_traces"}
+
+    missing = holders - scanned
+    assert not missing, (
+        f"columns that can hold a prompt-run id but are not scanned: {sorted(missing)}"
+    )
 
 
 def test_referenced_set_is_empty_on_a_fresh_db(tmp_path: Path) -> None:

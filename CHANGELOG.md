@@ -17,8 +17,8 @@ All notable changes to Incurator are documented here.
   `community_reports.prompt_run_id` is what the L3 resume reads to decide a
   report's prose need not be regenerated — delete one and the lookup returns
   nothing, the skip fails, and finished reports are re-sent to the provider
-  **silently**. Here that is 330 reports and roughly 1,381 calls, undoing
-  v0.69.5. Seven tables carry the column, `query_traces.prompt_trace_ids` is a
+  **silently**. Here that is **238** live reports carrying prose and a run — 238
+  calls to rewrite them — undoing v0.69.5. Seven tables carry the column, `query_traces.prompt_trace_ids` is a
   JSON array a plain join would miss, and a test fails if a future table carries
   the column without joining the scan.
 
