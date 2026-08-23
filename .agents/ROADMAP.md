@@ -40,111 +40,38 @@ narrowing) in one release. It worked, but had resume failed, splitting the cause
 between the schema and the prompt would have cost a day. A release that must
 carry two should be two releases.
 
+**3. Characterise before extracting.** Two similar-looking blocks are not
+drift until you know why they differ. A5's one concrete item — three MCP tools
+whose index-refresh policies looked like textbook drift — was implemented as a
+shared helper and **both** pinned policies broke: registration is cheap and
+re-runnable so an unexpected error should surface, while a build has just spent
+minutes of provider time and must not lose it. Priced on what the failure costs
+the user, not on symmetry.
+
+The counter-case is equally real and equally checkable. `test_mcp_tools` pinned
+`english_query == "failed question"` and that WAS drift: `git log -S` showed the
+value appearing as an **added** line in a refactor about something else, with the
+test written in the same commit. One test, no rationale, same commit as the code
+it asserts → frozen accident. Two tests, different files, cost-based rationale →
+a decision. Check before you touch it.
+
 **2. A live run is a release gate, not a nice-to-have.** v0.63.0's unit tests all
 passed against a prompt that was **eight times its own budget**; only running it
 against the real vault found that. Any release touching the ingest or retrieval
 path states its live check up front — and, as v0.63.0's P0 did, writes its stop
 condition *before* the code and verifies it by measurement.
 
-## Phase A — Make failure visible
+## Phase A — Make failure visible — **COMPLETE**
 
-No schema change, no contract change. Nothing here fixes a pipeline; together
-they make every later measurement trustworthy. **You cannot stabilise what you
-cannot see**, and this project has repeatedly lost time to state it never
-measured.
+Shipped v0.66.0 → v0.69.0. Nothing here fixed a pipeline; together they made
+every later measurement trustworthy.
 
-### A8. The derivation reaches one surface out of five
-
-**Filed by the A6 Arena, 2026-08-23.** Found by the agent arguing *for* the LLM
-router, gathering evidence to defend it.
-
-`derive_search_query` has **exactly one caller in the entire backend**
-(`plugin_api/context.py:60`). So `QueryRequest.intent` — the field v0.65.0 added
-to make routing deterministic — is populated at one of four construction sites:
-
-| surface | `english_query` | `intent` |
+| item | shipped | what it turned out to be |
 |---|---|---|
-| plugin ContextService (`plugin_api/context.py:86`) | derived | derived |
-| CLI `wiki query` (`query.py:377`) | `""` → `working_query` falls back to the raw question | `""` |
-| MCP `curator_query` (`mcp/server.py:2031`) | `english_query=question` — the **raw question mislabeled as English** | `""` |
-| MCP `curator_fetch_context` (`mcp/server.py:3255`) | absent | `""` |
-| MCP `curator_explore` (`mcp/server.py:3270`) | absent | `""` |
-
-**Corrected 2026-08-23 while scoping the work: it is four broken surfaces,
-not three.** `curator_explore` was missed on the first pass — the same kind of
-undercount that let this sit for two releases.
-
-The consequence is the v0.47.0 defect, still live on four surfaces. Route
-signals are English-only **by contract** (`router.py:19-35`), so a Korean
-question through `wiki query` or `curator_query` cannot match `_GLOBAL_SIGNALS`
-or `_EXPLORE_SIGNALS` and lands on `local` by construction, every time.
-
-`router.py:26-35` says that defect was *"Fixed at the boundary instead; see
-`plugin_api/context.py`."* True of one boundary. The docstring reads as though
-it were all of them, which is how this stayed invisible through two releases
-that both touched routing.
-
-The MCP case is the worst of the three: passing the raw question as
-`english_query` does not merely skip the derivation, it **asserts the question is
-already English**, so `english_query_status` reports `set` and nothing downstream
-can tell that no derivation ran.
-
-**Not a router.** The fix is calling the derivation that already exists at those
-boundaries — one call, which also populates `english_query` correctly. The A6
-Arena rejected the second-contract approach on the merits; see
-`.agents/plans/router_contract_arena/`.
-
-**A7 shipped first, deliberately (v0.67.0).** Nothing recorded whether a
-derivation ran, which is why this took two releases to notice: "intent was
-empty" was invisible after the fact. Now every trace carries
-`context_service.derivation`, and `wiki inspect answer` prints
-`not run - routed on the raw question` on exactly the three surfaces below. The
-fix is measurable before and after instead of assumed.
-
-**Also found in the same trace, and cheap to fix alongside:**
-`classify_intent_first` is accepted by `run_query` (`query.py:424`), documented
-as running *"intent classification before retrieval"* (`:446`), and set by two
-callers (`commands/core.py:1604`, `commands/common.py:2174`) — and **never read
-in the body**. `wiki query --no-intent-classify` is a flag that does nothing. It
-either gets wired to the derivation A8 adds, or it goes.
-
-### A5. Safe decomposition and exception hardening
-
-**From the `01` umbrella.** Characterise behaviour before extracting any
-remaining god-file ownership domain. Replace silent broad catches only where a
-typed boundary outcome is defined and regression-tested. The last known
-untyped instance — query expansion's three silent swallows — closed in v0.64.0.
-
-**The one concrete item this workstream had was investigated and CLOSED as a
-non-issue, 2026-08-23.** A stash recovered on the same day carried a patch
-extracting a shared helper for the post-write search-index refresh, on the
-grounds that three MCP tools had grown three exception policies from one
-behaviour. It looked like textbook drift.
-
-It is not drift. Two of the sites have **deliberately different policies, each
-pinned by its own test in a different file**:
-
-| tool | unexpected indexer error | pinned by |
-|---|---|---|
-| `curator_register_source` | **propagates** | `test_error_handling_mcp_server.py` |
-| `curator_build_source` | **`ok: True` + warning** | `test_register_build_split.py` |
-
-The difference is priced on what the failure costs the user. Registration is
-cheap and re-runnable, so surfacing a bug in the indexer is worth failing the
-call for. A build has just spent minutes of provider time on L1→L3, and throwing
-that away over an index-refresh bug would be worse than reporting it.
-
-The unification was implemented, and **both tests caught it** — the second only
-after the first was accommodated. Reverted. What shipped instead is the reason,
-written beside the code and guarded by
-`test_search_refresh_policy_is_deliberate.py`, because the resemblance is
-genuinely misleading and the two tests live in files that never mention each
-other.
-
-**This is what A5 asks for.** *"Characterise behaviour before extracting"* — the
-characterisation said do not extract. The remaining workstream is unchanged:
-still no god-file domain has been characterised, and the untyped-catch sweep
-found its last instance in v0.64.0.
+| A6 | v0.66.0 | a prompt contract registered and promised in two specs for five months, **never called once** — deleted, not implemented |
+| A7 | v0.67.0 | nothing recorded whether a search-query derivation ran, which is why one sample was mistaken for a property twice |
+| A8 | v0.68.0 + v0.69.0 | a dead provider could report itself as a working derivation and silence the warning built to catch it; and non-English questions could not reach a synthesis answer **on four of five surfaces** |
+| A5 | — | its one concrete item was investigated and closed as a non-issue; the discipline it carried is now rule 3 below |
 
 ## Phase B — Stop the growth
 
