@@ -282,20 +282,48 @@ def plan_session_prune(paths, config: dict, *, now: datetime | None = None) -> t
         return 0, 0
     if days <= 0:
         return 0, size
-    doomed, _kept, _tombstones = _split_sessions(path, days, now)
+    try:
+        doomed, _kept, _tombstones = _split_sessions(path, days, now)
+    except UnreadableSessionStore:
+        # Read-only reporting must not fail on a file it refuses to touch.
+        return 0, size
     return len(doomed), size
+
+
+class UnreadableSessionStore(Exception):
+    """`sessions.json` could not be parsed as a session store.
+
+    Its own class because the right response is to REPORT and touch nothing.
+    The plugin treats a corrupt store as a first-class state and fails closed;
+    the backend must not be the component that overwrites it. Letting a
+    JSONDecodeError escape instead crashed `wiki gc plan` — which is read-only
+    reporting and should never fail — and took the unrelated cache sweep down
+    with it.
+    """
+
+
+def _load_session_store(path: Path) -> dict:
+    import json
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise UnreadableSessionStore(str(exc)) from exc
+    if not isinstance(data, dict) or not isinstance(
+        data.get("chatSessions", []), list
+    ):
+        raise UnreadableSessionStore("not a session store object")
+    return data
 
 
 def _split_sessions(
     path: Path, days: int, now: datetime | None
 ) -> tuple[list[dict], list[dict], dict]:
     """Sessions older than the window, those kept, and the tombstone id list."""
-    import json
-
     reference = now or datetime.now(timezone.utc)
     cutoff_ms = (reference - timedelta(days=days)).timestamp() * 1000.0
-    data = json.loads(path.read_text(encoding="utf-8"))
-    sessions = data.get("chatSessions") or []
+    data = _load_session_store(path)
+    sessions = [s for s in (data.get("chatSessions") or []) if isinstance(s, dict)]
     doomed: list[dict] = []
     kept: list[dict] = []
     for session in sessions:

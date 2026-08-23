@@ -161,7 +161,13 @@ def gc_run(
             raise typer.Exit(code=1)
 
     removed, freed = gc_mod.sweep(plan.reclaimable)
-    pruned = gc_mod.prune_sessions(paths, config)
+    try:
+        pruned = gc_mod.prune_sessions(paths, config)
+    except gc_mod.UnreadableSessionStore as exc:
+        # Report and leave it alone. Rewriting a store we cannot parse would
+        # destroy whatever it holds, and the cache sweep above is unrelated.
+        pruned = 0
+        _warn(f"Chat store left untouched: sessions.json is unreadable ({exc}).")
     runs_removed = gc_mod.apply_prompt_run_cap(paths.state_db, gc_mod.prompt_runs_keep(config))
     if json_output:
         _print_json({"removed": removed, "bytes_freed": freed, "sessions_pruned": pruned, "prompt_runs_pruned": runs_removed})
