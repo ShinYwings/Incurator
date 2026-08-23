@@ -693,6 +693,81 @@ def check_missing_extracted(inv: PageInventory, threshold: int = 3) -> list[Lint
     return issues
 
 
+def check_community_algorithm(paths: cfg.WikiPaths) -> list[LintIssue]:
+    """Name the algorithm that built the served communities (SYSTEM_BEHAVIOR §27.4).
+
+    §27.4 permits the degraded filtered-connected-components path on one
+    condition: *"the fallback never silently changes serving mode: when the
+    degraded filtered-connected-components path runs, it is recorded in
+    `config_hash` and surfaced by the audit, not hidden."*
+
+    It was hidden. `config_hash` is a 16-character digest of a config dict —
+    irreversible where it is read — and `graph_audit` returns relation-level
+    violations only. Nothing named the algorithm anywhere.
+
+    INFO, not a warning, and deliberately NOT a threshold. §27.4 gates its
+    giant-component check on "the approved threshold" from a benchmark freeze
+    that has never run, and no such constant exists in the tree; inventing one
+    here would be exactly the hand-maintained number that goes stale unnoticed.
+    This reports what the partition IS and which algorithm produced it, and lets
+    the reader judge.
+
+    Self-retiring: the signal is a hash comparison against the fallback config,
+    so when an approved hierarchy algorithm ships, `config_hash` stops matching
+    and this line disappears without anyone editing it.
+    """
+    issues: list[LintIssue] = []
+    if not paths.state_db.exists():
+        return issues
+    try:
+        fallback = db.graph_config_hash()
+        with db.connect(paths.state_db) as conn:
+            rows = conn.execute(
+                """
+                SELECT config_hash, json_array_length(entity_ids) AS members
+                  FROM community_reports
+                 WHERE retired_at IS NULL
+                """
+            ).fetchall()
+    except Exception:
+        return issues
+
+    served = [r for r in rows if str(r["config_hash"] or "") == fallback]
+    if not served:
+        # Either no communities at all, or an algorithm that is not the degraded
+        # fallback. Neither is something to report.
+        return issues
+
+    sizes = sorted((int(r["members"] or 0) for r in served), reverse=True)
+    pairs = sum(1 for n in sizes if n <= 2)
+    total_members = sum(sizes)
+    largest = sizes[0] if sizes else 0
+    share = f"{100 * largest / total_members:.0f}%" if total_members else "0%"
+
+    issues.append(
+        LintIssue(
+            check=CheckId.GRAPH_QUALITY,
+            severity=Severity.INFO,
+            page="",
+            message=(
+                f"Communities are built by the `connected_components` fallback "
+                f"(SYSTEM_BEHAVIOR §27.4), so the hierarchy is flat: "
+                f"{len(served)} communities, all at level 0, largest holds "
+                f"{largest} of {total_members} memberships ({share}), and "
+                f"{pairs} are bare pairs."
+            ),
+            suggestion=(
+                "This is the permitted degraded path, not a fault — §27.4 asks "
+                "only that it be surfaced rather than hidden. Real hierarchy "
+                "levels require an approved algorithm from the hierarchy "
+                "benchmark freeze; this line disappears on its own once one ships."
+            ),
+            fixable=False,
+        )
+    )
+    return issues
+
+
 def check_extraction_loss(paths: cfg.WikiPaths) -> list[LintIssue]:
     """Report regions the parser could not read at all (SYSTEM_BEHAVIOR §26.2b).
 
@@ -1734,6 +1809,7 @@ def run_lint(
         ("stale_source_refs",   lambda: check_stale_source_refs(inv, paths)),
         ("missing_source_files", lambda: check_missing_source_files(paths)),
         ("extraction_loss",     lambda: check_extraction_loss(paths)),
+        ("community_algorithm", lambda: check_community_algorithm(paths)),
         ("atom_source_paths",   lambda: check_atom_source_paths(inv, paths)),
         ("noise_in_curation",   lambda: check_noise_in_curation_sources(inv)),
         ("cross_layer_links",   lambda: check_cross_layer_links(inv)),

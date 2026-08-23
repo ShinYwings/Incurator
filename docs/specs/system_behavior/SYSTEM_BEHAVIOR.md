@@ -3707,6 +3707,20 @@ heuristics never compensate for unchecked or broadly grounded claims.
   filtered-connected-components path runs, it is recorded in `config_hash` and
   surfaced by the audit, not hidden.
 
+  **Surfaced as of v0.69.8**, and until then it was not: `config_hash` is a
+  16-character digest of the config dict, irreversible where it is read, and
+  `graph_audit` returns relation-level violations only. `wiki lint` now carries
+  one INFO line naming the algorithm and the partition's shape — community count,
+  largest membership and its share, and how many are bare pairs.
+
+  It is an INFO rather than a violation because §27.4 *permits* this path; a
+  permanent violation would make the audit never clean and train the reader to
+  skip it. It deliberately applies **no giant-component threshold**: §27.4 gates
+  that on "the approved threshold" from a benchmark freeze that has not run, and
+  no such constant exists — inventing one would be a hand-maintained number that
+  goes stale unnoticed. The check compares `config_hash` against the fallback
+  config, so it retires itself the day an approved algorithm ships.
+
 ### 27.5 Claim-Grounded Community Reports
 
 - **Content/config-derived identity (Arena decision 11).** `community_key` is a
