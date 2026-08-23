@@ -204,7 +204,7 @@ describe("sessions.json sync status must not be misdescribed", () => {
     const source = readFileSync(join(dir, "..", "..", "main.ts"), "utf8");
 
     // `.curator/sessions.json` IS synced across devices. `.stignore` excludes
-    // only state.sqlite, qmd/index.sqlite and runtime/; SYNC_IGNORE_GUIDE.md
+    // only state.sqlite and runtime/ under .curator/; SYNC_IGNORE_GUIDE.md
     // says sessions.json "may be synchronized because the plugin merges by
     // session"; types.ts calls it "sync-safe"; and `deletedSessionIds` exists
     // precisely so a deletion on one device propagates to another.

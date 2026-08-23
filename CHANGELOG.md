@@ -11,7 +11,7 @@ All notable changes to Incurator are documented here.
   would have set the wrong risk level for that very change.
 
   `.curator/sessions.json` is **not** excluded by `.stignore` (which lists only
-  `state.sqlite`, `qmd/index.sqlite`, and `runtime/`), `SYNC_IGNORE_GUIDE.md`
+  `state.sqlite` and `runtime/` under `.curator/`), `SYNC_IGNORE_GUIDE.md`
   states it "may be synchronized because the plugin merges by session",
   `types.ts` calls it *sync-safe*, and `deletedSessionIds` exists so a deletion
   on one device propagates to another — which is meaningless for a local file.
