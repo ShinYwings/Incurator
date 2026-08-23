@@ -10,7 +10,7 @@ Most LLM-based Wiki and knowledge management systems attempt to automate the ent
 LLMs excel at parsing, decomposing, and restructuring documents according to rules. However, fully automated pipelines struggle to derive genuine, high-value insights across disparate sources without human context and domain intuition. Truly valuable synthesis requires **Human-in-the-Loop (HITL)** collaboration. Without it, automated wikis accumulate shallow summaries and trivial connections.
 
 ### 2. The Cost Trap: Token Waste on Grunt Work
-Frontier reasoning models (such as Claude 3.5 Sonnet or GPT-4) are optimized for complex problem-solving. Running raw document parsing, structural extraction, and atomization through expensive commercial models quickly exhausts token budgets on repetitive preprocessing. Simple data compilation does not require heavy reasoning.
+Frontier reasoning models (such as Claude, GPT, or Gemini) are optimized for complex problem-solving. Running raw document parsing, structural extraction, and atomization through expensive commercial models quickly exhausts token budgets on repetitive preprocessing. Simple data compilation does not require heavy reasoning.
 
 ---
 
