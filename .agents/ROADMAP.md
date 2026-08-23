@@ -223,6 +223,40 @@ Proposed classification — the Arena should challenge it, not inherit it:
 | leaked `.cache` temp dirs | garbage | sweep >7 days | a 516 MB venv sat there for 3 weeks |
 | `Collections/` | derived | never a GC target | regenerate, do not expire |
 
+### v0.70.0 shipped the first half — and reshaped what the rest can be
+
+`wiki gc` exists: `plan` reports, `run` deletes, and chat retention is
+configurable (`gc.sessions_retention_days`, default keep) with the CLI stating
+that removal reaches every synced device before it acts.
+
+**The finding that reshaped this item.** `prompt_runs`, `query_traces`,
+`compiler_generations` and `deleted_records` are all in `SYNC_TABLES` and exports
+are full snapshots, so deleting a row either propagates to every device (with a
+tombstone) or is undone by the next import (without one). **There is no
+quietly-local delete**, which means every remaining DB target is a fleet-wide
+deletion and therefore the user's decision, not a policy the agent can set.
+
+The user chose the non-synced scope for v1. What is deliberately still open:
+
+| target | why it is still open |
+|---|---|
+| `prompt_runs` cap | fleet-wide deletion; also must exempt the 1,354 referenced runs or v0.69.5's L3 resume silently un-resumes |
+| `query_traces` | fleet-wide; also resolves live context packs |
+| `compiler_generations` | fleet-wide; discarded rows are the safest subset |
+| `deleted_records` (48,896) | **cannot be safely expired at all** — nothing records whether every peer has seen a tombstone |
+| `job_events` (5,578) | genuinely local and safe, but an age rule erases the `wiki jobs` history the table exists for |
+
+**Two corrections to this item's own framing**, both worth keeping:
+
+- The repo cache is **not** 1.5 GB of garbage. It is 1.2 GB of downloaded models
+  plus the 288 MB live vault database, both of which must stay; the actual debris
+  was **6.4 MB across 11 directories**. I had been quoting the 1.5 GB as though a
+  GC would address it.
+- The `.cache` sweep's obvious rule is unsafe. "The vault path no longer exists"
+  is a **mount test, not a liveness test** — an unmounted drive hashes to the same
+  directory and reads as missing, and that directory holds `state.sqlite`. The
+  shipped sweep requires a temp prefix and zero sources as well.
+
 ### The two escalations are RESOLVED (user, 2026-08-24)
 
 Asked, because the roadmap said these two were the user's to settle:
