@@ -15,6 +15,8 @@ byte-identical in storage: `english_query == ""` either way.
 
 from __future__ import annotations
 
+import json
+import re
 from pathlib import Path
 
 from curator import config as cfg
@@ -51,6 +53,21 @@ def _seed_context_vault(tmp_path: Path) -> cfg.WikiPaths:
         source_span_ids=[span_id],
     )
     return paths
+
+
+class _LocalAnswerClient:
+    """Answers any local-route prompt, citing a span it was shown."""
+
+    model = "fake"
+
+    def chat(self, messages, *, json_mode: bool = False, temperature: float = 0.3) -> str:
+        spans = re.findall(r"SPAN-[0-9a-f]{8}", "\n".join(m.content for m in messages))
+        return json.dumps({
+            "answer": "Residual connections ease optimization.",
+            "source_span_ids": [spans[0] if spans else "SPAN-00000000"],
+            "used_report_ids": [],
+            "confidence": 0.8,
+        })
 
 
 def _derivation_for(paths, request: QueryRequest) -> dict:
@@ -199,3 +216,35 @@ def test_wiki_inspect_answer_prints_the_derivation(tmp_path: Path, monkeypatch) 
     # The empty search query is the fact that was misread twice. It has to be on
     # screen, not inferable.
     assert "no search terms" in out, out
+
+
+def test_derivation_survives_the_post_synthesis_trace_rewrite(tmp_path: Path) -> None:
+    """The orchestrator re-inserts the whole trace after synthesis to append its
+    actions (`orchestrator.py::_update_context_trace_after_synthesis`). If that
+    rewrite dropped the block, every CLI and plugin answer would record the
+    derivation and then immediately lose it — and the only symptom would be an
+    absent line, which reads exactly like "this query had no derivation".
+
+    Drives the real orchestrator, not the ContextService write in isolation.
+    """
+    from curator.retrieval import QueryOrchestrator
+
+    paths = _seed_context_vault(tmp_path)
+    result = QueryOrchestrator(paths, _LocalAnswerClient()).run(
+        QueryRequest(
+            question="what does a residual connection do?",
+            english_query="residual connection",
+            english_query_status="derived",
+            intent="lookup",
+            mode="local",
+        )
+    )
+    trace = db.get_query_trace(paths.state_db, result.trace_id)
+    assert trace is not None
+    context = trace["retrieval_trace"]["context_service"]
+    assert context["actions"], "the rewrite must have happened for this to prove anything"
+    assert context["derivation"] == {
+        "status": "derived",
+        "search_query_empty": False,
+        "routing_intent": "lookup",
+    }
