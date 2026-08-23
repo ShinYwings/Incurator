@@ -246,12 +246,20 @@ def _show_recommended_models(host: str) -> None:
 def _hint(text: str) -> None:
     """Print a one-liner tip in a subdued style."""
     console.print(f"[dim]💡 {text}[/dim]")
+# `highlight=False` on all three: Rich's automatic highlighter colours paths and
+# `key=value` pairs magenta/bright-magenta, which on a dark theme reads as RED.
+# A user reading `✓ embedding-config: set embedding_model_path=/…/x.gguf` saw a
+# red-looking line and asked whether setup had failed. It had not — the ✓ was
+# green (`1;32`) and only the path was magenta (`35`/`95`).
+#
+# Severity is the marker's job here. A second, competing colour signal applied by
+# a generic highlighter can only muddy it, so these lines print their text plain.
 def _err(text: str) -> None:
-    console.print(f"[bold red]✗[/bold red] {text}")
+    console.print(f"[bold red]✗[/bold red] {text}", highlight=False)
 def _ok(text: str) -> None:
-    console.print(f"[bold green]✓[/bold green] {text}")
+    console.print(f"[bold green]✓[/bold green] {text}", highlight=False)
 def _warn(text: str) -> None:
-    console.print(f"[bold yellow]![/bold yellow] {text}")
+    console.print(f"[bold yellow]![/bold yellow] {text}", highlight=False)
 def _refresh_search_index_impl(paths: cfg.WikiPaths, *, embed: bool = True) -> None:
     """Rebuild the DB-native search index for this project (v0.3.2).
 
