@@ -53,25 +53,6 @@ they make every later measurement trustworthy. **You cannot stabilise what you
 cannot see**, and this project has repeatedly lost time to state it never
 measured.
 
-### A7. The system cannot report when the extractor finds no search target
-
-**Filed by the A1 Arena, 2026-08-23, and it is why A1 took three diagnoses.**
-
-`query_traces` stores `question_hash`, `prompt_runs` stores `input_hash` and
-`output_hash`, and `retrieval_trace_json` records `is_cjk` and hit counts — but
-never the query, and never whether the derivation returned nothing. So "the
-extractor produced no search terms" is invisible after the fact.
-
-The concrete cost is on record. Two separate single-run measurements of the same
-question produced an empty derivation, and a design was built on the premise that
-empty was a deliberate, stable signal. Running it eight times gave **0/8 empty**
-and a **6-in-8 route flip** instead — an entirely different bug. One sample was
-mistaken for a property twice, because nothing stored enough to check.
-
-Bounded and cheap: record the derived query's emptiness and the chosen intent in
-the retrieval trace, which already has a free-text `reason` and a structured
-`route` block.
-
 ### A8. The derivation reaches one surface out of four
 
 **Filed by the A6 Arena, 2026-08-23.** Found by the agent arguing *for* the LLM
@@ -108,9 +89,12 @@ boundaries — one call, which also populates `english_query` correctly. The A6
 Arena rejected the second-contract approach on the merits; see
 `.agents/plans/router_contract_arena/`.
 
-**Pairs with A7**, which is the reason this took two releases to notice: nothing
-records whether a derivation ran, so "intent was empty" is invisible after the
-fact. Doing A7 first would make A8's fix measurable instead of assumed.
+**A7 shipped first, deliberately (v0.67.0).** Nothing recorded whether a
+derivation ran, which is why this took two releases to notice: "intent was
+empty" was invisible after the fact. Now every trace carries
+`context_service.derivation`, and `wiki inspect answer` prints
+`not run - routed on the raw question` on exactly the three surfaces below. The
+fix is measurable before and after instead of assumed.
 
 **Also found in the same trace, and cheap to fix alongside:**
 `classify_intent_first` is accepted by `run_query` (`query.py:424`), documented
