@@ -21,7 +21,12 @@ from pathlib import Path
 from collections.abc import Iterator
 from typing import IO, Any, Callable as _Callable, Mapping
 
+from typing import TYPE_CHECKING
+
 from . import db, durable_io
+
+if TYPE_CHECKING:  # import cycle at runtime; only the annotation needs the name
+    from . import config as cfg
 
 logger = logging.getLogger(__name__)
 
@@ -1758,6 +1763,56 @@ def _preserve_device_local(conn: "db.sqlite3.Connection", table_name: str, row: 
 
 def _sync_dir(internal_dir: Path, *, dir_name: str = "sync") -> Path:
     return internal_dir / dir_name
+
+
+def describe_recoverable_state(
+    paths: "cfg.WikiPaths", *, dir_name: str = "sync"
+) -> str | None:
+    """Warn when the local DB is empty but the vault still holds a sync journal.
+
+    `state.sqlite` is machine-local and keyed by `sha256(resolved_vault_root)[:16]`,
+    so a deleted `.cache/`, a fresh machine, or a RENAMED VAULT all mint a brand
+    new database. `connect()` self-heals a schema into it and `get_stats` returns
+    zeros — indistinguishable from a vault nobody has ingested.
+
+    That is the wrong conclusion whenever the vault carries a journal, and the
+    journal is a full snapshot, so the knowledge is recoverable rather than lost.
+    Measured on the reference vault: 287 MB of database, 89 MB of journal.
+
+    Returns None when there is nothing to say — which is the common case, and
+    deliberately includes a populated database. A healthy vault writes a journal
+    on every auto-sync, so keying this on the journal alone would fire always and
+    train the user to ignore it.
+    """
+    from . import db
+
+    journals = [
+        p
+        for p in sorted(_sync_dir(paths.internal, dir_name=dir_name).glob("*.jsonl"))
+        if p.is_file() and p.stat().st_size > 0
+    ]
+    if not journals:
+        return None
+    if not paths.state_db.exists():
+        return None
+    try:
+        stats = db.get_stats(paths.state_db)
+    except Exception:  # noqa: BLE001 - a DB we cannot read is not this check's business
+        return None
+    if stats.get("sources_total") or stats.get("units_live"):
+        return None
+
+    names = ", ".join(p.name for p in journals[:3])
+    if len(journals) > 3:
+        names += f", +{len(journals) - 3} more"
+    total_mb = sum(p.stat().st_size for p in journals) / (1024 * 1024)
+    return (
+        f"This vault's local database is empty, but {len(journals)} sync journal(s) "
+        f"are present ({names}; {total_mb:.1f} MB). Your knowledge is not lost — the "
+        f"database is machine-local and is re-keyed when the vault moves or the "
+        f"repo cache is cleared. Recover with:\n"
+        f"    wiki db import {journals[0]}"
+    )
 
 
 def export_for_device(

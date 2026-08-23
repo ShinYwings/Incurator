@@ -2,6 +2,39 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.69.2] - 2026-08-23
+### Fixed
+- **An empty database was reported as an empty vault, while 89 MB of your
+  knowledge sat recoverable in the same folder.**
+
+  `state.sqlite` is machine-local and keyed by the vault's resolved path. Three
+  ordinary events therefore mint a brand-new, empty database:
+
+  - the repo's `.cache/` is cleared or not carried to a new machine;
+  - you open the vault on a second device;
+  - **you rename or move the vault.**
+
+  `connect()` self-heals a schema into it and `wiki status` printed zeros — exactly
+  what a vault nobody has ever ingested looks like. The natural next step is to
+  re-ingest everything, which costs hours of provider time to rebuild what is
+  already on disk.
+
+  `wiki status` now says so, in text and in `--json` (the plugin dashboard reads
+  the latter), naming the journal and the command:
+
+  ```
+  This vault's local database is empty, but 2 sync journal(s) are present
+  (dev-28e419df29f2.jsonl, dev-bd8d7f0753da.jsonl; 86.2 MB). Your knowledge is
+  not lost — the database is machine-local and is re-keyed when the vault moves
+  or the repo cache is cleared. Recover with:
+      wiki db import .curator/sync/dev-28e419df29f2.jsonl
+  ```
+
+  It is silent for a genuinely new vault, for a populated database, and for a
+  zero-byte journal — a healthy vault writes a journal on every auto-sync, so
+  keying the warning on the journal alone would fire always and train you to
+  ignore it.
+
 ## [0.69.1] - 2026-08-23
 ### Fixed
 - **`wiki sync` said it rebuilds four files and rebuilt two.**

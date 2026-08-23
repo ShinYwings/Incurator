@@ -490,13 +490,29 @@ def status(
     config = cfg.load_config(paths)
     if refresh:
         runtime_state.write_runtime_snapshots(paths, config)
+
+    # An empty database is not the same fact as an empty vault. `state.sqlite`
+    # is machine-local and keyed by the vault's resolved path, so a cleared
+    # `.cache/`, a new machine, or a RENAMED VAULT all mint a fresh empty one --
+    # and zeros here look exactly like a vault nobody has ingested. When the
+    # vault still carries a sync journal the knowledge is recoverable, and saying
+    # nothing invites a full re-ingest of work that is sitting right there.
+    from ..db_sync import describe_recoverable_state
+
+    recoverable = describe_recoverable_state(paths)
+
     if json_output:
-        _print_json({
+        payload = {
             "status": runtime_state.build_status_snapshot(paths, config),
             "sources": runtime_state.build_sources_snapshot(paths),
             "jobs": runtime_state.build_jobs_snapshot(paths),
-        })
+        }
+        if recoverable:
+            payload["recoverable_state"] = recoverable
+        _print_json(payload)
         return
+    if recoverable:
+        console.print(f"[yellow]{recoverable}[/yellow]\n")
     stats = db.get_stats(paths.state_db)
 
     def _count_md(folder: Path) -> int:
