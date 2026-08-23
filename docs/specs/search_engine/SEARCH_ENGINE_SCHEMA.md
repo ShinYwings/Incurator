@@ -1,4 +1,4 @@
-# Incurator Search Engine Schema (v0.68.0)
+# Incurator Search Engine Schema (v0.69.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 

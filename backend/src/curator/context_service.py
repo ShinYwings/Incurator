@@ -565,6 +565,55 @@ class ContextService:
         if expected_snapshot_id and expected_snapshot_id != snapshot["snapshot_id"]:
             return _conflict_response(expected_snapshot_id, snapshot["snapshot_id"])
 
+        # Imported here, not at module scope: `query` reaches `retrieval` and
+        # this module is reached from `retrieval.orchestrator`, which is the
+        # cycle the rest of this codebase also breaks with a local import.
+        from dataclasses import replace
+
+        from . import query as query_mod
+
+        # Derive here, in the one place every surface passes through.
+        #
+        # `choose_route` (below) reads `request.intent`, and `build_evidence`
+        # reads `working_query` — this is the only point that dominates both.
+        # Derivation lived at ONE boundary from v0.47.0 and four sibling surfaces
+        # never caught up; the one that was filled in was filled in wrong
+        # (`curator_query` passed the raw question as `english_query` until
+        # v0.68.0). "Add it at each boundary" is this codebase's measured history,
+        # not a hypothetical.
+        #
+        # Gated on the question not already being English, because the cost is
+        # real and the benefit is not universal. `_fallback_search_terms` was
+        # measured returning the same top results as the LLM across the same 28
+        # sources "for none of the LLM's 12-50 s", so derivation buys nothing on
+        # search TERMS — only `intent`. And on the CLI `english_query` is empty,
+        # so `working_query` is the user's own words: for an English question the
+        # signals read what was actually typed, which beats a paraphrase that
+        # came out eight different ways for one question. A non-English question
+        # cannot match the English-only signals at all, and that is the case
+        # worth paying for.
+        if (
+            self.client is not None
+            and request.english_query_status == "unset"
+            # A caller may supply an english_query WITHOUT a status --
+            # `plugin_api/query_api.py` does exactly that, from the plugin's
+            # language bridge. Deriving over it would discard a translation the
+            # boundary already made and pay 12-50 s to replace it with a
+            # different one. Derive only when nobody has provided a query at all.
+            and not request.english_query.strip()
+            and request.question.strip()
+            and not query_mod.is_probably_english(request.question)
+        ):
+            derived = query_mod.derive_search_query(
+                self.paths.state_db, self.client, request.question
+            )
+            request = replace(
+                request,
+                english_query=derived.search_query,
+                english_query_status=derived.status,
+                intent=derived.intent,
+            )
+
         status = router.graph_status(self.paths.state_db)
         route, reason = router.choose_route(request, policy, status)
         route, reason, downgraded_from = _admit_route(route, reason, self.disabled_routes)
@@ -705,6 +754,10 @@ class ContextService:
             "route": route,
             "route_reason": reason,
             "route_admission": route_admission,
+            # The query the system actually ran. `replace()` above rebinds a
+            # local, so without this the orchestrator would keep echoing the raw
+            # question and show the user a query that was never executed.
+            "english_query": request.working_query,
             "workspace_id": policy.workspace_id,
             "budget": budget,
             "coverage": {
