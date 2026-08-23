@@ -21,6 +21,7 @@ from .commands import sources as _source_commands
 from .commands import workspace as _workspace_commands
 from .commands.config import config_app
 from .commands.db import db_app
+from .commands.gc import gc_app
 from .commands.devices import devices_app
 from .commands.inspect import inspect_app
 from .commands.insights import insight_app
@@ -89,6 +90,7 @@ app.add_typer(jobs_app, name="jobs", hidden=True)
 app.add_typer(plugin_app, name="plugin", hidden=True)
 app.add_typer(devices_app, name="devices", hidden=True)
 app.add_typer(db_app, name="db")
+app.add_typer(gc_app, name="gc")
 app.add_typer(models_app, name="models", hidden=True)
 app.add_typer(prompt_app, name="prompt")
 app.add_typer(insight_app, name="insight")
