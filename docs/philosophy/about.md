@@ -1,12 +1,12 @@
 # 💡 Why Incurator Exists
 
-## The Evolution: From Naive RAG to LLM Wikis
+## The Evolution: From Naive RAG, to LLM Wikis, to Incurator
 
 When working with research papers, PDFs, and personal notes, traditional search and standard RAG (Retrieval-Augmented Generation) quickly fall short. Naive RAG breaks documents into arbitrary text chunks and searches them at query time, lacking a cohesive understanding of higher-level concepts across multiple documents.
 
 To solve this, the **"LLM Wiki"** pattern emerged—compiling information into a structured, persistent collection of Markdown notes maintained by an AI agent rather than re-indexing raw chunks on every query.
 
-However, existing open-source LLM Wiki implementations suffer from three critical architectural failure modes:
+However, existing open-source LLM Wiki implementations suffer from three critical architectural failure modes. **Incurator was built to solve these exact limitations, representing the next evolution of the LLM Wiki.**
 
 ---
 
@@ -68,7 +68,7 @@ Instead of hundreds of unstructured flat pages, knowledge is compiled into discr
 
 ### 4. Active Reading Studio & Universal MCP Bridge
 Knowledge must not be locked in a terminal CLI. Incurator provides:
-- **Obsidian Studio**: Split-view PDF reading, instant in-line selection popovers, and in-editor interactive Diff Review for markdown notes.
+- **Obsidian Studio**: It enriches Obsidian with a split-view PDF reader and in-line popovers for active exploration, and provides an interactive Diff Viewer so you maintain absolute control over any note modifications, rather than allowing blind AI edits.
 - **Universal MCP Server**: Exposes the live knowledge graph to external coding agents (Cursor, VSCode, Claude Desktop), allowing your research vault to serve as the active context brain for coding and writing projects.
 
 Knowledge is no longer a static archive—it becomes a living, self-correcting, and continuously incrementing ecosystem.
