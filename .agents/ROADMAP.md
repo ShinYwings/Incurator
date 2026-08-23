@@ -53,55 +53,40 @@ they make every later measurement trustworthy. **You cannot stabilise what you
 cannot see**, and this project has repeatedly lost time to state it never
 measured.
 
-### A1. The route signal is destroyed at the boundary, not at the regex
+### A6. `curator.query_router` is pinned in two specs and has zero call sites
 
-**Corrected 2026-08-23 by measuring the real path.** `knowledge_value_arena`
-filed this as "route selection is English-only"; that reading is wrong, and so
-was the first correction of it.
+**Filed by the A1 Arena, 2026-08-23.** The contract is registered
+(`prompting/families/query.py`), required by `test_prompt_registry.py`, listed in
+`SYSTEM_BEHAVIOR.md` §15, and promised by §17: *"an LLM router
+(`curator.query_router`) is used only when deterministic signals are ambiguous."*
 
-`router.py:20` documents the English-only regex as **deliberate**: internals are
-English by contract, `QueryRequest.english_query` exists for exactly this, and
-v0.47.0 already reverted an attempt to make the regex multilingual — *"that fixed
-the symptom by making the INTERNALS multilingual, which is the opposite of the
-contract"*. The boundary fix it shipped instead **works**: `english_query` is
-populated at `plugin_api/context.py:60`.
+It has **no production caller**. The spec describes behaviour the code does not
+have. Per CLAUDE.md — *"any divergence means both are wrong until reconciled"* —
+either the contract gets implemented or the spec drops it.
 
-**The defect is what the boundary produces.** Measured end to end against the
-live vault:
+v0.65.0 makes the second option the likely one: routing now reads a derived
+**intent** from `curator.query_search_terms@v2`, which is the job §17 imagined
+for the router, done without a second round trip. Deciding that is a small
+deliberate act, not a silent deletion.
 
-| Korean question | derived `english_query` | route |
-|---|---|---|
-| `2D GS가 3D보다 나은 점을 **여러 논문을 종합해서** 설명해줘` | `advantages of 2D GS over 3D` | **local** |
-| `내 볼트 **전체의 주제를 정리**해줘` | *(empty string)* | **local** |
+### A7. The system cannot report when the extractor finds no search target
 
-`derive_search_query` extracts **what to search for** and discards **what kind of
-question it is**. "여러 논문을 종합해서" — synthesise across several papers — does
-not survive into the English query, so `_GLOBAL_SIGNALS` has nothing to match.
-The second case returned an empty string, and `working_query`'s
-`(english_query or question)` fallback then silently handed the router the raw
-Korean.
+**Filed by the A1 Arena, 2026-08-23, and it is why A1 took three diagnoses.**
 
-**Adding Korean to the regex would not fix this**, which is why the v0.47.0
-revert was right. An English question routed through the same extractor loses its
-intent the same way — the extractor is doing its job, and routing is reading a
-signal that no longer exists by the time it looks.
+`query_traces` stores `question_hash`, `prompt_runs` stores `input_hash` and
+`output_hash`, and `retrieval_trace_json` records `is_cjk` and hit counts — but
+never the query, and never whether the derivation returned nothing. So "the
+extractor produced no search terms" is invisible after the fact.
 
-Two candidate shapes, neither chosen:
+The concrete cost is on record. Two separate single-run measurements of the same
+question produced an empty derivation, and a design was built on the premise that
+empty was a deliberate, stable signal. Running it eight times gave **0/8 empty**
+and a **6-in-8 route flip** instead — an entirely different bug. One sample was
+mistaken for a property twice, because nothing stored enough to check.
 
-1. `derive_search_query` already returns `(search_query, is_knowledge, reason)`
-   and has understood the message. Have it return the **intent** too, so routing
-   reads a derived signal rather than re-deriving one from surface keywords.
-2. Use the `curator.query_router` LLM contract, which `router.py`'s own docstring
-   says "exists for the ambiguous case" — currently unused on this path.
-
-Shape 1 is cheaper and keeps routing deterministic. Shape 2 costs a round trip
-per query. **Also fix the empty-string case regardless**: an extractor returning
-nothing should be an explicit outcome, not a silent fallback to the untranslated
-question.
-
-**Phase A caveat:** option 1 changes what `derive_search_query` returns, which is
-an internal contract. It is still phase A — no schema, no stored contract, no
-cross-device effect — but it is the largest item in the phase.
+Bounded and cheap: record the derived query's emptiness and the chosen intent in
+the retrieval trace, which already has a free-text `reason` and a structured
+`route` block.
 
 ### A5. Safe decomposition and exception hardening
 
