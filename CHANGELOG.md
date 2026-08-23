@@ -2,6 +2,87 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.71.0] - 2026-08-24
+### Added
+- **A cap on the LLM call log — with a guard that is the whole point.**
+
+  ```
+  wiki config set gc.prompt_runs_keep 1000     # 0 = keep everything (the default)
+  ```
+
+  `prompt_runs` is the largest growing table: **4,406 rows, 17.39 MB** on the
+  reference vault. The cap keeps the newest N **unreferenced** records.
+
+  **Records an artifact still points at are kept regardless of the cap.**
+  `community_reports.prompt_run_id` is what the L3 resume reads to decide a
+  report's prose need not be regenerated — delete one and the lookup returns
+  nothing, the skip fails, and finished reports are re-sent to the provider
+  **silently**. Here that is 330 reports and roughly 1,381 calls, undoing
+  v0.69.5. Seven tables carry the column, `query_traces.prompt_trace_ids` is a
+  JSON array a plain join would miss, and a test fails if a future table carries
+  the column without joining the scan.
+
+  | cap | removed | kept |
+  |---|---|---|
+  | off (default) | 0 | 4,406 |
+  | 1,000 | 2,049 | 2,357 (incl. all 1,354 referenced) |
+
+  Deletion writes a tombstone per record, so it **applies to every device you
+  sync with** — `prompt_runs` is synced and exports are full snapshots, so a
+  delete without one is undone by the next sync. A call record averages ~3,920
+  bytes against ~126 for its tombstone, about 31×.
+
+### Fixed
+- **A corrupt `.curator/sessions.json` crashed `wiki gc` instead of being
+  reported.** A store that will not parse raised straight out of `wiki gc plan` —
+  read-only reporting that should never fail — and took the unrelated cache sweep
+  down with it. An unreadable store is now a first-class state: reported, and
+  **left untouched**, because rewriting a file the backend cannot read would
+  destroy whatever it still holds.
+
+### Note
+- `deleted_records` still has **no retention rule, deliberately.** Expiring a
+  tombstone is not "deleting on every device" — it is the opposite: it lets a
+  peer that was offline **restore** something you deleted. Nothing records
+  whether every device has seen a given tombstone, so there is no safe window.
+
+## [0.70.0] - 2026-08-24
+### Added
+- **`wiki gc` — reclaims what is safe, and tells you what it refuses to touch and
+  why.**
+
+  ```
+  wiki gc plan     # what would go, and what grows but is deliberately kept
+  wiki gc run      # delete it (asks first)
+  ```
+
+  Most of the growth **cannot be safely deleted**, and the report is the more
+  valuable half. `prompt_runs`, `query_traces`, `compiler_generations` and
+  `deleted_records` are all synced, and exports are full snapshots — so deleting a
+  row either propagates to every device or is undone by the next sync.
+  `deleted_records` (48,896 rows) is the tombstone table itself; expiring one
+  silently restores data you deleted, on any device that was offline. `wiki gc
+  plan` shows these numbers **with those reasons**.
+
+  What it reclaims: per-vault cache directories that are provably debris — the
+  recorded vault path is gone, **that path is under a temp prefix**, and the
+  cached database holds zero sources. All three are required: "the path is
+  missing" alone is a **mount test, not a liveness test**, and an unmounted
+  external drive hashes to the same directory while holding `state.sqlite`.
+  On the reference machine: **6.4 MB across 11 directories** — modest, and the
+  1.5 GB repo cache is mostly 1.2 GB of models plus the 288 MB live database.
+
+- **Chat retention, off by default.**
+
+  ```
+  wiki config set gc.sessions_retention_days 90     # 30 / 90 / 180 / 365
+  ```
+
+  Chats are your own writing, so nothing is removed unless you pick a window.
+  When you do, `wiki gc run` states that removal takes effect on **every device
+  you sync with** and cannot be undone. A session with no usable timestamp is
+  kept; the active-session pointer never dangles; existing tombstones survive.
+
 ## [0.69.8] - 2026-08-24
 ### Fixed
 - **The knowledge graph's community layer is flat, and nothing said so.**
