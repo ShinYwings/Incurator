@@ -978,6 +978,7 @@ Tier-2 LLM/HyDE query expansion은 기본적으로 recovery mechanism으로 켜�
 | `wiki prompt eval` | 오프라인 프롬프트 평가 픽스처를 실행합니다(LLM 불필요). |
 | `wiki inspect synthesis <SYN-…>` | L4 Synthesis node 하나의 read-only audit report를 검사합니다. community report, graph entity/relation, source span, prompt trace, warning을 포함합니다. |
 | `wiki inspect report <REP-…>` | L3 community report 하나의 source support를 검사합니다. |
+| `wiki config set gc.prompt_runs_keep <N>` | LLM 호출 기록을 **미참조** 레코드 `N`개로 제한합니다(최신부터 보존). `0`은 전부 보관이며 **기본값**입니다. 리포트·knowledge unit·엔티티·관계가 참조 중인 레코드는 상한과 무관하게 보존됩니다 — 그걸 지우면 이미 끝난 L3 리포트가 조용히 재청구됩니다. 삭제는 동기화되는 모든 기기에 적용됩니다. |
 | `wiki config set gc.sessions_retention_days <N>` | 채팅 보관 기간: `30`, `90`, `180`, `365`, 또는 영구 보관은 `0`(**기본값**). 채팅은 사용자 본인의 글이므로 기간을 직접 고르기 전에는 아무것도 삭제되지 않으며, 기간을 고르면 동기화되는 모든 기기에서 삭제됩니다. |
 | `wiki gc plan` | 회수 가능한 디스크와, 늘어나지만 **일부러 보존하는** 항목을 이유와 함께 보여줍니다. 증가분 대부분은 **기기 간 동기화되는** 데이터라, 로컬에서 지우면 모든 기기로 전파되거나 다음 동기화에서 되살아납니다. |
 | `wiki gc run` | 회수 가능한 항목과 보관 기간이 지난 채팅 세션을 삭제합니다 — 채팅 삭제는 **동기화되는 모든 기기에 적용되며 되돌릴 수 없다**고 확인 창에서 명시합니다(먼저 확인을 요청). 확실히 잔해인 vault 캐시 디렉터리만 대상입니다: 기록된 vault 경로가 사라졌고, 그 경로가 임시(temp) 접두사 아래이며, **또한** 캐시된 DB에 source가 0개일 때. 세 조건 모두 필요합니다 — "경로가 없다"만으로는 마운트 여부 검사일 뿐이고, 연결 해제된 외장 드라이브가 똑같이 보입니다. |

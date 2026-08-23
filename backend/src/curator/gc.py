@@ -247,6 +247,16 @@ def build_plan(paths, cache_root: Path) -> GcPlan:
 SESSION_RETENTION_CHOICES = (0, 30, 90, 180, 365)
 
 
+def prompt_runs_keep(config: dict) -> int:
+    """How many unreferenced prompt runs to keep. 0 = keep everything (default)."""
+    raw = ((config or {}).get("gc") or {}).get("prompt_runs_keep", 0)
+    try:
+        keep = int(raw)
+    except (TypeError, ValueError):
+        return 0
+    return keep if keep > 0 else 0
+
+
 def _session_retention_days(config: dict) -> int:
     raw = ((config or {}).get("gc") or {}).get("sessions_retention_days", 0)
     try:
@@ -335,4 +345,105 @@ def prune_sessions(paths, config: dict, *, now: datetime | None = None) -> int:
         data["activeChatSessionId"] = kept[0]["id"] if kept else None
 
     durable_io.atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2))
+    return len(doomed)
+
+
+#: Every table that carries a `prompt_run_id`. A run referenced by ANY of them is
+#: exempt from the cap, whatever its age.
+#:
+#: This is not tidiness. `community_reports.prompt_run_id` is what v0.69.5's L3
+#: resume reads: `generate_report_prose` compares the referenced run's
+#: `input_hash` to decide whether prose needs regenerating. Delete a referenced
+#: run and the lookup returns None, the skip fails, and finished reports are
+#: re-sent to the provider — silently, with no error. On the reference vault that
+#: is 330 reports and roughly 1,381 calls.
+_PROMPT_RUN_REFERENCE_TABLES = (
+    "knowledge_units",
+    "graph_entities",
+    "graph_relations",
+    "community_reports",
+    "curation_plans",
+    "insight_candidates",
+    "synthesis_nodes",
+)
+
+
+def referenced_prompt_runs(conn) -> set[str]:
+    """Every prompt-run id an artifact still points at.
+
+    Includes `query_traces.prompt_trace_ids`, which is a JSON array rather than a
+    column, so a plain join would miss it.
+    """
+    import json
+
+    referenced: set[str] = set()
+    for table in _PROMPT_RUN_REFERENCE_TABLES:
+        try:
+            rows = conn.execute(
+                f"SELECT DISTINCT prompt_run_id FROM {table} "
+                f"WHERE COALESCE(prompt_run_id,'') <> ''"
+            ).fetchall()
+        except Exception:
+            # A table this schema version does not have is not a reference source.
+            continue
+        referenced.update(str(r[0]) for r in rows)
+
+    try:
+        traces = conn.execute(
+            "SELECT prompt_trace_ids FROM query_traces "
+            "WHERE COALESCE(prompt_trace_ids,'[]') <> '[]'"
+        ).fetchall()
+    except Exception:
+        traces = []
+    for row in traces:
+        try:
+            ids = json.loads(row[0] or "[]")
+        except (TypeError, ValueError):
+            continue
+        if isinstance(ids, list):
+            referenced.update(str(i) for i in ids if i)
+    return referenced
+
+
+def plan_prompt_run_cap(state_db: Path, keep: int) -> int:
+    """How many prompt runs the cap would delete. Read-only."""
+    if keep <= 0:
+        return 0
+    with db.connect(state_db) as conn:
+        return len(_prompt_runs_over_cap(conn, keep))
+
+
+def _prompt_runs_over_cap(conn, keep: int) -> list[str]:
+    """Unreferenced runs beyond the newest `keep`, oldest first."""
+    referenced = referenced_prompt_runs(conn)
+    rows = conn.execute(
+        "SELECT trace_id FROM prompt_runs ORDER BY created_at DESC, trace_id DESC"
+    ).fetchall()
+    unreferenced = [str(r[0]) for r in rows if str(r[0]) not in referenced]
+    return unreferenced[keep:]
+
+
+def apply_prompt_run_cap(state_db: Path, keep: int) -> int:
+    """Delete unreferenced prompt runs beyond the cap. Returns rows removed.
+
+    Writes a tombstone per deletion. `prompt_runs` is a synced table and exports
+    are full snapshots, so a delete without one is undone by the next import —
+    and a delete with one reaches every device. That is what a retention cap
+    means here; it is why the cap is off by default and why the CLI says so.
+    """
+    from . import db_sync
+
+    if keep <= 0:
+        return 0
+    with db.connect(state_db) as conn:
+        doomed = _prompt_runs_over_cap(conn, keep)
+        if not doomed:
+            return 0
+        # Re-check inside the transaction. A reference could have appeared
+        # between planning and applying, and deleting one is silent breakage.
+        referenced = referenced_prompt_runs(conn)
+        doomed = [tid for tid in doomed if tid not in referenced]
+        for trace_id in doomed:
+            conn.execute("DELETE FROM prompt_runs WHERE trace_id = ?", (trace_id,))
+            db_sync.record_tombstone_on_connection(conn, "prompt_runs", trace_id)
     return len(doomed)

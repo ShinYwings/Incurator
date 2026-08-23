@@ -45,9 +45,12 @@ def gc_plan(
 
     paths, plan, config = _build()
     sessions_n, sessions_bytes = gc_mod.plan_session_prune(paths, config)
+    runs_keep = gc_mod.prompt_runs_keep(config)
+    runs_n = gc_mod.plan_prompt_run_cap(paths.state_db, runs_keep)
     if json_output:
         _print_json({
             "sessions_prunable": sessions_n,
+            "prompt_runs_prunable": runs_n,
             "reclaimable": [
                 {"path": str(i.path), "bytes": i.bytes, "reason": i.reason}
                 for i in plan.reclaimable
@@ -90,6 +93,24 @@ def gc_plan(
                 f"keeping {days} days; [bold]{sessions_n}[/bold] session(s) past the window"
             )
 
+    console.print("\n[bold]LLM call log[/bold]")
+    total_runs = gc_mod._row_count(paths.state_db, "prompt_runs")
+    if runs_keep <= 0:
+        console.print(
+            f"  [cyan]prompt_runs[/cyan] — {total_runs:,} rows, cap [bold]off[/bold]"
+        )
+        console.print(
+            "    [dim]Set one with `wiki config set gc.prompt_runs_keep 1000`. Runs "
+            "still referenced by a report, unit, entity or relation are ALWAYS kept — "
+            "deleting one would silently re-bill a finished L3 report. Removal "
+            "applies to every device you sync with.[/dim]"
+        )
+    else:
+        console.print(
+            f"  [cyan]prompt_runs[/cyan] — {total_runs:,} rows, keeping {runs_keep:,} "
+            f"unreferenced; [bold]{runs_n:,}[/bold] over the cap"
+        )
+
     if plan.retained:
         console.print("\n[bold]Grows, and deliberately kept[/bold]")
         for r in plan.retained:
@@ -107,7 +128,8 @@ def gc_run(
 
     paths, plan, config = _build()
     sessions_n, _bytes = gc_mod.plan_session_prune(paths, config)
-    if not plan.reclaimable and not sessions_n:
+    runs_n = gc_mod.plan_prompt_run_cap(paths.state_db, gc_mod.prompt_runs_keep(config))
+    if not plan.reclaimable and not sessions_n and not runs_n:
         if json_output:
             _print_json({"removed": 0, "bytes_freed": 0})
         else:
@@ -128,18 +150,27 @@ def gc_run(
                 f"Removing them takes effect on EVERY device you sync with, not "
                 f"just this one, and cannot be undone."
             )
+        if runs_n:
+            _warn(
+                f"{runs_n:,} unreferenced LLM call record(s) are over your cap. "
+                f"Removing them applies to EVERY device you sync with. Runs still "
+                f"referenced by an artifact are kept regardless."
+            )
         if not typer.confirm("Proceed?"):
             _warn("Cancelled; nothing was deleted.")
             raise typer.Exit(code=1)
 
     removed, freed = gc_mod.sweep(plan.reclaimable)
     pruned = gc_mod.prune_sessions(paths, config)
+    runs_removed = gc_mod.apply_prompt_run_cap(paths.state_db, gc_mod.prompt_runs_keep(config))
     if json_output:
-        _print_json({"removed": removed, "bytes_freed": freed, "sessions_pruned": pruned})
+        _print_json({"removed": removed, "bytes_freed": freed, "sessions_pruned": pruned, "prompt_runs_pruned": runs_removed})
     else:
         if removed:
             _ok(f"Removed {removed} director(ies), freed {gc_mod._human(freed)}.")
         if pruned:
             _ok(f"Removed {pruned} chat session(s) past the retention window.")
-        if not removed and not pruned:
+        if runs_removed:
+            _ok(f"Removed {runs_removed:,} unreferenced LLM call record(s).")
+        if not removed and not pruned and not runs_removed:
             _ok("Nothing to reclaim.")
