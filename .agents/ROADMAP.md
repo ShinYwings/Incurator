@@ -223,6 +223,46 @@ Proposed classification — the Arena should challenge it, not inherit it:
 | leaked `.cache` temp dirs | garbage | sweep >7 days | a 516 MB venv sat there for 3 weeks |
 | `Collections/` | derived | never a GC target | regenerate, do not expire |
 
+### The two escalations are RESOLVED (user, 2026-08-24)
+
+Asked, because the roadmap said these two were the user's to settle:
+
+- **`prompt_runs` — the agent decides, and a capacity cap is explicitly allowed.**
+  *"prompt run은 너가 정해. 상한 용량을 정할수도 있고."* The age distribution
+  argues for a cap rather than a window: 88 rows from July against 4,318 from
+  August, so a 30/90-day window deletes nothing today and everything later, at a
+  moment nobody chose.
+- **`sessions.json` — the user picks the window.** *"sessions.json은 시간을
+  선택할수 있게 하면 좋을거같아."* Their own writing, so the GC tab offers the
+  choice rather than assuming one.
+
+### Re-measured 2026-08-24, after the Phase A–C releases
+
+| table | roadmap | now |
+|---|---|---|
+| `deleted_records` | 46,637 | **48,896** (still growing) |
+| `prompt_runs` | 3,826 | **4,406** |
+| `job_events` | 5,110 | **5,578** |
+| `compiler_generations` | 112 | **122** |
+| `query_traces` | 96 | 96 |
+
+On disk: `.curator/sync` **86 MB**, `sessions.json` **15.6 MB** (v0.69.4's fix
+applies on the plugin's next save), `.cache/` **1.5 GB** with **31 vault-cache
+dirs of which 25 are dead**.
+
+### A SECOND correctness floor, found while scoping (2026-08-24)
+
+The tombstone trap below is not the only one. **`prompt_runs` is referenced**:
+`prompt_run_id` appears in **seven tables** (`db/schema.py` ~415, 470, 492, 549,
+678, 694, 726) plus `query_traces.prompt_trace_ids`, and **238 runs are
+referenced by live `community_reports`**.
+
+Those 238 are exactly what v0.69.5's L3 resume reads — `generate_report_prose`
+compares the referenced run's `input_hash` to decide whether to skip. Purging a
+referenced run silently un-resumes L3 and re-spends roughly 1,381 provider calls,
+with no error anywhere. **Any cap must keep referenced runs regardless of age or
+count.**
+
 ### The trap this plan must not walk into
 
 **Tombstone retention is a correctness constraint, not a preference.** A
