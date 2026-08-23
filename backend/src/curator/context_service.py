@@ -595,6 +595,12 @@ class ContextService:
         if (
             self.client is not None
             and request.english_query_status == "unset"
+            # A caller may supply an english_query WITHOUT a status --
+            # `plugin_api/query_api.py` does exactly that, from the plugin's
+            # language bridge. Deriving over it would discard a translation the
+            # boundary already made and pay 12-50 s to replace it with a
+            # different one. Derive only when nobody has provided a query at all.
+            and not request.english_query.strip()
             and request.question.strip()
             and not query_mod.is_probably_english(request.question)
         ):

@@ -184,3 +184,24 @@ def test_the_orchestrator_reports_the_query_it_actually_ran(tmp_path: Path) -> N
     assert result.english_query == "vault themes overview", (
         f"orchestrator reported {result.english_query!r}, not the query it ran"
     )
+
+
+def test_a_caller_supplied_english_query_is_never_overwritten(tmp_path: Path) -> None:
+    """Regression: the first cut of the gate checked only `english_query_status`,
+    and silently discarded a query the caller had already provided.
+
+    `plugin_api/query_api.py` accepts an `english_query` argument from the
+    plugin's language bridge and does not set a status alongside it. With a
+    Korean `question` the funnel saw `status == "unset"`, derived, and threw the
+    caller's English query away -- replacing a translation the boundary had
+    already made with a second, different one, for an extra 12-50 s.
+
+    Caught by CI, not by the six tests I wrote first: every one of them left
+    `english_query` empty.
+    """
+    client = _CountingClient()
+    response = _fetch(
+        _vault(tmp_path), KOREAN, client, english_query="what does this concept mean?"
+    )
+    assert client.calls == 0, "the caller's English query was thrown away"
+    assert response["english_query"] == "what does this concept mean?"
