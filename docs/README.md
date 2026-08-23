@@ -13,7 +13,7 @@ Incurator is an intelligent knowledge compilation engine and Obsidian assistant 
 ## 🚀 The Experience: How It Works
 
 ```
-  [Raw Sources] (PDFs, Notes, Zotero)
+  [Vault Sources] (03_Notes/, 04_Resources/, Zotero PDFs)
        │
        ▼ (wiki add / wiki build)
 ┌──────────────────────────────────────────────────────────────┐
@@ -32,14 +32,15 @@ Incurator is an intelligent knowledge compilation engine and Obsidian assistant 
 │   • Real-time context provider for external coding IDEs      │
 └──────────────────────────────┬───────────────────────────────┘
                                │
-                               ▼ (wiki query "save" / Promote)
-  [02_Wiki/] (Permanent, Human-Reviewed Knowledge Base)
+            ┌──────────────────┴──────────────────┐
+            ▼ (Diff Review / Human Edit)          ▼ (wiki query "save" / Promote)
+    [03_Notes/] (Updated Notes)            [02_Wiki/] (Permanent Wiki)
 ```
 
-1. **Drop & Register (`wiki add`)**: Add PDFs, papers, or markdown notes. Incurator instantly builds an L1 structural index without making an LLM call.
+1. **Drop & Register (`wiki add`)**: Add PDFs, papers, or markdown notes to `03_Notes/` or `04_Resources/`. Incurator instantly builds an L1 structural index without making an LLM call.
 2. **Compile (`wiki build`)**: A lightweight background model (e.g., local Ollama SLM) extracts atomic facts (L2 Atoms) and clusters them into multi-source thematic topics (L3 Concepts).
 3. **Active Reading & Popover (Obsidian Studio)**: Open PDFs in split-view, highlight text to trigger instant in-line Q&A popovers, or chat in the sidebar with direct citations and provenance traces.
-4. **Interactive Note Editing (Diff Viewer)**: Apply AI suggestions to your notes with a Cursor-style in-editor Diff Viewer—review additions/deletions line by line and accept or reject individual chunks.
+4. **Interactive Note Editing (Diff Viewer)**: Apply AI suggestions to your notes in `03_Notes/` with a Cursor-style in-editor Diff Viewer—review additions/deletions line by line and accept or reject individual chunks.
 5. **Project-Scoped Curation (`curate.yml`)**: Scope your project's domain and target goals dynamically so agents only retrieve relevant, high-confidence evidence without cross-domain pollution.
 6. **Universal MCP Access**: Ask Cursor or Claude Desktop to reference your entire Obsidian knowledge base while writing code or reports.
 

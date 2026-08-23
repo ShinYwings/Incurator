@@ -28,7 +28,7 @@ Running raw document parsing, fact extraction, and cross-linking entirely throug
 Incurator is built from the ground up to solve these failure modes through strict architectural separation:
 
 ```
-  [Raw Sources] (PDFs, Notes, Zotero) ── (Immutable Ground Truth)
+  [Vault Sources] (03_Notes/, 04_Resources/, Zotero PDFs) ── (Protected Human Ground Truth)
        │
        ▼ (wiki add: Instant L1 / wiki build: Local SLM Compilation)
 ┌──────────────────────────────────────────────────────────────┐
@@ -46,13 +46,14 @@ Incurator is built from the ground up to solve these failure modes through stric
 │   • MCP Brain for External IDEs (Cursor / VSCode)            │
 └──────────────────────────────┬───────────────────────────────┘
                                │
-                               ▼ (Human Review & Explicit Promotion)
-  [02_Wiki/] (Permanent, Verified Human Knowledge Base)
+            ┌──────────────────┴──────────────────┐
+            ▼ (Diff Review / Human Edit)          ▼ (Explicit Promotion)
+    [03_Notes/] (Updated Notes)            [02_Wiki/] (Permanent Wiki)
 ```
 
-### 1. Two-Track Space: AI Storage vs. Durable Human Wiki
-- **AI Space (`.curator/`)**: The machine-readable SQLite knowledge graph and disposable inspection projections. It can be wiped and completely recompiled from raw sources at any time.
-- **Human Space (`02_Wiki/`)**: The permanent collection. AI never silently overwrites human notes. Only findings explicitly reviewed and promoted by a human become durable wiki artifacts. Source truth is always protected.
+### 1. Two-Track Space: AI Storage vs. Protected Human Vault
+- **AI Space (`.curator/`)**: The machine-readable SQLite knowledge graph and disposable inspection projections. It is completely isolated and can be wiped or recompiled from your vault files at any time.
+- **Human Vault Space (`03_Notes/`, `04_Resources/`, `02_Wiki/`)**: The user's domain. Your everyday notes (`03_Notes/`), PDFs and papers (`04_Resources/`), and curated knowledge base (`02_Wiki/`) are protected source truth. AI never silently overwrites your notes—suggested edits are reviewed via the interactive Diff Viewer, and new standing knowledge is explicitly promoted to `02_Wiki/`.
 
 ### 2. 4-Layer Hierarchical DAG (No Flat Sprawl)
 Instead of hundreds of unstructured flat pages, knowledge is compiled into discrete, typed layers:
