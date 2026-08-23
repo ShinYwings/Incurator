@@ -25,6 +25,7 @@ tidying into fleet-wide deletion would be a far worse bug than the disk it saves
 from __future__ import annotations
 
 import shutil
+import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -383,8 +384,16 @@ def referenced_prompt_runs(conn) -> set[str]:
                 f"SELECT DISTINCT prompt_run_id FROM {table} "
                 f"WHERE COALESCE(prompt_run_id,'') <> ''"
             ).fetchall()
-        except Exception:
-            # A table this schema version does not have is not a reference source.
+        except sqlite3.OperationalError as exc:
+            # ONLY a table this schema version does not have. Anything else — a
+            # locked database, an I/O error, corruption — must propagate.
+            #
+            # A broad `except` here silently reports zero references for that
+            # table, and the caller then deletes prompt runs that ARE referenced,
+            # which is the exact silent breakage this scan exists to prevent.
+            # Failing the GC loudly is strictly better than deleting live data.
+            if "no such table" not in str(exc).lower():
+                raise
             continue
         referenced.update(str(r[0]) for r in rows)
 
@@ -393,7 +402,9 @@ def referenced_prompt_runs(conn) -> set[str]:
             "SELECT prompt_trace_ids FROM query_traces "
             "WHERE COALESCE(prompt_trace_ids,'[]') <> '[]'"
         ).fetchall()
-    except Exception:
+    except sqlite3.OperationalError as exc:
+        if "no such table" not in str(exc).lower():
+            raise
         traces = []
     for row in traces:
         try:
@@ -436,13 +447,17 @@ def apply_prompt_run_cap(state_db: Path, keep: int) -> int:
     if keep <= 0:
         return 0
     with db.connect(state_db) as conn:
+        # Computed fresh inside this transaction rather than taken from a
+        # caller's earlier `plan_prompt_run_cap`, which ran on its own
+        # connection: a reference created in between must be honoured.
+        #
+        # An earlier draft ALSO re-scanned references here and called it a
+        # safety re-check. It was not one — `db.connect` commits at block exit,
+        # so both scans saw the identical snapshot. The comment claimed a
+        # protection the code did not provide.
         doomed = _prompt_runs_over_cap(conn, keep)
         if not doomed:
             return 0
-        # Re-check inside the transaction. A reference could have appeared
-        # between planning and applying, and deleting one is silent breakage.
-        referenced = referenced_prompt_runs(conn)
-        doomed = [tid for tid in doomed if tid not in referenced]
         for trace_id in doomed:
             conn.execute("DELETE FROM prompt_runs WHERE trace_id = ?", (trace_id,))
             db_sync.record_tombstone_on_connection(conn, "prompt_runs", trace_id)

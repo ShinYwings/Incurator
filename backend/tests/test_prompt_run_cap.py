@@ -147,3 +147,48 @@ def test_reference_scan_covers_every_table_carrying_the_column(tmp_path: Path) -
 def test_referenced_set_is_empty_on_a_fresh_db(tmp_path: Path) -> None:
     with db.connect(_db(tmp_path)) as conn:
         assert referenced_prompt_runs(conn) == set()
+
+
+def test_a_missing_reference_table_is_tolerated(tmp_path: Path) -> None:
+    """An older schema simply lacks a table; that is not an error."""
+    import sqlite3 as _sqlite3
+
+    from curator.gc import referenced_prompt_runs
+
+    path = _db(tmp_path)
+
+    class _NoTable:
+        def execute(self, sql, *args):
+            if "insight_candidates" in sql:
+                raise _sqlite3.OperationalError("no such table: insight_candidates")
+            return conn.execute(sql, *args)
+
+    with db.connect(path) as conn:
+        assert referenced_prompt_runs(_NoTable()) == set()
+
+
+def test_a_real_query_failure_is_never_swallowed(tmp_path: Path) -> None:
+    """The load-bearing guard on the guard.
+
+    A broad `except` here reports zero references for the failing table, and the
+    caller then deletes prompt runs that ARE referenced — the exact silent
+    breakage this scan exists to prevent. A locked or damaged database must fail
+    the GC loudly, not quietly widen what it deletes.
+    """
+    import sqlite3 as _sqlite3
+
+    import pytest
+
+    from curator.gc import referenced_prompt_runs
+
+    path = _db(tmp_path)
+
+    class _Locked:
+        def execute(self, sql, *args):
+            if "community_reports" in sql:
+                raise _sqlite3.OperationalError("database is locked")
+            return conn.execute(sql, *args)
+
+    with db.connect(path) as conn:
+        with pytest.raises(_sqlite3.OperationalError, match="locked"):
+            referenced_prompt_runs(_Locked())
