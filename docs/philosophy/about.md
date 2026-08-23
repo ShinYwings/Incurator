@@ -1,46 +1,73 @@
 # 💡 Why Incurator Exists
 
-## The Core Problem
+## The Evolution: From Naive RAG to LLM Wikis
 
-You have PDFs, research papers, and notes. When working with them, you don't just want search results or one-off summaries—you want AI to help you **build upon and synthesize your existing knowledge (Increment)**.
+When working with research papers, PDFs, and personal notes, traditional search and standard RAG (Retrieval-Augmented Generation) quickly fall short. Naive RAG breaks documents into arbitrary text chunks and searches them at query time, lacking a cohesive understanding of higher-level concepts across multiple documents.
 
-Most LLM-based Wiki and knowledge management systems attempt to automate the entire lifecycle (Ingest → Structure → Synthesis) without human guidance. This creates two fundamental failure modes:
+To solve this, the **"LLM Wiki"** pattern emerged—compiling information into a structured, persistent collection of Markdown notes maintained by an AI agent rather than re-indexing raw chunks on every query.
 
-### 1. The Quality Trap: Shallow Synthesis
-LLMs excel at parsing, decomposing, and restructuring documents according to rules. However, fully automated pipelines struggle to derive genuine, high-value insights across disparate sources without human context and domain intuition. Truly valuable synthesis requires **Human-in-the-Loop (HITL)** collaboration. Without it, automated wikis accumulate shallow summaries and trivial connections.
-
-### 2. The Cost Trap: Token Waste on Grunt Work
-Frontier reasoning models (such as Claude, GPT, or Gemini) are optimized for complex problem-solving. Running raw document parsing, structural extraction, and atomization through expensive commercial models quickly exhausts token budgets on repetitive preprocessing. Simple data compilation does not require heavy reasoning.
+However, existing open-source LLM Wiki implementations suffer from three critical architectural failure modes:
 
 ---
 
-## The Solution: Separating Compilation from Reasoning
+## The Three Traps of Existing LLM Wikis
 
-Incurator resolves this tension by splitting the knowledge lifecycle into two distinct operations:
+### 1. Truth Decay & Hallucination Accumulation (The Silent Overwrite Trap)
+In most LLM Wiki systems, the AI directly edits and updates markdown files in place. If the model makes a small hallucination or misinterprets a nuance, that mistake becomes permanent wiki text. In subsequent runs, the AI treats its own past hallucination as ground truth. Over time, the link to the original source is obscured, leading to systematic truth decay.
 
-1. **Knowledge Compilation (Grunt Work)**:
-   - Structural parsing, atomic fact extraction, and concept clustering (`Summary → Atoms → Concepts`).
-   - Handled autonomously by lightweight local models (e.g., Ollama/SLMs) or fast non-reasoning APIs.
-   - Inexpensive, automated, and fully reproducible.
+### 2. Context Window Overflow & Flat Sprawl (The Scalability Trap)
+As a wiki grows beyond 150–200 flat pages, an agent can no longer fit the entire wiki structure in its context window. It begins creating duplicate pages, missing relevant cross-links, and hallucinating relationships. Flat wikilinks (`[[Topic]]`) cannot distinguish whether a paper *supports*, *contradicts*, or *refines* an existing theory.
 
-2. **Knowledge Reasoning (Creative Synthesis)**:
-   - Querying, multi-source analysis, hypothesis evaluation, and insight synthesis (`Query → Insight → New Knowledge`).
-   - Handled interactively by frontier reasoning models collaborating directly with the user.
-   - High-value, human-directed, and strictly grounded in compiled evidence.
+### 3. Ingestion Cost Explosion (The FinOps Trap)
+Running raw document parsing, fact extraction, and cross-linking entirely through commercial frontier models burns massive token budgets on basic preprocessing. Feeding whole PDFs into heavy reasoning models just to summarize them is unsustainable.
 
 ---
 
-## Two Spaces, One Continuous Loop
+## The Incurator Solution: Architecture & Principles
 
-To enforce this separation cleanly, Incurator structures your vault into two distinct tiers:
+Incurator is built from the ground up to solve these failure modes through strict architectural separation:
 
-- **AI Space (`.curator/`)**: The machine-readable knowledge graph. Powered by `state.sqlite` with disposable inspection projections (`01_Contexts/`, `02_Atoms/`, `03_Concepts/`, `04_Synthesis/`). This entire directory can be safely recompiled from source documents at any time.
-- **Human Space (`02_Wiki/`)**: The permanent, curated knowledge base. Only insights explicitly reviewed and promoted by the human user become durable wiki artifacts.
+```
+  [Raw Sources] (PDFs, Notes, Zotero) ── (Immutable Ground Truth)
+       │
+       ▼ (wiki add: Instant L1 / wiki build: Local SLM Compilation)
+┌──────────────────────────────────────────────────────────────┐
+│ 🏛️ The Curator (.curator/ & state.sqlite)                    │
+│   L1 Contexts  →  L2 Atoms  →  L3 Concepts  →  L4 Synthesis  │
+│   (Disposable, Rebuildable, Machine-Readable Knowledge DAG)   │
+└──────────────────────────────┬───────────────────────────────┘
+                               │
+                               ▼ (Dynamic Curation Lens via curate.yml)
+┌──────────────────────────────────────────────────────────────┐
+│ 🎨 The Artist (Obsidian Sidebar & Universal MCP Server)      │
+│   • In-line Selection Popovers & PDF Split-View Reading      │
+│   • Interactive Diff Review on Markdown Notes (Cursor-style) │
+│   • Deep Contradiction Detection & Multi-source Synthesis    │
+│   • MCP Brain for External IDEs (Cursor / VSCode)            │
+└──────────────────────────────┬───────────────────────────────┘
+                               │
+                               ▼ (Human Review & Explicit Promotion)
+  [02_Wiki/] (Permanent, Verified Human Knowledge Base)
+```
 
-### The Lifecycle Loop
-1. **Raw Sources** (PDFs, papers, notes) are registered in the vault.
-2. **The Curator** (backend daemon) compiles them into structured evidence layers in `.curator/`.
-3. **The User & Agent** explore, query, and synthesize insights inside the workspace (Obsidian sidebar or MCP).
-4. **Promoted Insights** become permanent notes in `02_Wiki/`, which in turn serve as verified raw sources for future compilation cycles.
+### 1. Two-Track Space: AI Storage vs. Durable Human Wiki
+- **AI Space (`.curator/`)**: The machine-readable SQLite knowledge graph and disposable inspection projections. It can be wiped and completely recompiled from raw sources at any time.
+- **Human Space (`02_Wiki/`)**: The permanent collection. AI never silently overwrites human notes. Only findings explicitly reviewed and promoted by a human become durable wiki artifacts. Source truth is always protected.
 
-Knowledge is not merely searched—it organically accumulates and grows over time.
+### 2. 4-Layer Hierarchical DAG (No Flat Sprawl)
+Instead of hundreds of unstructured flat pages, knowledge is compiled into discrete, typed layers:
+- **L1 Contexts**: Source structure, page/section locators, and provenance.
+- **L2 Atoms**: Irreducible, source-grounded factual units.
+- **L3 Concepts**: Multi-source thematic clusters and community reports.
+- **L4 Synthesis**: Corpus-wide standing evidence nodes.
+
+### 3. AI FinOps: Separation of Compilation and Reasoning
+- **Compilation**: Structural parsing and fact atomization (`L1 → L2 → L3`) run automatically on local SLMs (e.g. Ollama) or fast background workers at zero or negligible cost.
+- **Reasoning**: Interactive exploration, deep synthesis, and hypothesis debate are handled on-demand by high-reasoning frontier models paired with the human.
+
+### 4. Active Reading Studio & Universal MCP Bridge
+Knowledge must not be locked in a terminal CLI. Incurator provides:
+- **Obsidian Studio**: Split-view PDF reading, instant in-line selection popovers, and in-editor interactive Diff Review for markdown notes.
+- **Universal MCP Server**: Exposes the live knowledge graph to external coding agents (Cursor, VSCode, Claude Desktop), allowing your research vault to serve as the active context brain for coding and writing projects.
+
+Knowledge is no longer a static archive—it becomes a living, self-correcting, and continuously incrementing ecosystem.
