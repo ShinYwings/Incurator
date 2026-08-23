@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.65.0)
+# Incurator - System Behavior (v0.66.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -1990,7 +1990,7 @@ provisioning code.
   `curator.source_map`, `curator.knowledge_unit_extract`,
   `curator.entity_relation_extract`, `curator.community_report_write`,
   `curator.synthesis_write`,
-  `curator.curation_plan`, `curator.query_router`,
+  `curator.curation_plan`,
   `curator.query_local_answer`, `curator.query_global_reduce`,
   `curator.query_explore_expand`, `curator.backprop_classify`,
   `curator.backprop_patch_plan`, and `curator.note_context_pack`.
@@ -2117,14 +2117,29 @@ validation-only tool may return errors and a non-persisted policy preview.
 ## 17. Query Routing: local / global / explore / source-section
 
 `wiki query` and `curator_query` route through a single `QueryOrchestrator`.
-Routing is deterministic-first; an LLM router (`curator.query_router`) is used
-only when deterministic signals are ambiguous.
+Routing is **deterministic, full stop. There is no LLM router.**
 
-> **Divergence, recorded rather than hidden (2026-08-23).** `curator.query_router`
-> is registered (`prompting/families/query.py`), pinned as required by
-> `test_prompt_registry.py`, and listed in §15 — and has **zero production call
-> sites**. The sentence above describes behaviour the code does not have. Either
-> the contract gets implemented or this spec drops it; tracked on the roadmap.
+> **Resolved 2026-08-23 (v0.66.0), and worth reading before proposing one
+> again.** From v0.3.1 to v0.65.0 this section promised that "an LLM router
+> (`curator.query_router`) is used only when deterministic signals are
+> ambiguous". The contract was registered and listed in §15 for five months and
+> **was never called once**. The evidence that it never ran is in the prompt
+> itself: `ROUTER_SYSTEM` listed `source-section` twice with two different
+> descriptions, and the `allowed_routes_block` / `graph_status_block` strings its
+> input model required existed nowhere else in the repository — nothing had ever
+> built them.
+>
+> It was deleted rather than implemented because the job it was invented for is
+> now done in a call that already happens. `curator.query_search_terms@v2`
+> states the message's **intent** from the step that reads the user's own words;
+> an LLM router would read the question a second time and return a route that
+> `choose_route` must still re-gate against `allowed_routes` and `GraphStatus`
+> in Python. Its two unique outputs, `confidence` and `fallback_route`, were
+> consumed by nothing, and the `source-section` route it could name is
+> unreachable anyway because no production path sets `QueryRequest.source_key`.
+>
+> The Arena record is in the v0.66.0 commit history under
+> `.agents/plans/router_contract_arena/`.
 
 **Routing reads a derived INTENT, not keywords in a paraphrase (v0.65.0).**
 

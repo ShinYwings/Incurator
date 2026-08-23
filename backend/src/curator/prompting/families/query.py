@@ -14,8 +14,6 @@ from pydantic import BaseModel, Field
 from ..contracts import PromptContract
 from ..registry import register
 
-Route = Literal["local", "global", "explore", "source-section"]
-
 #: What KIND of answer the message wants. Deliberately not the route: a route is
 #: the intent PLUS `policy.allowed_routes` PLUS `GraphStatus`. Emitting routes
 #: here would hand the model a policy decision it cannot see.
@@ -156,52 +154,6 @@ SEARCH_QUERY_CONTRACT_V2 = register(
 )
 
 
-# --- router ----------------------------------------------------------
-
-class QueryRouterInput(BaseModel):
-    question: str
-    allowed_routes_block: str
-    graph_status_block: str
-
-
-class QueryRouterOutput(BaseModel):
-    route: Route
-    reason: str
-    confidence: float = Field(ge=0.0, le=1.0)
-    fallback_route: Route | None = None
-
-
-ROUTER_SYSTEM = """\
-You are the Curator's Query Router. You choose how to answer a question.
-
-Routes:
-- local: precise entity/fact questions.
-- global: broad synthesis across the whole workspace/vault.
-- explore: open-ended discovery ("what else", "find connections", "new insight").
-- source-section: answer from one source section.
-- source-section: a question scoped to a specific source/section.
-
-Rules:
-- Choose only from the allowed routes provided.
-- Prefer local for fact lookups, global for synthesis, explore for discovery.
-- If the knowledge graph is incomplete, prefer a route that still works and set a
-  fallback_route.
-
-Return ONLY JSON:
-{"route": "local", "reason": "...", "confidence": 0.0, "fallback_route": null}"""
-
-ROUTER_USER = """\
-Question: {{ question }}
-
-Allowed routes:
-{{ allowed_routes_block }}
-
-Graph status:
-{{ graph_status_block }}
-
-Choose the route as JSON."""
-
-
 # --- local answer ----------------------------------------------------
 
 class QueryLocalAnswerInput(BaseModel):
@@ -290,22 +242,6 @@ Final output language: {{ final_output_language }}
 
 Produce the global answer as JSON."""
 
-
-ROUTER_CONTRACT = register(
-    PromptContract(
-        prompt_id="curator.query_router",
-        version="v1",
-        family="query",
-        role="router",
-        purpose="Choose the retrieval route for a question.",
-        input_model=QueryRouterInput,
-        output_model=QueryRouterOutput,
-        system_template=ROUTER_SYSTEM,
-        user_template=ROUTER_USER,
-        validators=("confidence_range",),
-        temperature=0.0,
-    )
-)
 
 LOCAL_CONTRACT = register(
     PromptContract(
