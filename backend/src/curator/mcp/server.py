@@ -2028,7 +2028,13 @@ def build_server() -> FastMCP:
             paths,
             question=question,
             input_language="English",
-            english_query=question,
+            # NOT `english_query=question`. That asserted the user's untouched
+            # text was the system's internal English query, and `english_query`
+            # feeds entity seeding, the BM25/vector query string and the HyDE
+            # prompt -- not just routing. `working_query` falls back to
+            # `question` anyway, so leaving it empty loses nothing and keeps
+            # `english_query_status` honest at "unset".
+            english_query="",
             final_output_language="English",
             workspace_path=ws_path_str,
             force_new=force_new,

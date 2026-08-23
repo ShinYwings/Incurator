@@ -78,10 +78,16 @@ def fetch_context(
                     "warnings": [f"no retrieval: {reason}"],
                     "coverage": {"sufficiency": "not_applicable"},
                 }
-            # Record that a derivation ran, so `build_evidence` can tell an
-            # empty-but-derived query (legitimate: a whole-corpus question has no
-            # search terms) from a caller that never derived one at all.
-            status = "derived"
+            # Propagate HOW the query was produced -- do not assert it.
+            #
+            # This line read `status = "derived"` unconditionally, and that one
+            # literal was the whole bug: when the provider failed,
+            # `derive_search_query` fell back to scraping the raw message, which
+            # keeps every script, so a Korean question came back as Korean with
+            # `is_knowledge_question=True`. Marking that "derived" suppressed the
+            # seeding warning below (scoped to "unset"), and English-only entity
+            # seeding then matched nothing with nothing said.
+            status = derived.status
             return ContextService(paths, client).context_fetch(
                 QueryRequest(
                     question=query_text,

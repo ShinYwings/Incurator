@@ -45,6 +45,18 @@ class DerivedQuery:
     is_knowledge_question: bool
     intent: str = ""
     reason: str = ""
+    #: HOW this was produced — `"derived"` (the model read the message),
+    #: `"fallback"` (the provider failed and terms were scraped from the raw
+    #: message), or `"unset"` (nothing ran; the message was empty).
+    #:
+    #: `"fallback"` exists because it was indistinguishable from `"derived"`, and
+    #: that cost a silent failure: `_fallback_search_terms` keeps every script,
+    #: so a Korean question fell back to Korean, `is_knowledge_question` was True,
+    #: the caller marked it `"derived"`, and the seeding warning — scoped to
+    #: `"unset"` — was suppressed. English-only seeding then matched nothing with
+    #: nothing said. A field that cannot express "somebody tried and failed"
+    #: forces the caller to guess, and it guessed wrong.
+    status: str = "derived"
 
 
 @dataclass
@@ -57,10 +69,14 @@ class QueryRequest:
     #:               `question`, which is the best available behaviour, and
     #:               internals warn when English-only seeding then matches
     #:               nothing.
-    #:   "derived" — it did. An empty `english_query` here is a legitimate
-    #:               result, not a failure: a whole-corpus question has no search
-    #:               terms. Routing does not read this field — `intent` carries
-    #:               that — so there is no third value to distinguish.
+    #:   "derived"  — it did, and the model produced this query. An empty
+    #:                `english_query` here is a legitimate result, not a failure:
+    #:                a whole-corpus question has no search terms.
+    #:   "fallback" — it was attempted and the provider failed, so these terms
+    #:                were scraped from the raw message and may be in any
+    #:                language. Internals must warn on this exactly as they do on
+    #:                "unset"; treating it as "derived" is what made a dead
+    #:                provider look like a working one.
     english_query_status: str = "unset"
     #: The derived intent (`QUERY_INTENTS`), or "" when no derivation ran.
     #:
