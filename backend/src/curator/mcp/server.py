@@ -1520,6 +1520,18 @@ def build_server() -> FastMCP:
         try:
             search.update_index(paths, embed=False)
         except (OSError, sqlite3.Error, search.SearchBackendError) as exc:
+            # Typed on purpose, and NOT the same policy as `curator_build_source`
+            # a few hundred lines down, which catches everything and warns.
+            #
+            # Registration is cheap and re-runnable, so an unexpected error from
+            # the indexer is worth failing this call for: it is a bug, and a bug
+            # reported as a "warning" on an otherwise-successful call goes
+            # unnoticed for releases. A build has just spent minutes of provider
+            # time on L1→L3, so there the same bug must not throw that away.
+            #
+            # The two are pinned by tests in different files. See
+            # `test_search_refresh_policy_is_deliberate.py` for why they differ —
+            # they look like drift and are not.
             warnings.append(f"Search index refresh skipped: {type(exc).__name__}: {exc}")
 
         job_ids: list[int] = []

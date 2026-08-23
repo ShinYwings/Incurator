@@ -95,21 +95,36 @@ remaining god-file ownership domain. Replace silent broad catches only where a
 typed boundary outcome is defined and regression-tested. The last known
 untyped instance — query expansion's three silent swallows — closed in v0.64.0.
 
-**Concrete item recovered from the stash stack, 2026-08-23.** Four entries sat
-there; three were shipped or superseded and were dropped, and the fourth
-(`post-pr73 mcp helper follow-up edits`) had **shipped in substance but not in
-shape**. Its behaviour — catching `(OSError, sqlite3.Error,
-search.SearchBackendError)` around `search.update_index` and returning
-`"Search index refresh skipped: …"` as a tool warning, rather than failing a
-write that had already succeeded — is in `mcp/server.py` verbatim. What never
-landed is the **shared helper** it extracted, so that try/except now sits at
-**four** sites (`mcp/server.py:1521`, `:1616`, `:3096`, `:3146`) and two of them
-have widened to a bare `except Exception`.
+**The one concrete item this workstream had was investigated and CLOSED as a
+non-issue, 2026-08-23.** A stash recovered on the same day carried a patch
+extracting a shared helper for the post-write search-index refresh, on the
+grounds that three MCP tools had grown three exception policies from one
+behaviour. It looked like textbook drift.
 
-Not a bug — the behaviour is right at every site. It is precisely this item's
-subject: one typed boundary outcome defined once, instead of four copies that
-have already begun to drift. The original patch is archived locally at
-`.cache/stash-archive-2026-08-23/stash-0.patch`.
+It is not drift. Two of the sites have **deliberately different policies, each
+pinned by its own test in a different file**:
+
+| tool | unexpected indexer error | pinned by |
+|---|---|---|
+| `curator_register_source` | **propagates** | `test_error_handling_mcp_server.py` |
+| `curator_build_source` | **`ok: True` + warning** | `test_register_build_split.py` |
+
+The difference is priced on what the failure costs the user. Registration is
+cheap and re-runnable, so surfacing a bug in the indexer is worth failing the
+call for. A build has just spent minutes of provider time on L1→L3, and throwing
+that away over an index-refresh bug would be worse than reporting it.
+
+The unification was implemented, and **both tests caught it** — the second only
+after the first was accommodated. Reverted. What shipped instead is the reason,
+written beside the code and guarded by
+`test_search_refresh_policy_is_deliberate.py`, because the resemblance is
+genuinely misleading and the two tests live in files that never mention each
+other.
+
+**This is what A5 asks for.** *"Characterise behaviour before extracting"* — the
+characterisation said do not extract. The remaining workstream is unchanged:
+still no god-file domain has been characterised, and the untyped-catch sweep
+found its last instance in v0.64.0.
 
 ## Phase B — Stop the growth
 
