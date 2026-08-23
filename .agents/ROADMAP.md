@@ -271,35 +271,29 @@ written. A retry spends its budget on 232 instead of 417.
 and every one was retry churn from these stuck sources. That number should fall
 on its own now; re-measure before designing any compression.
 
-### C2. L4 has never produced anything — diagnose before designing
+### C2. L4 had never produced anything — **CLOSED v0.69.6**
 
-**Found 2026-08-23 while sequencing this roadmap.** Not "L4 failed recently" —
-L4 has never once succeeded, across the whole vault's history:
+Diagnosed before designing, as the item required, and the diagnosis changed the
+design. The cause was **one gate**: synthesis ran only when zero community
+reports had failed, and that list takes one entry per failed report prose. Across
+417 reports with a provider refusing on capacity it was never empty, so one
+failure in 417 suppressed the whole layer.
 
-| | |
-|---|---|
-| `synthesis_nodes` rows | **0** |
-| `SYN-*` files in `.curator/Collections/04_Synthesis/` | **0** |
-| sources at `l4_status='done'` | **0** |
+The gate was **inherited, not decided** — `git log -S` puts its current form in
+f663a0a, a commit about status truthfulness that split a shared error list and
+carried the condition over. And it contradicted what it guarded:
+`generate_synthesis` hashes its corpus and skips when unchanged, i.e. it is built
+to be re-run as the corpus fills.
 
-Meanwhile `retrieval/materializer.py`, `retrieval/evidence.py` and
-`context_service.py` all read `synthesis_nodes` — three code paths that have
-never had a row to read.
+L4 now synthesises over the reports that have prose and re-runs when more gain
+it, so a partial L3 yields a partial-but-honest L4 that completes itself.
+`l4_status` also stopped inheriting `l3_errors`.
 
-This is different from item C1. L3 demonstrably works: it produced **514**
-`community_reports`, the newest dated 2026-08-22, and its current
-`l3_status='error'` is a capacity failure on top of a working layer. L4 has no
-such history to point at.
-
-**Diagnose first, design second.** Whether this is a gate that never opens, a
-dependency on L3 completing cleanly, a contract that never validates, or a step
-nothing ever calls, is unknown — and a plan written before knowing would be a
-plan for the wrong problem. The architecture calls L4 "shared stored synthesis";
-the vault has none.
-
-**Consequence for the DAG's honesty:** the system advertises four layers and the
-top one is empty, while `wiki status` reports no gap. A4 is the visibility half
-of this; C2 is the cause.
+**Not yet observed on the real vault.** The fix is unit- and pipeline-tested, but
+the reference vault still has 0 `synthesis_nodes` because L3 there is mid-repair
+(C1). The first real `wiki build` that gets past capacity is the live gate for
+this item — check `synthesis_nodes` and `SYN-*` before treating it as proven in
+production.
 
 ### C3. A source whose parse improved is never re-derived
 
