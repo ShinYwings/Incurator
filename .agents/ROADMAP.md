@@ -53,7 +53,7 @@ they make every later measurement trustworthy. **You cannot stabilise what you
 cannot see**, and this project has repeatedly lost time to state it never
 measured.
 
-### A8. The derivation reaches one surface out of four
+### A8. The derivation reaches one surface out of five
 
 **Filed by the A6 Arena, 2026-08-23.** Found by the agent arguing *for* the LLM
 router, gathering evidence to defend it.
@@ -68,8 +68,13 @@ to make routing deterministic — is populated at one of four construction sites
 | CLI `wiki query` (`query.py:377`) | `""` → `working_query` falls back to the raw question | `""` |
 | MCP `curator_query` (`mcp/server.py:2031`) | `english_query=question` — the **raw question mislabeled as English** | `""` |
 | MCP `curator_fetch_context` (`mcp/server.py:3255`) | absent | `""` |
+| MCP `curator_explore` (`mcp/server.py:3270`) | absent | `""` |
 
-The consequence is the v0.47.0 defect, still live on three surfaces. Route
+**Corrected 2026-08-23 while scoping the work: it is four broken surfaces,
+not three.** `curator_explore` was missed on the first pass — the same kind of
+undercount that let this sit for two releases.
+
+The consequence is the v0.47.0 defect, still live on four surfaces. Route
 signals are English-only **by contract** (`router.py:19-35`), so a Korean
 question through `wiki query` or `curator_query` cannot match `_GLOBAL_SIGNALS`
 or `_EXPLORE_SIGNALS` and lands on `local` by construction, every time.
