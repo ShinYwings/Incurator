@@ -251,28 +251,25 @@ Moderate risk. A four-layer system whose top two layers do not run is not
 unstable so much as **partially built**. This is where "stable" and "the product
 works" stop being different goals.
 
-### C1. L3 global clustering has no resume — 36 sources are stuck
+### C1. L3 prose had no resume — **CLOSED v0.69.5**
 
-**Found 2026-08-23 while diagnosing source 45.** Every one of the vault's
-**36** non-skipped sources reports `l3_status='error'`, and the recorded reason
-is the same for all of them:
+All 36 non-skipped sources sat at `l3_status='error'` because L3 is a global
+pass: one capacity refusal fails every source at once, and the retry re-sent
+every report the provider had already written.
 
-```
-L3 global clustering encountered errors:
-  Antigravity capacity exhausted (429). Model tried: 'gemini-3.5-flash'.
-```
+The roadmap's premise was that the v0.63.0 shape would need "its own design"
+because L3's unit of work is a cluster rather than a batch. It did not — it
+needed **no new table at all**. The report already stores `prompt_run_id`, and
+that run's `input_hash` is the same digest-of-the-rendered-prompt v0.62.0 and
+v0.63.0 use as their key. All 238 prose-bearing reports joined cleanly.
 
-L3 is a **global** pass, not a per-source one, so a single capacity refusal
-fails every source at once. And L3 has none of the resumability now built into
-the layers below it: v0.62.0 made L2 extraction resumable, v0.63.0 did the same
-for graph extraction, and **L3 was never touched**. The identical defect, one
-layer up.
+Live gate, at zero provider calls: of 417 reports, **185 now skip**, 53 had
+genuinely changed grounding and are correctly rewritten, and 179 were never
+written. A retry spends its budget on 232 instead of 417.
 
-The v0.63.0 shape is known to work and is directly transferable — stage each
-completed unit of work keyed on `prompt_runs.input_hash`, release rather than
-delete on failure, replay at publish. What differs is that L3's unit of work is a
-*cluster* over the whole corpus rather than a batch within one source, so the key
-and the staging granularity need their own design rather than a copy.
+**Watch what this does to B1's sync journal.** The journal is 43% tombstones,
+and every one was retry churn from these stuck sources. That number should fall
+on its own now; re-measure before designing any compression.
 
 ### C2. L4 has never produced anything — diagnose before designing
 
