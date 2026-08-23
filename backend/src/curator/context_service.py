@@ -568,6 +568,28 @@ class ContextService:
         status = router.graph_status(self.paths.state_db)
         route, reason = router.choose_route(request, policy, status)
         route, reason, downgraded_from = _admit_route(route, reason, self.disabled_routes)
+        # What the derivation produced, recorded because it was measured wrong
+        # twice (ROADMAP A7). Two single-run observations of one question showed
+        # an empty derived search query, and a routing design was built on the
+        # premise that empty was a stable, deliberate signal. Eight runs of the
+        # same question gave 0/8 empty and a 6-in-8 route flip — a different bug
+        # entirely. One sample was mistaken for a property because nothing stored
+        # enough to check afterwards.
+        #
+        # `status` is what makes it checkable. "a derivation ran and legitimately
+        # found no search terms" and "no derivation ran at all" are different
+        # facts that both store `english_query == ""`, and confusing them is
+        # exactly how the misdiagnosis happened.
+        #
+        # `routing_intent`, NOT `intent`: `retrieval_trace["intent"]` already
+        # exists in this same document and is `ExpandedQuery.intent`
+        # (definition/comparison/procedure/default) — the keyword-cue detector
+        # that steers query EXPANSION. Different mechanism, different vocabulary.
+        derivation = {
+            "status": request.english_query_status,
+            "search_query_empty": not request.english_query.strip(),
+            "routing_intent": request.intent,
+        }
         route_admission = {
             "requested": downgraded_from or route,
             "served": route,
@@ -639,6 +661,7 @@ class ContextService:
             "actions": actions,
             "budget": budget,
             "route_admission": route_admission,
+            "derivation": derivation,
             "selected_items": selected_payloads,
             "omitted_items": omitted_payloads,
         }

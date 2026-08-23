@@ -76,6 +76,33 @@ def _print_audit_summary(audit: dict) -> None:
             f"[cyan]Trace[/cyan]: {query_trace.get('traceId')} "
             f"route={query_trace.get('route')}"
         )
+        reason = query_trace.get("routeReason") or ""
+        if reason:
+            console.print(f"[cyan]Route reason[/cyan]: {reason}")
+        # ROADMAP A7. Stored is not the same as visible: this fact was misread
+        # twice from single runs, and it lived in a JSON column that only
+        # `--json | jq` reached. An empty derived search query is a legitimate
+        # result for a whole-corpus question, and it is NOT the same as no
+        # derivation running at all -- both store an empty query, so the status
+        # is what tells them apart. Print both.
+        derivation = (query_trace.get("retrievalTrace") or {}).get(
+            "context_service", {}
+        ).get("derivation")
+        if derivation:
+            if derivation.get("status") == "derived":
+                terms = (
+                    "no search terms"
+                    if derivation.get("search_query_empty")
+                    else "search terms derived"
+                )
+                intent = derivation.get("routing_intent") or "none stated"
+                console.print(
+                    f"[cyan]Derivation[/cyan]: derived - {terms}, intent={intent}"
+                )
+            else:
+                console.print(
+                    "[cyan]Derivation[/cyan]: not run - routed on the raw question"
+                )
     console.print(f"[cyan]Reports[/cyan]: {len(audit.get('community_reports') or [])}")
     console.print(f"[cyan]Entities[/cyan]: {len(audit.get('entities') or [])}")
     console.print(f"[cyan]Relations[/cyan]: {len(audit.get('relations') or [])}")
