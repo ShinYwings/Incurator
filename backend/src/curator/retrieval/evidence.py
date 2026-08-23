@@ -440,10 +440,15 @@ def build_evidence(
     # which `intent` routes to `global`, and `global` does not seed entities —
     # warning there would fire on a path working exactly as designed, and a
     # warning that fires when nothing is wrong is one the user learns to skip.
-    if request.english_query_status == "unset" and q and not seed_terms(q):
+    if request.english_query_status in ("unset", "fallback") and q and not seed_terms(q):
+        cause = (
+            "the derivation failed and terms were scraped from the raw message"
+            if request.english_query_status == "fallback"
+            else "english_query was not derived by the caller"
+        )
         warnings.append(
-            "english_query was not derived by the caller; internals received the "
-            "raw question and English-only entity seeding matched nothing"
+            f"{cause}; internals received text in the user's language and "
+            "English-only entity seeding matched nothing"
         )
     # §30.1: generate a unique retrieval execution ID for this call.
     pack.retrieval_execution_id = f"RTR-{uuid.uuid4().hex[:8]}"

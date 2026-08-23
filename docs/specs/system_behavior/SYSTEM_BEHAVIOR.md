@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.67.0)
+# Incurator - System Behavior (v0.68.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -2179,7 +2179,7 @@ degrades to the previous behaviour instead of misrouting.
 
 | field | values | meaning |
 |---|---|---|
-| `status` | `"derived"` \| `"unset"` | whether a derivation actually ran |
+| `status` | `"derived"` \| `"fallback"` \| `"unset"` | whether a derivation ran, and whether it succeeded |
 | `search_query_empty` | bool | whether it produced no search terms |
 | `routing_intent` | `""` \| `lookup` \| `synthesis` \| `discovery` | the intent it stated |
 
@@ -2192,6 +2192,18 @@ deliberate signal. Eight runs of the same question gave **0/8 empty** and a
 **6-in-8 route flip** instead — an entirely different bug. One sample was
 mistaken for a property, twice, because nothing stored enough to check. `status`
 is what makes it checkable; `question_hash` groups the repeated runs.
+
+**`"fallback"` is a third value, added in v0.68.0 after it cost a silent
+failure.** When the provider fails, `derive_search_query` degrades to
+`_fallback_search_terms`, which keeps the letters and digits of **any** script —
+so a Korean question comes back as Korean, with `is_knowledge_question=True`. The
+plugin boundary then set `english_query_status = "derived"` unconditionally, and
+the entity-seeding warning was scoped to `"unset"`, so it was **suppressed**:
+English-only seeding matched nothing and said nothing.
+
+A status that can only say *derived* or *nobody derived* cannot express *somebody
+tried and failed*, which forced the caller to pick one — and it picked the one
+that disabled the alarm. `"fallback"` warns exactly as `"unset"` does.
 
 **It is `routing_intent`, not `intent`, on purpose.** `retrieval_trace["intent"]`
 already exists in the same document and is `ExpandedQuery.intent`

@@ -2,6 +2,50 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.68.0] - 2026-08-23
+### Fixed
+- **A dead LLM provider could make retrieval fail silently, with the warning
+  built to catch it switched off by the caller.**
+
+  Found by an adversarial agent during planning, then reproduced directly. The
+  chain:
+
+  1. the provider fails, so the search-query derivation falls back to scraping
+     terms from the raw message;
+  2. that fallback keeps the letters of **any** script — its docstring claimed
+     "an honest empty for pure non-Latin input", and it never did that — so
+     `'이 논문의 전체 주제를 요약해줘'` comes back as Korean;
+  3. the result still looks like a question, so the boundary does not bail;
+  4. the boundary then marked it `english_query_status = "derived"`
+     **unconditionally**;
+  5. the entity-seeding warning is scoped to `"unset"` — so it was **suppressed**.
+
+  Net effect: English-only entity seeding matched nothing, and nothing was said
+  about it. A status that can only say *derived* or *nobody derived* cannot
+  express *somebody tried and failed*, so the caller had to guess — and guessed
+  the value that disabled the alarm.
+
+  `english_query_status` now has a third value, `"fallback"`, which warns exactly
+  as `"unset"` does. `DerivedQuery` states how it was produced instead of leaving
+  the caller to infer it.
+
+- **`curator_query` no longer relabels the raw question as the English query.**
+
+  It passed `english_query=question` — the user's untouched text, asserted to be
+  the system's internal English query. `english_query` reaches past routing into
+  entity seeding, the BM25/vector query string, and the HyDE prompt.
+
+  `working_query` falls back to `question` when `english_query` is empty, so the
+  two behave identically and the claim cost nothing to drop — which is also why
+  the lie survived: nothing downstream could tell a real English query from a
+  relabelled Korean one.
+
+### Note
+- `_fallback_search_terms` keeps every script on purpose — that is right for the
+  mixed-script case that dominates this domain (`"ellipsoid 형태의 quadric"`). The
+  code is unchanged; the docstring that promised otherwise is corrected, and the
+  honesty now lives in `status` where a caller can act on it.
+
 ## [0.67.0] - 2026-08-23
 ### Added
 - **Every query trace now says whether a search-query derivation ran, and what

@@ -198,14 +198,20 @@ def derive_search_query(
     rather than by matching words, so there is no keyword list to maintain and
     nothing to miss when the user phrases it differently.
 
-    Degrades to the ASCII terms already present in the message. That is a real
-    query for the mixed-script case that dominates this domain ("ellipsoid
-    형태의 quadric") and an honest empty for pure non-Latin input, which the
-    caller surfaces rather than silently searching in the wrong language.
+    Degrades to `_fallback_search_terms`, which keeps the letters and digits of
+    ANY script. That is a real query for the mixed-script case that dominates
+    this domain ("ellipsoid 형태의 quadric").
+
+    It is NOT an "honest empty" for pure non-Latin input — this docstring
+    claimed that for two releases and the code never did it (`\w` under
+    `re.UNICODE` keeps Korean and Cyrillic intact). The honesty lives in
+    `status="fallback"` instead, which the caller must propagate: marking a dead
+    provider's output as `"derived"` suppressed the one warning that would have
+    surfaced it.
     """
     message = (message or "").strip()
     if not message:
-        return DerivedQuery("", False, "", "empty message")
+        return DerivedQuery("", False, "", "empty message", status="unset")
 
     from . import prompting
     from .prompting.families.query import SearchQueryInput, SearchQueryOutputV2
@@ -227,12 +233,20 @@ def derive_search_query(
         terms = _fallback_search_terms(message)
         # No intent: the step that would have judged it never ran. "" routes on
         # today's signals rather than on a guess.
-        return DerivedQuery(terms, bool(terms), "", f"derivation unavailable: {exc}")
+        return DerivedQuery(
+            terms, bool(terms), "", f"derivation unavailable: {exc}", status="fallback"
+        )
 
     if not parsed.is_knowledge_question:
-        return DerivedQuery("", False, "", parsed.reason or "not a knowledge question")
+        return DerivedQuery(
+            "", False, "", parsed.reason or "not a knowledge question", status="derived"
+        )
     return DerivedQuery(
-        parsed.search_query.strip(), True, str(parsed.intent or ""), parsed.reason
+        parsed.search_query.strip(),
+        True,
+        str(parsed.intent or ""),
+        parsed.reason,
+        status="derived",
     )
 
 
