@@ -267,7 +267,22 @@ class V031McpToolsTests(unittest.TestCase):
         self.assertEqual(_paths.root.resolve(), self.paths.root.resolve())
         self.assertEqual(query_service.call_args.kwargs["question"], "failed question")
         self.assertEqual(query_service.call_args.kwargs["input_language"], "English")
-        self.assertEqual(query_service.call_args.kwargs["english_query"], "failed question")
+        # NOT the question. `english_query` is the system's INTERNAL English
+        # query, and passing the user's untouched text asserts it is already
+        # English -- a claim that reaches past routing into entity seeding, the
+        # BM25/vector query string, and the HyDE prompt.
+        #
+        # This assertion pinned `"failed question"` from v0.30.0 (db1bf20) to
+        # v0.68.0. It was not a decision: that commit was "unify failure surface
+        # contracts", it replaced an inline implementation with a delegation to
+        # `plugin_api.curator_query`, and `english_query=question` appears in its
+        # diff as an ADDED line -- the code it replaced never set the field at
+        # all. The test was written in the same commit and froze the filler.
+        #
+        # `working_query` falls back to `question` when this is empty, so
+        # behaviour is unchanged and `english_query_status` stays honest at
+        # "unset".
+        self.assertEqual(query_service.call_args.kwargs["english_query"], "")
         self.assertEqual(
             query_service.call_args.kwargs["final_output_language"],
             "English",
