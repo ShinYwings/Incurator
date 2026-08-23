@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.68.0)
+# Incurator - System Behavior (v0.69.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -2140,6 +2140,44 @@ Routing is **deterministic, full stop. There is no LLM router.**
 >
 > The Arena record is in the v0.66.0 commit history under
 > `.agents/plans/router_contract_arena/`.
+
+### Where the derivation happens, and when it is skipped (v0.69.0)
+
+The English search query and the routing intent are derived **once, inside
+`ContextService.context_fetch`** — the single point every surface reaches
+(`choose_route` is called once there, `build_evidence` once).
+
+It was previously derived at one boundary (`plugin_api/context.py`) and four
+sibling surfaces never caught up: `wiki query`, `curator_query`,
+`curator_fetch_context`, and `curator_explore` all routed without an intent, and
+the one boundary that *was* filled in was filled in wrong until v0.68.0. That is
+measured history, not a hypothetical, and it is why this lives at the funnel.
+
+**It is skipped when the question is already predominantly ASCII**
+(`query.is_probably_english`, >85% — the same threshold `translate_to_english`
+uses, extracted so the two cannot drift):
+
+| | |
+|---|---|
+| derivation costs | **12-50 s**, measured |
+| what it buys on search terms | **nothing** — the deterministic fallback returned 1,508 hits across the same 28 sources with the same top results, against the LLM's 1,500 |
+| what it uniquely buys | `intent` |
+
+And when `english_query` is empty, `working_query` is **the user's own words**.
+For an English question the route signals therefore read what the user actually
+typed — better than a derived paraphrase, which came out eight different ways for
+one question and flipped the route 6-in-8. For a non-English question the
+English-only signals cannot match at all, so the route is `local` by
+construction; that is the case worth paying for.
+
+The plugin boundary still derives before calling in, because it also decides
+whether the message is a knowledge question at all — a judgment about what the
+user's *message* is, which the retrieval layer should not make on behalf of four
+other callers. A request that arrives already `"derived"` is not derived again.
+
+The pack returns `english_query`: the funnel derives onto a local copy, so
+callers that echo the query (`QueryOrchestrator`) must read it from the response
+or they report a query the system never ran.
 
 **Routing reads a derived INTENT, not keywords in a paraphrase (v0.65.0).**
 

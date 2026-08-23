@@ -203,8 +203,8 @@ def derive_search_query(
     this domain ("ellipsoid 형태의 quadric").
 
     It is NOT an "honest empty" for pure non-Latin input — this docstring
-    claimed that for two releases and the code never did it (`\w` under
-    `re.UNICODE` keeps Korean and Cyrillic intact). The honesty lives in
+    claimed that for two releases and the code never did it (the word-character
+    class under ``re.UNICODE`` keeps Korean and Cyrillic intact). The honesty lives in
     `status="fallback"` instead, which the caller must propagate: marking a dead
     provider's output as `"derived"` suppressed the one warning that would have
     surfaced it.
@@ -250,14 +250,31 @@ def derive_search_query(
     )
 
 
+#: Above this share of ASCII characters a message is treated as already English.
+#: Not a language detector — a cheap gate on "would translating this help?". The
+#: mixed-script case that dominates this domain ("ellipsoid 형태의 quadric") sits
+#: below it and is correctly sent for derivation.
+_ENGLISH_ASCII_RATIO = 0.85
+
+
+def is_probably_english(text: str) -> bool:
+    """Whether `text` is ASCII enough that deriving an English query is pointless.
+
+    Extracted so `translate_to_english` and the ContextService funnel cannot
+    drift to two different thresholds for the same judgement.
+    """
+    if not text:
+        return True
+    return sum(1 for c in text if ord(c) < 128) / len(text) > _ENGLISH_ASCII_RATIO
+
+
 def translate_to_english(client: ChatClient, question: str) -> str:
     """Translate the question to English for BM25/vector search.
 
     Returns the original question unchanged if translation fails or if
     the question is already predominantly ASCII.
     """
-    ascii_ratio = sum(1 for c in question if ord(c) < 128) / max(len(question), 1)
-    if ascii_ratio > 0.85:
+    if is_probably_english(question):
         return question
 
     def _ascii_fallback(text: str) -> str:

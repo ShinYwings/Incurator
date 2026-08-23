@@ -2,6 +2,57 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.69.0] - 2026-08-23
+### Fixed
+- **A question asked in any language other than English could not reach a
+  broad-synthesis or discovery answer. Ever.**
+
+  The route signals are English-only by contract, and they match against
+  `working_query` — which falls back to your raw question when nothing derived an
+  English one. So "내 볼트 전체의 주제를 정리해줘" matched no signal and landed on a
+  narrow `local` lookup **by construction, every time**, no matter what it asked
+  for.
+
+  This was fixed at one boundary in v0.47.0 — the Obsidian sidebar — and four
+  other surfaces never caught up: `wiki query`, `curator_query`,
+  `curator_fetch_context`, and `curator_explore`. The comment in `router.py` said
+  it was "fixed at the boundary", which read as though that meant all of them.
+
+  The derivation now happens **once, in the one place every surface passes
+  through**, so a new surface cannot forget it.
+
+### Changed
+- **A non-English question now costs one extra model call; an English one costs
+  nothing.**
+
+  The derivation is skipped when the question is already >85% ASCII — the same
+  threshold `translate_to_english` has always used, now extracted so the two
+  cannot drift apart.
+
+  This is deliberate, and measured. The deterministic fallback returns **1,508
+  hits across the same 28 sources with the same top results** as the LLM's 1,500,
+  *"for none of the LLM's 12-50 s"* — so derivation buys nothing on search terms.
+  What it uniquely produces is the **intent**, and intent only changes an outcome
+  where the English-only signals cannot work.
+
+  And for an English question, `working_query` is **your own words**. Routing on
+  what you typed beats routing on a paraphrase: the same question paraphrased
+  eight times produced eight different phrasings and flipped the route 6-in-8.
+
+### Note
+- The Obsidian boundary still derives before calling in, because it also decides
+  whether your message is a knowledge question at all — `"translate this
+  paragraph:"` should not trigger retrieval. That is a judgment about what your
+  *message* is, and it should not be made by the retrieval layer for four other
+  callers. A request that already carries a derivation is not derived twice.
+
+- The evidence pack now returns `english_query`: the query the system actually
+  ran, rather than the raw question echoed back.
+
+  This completes ROADMAP A8, which shipped as two releases — v0.68.0 fixed what
+  `"derived"` means, because moving the derivation first would have spread that
+  release's silent-failure mode from the plugin to the CLI and MCP.
+
 ## [0.68.0] - 2026-08-23
 ### Fixed
 - **A dead LLM provider could make retrieval fail silently, with the warning

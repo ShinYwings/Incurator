@@ -64,7 +64,11 @@ class QueryOrchestrator:
             route=context_pack["route"],
             trace_id=context_pack["trace_id"],
             input_language=request.input_language,
-            english_query=request.working_query,
+            # From the PACK, not the request: the funnel may have derived a
+            # query (`context_service.context_fetch`), and it does so on a
+            # `replace()`d local. Reading `request` here would report the raw
+            # question while the system searched the derived one.
+            english_query=context_pack.get("english_query") or request.working_query,
             final_output_language=request.final_output_language,
             source_span_ids=context_pack["source_span_ids"],
             community_report_ids=context_pack["community_report_ids"],
