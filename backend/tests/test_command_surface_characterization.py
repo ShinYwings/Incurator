@@ -63,6 +63,11 @@ def test_cli_root_command_tree_is_stable() -> None:
         "config",
         "db",
         "devices",
+        # v0.70.0. This list is a refactor-safety snapshot, not a frozen command
+        # set -- the module docstring says it locks the surface before splitting
+        # cli.py, "rather than new behavior". A genuinely new command belongs
+        # here; the test's job is to make adding one deliberate, which it did.
+        "gc",
         "init",
         "insight",
         "inspect",
