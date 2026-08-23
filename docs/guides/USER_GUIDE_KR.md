@@ -978,8 +978,9 @@ Tier-2 LLM/HyDE query expansion은 기본적으로 recovery mechanism으로 켜�
 | `wiki prompt eval` | 오프라인 프롬프트 평가 픽스처를 실행합니다(LLM 불필요). |
 | `wiki inspect synthesis <SYN-…>` | L4 Synthesis node 하나의 read-only audit report를 검사합니다. community report, graph entity/relation, source span, prompt trace, warning을 포함합니다. |
 | `wiki inspect report <REP-…>` | L3 community report 하나의 source support를 검사합니다. |
+| `wiki config set gc.sessions_retention_days <N>` | 채팅 보관 기간: `30`, `90`, `180`, `365`, 또는 영구 보관은 `0`(**기본값**). 채팅은 사용자 본인의 글이므로 기간을 직접 고르기 전에는 아무것도 삭제되지 않으며, 기간을 고르면 동기화되는 모든 기기에서 삭제됩니다. |
 | `wiki gc plan` | 회수 가능한 디스크와, 늘어나지만 **일부러 보존하는** 항목을 이유와 함께 보여줍니다. 증가분 대부분은 **기기 간 동기화되는** 데이터라, 로컬에서 지우면 모든 기기로 전파되거나 다음 동기화에서 되살아납니다. |
-| `wiki gc run` | 회수 가능한 항목을 삭제합니다(먼저 확인을 요청). 확실히 잔해인 vault 캐시 디렉터리만 대상입니다: 기록된 vault 경로가 사라졌고, 그 경로가 임시(temp) 접두사 아래이며, **또한** 캐시된 DB에 source가 0개일 때. 세 조건 모두 필요합니다 — "경로가 없다"만으로는 마운트 여부 검사일 뿐이고, 연결 해제된 외장 드라이브가 똑같이 보입니다. |
+| `wiki gc run` | 회수 가능한 항목과 보관 기간이 지난 채팅 세션을 삭제합니다 — 채팅 삭제는 **동기화되는 모든 기기에 적용되며 되돌릴 수 없다**고 확인 창에서 명시합니다(먼저 확인을 요청). 확실히 잔해인 vault 캐시 디렉터리만 대상입니다: 기록된 vault 경로가 사라졌고, 그 경로가 임시(temp) 접두사 아래이며, **또한** 캐시된 DB에 source가 0개일 때. 세 조건 모두 필요합니다 — "경로가 없다"만으로는 마운트 여부 검사일 뿐이고, 연결 해제된 외장 드라이브가 똑같이 보입니다. |
 | `wiki inspect answer <QTR-…>` | query answer 하나의 지속 저장된 route, **route 사유**, **파생(derivation) 상태**, 선택 근거, prompt trace, warning을 검사합니다. derivation 줄은 *파생이 실행되었고 검색어를 찾지 못함*과 *파생이 아예 실행되지 않음*을 구분합니다 — 둘 다 빈 검색어를 남기지만, 볼트 전체를 묻는 질문에서 정상적인 결과는 전자뿐입니다. |
 | `wiki insight list [--workspace P] [--status pending]` | 잠정 인사이트 후보를 나열합니다. |
 | `wiki insight show <INS-…>` | 인사이트 후보 하나를 표시합니다. |
