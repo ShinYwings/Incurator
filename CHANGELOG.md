@@ -2,6 +2,47 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.69.4] - 2026-08-23
+### Fixed
+- **Sending one chat message moved ~104 MB of disk I/O. It now moves ~7 MB.**
+
+  Measured on the reference vault, where `.curator/sessions.json` had reached
+  **17.3 MB**:
+
+  | | before | after |
+  |---|---|---|
+  | `sessions.json` | **17.31 MB** | **7.24 MB** (58% smaller) |
+  | full-file writes per message sent | **6** | **1** |
+  | I/O per message | **~104 MB** | **~7 MB** |
+
+  Three independent causes, all of them waste:
+
+  1. **The file stored megabytes nothing ever reads.** A context ref captured
+     automatically from your active tab keeps `content`, `outline` and
+     `windowPages`. The prompt builder skips auto refs outright *before* reading
+     any of it, and the next turn rebuilds them fresh from what is on screen.
+     **7.8 MB of the file was written, synced to every device, and never looked
+     at again.** Chip thumbnails (`imageBase64`) are still kept — the transcript
+     renders those, so dropping them would remove something you can see.
+
+  2. **Six full rewrites per message.** Each `persistCurrentSession()` deep-cloned
+     the whole structure and did a read + parse + merge + stringify + write. They
+     all persist the same object, so the last subsumes the rest; they are now
+     coalesced into one. Writes still never overlap, and a save made *while* a
+     write is in flight still gets its own write rather than being told it was
+     persisted.
+
+  3. **A 30-session cap that never capped.** It dropped sessions from the local
+     list without tombstoning them, and the merge re-seeds from the file on disk —
+     so every trimmed session came back on the save that follows moments later.
+     Removed rather than "fixed": making it real means deleting your chat history
+     on every device as a side effect of a display limit, which is a retention
+     decision that needs your say-so.
+
+  Nothing you can see changes. Chat text, chip labels and thumbnails are all
+  untouched, and only the on-disk copy loses the unread payloads — the in-memory
+  ref keeps everything for the turn it belongs to.
+
 ## [0.69.3] - 2026-08-23
 ### Fixed
 - **The comment above the session-storage code said `sessions.json` is

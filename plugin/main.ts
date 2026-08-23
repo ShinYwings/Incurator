@@ -111,6 +111,7 @@ import {
   backendCommandPolicy,
   collectBackendProcess,
 } from "./src/utils/backendProcess";
+import { createCoalescedWriter } from "./src/utils/coalescedWriter";
 import { normalizeSessionData } from "./src/utils/sessionData";
 import { vaultMachineCacheDir } from "./src/utils/machineCache";
 import {
@@ -163,7 +164,6 @@ export default class ObsidianAIAgent extends Plugin {
   private syncStatusBar: HTMLElement | null = null;
   private settingsPersistPromise: Promise<void> = Promise.resolve();
   private zoteroProfilesPersistPromise: Promise<void> = Promise.resolve();
-  private sessionPersistPromise: Promise<void> = Promise.resolve();
   private sessionStoreWritable = false;
   private deletedZoteroProfiles: Record<string, number> = {};
   private localIncuratorRepoPathHint = "";
@@ -1693,14 +1693,27 @@ export default class ObsidianAIAgent extends Plugin {
     }
   }
 
+  // Sending ONE chat message calls persistCurrentSession() six times (user
+  // message, assistant placeholder, materialized refs, and the finally blocks).
+  // Each call deep-cloned the entire session structure through
+  // JSON.parse(JSON.stringify(...)) and then did a full read + parse + merge +
+  // stringify + write of sessions.json. On a 14.5 MB file that is roughly a
+  // hundred megabytes of I/O per message, plus a full Syncthing retransmit each
+  // time -- the measured ~1.1 s per send.
+  //
+  // The writes are redundant, not merely frequent: they all persist the same
+  // mutable object, so the last subsumes the rest. Coalescing is lossless.
+  // See createCoalescedWriter for the ordering guarantee.
+  private readonly sessionWriter = createCoalescedWriter<SessionData>(
+    () =>
+      normalizeSessionData(
+        JSON.parse(JSON.stringify(this.sessionData)) as Partial<SessionData>
+      ),
+    (snapshot) => this.writeSessionData(snapshot)
+  );
+
   async saveSessionData(): Promise<void> {
-    const snapshot = normalizeSessionData(
-      JSON.parse(JSON.stringify(this.sessionData)) as Partial<SessionData>
-    );
-    this.sessionPersistPromise = this.sessionPersistPromise
-      .catch(() => undefined)
-      .then(() => this.writeSessionData(snapshot));
-    return this.sessionPersistPromise;
+    return this.sessionWriter.save();
   }
 
   private async writeSessionData(snapshot: SessionData): Promise<void> {
