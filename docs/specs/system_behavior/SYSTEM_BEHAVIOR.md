@@ -3702,6 +3702,28 @@ heuristics never compensate for unchecked or broadly grounded claims.
   restructuring is preferred over artificial id stability. The superseded
   community/report is set `retired_at` BEFORE synthesis (§ L4) consumes it, so no
   stale report feeds a downstream artifact.
+- **The prose pass resumes (v0.69.5).** `generate_report_prose` skips a report
+  whose stored prose was produced by the same rendered prompt: the report's
+  `prompt_run_id` resolves to a `prompt_runs` row, and its `input_hash` — the
+  digest of the fully rendered system+user messages — is compared against what
+  would be sent now. `curate_spec_hash` is compared separately, because the
+  curation policy shapes the output without appearing in the prompt text.
+
+  Keyed on the rendered prompt, **not** on prose merely existing: a report whose
+  membership or eligible support moved has a different prompt and is rewritten.
+
+  L3 is a **global** pass, so one capacity refusal fails every source at once.
+  Without this, the retry re-sent every report the provider had already written.
+  Measured on the reference vault: 417 live reports, 238 with prose, of which
+  **185 are byte-identical prompts** and 53 had genuinely changed. A retry now
+  spends its budget on 232 reports instead of 417, which is what lets the 179
+  never-written reports be reached at all — every one of the vault's 36
+  non-skipped sources had been sitting at `l3_status='error'` across runs that
+  should have converged.
+
+  This is what §26 gives L2 extraction and graph extraction, one layer up. Unlike
+  those it needs **no staging table**: the resume key is already stored.
+
 - **Exact eligible claim support, no fallback (Arena decision 12).** Every
   report finding cites exact eligible claim support drawn from the `active`
   **extracted** relations over canonical entities in the community. Active
