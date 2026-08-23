@@ -1254,9 +1254,21 @@ of being truncated by the normal-command limits.
   `· runtime missing` suffix flags an unhealthy model.
 - **Traces** tab lists durable `QTR-` query traces from the current Obsidian
   vault via the vault-local backend command runner (`wiki plugin trace list`).
-  Selecting one loads a separate backend detail view with route, latency, intent/mode,
+  Selecting one loads a separate backend detail view with route (and its reason),
+  latency, mode/**expansion cue**, **derivation status**,
   degradation/`fallbackMode`, warnings, evidence, and available RRF/rerank
   contribution data (`wiki plugin trace show`).
+
+  The **Derivation** row says whether a search-query derivation ran for that
+  query, and what it produced — `derived — no search terms, intent=synthesis`,
+  or `not run — routed on the raw question`. *A derivation ran and found no
+  search terms* (normal for a whole-corpus question) and *no derivation ran*
+  both leave an empty search query, so only this row tells them apart.
+
+  The cue row is labelled **expansion cue**, not "intent": that value
+  (`definition` / `comparison` / `procedure` / `default`) steers query expansion
+  and is a different mechanism from the routing intent
+  (`lookup` / `synthesis` / `discovery`) shown on the Derivation row.
 - **Synthesis** tab lists recent L4 `SYN-` nodes from the current vault
   (`wiki plugin synthesis list`). Selecting one loads the read-only L4-to-L1
   audit chain (`wiki plugin synthesis show`) with community reports, graph

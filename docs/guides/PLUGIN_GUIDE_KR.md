@@ -1114,9 +1114,21 @@ output 16 MiB를, pipeline/import/model download/job 작업은 최대 60분과 6
   모델을 표시합니다.
 - **Traces** 탭은 현재 Obsidian vault의 durable `QTR-` query trace 목록을
   vault-local backend command runner로 보여줍니다 (`wiki plugin trace list`).
-  항목을 선택하면 별도의 backend detail view를 로드해 route, latency, intent/mode,
-  degradation/`fallbackMode`, warnings, evidence, 사용 가능한 RRF/rerank
-  contribution 데이터를 표시합니다 (`wiki plugin trace show`).
+  항목을 선택하면 별도의 backend detail view를 로드해 route(및 그 사유), latency,
+  mode/**expansion cue**, **derivation 상태**, degradation/`fallbackMode`,
+  warnings, evidence, 사용 가능한 RRF/rerank contribution 데이터를 표시합니다
+  (`wiki plugin trace show`).
+
+  **Derivation** 행은 해당 쿼리에서 검색어 파생(derivation)이 실행되었는지와 그
+  결과를 보여줍니다 — `derived — no search terms, intent=synthesis` 또는
+  `not run — routed on the raw question`. *파생이 실행되었고 검색어를 찾지 못함*
+  (볼트 전체를 묻는 질문에서는 정상)과 *파생이 아예 실행되지 않음*은 둘 다 빈
+  검색어를 남기므로, 이 행만이 둘을 구분해 줍니다.
+
+  cue 행의 라벨은 "intent"가 아니라 **expansion cue**입니다. 그 값
+  (`definition` / `comparison` / `procedure` / `default`)은 query expansion을
+  조정하며, Derivation 행에 표시되는 routing intent
+  (`lookup` / `synthesis` / `discovery`)와는 다른 메커니즘입니다.
 - **Synthesis** 탭은 현재 vault의 최근 L4 `SYN-` node 목록을 보여줍니다
   (`wiki plugin synthesis list`). 항목을 선택하면 community report, graph
   entity/relation, source span, prompt trace, grounding/staleness warning이

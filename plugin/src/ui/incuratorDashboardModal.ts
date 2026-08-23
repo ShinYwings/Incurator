@@ -376,7 +376,22 @@ export class IncuratorDashboardModal extends Modal {
     tbl("Route", `${tr.route}${tr.routeReason ? " (" + tr.routeReason + ")" : ""}`);
     tbl("Latency", `${tr.latencyMs ?? "?"} ms`);
     const rt = tr.retrievalTrace || {};
-    tbl("Mode/Intent", `${rt.mode || "?"} / ${rt.intent || "?"}`);
+    // "Expansion cue", not "Intent". `rt.intent` is ExpandedQuery.intent --
+    // the keyword-cue detector (definition/comparison/procedure/default) that
+    // steers query EXPANSION. Since v0.67.0 a ROUTING intent
+    // (lookup/synthesis/discovery) lives in the same trace under
+    // context_service.derivation, so an unqualified "Intent" row would point
+    // the reader at the wrong one.
+    tbl("Expansion cue", `${rt.mode || "?"} / ${rt.intent || "?"}`);
+    const der = (rt.context_service || {}).derivation;
+    if (der) {
+      tbl(
+        "Derivation",
+        der.status === "derived"
+          ? `derived — ${der.search_query_empty ? "no search terms" : "search terms derived"}, intent=${der.routing_intent || "none stated"}`
+          : "not run — routed on the raw question",
+      );
+    }
     tbl("Fallback", rt.fallback_mode || "none", rt.fallback_mode ? "is-warn" : "is-ok");
     if (tr.warnings && tr.warnings.length) tbl("Warnings", tr.warnings.join("; "), "is-warn");
     const ev = tr.evidence || [];
