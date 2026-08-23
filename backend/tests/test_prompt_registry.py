@@ -16,7 +16,6 @@ REQUIRED_IDS = {
     "curator.community_report_write",
     "curator.synthesis_write",
     "curator.curation_plan",
-    "curator.query_router",
     "curator.query_local_answer",
     "curator.query_global_reduce",
     "curator.query_explore_expand",
@@ -75,8 +74,12 @@ def test_validator_names_are_known() -> None:
 
 def test_list_filters_by_family() -> None:
     query_prompts = prompting.REGISTRY.list(family="query")
+    # Set EQUALITY, deliberately. This is the guard that keeps
+    # `curator.query_router` deleted: v0.66.0 removed it after an Arena found it
+    # had zero call sites, zero prompt_runs rows in any of the 29 databases in
+    # the repo, and a prompt template listing `source-section` twice because
+    # nothing had ever rendered it. Re-registering it fails here.
     assert {c.prompt_id for c in query_prompts} == {
-        "curator.query_router",
         "curator.query_local_answer",
         "curator.query_global_reduce",
         # v0.48.0: derives the internal English search query, or decides the

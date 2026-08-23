@@ -1,9 +1,16 @@
-"""Deterministic query routing (v0.3.1).
+"""Deterministic query routing (SYSTEM_BEHAVIOR.md §17).
 
-Routing is deterministic-first (SYSTEM_BEHAVIOR.md §17). An explicit
-``--mode`` wins when the policy allows it; otherwise simple signals choose the
-route. The LLM router contract (curator.query_router) exists for the ambiguous
-case but deterministic routing covers the common paths first.
+An explicit ``--mode`` wins when the policy allows it; otherwise the request's
+derived intent decides, and simple English signals decide when no intent was
+derived.
+
+Routing is deterministic, full stop. There is no LLM router. A
+``curator.query_router`` contract was registered from v0.3.1 to v0.65.0 for "the
+ambiguous case" and was never called once — its prompt listed ``source-section``
+twice, and the two block strings its input model required were never built by
+anything. v0.66.0 deleted it: `curator.query_search_terms@v2` states the intent
+from the call that already reads the user's words, so the second round trip
+bought nothing that ``_pick`` below does not still have to re-gate in Python.
 """
 
 from __future__ import annotations

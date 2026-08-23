@@ -2,6 +2,42 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.66.0] - 2026-08-23
+### Removed
+- **`curator.query_router` — a prompt contract that was promised for five months
+  and never called once.**
+
+  `SYSTEM_BEHAVIOR.md` §17 has said since v0.3.1 that "an LLM router
+  (`curator.query_router`) is used only when deterministic signals are
+  ambiguous". The contract was registered, required by the prompt-registry test,
+  and listed in §15 — and had **zero production call sites**. The spec described
+  behaviour the code did not have.
+
+  It was deleted rather than implemented. The evidence that it had never run was
+  inside the prompt itself: `ROUTER_SYSTEM` listed `source-section` **twice**,
+  with two different descriptions, and the `allowed_routes_block` /
+  `graph_status_block` strings its input model required appeared **nowhere else
+  in the repository** — nothing had ever built them.
+
+  | probe | result |
+  |---|---|
+  | production call sites | **0** |
+  | `prompt_runs` rows, across all 29 databases in the repo | **0** |
+  | readers of `ROUTER_CONTRACT` | **0** |
+  | eval fixtures | none — `wiki prompt eval` runs a hand-listed set, not a per-contract sweep |
+
+  The job it was invented for now happens in a call that already runs:
+  `curator.query_search_terms@v2` states the message's **intent** from the step
+  that reads your actual words (v0.65.0). A second round trip would read the
+  question again and return a route that `choose_route` must still re-gate
+  against `allowed_routes` and `GraphStatus` in Python. Its two unique outputs,
+  `confidence` and `fallback_route`, were consumed by nothing.
+
+  Routing is now documented as what it is: **deterministic, full stop.**
+
+  No migration. Nothing stored referenced the id. The only user-visible change is
+  one fewer row in `wiki prompt list --family query`.
+
 ## [0.65.0] - 2026-08-23
 ### Fixed
 - **The same question no longer reaches a different corpus each time you ask it.**

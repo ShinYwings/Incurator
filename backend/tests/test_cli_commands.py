@@ -39,7 +39,7 @@ class V031CliTests(unittest.TestCase):
     def test_prompt_list_family_filter(self) -> None:
         res = self.runner.invoke(app, ["prompt", "list", "--family", "query"])
         self.assertEqual(res.exit_code, 0)
-        self.assertIn("curator.query_router", res.stdout)
+        self.assertIn("curator.query_local_answer", res.stdout)
         self.assertNotIn("curator.source_map", res.stdout)
 
     def test_prompt_eval(self) -> None:
