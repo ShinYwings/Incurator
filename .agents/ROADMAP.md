@@ -325,14 +325,24 @@ corpus is not stale. The user chose the honesty half, and it shipped as v0.69.7:
 `last_ingested` is stamped when an authoritative generation is published, and the
 ledger no longer reports "never" over 1,098 atoms.
 
-**What genuinely remains** (small, no LLM, no schema):
-`upsert_source_span` returns the existing id on a hash match and **never updates
-metadata**, so a span's `loss` label cannot be repaired by re-parsing. Corpus-wide
-the Arena measured 1,254 placeholder-bearing spans, 1,135 labelled, **119
-unlabelled** (source 37: 93). `pipeline/source_spans.py::backfill_span_loss`
-already repairs exactly this deterministically and is wired into
-`wiki lint --fix` — so the first step is to run it and re-measure, not to write
-anything.
+**The remainder is CLOSED too, by looking rather than building.**
+`upsert_source_span` never updates metadata on a hash match, so a span's `loss`
+label cannot be repaired by re-parsing: 1,254 placeholder-bearing spans, 1,135
+labelled, **119 unlabelled**. I started a release to make `wiki lint` report that
+count, on the reasoning that a repairable gap nothing surfaces is the same defect
+as the rest of Phase A.
+
+**It is already surfaced.** `lint.check_extraction_loss` reads `text_preview` as
+well as `metadata`, so it reports these regions whether or not a `loss` record
+exists — one issue per source, silent when clean, and pointing at
+`llm.vision_model`, which is more actionable than the count I was about to add.
+`backfill_span_loss`'s own docstring says so: *"leave it for `wiki lint`, which
+detects loss from text regardless."* The work was reverted unshipped.
+
+So the 119 are an internal data-completeness gap, not a visibility one, and
+`wiki lint --fix` repairs them deterministically whenever the user wants. Nothing
+to build. **Anyone reopening this should run `wiki lint` first and read what it
+already says.**
 
 ### C4. Community hierarchy is flat by construction
 
