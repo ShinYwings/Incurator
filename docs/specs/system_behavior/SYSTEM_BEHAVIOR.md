@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.64.0)
+# Incurator - System Behavior (v0.65.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -2119,6 +2119,47 @@ validation-only tool may return errors and a non-persisted policy preview.
 `wiki query` and `curator_query` route through a single `QueryOrchestrator`.
 Routing is deterministic-first; an LLM router (`curator.query_router`) is used
 only when deterministic signals are ambiguous.
+
+> **Divergence, recorded rather than hidden (2026-08-23).** `curator.query_router`
+> is registered (`prompting/families/query.py`), pinned as required by
+> `test_prompt_registry.py`, and listed in §15 — and has **zero production call
+> sites**. The sentence above describes behaviour the code does not have. Either
+> the contract gets implemented or this spec drops it; tracked on the roadmap.
+
+**Routing reads a derived INTENT, not keywords in a paraphrase (v0.65.0).**
+
+The deterministic signals used to match `_EXPLORE_SIGNALS` / `_GLOBAL_SIGNALS`
+against `working_query` — which is the boundary's *English paraphrase* of the
+question, not the user's words. Measured before this changed: asking
+"내 볼트 전체의 주제를 정리해줘" eight times produced eight different paraphrases,
+and the route followed whichever synonym was sampled — `themes` and `summary` are
+in `_GLOBAL_SIGNALS`, `overview` is not — so the **same question reached `global`
+6 times and `local` 2 times**. Same input, different corpus, no way to tell from
+the outside.
+
+`curator.query_search_terms@v2` therefore states the message's **intent**
+alongside the search query. `QueryRequest.intent` ∈ `QUERY_INTENTS`
+(`lookup` | `synthesis` | `discovery`), or `""` when no derivation ran.
+
+| intent | route, when its precondition holds |
+|---|---|
+| `discovery` | `explore` — needs `exploration_enabled` and `has_relations` |
+| `synthesis` | `global` — needs `has_reports` |
+| `lookup` | `local` |
+| `""` or unknown | falls through to the existing signals |
+
+**Intent is not route.** A route is the intent PLUS `policy.allowed_routes` PLUS
+`GraphStatus`, and the model can see neither of the latter two. Emitting routes
+from the prompt would hand the model a policy decision; emitting an intent keeps
+the model proposing and the deterministic layer disposing. Every existing gate
+still runs, and a precondition that is not met **falls through to today's path**
+rather than erroring.
+
+An unknown intent string matches no branch and is therefore inert — a rogue value
+degrades to the previous behaviour instead of misrouting.
+
+v1 of the contract stays registered so historical `prompt_runs` rows resolve; the
+registry returns the highest version for a bare lookup, so no call site changed.
 
 Routes and selection rules:
 

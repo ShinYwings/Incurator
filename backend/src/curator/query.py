@@ -22,6 +22,7 @@ from typing import Protocol, cast
 
 from . import config as cfg
 from . import db
+from .retrieval.models import DerivedQuery
 from . import prompts
 from . import search
 
@@ -181,7 +182,7 @@ def _fallback_search_terms(text: str) -> str:
 
 def derive_search_query(
     db_path: Path, client: ChatClient, message: str
-) -> tuple[str, bool, str]:
+) -> DerivedQuery:
     """Derive the INTERNAL English search query from a message in any language.
 
     Returns ``(search_query, is_knowledge_question, reason)``.
@@ -204,10 +205,10 @@ def derive_search_query(
     """
     message = (message or "").strip()
     if not message:
-        return "", False, "empty message"
+        return DerivedQuery("", False, "", "empty message")
 
     from . import prompting
-    from .prompting.families.query import SearchQueryInput, SearchQueryOutput
+    from .prompting.families.query import SearchQueryInput, SearchQueryOutputV2
 
     contract = prompting.REGISTRY.get("curator.query_search_terms")
     try:
@@ -221,14 +222,18 @@ def derive_search_query(
             raise ValueError(
                 "; ".join(result.validation.errors) or "no parsed output"
             )
-        parsed = cast(SearchQueryOutput, result.parsed)
+        parsed = cast(SearchQueryOutputV2, result.parsed)
     except Exception as exc:  # noqa: BLE001 - any provider may raise
         terms = _fallback_search_terms(message)
-        return terms, bool(terms), f"derivation unavailable: {exc}"
+        # No intent: the step that would have judged it never ran. "" routes on
+        # today's signals rather than on a guess.
+        return DerivedQuery(terms, bool(terms), "", f"derivation unavailable: {exc}")
 
     if not parsed.is_knowledge_question:
-        return "", False, parsed.reason or "not a knowledge question"
-    return parsed.search_query.strip(), True, parsed.reason
+        return DerivedQuery("", False, "", parsed.reason or "not a knowledge question")
+    return DerivedQuery(
+        parsed.search_query.strip(), True, str(parsed.intent or ""), parsed.reason
+    )
 
 
 def translate_to_english(client: ChatClient, question: str) -> str:

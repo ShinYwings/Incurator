@@ -19,11 +19,59 @@ __all__ = [
 
 ROUTES = ("local", "global", "explore", "source-section")
 
+#: What KIND of answer a question wants, as derived at the boundary. NOT a route:
+#: a route is the intent PLUS `policy.allowed_routes` PLUS `GraphStatus`, and the
+#: model can see none of the latter two. Kept in step with
+#: `prompting.families.query.Intent` by a test.
+QUERY_INTENTS = ("lookup", "synthesis", "discovery")
+
+
+@dataclass(frozen=True)
+class DerivedQuery:
+    """What the boundary understood about the user's message.
+
+    `search_query` is WHAT TO SEARCH FOR; `intent` is WHAT KIND OF QUESTION IT
+    IS. Both fall out of the same reading of the message. Returning only the
+    first is what forced routing to re-derive the second from surface keywords
+    of a paraphrase — a lottery whose odds were measured at 6-in-8.
+
+    A dataclass rather than a widened tuple: a 4-tuple of heterogeneous values
+    invites a 5th, and each addition re-breaks every unpack site. This widens by
+    defaulted field instead, and names the empty-query state so it can be
+    reasoned about.
+    """
+
+    search_query: str
+    is_knowledge_question: bool
+    intent: str = ""
+    reason: str = ""
+
 
 @dataclass
 class QueryRequest:
     question: str
     english_query: str = ""
+    #: Whether a derivation actually RAN for this request.
+    #:
+    #:   "unset"   — it did not (CLI, MCP, tests). `working_query` falls back to
+    #:               `question`, which is the best available behaviour, and
+    #:               internals warn when English-only seeding then matches
+    #:               nothing.
+    #:   "derived" — it did. An empty `english_query` here is a legitimate
+    #:               result, not a failure: a whole-corpus question has no search
+    #:               terms. Routing does not read this field — `intent` carries
+    #:               that — so there is no third value to distinguish.
+    english_query_status: str = "unset"
+    #: The derived intent (`QUERY_INTENTS`), or "" when no derivation ran.
+    #:
+    #: Routing used to read surface keywords off `working_query` — which is the
+    #: EXTRACTOR'S PARAPHRASE, not the user's words. Measured: the same question
+    #: asked eight times produced eight different English queries, and the route
+    #: followed whichever synonym was sampled — `themes`/`summary` matched
+    #: `_GLOBAL_SIGNALS`, `overview` did not, so one question reached `global`
+    #: 6 times and `local` 2 times. An intent stated by the step that read the
+    #: user's actual words removes the lottery.
+    intent: str = ""
     input_language: str = ""
     final_output_language: str = "English"
     workspace_path: str = ""
