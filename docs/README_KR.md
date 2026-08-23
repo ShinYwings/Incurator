@@ -1,102 +1,140 @@
-# 🧠 Incurator (인큐레이터): 멀티 에이전트 워크스페이스를 위한 지식 컴파일러
+# 🧠 Incurator: 멀티 에이전트 워크스페이스를 위한 지식 컴파일러
 
 [English](README.md) | **한국어**
 
-**"노트 필기를 위한 Cursor, 옵시디언 안의 Ask Gemini"**
+**"PDF와 노트를 로컬 AI 컴파일러에 맡기세요. 내 지식에 기반해 질문하고, 가치 있는 통찰만 남기세요."**
 
-Incurator의 궁극적인 목표는 **노트 필기를 잘 하기 위한 (문헌을 읽고 인사이트를 뽑아내기 위한) 옵시디언 기반의 AI 노트 시스템**이 되는 것입니다. 
+Incurator는 연구자, 엔지니어, 지식 노동자를 위해 설계된 지능형 지식 컴파일 엔진이자 옵시디언(Obsidian) AI 어시스턴트입니다. 방대한 원본 자료(PDF, 마크다운 노트, 논문 등)를 구조화된 **방향성 비순환 그래프(DAG)**로 변환하여, 토큰 낭비나 환각(Hallucination) 없이 내 지식 기반으로 탐색, 질의, 합성을 수행할 수 있도록 지원합니다.
 
-개발자들이 복잡한 코드베이스를 파악하기 위해 **Cursor**나 **Antigravity**를 사용하듯, Incurator는 방대한 지식과 노트를 이해하기 위한 고도화된 RAG/DAG 컴파일러(백엔드)와, 이를 활용해 사용자와 소통하는 옵시디언 익스텐션 사이드바(프론트엔드)로 구성됩니다. 옵시디언 내의 에이전트는 크롬의 **'Ask Gemini' 시스템을 미믹(Mimic)**하여, 당신이 현재 읽고 있는 문헌의 맥락을 완벽히 파악한 채 새로운 통찰의 합성을 돕습니다.
-
-Incurator는 파편화된 데이터를 구조화된 **방향성 비순환 그래프(DAG)**로 변환하여, 지식을 유기적으로 배양(Incubate)하고 확장(Increment)할 수 있게 돕는 비용 효율적인 지식 시스템입니다.
-
-> 이 시스템이 어떤 문제를 해결하려 하는지, 그리고 왜 이런 구조로 설계되었는지는 [프로젝트 철학](philosophy/ABOUT_KR.md)에서 다룹니다.
+> 시스템의 설계 철학과 배경은 [프로젝트 철학](philosophy/ABOUT_KR.md) 문서를 참조하세요.
 
 ---
 
-## 🏛️ 핵심 메타포: 큐레이터(Curator)와 아티스트(Artist)
+## 🚀 사용자가 경험하는 핵심 워크플로우
 
-대부분의 AI 지식 베이스는 LLM을 단순한 검색 엔진으로 취급하기 때문에 실패합니다. 우리는 이 과정을 두 가지 뚜렷한 역할로 분리했습니다.
+```
+  [원본 자료] (PDF, 논문, 메모)
+       │
+       ▼ (wiki add / wiki build)
+┌─────────────────────────────────────────────────────────┐
+│ 🏛️ The Curator (.curator/)                              │
+│   L1 맥락(Context) → L2 원자(Atoms) → L3 개념(Concepts) │
+│   (가벼운 로컬 SLM / 백그라운드 워커가 저비용 컴파일)    │
+└────────────────────────────┬────────────────────────────┘
+                             │
+                             ▼ (curate.yml 기반의 동적 큐레이션 렌즈)
+┌─────────────────────────────────────────────────────────┐
+│ 🎨 The Artist (옵시디언 사이드바 & MCP 에이전트)         │
+│   • 열린 PDF 분할 뷰 연동 & 소스 상태 배지              │
+│   • 다중 출처 하이브리드 검색 & 출처 인용 답변          │
+│   • 심층 추론 및 가설 검증·지식 합성                     │
+└────────────────────────────┬────────────────────────────┘
+                             │
+                             ▼ (wiki query "save" / 명시적 승격)
+  [02_Wiki/] (인간이 검토하고 확정한 영구 지식 베이스)
+```
 
-### ⚙️ 큐레이터 (보관소의 관리자 / 지식 정제 엔진)
-큐레이터는 **보관소(Vault)**에 상주하며 지식 정제를 담당하는 백그라운드 엔진입니다. 4계층 근거 사슬의 권위 상태는 `state.sqlite`에 저장하고, `.curator/Collections/` 마크다운은 DB에서 emit되는 폐기 가능한 점검 projection으로 사용합니다.
-1.  **L1 Contexts**: source 구조, section/page locator, provenance.
-2.  **L2 Atoms**: 더 이상 쪼개지지 않는 source-grounded 사실.
-3.  **L3 Concepts**: 여러 source를 가로지르는 개념과 community report.
-4.  **L4 Synthesis**: 코퍼스 전체에서 공유되는 `SYN-` 종합 근거.
-
-### 🎨 아티스트 (워크스페이스의 주인 / 추론 에이전트 + 인간)
-아티스트는 실제 작업실인 **워크스페이스(Workspace)**에 상주합니다. `curate.yml`의 KRS는 쿼리 시점의 동적 Curation lens를 편향합니다. 쿼리는 답변 또는 evidence pack과 trace를 반환하며 고정 Exhibition 파일을 쓰지 않습니다. 검토된 결과는 명시적 승격을 통해서만 `02_Wiki/`에 지속됩니다.
+1. **자료 등록 (`wiki add`)**: PDF, 논문, 노트를 등록하면 LLM 호출 없이 문서 구조에 기반한 L1 맥락(Context)을 즉시 생성합니다.
+2. **지식 컴파일 (`wiki build`)**: 가벼운 백그라운드 모델(로컬 Ollama SLM 등)이 사실 단위의 L2 원자(Atoms)를 추출하고, 다중 문헌을 아우르는 L3 개념(Concepts)으로 클러스터링합니다.
+3. **탐색 및 대화 (옵시디언 사이드바 & MCP)**: PDF나 노트를 읽으며 사이드바에서 대화합니다. 컴파일된 지식 그래프를 기반으로 정확한 페이지 인용과 출처 추적(Trace)이 포함된 답변을 얻습니다.
+4. **프로젝트 맞춤 큐레이션 (`curate.yml`)**: 워크스페이스별 프로젝트 목적과 도메인 규칙을 선언하여, 에이전트가 오염되지 않은 고신뢰 근거만을 선별 검색하도록 유도합니다.
+5. **영구 지식 승격 (`02_Wiki/`)**: 대화를 통해 얻은 가치 있는 통찰과 답변을 클릭 한 번이나 명령어로 영구 위키(`02_Wiki/`)에 저장합니다.
 
 ---
 
-## 🌟 왜 이 시스템인가요?
+## 🏛️ 시스템 아키텍처: Curator & Artist
 
-LLM Wiki는 대부분 지식의 닫힌 순환(수집 → 처리 → 활용 → 재입력)을 지향합니다. Incurator도 이 흐름을 따르는 LLM Wiki지만, 두 가지 측면에서 다른 LLM Wiki들과 차별화됩니다.
+Incurator는 지식 관리의 역할을 두 주체로 명확히 분리합니다.
 
-### 1. 맞춤형 지식 전달 (Specification-Driven Curation)
+### ⚙️ The Curator (볼트의 관리자)
+`.curator/`에 상주하는 백그라운드 엔진입니다. 고도의 창의적 추론 대신 **지식의 구조화와 컴파일**을 전담합니다.
+- **L1 Contexts**: 원본 문서의 구조 파악, 섹션/페이지 위치 및 출처 추적.
+- **L2 Atoms**: 원본에 철저히 기반한 분해 불가능한 사실 단위.
+- **L3 Concepts**: 다중 문헌을 횡단하는 주제별 개념 클러스터 및 커뮤니티 리포트.
+- **L4 Synthesis**: 말뭉치 전체를 아우르는 공유 근거 노드.
+- **권위 상태(State)**: `state.sqlite`가 단일 진실 공급원이며, `.curator/Collections/`의 마크다운 파일들은 점검을 위한 폐기 가능한 프로젝션입니다.
 
-인간이 `curate.yml`로 프로젝트 목적과 필요 지식을 명시하면, 쿼리 시점의 Curation lens가 live graph에서 관련 근거를 선별하고 랭킹합니다. 워크스페이스별 고정 subset을 저장하지 않으므로 stale 전시물 없이 도메인 오염을 줄입니다.
+### 🎨 The Artist (워크스페이스의 창작자: 인간 + 에이전트)
+옵시디언 사이드바나 MCP를 통해 사용자와 협업하는 고성능 추론 주체입니다.
+- **동적 큐레이션 렌즈**: 고정된 하위 복사본을 만드는 대신, `curate.yml` 명세를 쿼리 시점에 라이브 DAG 위에 렌즈 형태로 동적 적용합니다.
+- **무상태(Sessionless) 질의**: 질문을 던지는 행위 자체는 DAG를 오염시키지 않습니다. 모든 질의는 출처 인용 및 추적 정보가 포함된 답변을 반환합니다.
+- **명시적 승격(Promotion)**: 가치 있는 결과물은 인간의 명시적 승인을 거쳐야만 `02_Wiki/`의 영구 지식으로 보존됩니다.
 
-### 2. 사전 지식 교정 (Prior Knowledge Correction)
+---
 
-인간과 에이전트가 사전 지식의 오류를 발견하면 correction proposal을 제출할 수 있습니다. 시스템은 source truth를 보호하면서 제안을 분류하고 영향받은 generated record를 식별하며, 실제 교정 적용은 별도의 검토 동작을 요구합니다. derived insight는 별도로 추적하며 명시적 승격 전에는 지속 인간 지식이 되지 않습니다.
+## 🌟 차별화된 핵심 기능
+
+### 1. 명세 기반 동적 큐레이션 (Specification-Driven Curation)
+기존 RAG처럼 정적인 텍스트 청크를 무작위로 가져오거나 고정된 복사본을 남기지 않습니다. `curate.yml`에 정의된 목적과 도메인에 맞추어 라이브 그래프에서 필요한 근거만을 동적으로 선별·랭킹합니다.
+
+### 2. 사전 지식 교정 및 감사 무결성 (Prior Knowledge Correction)
+컴파일된 사전 지식에서 오류를 발견하면 수정 제안(Proposal)을 제출할 수 있습니다. 원본 진실(Source Truth)은 보호되며, 제안 검토 및 승인 절차를 통해 원본, 생성 지식, 인간 승격 지식 사이의 감사 가능한 경계를 엄격히 유지합니다.
 
 ### 3. 토큰 최적화 (AI를 위한 FinOps)
-사전 지식을 요약·원자화하는 **단순 컴파일**은 비추론 모델에, 복잡한 계산이나 정교한 추론이 필요한 **창의적 합성**은 추론 모델에 맡기세요. 역할 분리로 지식 관리 비용을 획기적으로 낮춥니다.
+단순 요약과 원자화 등 반복적인 데이터 컴파일(`Summary → Atoms → Concepts`)은 가벼운 로컬 SLM(Ollama)에 맡기고, 고성능 상용 추론 모델(Claude, GPT-4)은 대화와 심층 합성에만 집중시켜 토큰 비용을 최대 90% 이상 절감합니다.
 
-### 4. AI와 인간을 위한 이원화 및 모노레포(Monorepo) 구조
-Incurator는 파이썬 백엔드 데몬(`backend/`)과 Obsidian 플러그인 클라이언트(`plugin/`)를 **단일 리포지토리(Monorepo)**로 통합하여 제공합니다. 지식은 기계와 인간에게 각각 다른 형태로 존재할 때 가장 효율적입니다.
--   **AI 공간 (`.curator/`)**: `state.sqlite`가 단일 진실 공급원입니다. `.curator/Collections/`에는 점검용 CTX/ATM/CON/SYN 파생 projection이 있습니다.
--   **인간 공간 (`02_Wiki/`)**: 명시적으로 승격된 human-reviewed artifact만 지속되는 상설 공간입니다.
--   **클라이언트 공간 (`incurator-obsidian-agent`)**: 열린 PDF, split view, chat UI, provider 선택, import/rebind 승인 같은 사용자 상호작용을 담당합니다. 장기 source registry와 RAG provenance는 backend가 담당합니다.
+### 4. 이원화 모노레포 아키텍처 (Dual-Track Monorepo)
+파이썬 백엔드 데몬(`backend/`)과 옵시디언 플러그인(`plugin/`)을 하나의 모노레포로 완벽히 통합했습니다.
+- **AI 공간 (`.curator/`)**: 기계 친화적 SQLite 지식 그래프 및 점검용 프로젝션.
+- **인간 공간 (`02_Wiki/`)**: 깔끔하고 읽기 쉬운 사용자 전용 마크다운 위키.
+- **클라이언트 (`Obsidian Sidebar`)**: PDF 분할 뷰 연동, 소스 처리 상태 배지, 다중 모델 대화 UI.
 
-### 5. 외부 리소스 무손실 통합 (Reference Mode & Hash Drift 방어)
-Zotero와 같은 외부 레퍼런스 PDF 파일들을 보관소 내부로 강제 복사하여 대역폭을 낭비하지 않는 **Reference Mode**를 지원하는 방향으로 설계되어 있습니다. 사용자가 vault-managed copy를 원하면 `04_Resources/` 아래 목적지를 승인해 복사할 수 있고, 원본 위치를 유지하고 싶으면 외부 파일의 Content Hash와 logical source identity를 추적합니다. iPad의 Apple Pencil 필기로 인해 파일 해시가 변동(Hash Drift)되거나 물리적 파일 위치가 바뀌어도, 인간의 확인 절차를 거쳐 지식의 연결 고리를 안전하게 치유합니다.
+### 5. 이중 페르소나 시스템 (Dual Persona System)
+- **전역 Curator 페르소나**: `wiki init` 시 설정되며, 전체 볼트를 관통하는 지식 도메인과 검증 기준을 규정합니다.
+- **로컬 Artist 페르소나**: `curate.yml`에 설정되며, 개별 하위 프로젝트의 목표와 관점을 반영하여 큐레이션 방식을 미세 조정합니다.
 
-### 6. 지식의 집약과 성장 (Concentration & Growth)
-지식은 파편화되어 분산되어 있을 때가 아니라, **단일한 공간에 응집되어 있을 때** 비로소 진정으로 연결되고 성장(**Increment**)할 수 있습니다. Incurator는 흩어진 정보를 하나의 진실 공급원(Single Source of Truth)으로 모아, 지식이 서로 유기적으로 연결되고 더 높은 차원으로 합성될 수 있는 환경을 제공합니다. 
+### 6. 무손실 외부 자료 연동 (Zotero Reference Mode)
+Zotero 라이브러리 등 외부 PDF를 볼트 내부로 강제 복사하지 않고도 그대로 참조할 수 있습니다. 파일 해시와 논리적 출처 ID를 추적하여, iPad 필기 등으로 해시가 변경되더라도 안전하게 링크를 복원합니다.
 
-따라서 지식을 관리의 편의를 위해 여러 Vault로 나누는 것은 권장하지 않습니다. 하지만 지식을 대하는 **큐레이터의 페르소나(전문성)**가 근본적으로 달라야 하는 경우(예: STEM 전문 큐레이터 vs 요리 전문 큐레이터)에는 별도의 Vault를 운영하여 독립적인 지식 체계를 구축하는 것이 효과적입니다.
-
----
-
-## 🛠️ 시작하기 (Getting Started)
-
-### 📋 사전 준비 사항
-- **필수 환경**: Python 3.10+, 터미널, 노트 편집기 (Obsidian 권장)
-- **백엔드 계정**: 클라우드 모델(Antigravity, Claude 등) 사용 시 API 키 또는 구독 계정이 필요합니다.
-- **자동화 안내**: Ollama(로컬 모델), Node.js(검색 엔진) 및 GitHub CLI(`gh`) 설치, 그리고 모노레포 백엔드 패키지와 플러그인 빌드는 루트 디렉토리의 `./setup.sh` 실행 시 한 번에 자동으로 처리됩니다.
-- 상세 정보는 [사용자 가이드](guides/USER_GUIDE_KR.md)를 참조하세요.
-
-### 🚀 빠른 시작
-1.  **설치**: `./setup.sh` (백엔드 패키지, 플러그인 빌드, Ollama, Node.js, GitHub CLI 등을 한 번에 자동 통합 설치합니다.)
-2.  **초기화**: `wiki init <path/to/your/obsidian-vault>`
-    > **단일 보관소 원칙**: `wiki init`을 실행한 모든 폴더에는 전용 **Curator**가 상주하게 됩니다. Incurator는 한 번에 하나의 Curator만 실행할 수 있으므로, 지식의 연결성을 극대화하기 위해 모든 지식을 집약할 **단 하나의 메인 보관소(Vault)**를 운영하는 것을 강력히 권장합니다.
-    > 
-    > **예외 (페르소나 분리)**: 만약 지식을 관리하는 '관점'이나 '전문 페르소나'를 완전히 다르게 가져가고 싶다면(예: STEM 보관소 vs 요리 보관소) 별도의 Vault를 생성하세요. 각 Vault의 Curator는 자신만의 고유한 세계관으로 지식을 정제합니다.
-3.  **페르소나 설정**: `wiki init` 중 인터뷰를 통해 지식 도메인을 설정합니다. 이후 `wiki persona update`로 언제든 재설정 가능합니다.
-4.  **지식 등록 (요약 및 정제)**: `wiki add <file>`은 instant L1만 만들며, `wiki build`가 L2/L3를 queue에 넣거나 컴파일합니다. 플러그인의 명시적 Add Source 동작은 instant L1 등록과 L2/L3 queueing을 함께 수행합니다.
-5.  **지식 활용 (검색)**: `wiki query "질문"` 또는 MCP 검색은 sessionless 답변/evidence pack과 trace를 반환합니다.
-
-> [!NOTE]
-> **개발자 전용 기능**: `wiki testbed` 명령어는 새로운 시나리오 검증 및 개발을 위한 도구입니다. 일반적인 지식 관리 상황에서는 사용하지 마십시오.
-
-더 자세한 사용법은 [사용자 가이드](guides/USER_GUIDE_KR.md)를 확인해주세요.
+### 7. 지식 응집의 원칙 (Single Vault Principle)
+지식은 단일한 공간에 모여 있을 때 가장 강력한 연결성과 성장성(**Increment**)을 가집니다. Incurator는 기본적으로 단일 볼트 운용을 권장하며, 완전히 다른 전문가적 시선(예: 과학 연구 vs 요리)이 필요한 경우에만 볼트를 분리하는 것을 제안합니다.
 
 ---
 
-## 🤝 함께 만들어가기 (Contribution)
+## 🛠️ 시작하기
 
-사용해 보시다가 불편한 점이나 어려운 부분이 있다면 언제든 말씀해 주세요. 특히, 문제를 직접 해결하여 다른 사용자들이 같은 어려움을 겪지 않도록 도와주시면 프로젝트 성장에 큰 힘이 됩니다. 
+### 📋 사전 요구 사항
+- **Python 3.10+**
+- **옵시디언 (Obsidian)** (인터랙티브 UI 권장)
+- **로컬 / 클라우드 LLM**: 로컬 모델(Ollama) 또는 클라우드 API 키(Claude, OpenAI, Gemini 등).
 
-버그 수정이나 기능 개선에 참여하고 싶으시다면 [컨트리뷰션 가이드](guides/CONTRIBUTION_GUIDE_KR.md)를 확인해 주세요!
+### 🚀 빠른 시작 (Quick Start)
+1. **설치 및 환경 빌드**:
+   ```bash
+   ./setup.sh
+   ```
+   *파이썬 의존성 설치, 옵시디언 플러그인 빌드 및 로컬 도구 설정을 한 번에 진행합니다.*
+
+2. **볼트 초기화**:
+   ```bash
+   wiki init /path/to/your/obsidian-vault
+   ```
+   *간단한 인터뷰를 통해 볼트의 Curator 페르소나를 설정합니다.*
+
+3. **자료 등록**:
+   ```bash
+   wiki add /path/to/document.pdf
+   ```
+   *LLM 비용 없이 L1 문서 구조를 즉각 생성합니다.*
+
+4. **지식 레이어 컴파일**:
+   ```bash
+   wiki build
+   ```
+   *백그라운드에서 L2 원자 및 L3 개념을 추출·클러스터링합니다.*
+
+5. **질의 및 지식 탐색**:
+   ```bash
+   wiki query "논문들에서 발견된 핵심 결과는 무엇인가요?"
+   ```
+   *또는 옵시디언 사이드바를 열어 노트나 PDF를 보며 실시간으로 대화합니다.*
 
 ---
 
-## 🔗 연결 링크
-- [사용자 가이드](guides/USER_GUIDE_KR.md)
-- [컨트리뷰션 가이드](guides/CONTRIBUTION_GUIDE_KR.md)
-- [MCP 연동 가이드](guides/MCP_USER_GUIDE_KR.md)
-- [동기화 제외 가이드](guides/SYNC_IGNORE_GUIDE_KR.md)
-- [프로젝트 철학](philosophy/ABOUT_KR.md)
+## 🔌 연동 가이드 및 문서
+
+- [사용자 가이드](guides/USER_GUIDE_KR.md) — 상세한 CLI 명령어 및 워크플로우 설명서
+- [플러그인 가이드](guides/PLUGIN_GUIDE_KR.md) — 옵시디언 플러그인 설치, UI 기능 및 설정 안내
+- [MCP 연동 가이드](guides/MCP_USER_GUIDE_KR.md) — Cursor, Claude Desktop 등 외부 에이전트 연동 방법
+- [프로젝트 철학](philosophy/ABOUT_KR.md) — 시스템의 철학과 아키텍처 설계 배경
+- [동기화 제외 설정 가이드](guides/SYNC_IGNORE_GUIDE_KR.md) — 멀티 디바이스 동기화(Syncthing/iCloud) 설정법

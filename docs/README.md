@@ -2,97 +2,139 @@
 
 **English** | [한국어](README_KR.md)
 
-**"Increment your knowledge, don't just search it."**
+**"Feed your PDFs and notes to a local AI compiler. Ask questions grounded in your own knowledge. Keep only what matters."**
 
-Incurator is a cost-effective, multi-agent knowledge system that transforms fragmented data into a structured **Directed Acyclic Graph (DAG)**. It serves as a bridge between raw information and high-reasoning agents, enabling you to organically incubate and increment your knowledge while executing complex projects without token waste or hallucinations.
+Incurator is an intelligent knowledge compilation engine and Obsidian assistant designed for researchers, engineers, and deep thinkers. It transforms your raw documents (PDFs, Markdown notes, research papers) into a structured Directed Acyclic Graph (DAG), enabling you to explore, query, and synthesize insights without token waste or hallucinations.
 
-> For the problems this system addresses and the reasoning behind its design, see [Project Philosophy](philosophy/ABOUT.md).
+> For the core philosophy and design rationale behind this system, see [Project Philosophy](philosophy/about.md).
 
 ---
 
-## 🏛️ The Core Metaphor: Curator & Artist
+## 🚀 The Experience: How It Works
 
-Most AI knowledge bases fail because they treat LLMs as simple search engines. We separate the process into two distinct roles:
+```
+  [Raw Files] (PDFs, Notes)
+       │
+       ▼ (wiki add / wiki build)
+┌─────────────────────────────────────────────────────────┐
+│ 🏛️ The Curator (.curator/)                              │
+│   L1 Contexts  →  L2 Atoms  →  L3 Concepts  →  L4 Syn   │
+│   (Compiled on local SLMs / cheap background workers)   │
+└────────────────────────────┬────────────────────────────┘
+                             │
+                             ▼ (Dynamic Curation Lens via curate.yml)
+┌─────────────────────────────────────────────────────────┐
+│ 🎨 The Artist (Obsidian Sidebar & MCP Agent)            │
+│   • Split-view PDF context & source badges              │
+│   • Multi-source hybrid search & cited answers          │
+│   • Interactive reasoning & hypothesis synthesis        │
+└────────────────────────────┬────────────────────────────┘
+                             │
+                             ▼ (wiki query "save" / Promote)
+  [02_Wiki/] (Permanent, Human-Reviewed Knowledge)
+```
+
+1. **Drop & Register (`wiki add`)**: Add PDFs, papers, or markdown notes. Incurator instantly builds an L1 structural index without requiring an LLM.
+2. **Compile (`wiki build`)**: A lightweight background model (e.g., local Ollama SLM) extracts atomic facts (L2 Atoms) and clusters them into multi-source thematic topics (L3 Concepts).
+3. **Explore & Chat (Obsidian Sidebar & MCP)**: Open notes and PDFs with an intelligent sidebar. Ask questions grounded in your compiled evidence, complete with direct page citations and provenance traces.
+4. **Curate & Synthesize (`curate.yml`)**: Scope your project’s domain and knowledge requirements dynamically so agents only retrieve relevant, high-confidence evidence.
+5. **Promote (`02_Wiki/`)**: Save verified insights and synthesized answers into your permanent vault wiki with a single click or command.
+
+---
+
+## 🏛️ Architecture: The Curator & The Artist
+
+Incurator divides knowledge work into two distinct roles:
 
 ### ⚙️ The Curator (Manager of the Vault)
-The Curator is the background engine that resides in the **Vault** to handle knowledge refinement. It focuses on **summarizing and refining knowledge** rather than high-level "reasoning." It builds a 4-layer evidence chain in `state.sqlite`; `.curator/Collections/` Markdown is a disposable inspection projection emitted from that DB. It supports both Local models (via Ollama) and Cloud models (Antigravity, Claude, OpenAI), allowing you to choose the best engine based on your hardware and requirements.
-1.  **L1 Contexts**: Source structure, section/page locators, and provenance.
-2.  **L2 Atoms**: Irreducible, source-grounded facts.
-3.  **L3 Concepts**: Multi-source thematic structures and community reports.
-4.  **L4 Synthesis**: Shared, corpus-wide `SYN-` insights used as standing evidence.
+The background engine residing in `.curator/`. The Curator focuses on **knowledge compilation and structural organization**, not creative reasoning:
+- **L1 Contexts**: Source structure, section/page locators, and provenance tracking.
+- **L2 Atoms**: Irreducible, source-grounded factual units.
+- **L3 Concepts**: Multi-source thematic structures and community clusters.
+- **L4 Synthesis**: Shared, corpus-wide standing evidence nodes.
+- **Authoritative State**: Stored in `state.sqlite`; generated Markdown files in `.curator/Collections/` serve as disposable inspection projections.
 
-### 🎨 The Artist (Owner of the Workspace)
-The Artist resides in the **Workspace**, their personal studio. They express project requirements through `curate.yml`; at query time, that KRS biases a dynamic Curation lens over the live DAG. Queries return an answer or evidence pack plus a trace and write no frozen Exhibition file. Valuable reviewed results become durable only through explicit promotion to `02_Wiki/`.
+### 🎨 The Artist (Resident of the Workspace: Human + Agent)
+The creative partner in the workspace (Obsidian Sidebar or external agents via MCP):
+- **Dynamic Curation Lens**: Applies project requirements defined in `curate.yml` at query time over the live DAG without freezing stale subsets.
+- **Sessionless Queries**: Asking questions never pollutes the DAG. Every query returns a cited answer or evidence pack backed by a full trace.
+- **Explicit Promotion**: High-value findings become permanent vault knowledge only when explicitly approved and promoted to `02_Wiki/`.
 
 ---
 
-## 🌟 Why This System?
+## 🌟 Key Differentiators
 
-LLM Wikis broadly aim for a closed loop — ingest, process, retrieve, feed back. Incurator is an LLM Wiki too, but differentiates itself from others in two key ways.
+### 1. Specification-Driven Dynamic Curation
+Unlike traditional RAG systems that retrieve static chunks or freeze fixed subsets, Incurator applies workspace-level knowledge specifications (`curate.yml`) as a dynamic lens over the live graph. Queries retrieve precisely scoped evidence without domain contamination.
 
-### 1. Specification-Driven Curation
+### 2. Prior Knowledge Correction & Auditability
+When you or your agent spot an error in compiled knowledge, corrections are submitted as auditable proposals. Source ground truth is never silently overwritten, maintaining an immutable line of provenance between source documents, generated structures, and human-verified notes.
 
-Generic LLM Wikis retrieve knowledge as-is. Incurator's Curator does more. When a human defines project goals and knowledge requirements in `curate.yml`, the query-time Curation lens selects and ranks relevant live graph evidence without freezing a workspace-specific subset. This keeps retrieval scoped while avoiding stale staged artifacts.
+### 3. Token Optimization (AI FinOps)
+Heavy data parsing and fact compilation (`Summary → Atoms → Concepts`) run on local SLMs (via Ollama) or lightweight models. Frontier reasoning models (Claude, OpenAI) are reserved exclusively for interactive dialogue and deep synthesis, cutting token costs by up to 90%.
 
-### 2. Prior Knowledge Correction
+### 4. Dual-Track Monorepo Architecture
+Incurator unifies a Python backend daemon (`backend/`) and an Obsidian plugin (`plugin/`) in a single repository:
+- **AI Space (`.curator/`)**: Machine-readable SQLite graph and disposable inspection projections.
+- **Human Space (`02_Wiki/`)**: Clean, human-readable Markdown wiki notes.
+- **Client Space (`Obsidian Sidebar`)**: Split-view PDF context, source state badges, and multi-model chat.
 
-When humans or agents spot an error in prior knowledge, they can submit a correction proposal that is classified and linked to affected generated records while source truth remains protected. Applying a correction requires a separate reviewed action. Derived insights are tracked separately and require explicit promotion before becoming durable human knowledge.
+### 5. Dual Persona System
+- **Curator Persona (Global)**: Configured during `wiki init`, defines the expert lens and domain verification standards for your entire vault.
+- **Artist Persona (Workspace)**: Configured in `curate.yml`, tailors tone, goal, and domain focus for specific sub-projects.
 
-### 3. Token Optimization (FinOps for AI)
-Offload **compilation** (summarizing and atomizing knowledge) to non-reasoning models and reserve **creative synthesis** (requiring complex calculation or sophisticated reasoning) for reasoning models. This strategic role separation minimizes costs while maximizing insight.
+### 6. Lossless External Reference Mode (Zotero Integration)
+Directly reference external PDFs (e.g., Zotero libraries) without forced copying. The backend tracks content hashes and logical identities, automatically handling path changes and Apple Pencil annotation hash drift through human-in-the-loop verification.
 
-### 4. Monorepo and Dual-Track Structure for AI and Humans
-The Incurator repository provides the Python backend daemon (`backend/`) and Obsidian plugin client (`plugin/`) in a **single repository (monorepo)**. Knowledge is most effective when managed in different forms for machines and humans:
-- **AI Space (`.curator/`)**: The **Archive/Storage**. `state.sqlite` is the single source of truth. `.curator/Collections/` contains disposable CTX/ATM/CON/SYN Markdown projections for inspection.
-- **Human Space (`02_Wiki/`)**: The **Permanent Collection**. Durable human-reviewed artifacts appear here only after explicit promotion.
-- **Client Space (`incurator-obsidian-agent`)**: The Obsidian client handles open-PDF context, split-view chips, chat UI, provider selection, and import/rebind approval. Durable source registry and RAG provenance belong to the backend.
-
-### 5. Lossless External Resource Integration (Reference Mode & Hash Drift Defense)
-The system is designed to support **Reference Mode** for external reference PDFs such as Zotero files, avoiding forced duplication into the vault. If a user wants a vault-managed copy, the backend imports it into an approved `04_Resources/` destination. If the user wants the original location preserved, the backend tracks content hash and logical source identity. Even if the file hash drifts due to iPad Apple Pencil annotations or the physical path changes, the link can be healed through a human-in-the-loop confirmation process.
-
-### 6. Knowledge Concentration & Growth
-Knowledge only truly **Increments** when it is gathered in a **single, cohesive space** rather than being fragmented across decentralized silos. Incurator ensures that all insights are funneled into a single source of truth, providing an environment where information is organically connected and synthesized.
-
-As such, splitting your knowledge into multiple vaults solely for administrative organization is not recommended. However, if you require fundamentally different **Curator Personas** (e.g., a STEM specialist vs. a Cooking specialist) to maintain your knowledge, operating separate vaults allows each Curator to refine information through their own expert lens.
+### 7. Knowledge Concentration Principle
+Knowledge compounds fastest when connected in a single, unified vault. Incurator recommends operating a single primary vault, creating separate vaults only when you need fundamentally different expert personas (e.g., STEM Research vs. Creative Writing).
 
 ---
 
 ## 🛠️ Getting Started
 
 ### 📋 Prerequisites
-- **Core Environment**: Python 3.10+, Terminal, Note Editor (Obsidian recommended)
-- **Backend Accounts**: An API Key or subscription account is required for cloud models (Antigravity, Claude, etc.).
-- **Automation Note**: Installing Ollama (local models) and Node.js (search engine), along with building the monorepo backend package, plugin, and installing GitHub CLI (`gh`), is automatically handled all at once by running `./setup.sh` in the root directory.
-- See the [User Guide](guides/USER_GUIDE.md) for more details.
+- **Python 3.10+**
+- **Obsidian** (recommended for interactive UI)
+- **Local / Cloud LLM**: Ollama for local models, or API keys for Cloud providers (Claude, OpenAI, Gemini).
 
 ### 🚀 Quick Start
-1.  **Install**: `./setup.sh` (Automatically installs the backend package, builds the plugin, and installs Ollama, Node.js, GitHub CLI, etc.)
-2.  **Initialize**: `wiki init <path/to/your/obsidian-vault>`
-    > **Single Vault Principle**: Every folder initialized with `wiki init` has its own resident **Curator**. Since Incurator runs one Curator at a time, we strongly recommend maintaining **a single main vault** to maximize knowledge connectivity and growth.
-    >
-    > **Exception (Persona Segmentation)**: If you want to maintain knowledge through completely different "expert perspectives" (e.g., a STEM vault vs. a Cooking vault), create separate vaults. Each vault's Curator will refine knowledge according to their unique worldview.
-3.  **Set up Persona**: During `wiki init`, a short interview configures your knowledge domain. Run `wiki persona update` anytime to refine it.
-4.  **Register Knowledge (Refine)**: `wiki add <file>` creates instant L1; run `wiki build` to queue or compile L2/L3. The plugin's explicit Add Source action performs both steps by registering instant L1 and queueing L2/L3.
-5.  **Use Knowledge (Query)**: `wiki query "question"` or MCP search returns a sessionless answer/evidence pack plus trace.
+1. **Install & Build Everything**:
+   ```bash
+   ./setup.sh
+   ```
+   *Installs Python dependencies, builds the Obsidian plugin, and sets up local tools.*
 
-> [!NOTE]
-> **Developer Only**: The `wiki testbed` command is a tool for scenario validation and system development. Do not use it for standard knowledge management tasks.
- 
-Check the [User Guide](guides/USER_GUIDE.md) for more details.
+2. **Initialize Your Vault**:
+   ```bash
+   wiki init /path/to/your/obsidian-vault
+   ```
+   *Runs a quick interview to configure your vault's Curator Persona.*
+
+3. **Register Sources**:
+   ```bash
+   wiki add /path/to/document.pdf
+   ```
+   *Creates instant L1 structural contexts without LLM cost.*
+
+4. **Build Knowledge Layers**:
+   ```bash
+   wiki build
+   ```
+   *Extracts L2 Atoms and clusters L3 Concepts in the background.*
+
+5. **Ask Questions**:
+   ```bash
+   wiki query "What are the core findings in the uploaded papers?"
+   ```
+   *Or open the Obsidian sidebar to interactively chat with your notes and PDFs.*
 
 ---
 
-## 🤝 Contributing
+## 🔌 Integrations & Guides
 
-If you encounter any issues or difficulties while using Incurator, please let us know. We especially welcome direct contributions—fixing a problem yourself helps ensure others don't face the same hurdle.
-
-Check out our [Contribution Guide](guides/CONTRIBUTION_GUIDE.md) to get started with bug fixes or feature improvements!
-
----
-
-## 🔗 Connections
-- [User Guide](guides/USER_GUIDE.md)
-- [Contribution Guide](guides/CONTRIBUTION_GUIDE.md)
-- [MCP Integration Guide](guides/MCP_USER_GUIDE.md)
-- [Sync Ignore Guide](guides/SYNC_IGNORE_GUIDE.md)
-- [Project Philosophy](philosophy/ABOUT.md)
+- [User Guide](guides/USER_GUIDE.md) — Comprehensive CLI and workflow manual
+- [Plugin Guide](guides/PLUGIN_GUIDE.md) — Obsidian plugin setup, features, and troubleshooting
+- [MCP Integration Guide](guides/MCP_USER_GUIDE.md) — Connect Incurator to Cursor, Claude Desktop, and other MCP clients
+- [Project Philosophy](philosophy/about.md) — In-depth architectural design decisions
+- [Sync Ignore Guide](guides/SYNC_IGNORE_GUIDE.md) — Multi-device synchronization guide (Syncthing/iCloud)
