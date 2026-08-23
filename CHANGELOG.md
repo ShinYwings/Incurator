@@ -2,6 +2,28 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.69.3] - 2026-08-23
+### Fixed
+- **The comment above the session-storage code said `sessions.json` is
+  device-local. It is synced across devices.**
+
+  Caught while measuring `sessions.json` for a planned size fix — the comment
+  would have set the wrong risk level for that very change.
+
+  `.curator/sessions.json` is **not** excluded by `.stignore` (which lists only
+  `state.sqlite` and `runtime/` under `.curator/`), `SYNC_IGNORE_GUIDE.md`
+  states it "may be synchronized because the plugin merges by session",
+  `types.ts` calls it *sync-safe*, and `deletedSessionIds` exists so a deletion
+  on one device propagates to another — which is meaningless for a local file.
+
+  Every signal in the project said *synced* except the one comment sitting
+  directly above the code that owns the file. That is the comment someone reads
+  before changing its schema, and **a schema change to a synced file is a
+  cross-device transport change** — an older plugin on another device reads what
+  a newer one wrote. Rated device-local, that change looks routine.
+
+  A test now fails if the claim comes back.
+
 ## [0.69.2] - 2026-08-23
 ### Fixed
 - **An empty database was reported as an empty vault, while 89 MB of your

@@ -1622,7 +1622,18 @@ export default class ObsidianAIAgent extends Plugin {
     await this.saveSettings();
   }
 
-  // ── Session data (device-local, stored in sessions.json) ────────
+  // ── Session data (SYNCED across devices, stored in .curator/sessions.json) ──
+  //
+  // Not device-local, despite what this comment said until v0.69.3. `.stignore`
+  // excludes only state.sqlite and runtime/ under .curator/;
+  // SYNC_IGNORE_GUIDE.md says sessions.json "may be synchronized because the
+  // plugin merges by session"; types.ts calls it sync-safe; and
+  // `deletedSessionIds` exists so a deletion on one device propagates to
+  // another, which is meaningless for a local-only file.
+  //
+  // This matters before you change its shape: a schema change here is a
+  // CROSS-DEVICE TRANSPORT change, where an older plugin on another device reads
+  // what a newer one wrote.
 
   private get _sessionsPath(): string {
     return ".curator/sessions.json";

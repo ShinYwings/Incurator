@@ -194,3 +194,29 @@ describe("durable session store", () => {
     expect([...adapter.files.keys()].filter((key) => key.includes(".tmp-"))).toEqual([]);
   });
 });
+
+describe("sessions.json sync status must not be misdescribed", () => {
+  it("main.ts does not call sessions.json device-local", async () => {
+    const { readFileSync } = await import("fs");
+    const { fileURLToPath } = await import("url");
+    const { join } = await import("path");
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "..", "..", "main.ts"), "utf8");
+
+    // `.curator/sessions.json` IS synced across devices. `.stignore` excludes
+    // only state.sqlite and runtime/ under .curator/; SYNC_IGNORE_GUIDE.md
+    // says sessions.json "may be synchronized because the plugin merges by
+    // session"; types.ts calls it "sync-safe"; and `deletedSessionIds` exists
+    // precisely so a deletion on one device propagates to another.
+    //
+    // main.ts described it as "device-local" until v0.69.3, directly above the
+    // code that owns the file. That is the comment a person reads before
+    // changing its schema -- and a schema change to a file that syncs is a
+    // CROSS-DEVICE TRANSPORT change, where an older plugin on another device
+    // reads what a newer one wrote.
+    const line = source
+      .split("\n")
+      .find((l) => l.includes("sessions.json") && /device-local/i.test(l));
+    expect(line, `main.ts still calls sessions.json device-local: ${line}`).toBeUndefined();
+  });
+});
