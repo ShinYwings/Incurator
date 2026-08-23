@@ -4700,10 +4700,18 @@ export class ChatSidebarView extends ItemView {
     await this.persistCurrentSession();
 
     const session = this.createSession();
+    // No `.slice(0, 30)`. That cap looked like a bound on sessions.json and was
+    // never one: it dropped sessions from the local array without tombstoning
+    // them, and `mergeSessionData` re-seeds from the on-disk canonical, so every
+    // trimmed session came back on the save that happens moments later.
+    //
+    // Making it real would mean tombstoning on trim -- deleting the user's chat
+    // history on every device as a side effect of a display cap. That is a
+    // retention decision that needs their consent, not a bug fix.
     this.plugin.sessionData.chatSessions = [
       session,
       ...(this.plugin.sessionData.chatSessions ?? []),
-    ].slice(0, 30);
+    ];
     this.plugin.sessionData.activeChatSessionId = session.id;
     this.messages = [];
     this.pendingContextRefs = [];
@@ -4766,10 +4774,12 @@ export class ChatSidebarView extends ItemView {
     session.messages = this.cloneMessages(this.messages);
     session.updatedAt = Date.now();
     session.title = this.getSessionTitle(session);
+    // See the note in newSession: the 30-session cap was a no-op that a merge
+    // undid immediately, and making it real would delete history everywhere.
     this.plugin.sessionData.chatSessions = [
       session,
       ...sessions.filter((item) => item.id !== activeId),
-    ].slice(0, 30);
+    ];
     await this.plugin.saveSessionData();
     this.syncSessionControls();
   }

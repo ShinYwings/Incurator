@@ -68,6 +68,30 @@ function sanitizeContextRefForSync(ref: ContextRef): ContextRef {
   // Backend status is runtime-local and often carries absolute source/current/
   // candidate paths. Persist portable identity on the ContextRef instead.
   delete next.backendStatus;
+
+  // An AUTO ref's bulky payload is never read back, so persisting it writes and
+  // syncs megabytes nothing will ever look at.
+  //
+  // `buildLLMMessages` skips auto refs outright -- `if (ref.sourceViewType ===
+  // "auto") continue;` -- BEFORE it reads any payload, and the next turn rebuilds
+  // auto refs fresh from the live context via `buildAutoContextRefs`. The
+  // transcript renderer reads only `label` and `imageBase64`.
+  //
+  // Measured on a 14.52 MB sessions.json (338 of 369 refs were auto):
+  // content 5.29 MB, outline 1.90 MB, windowPages 0.60 MB -- 7.79 MB, 54% of the
+  // file, written and synced to every device and never looked at again.
+  //
+  // `imageBase64` is deliberately NOT dropped: the transcript renders it as an
+  // inline chip thumbnail, so removing it would take away something visible.
+  // That is a user-facing trade and belongs to the retention work.
+  //
+  // Only the PERSISTED copy loses these. The in-memory ref keeps its payload for
+  // the turn it belongs to, because this runs on the way to disk.
+  if (next.sourceViewType === "auto") {
+    delete next.content;
+    delete next.outline;
+    delete next.windowPages;
+  }
   return next;
 }
 

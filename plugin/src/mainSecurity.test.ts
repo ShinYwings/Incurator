@@ -217,10 +217,22 @@ describe("Session sync path hygiene", () => {
     expect(src).toContain("writeMergedSessionStore");
     expect(src).toContain('canonical.kind === "corrupt" || canonical.kind === "unreadable"');
     expect(src).toContain("private sessionStoreWritable = false");
-    expect(body).toContain("if (!this.sessionStoreWritable)");
-    expect(body).not.toContain("this.app.vault.adapter.write(");
-    expect(src).toContain("private sessionPersistPromise");
-    expect(src).toContain("this.sessionPersistPromise = this.sessionPersistPromise");
+    expect(src).not.toContain("this.app.vault.adapter.write(");
+
+    // The fail-closed guard and the write itself moved into writeSessionData
+    // when saveSessionData became a coalescing wrapper (v0.70.0). The guard is
+    // still on the only path that reaches disk.
+    const writeStart = src.indexOf("private async writeSessionData(");
+    const writeBody = src.slice(writeStart, src.indexOf("\n  }", writeStart));
+    expect(writeStart).toBeGreaterThan(-1);
+    expect(writeBody).toContain("if (!this.sessionStoreWritable)");
+
+    // Writes must never overlap. This used to be asserted by grepping for a
+    // promise-chain assignment; that pinned the implementation, not the
+    // property. Serialization now lives in createCoalescedWriter, which has a
+    // real concurrency test ("never overlaps writes") instead of a text match.
+    expect(body).toContain("this.sessionWriter.save()");
+    expect(src).toContain("createCoalescedWriter");
   });
 });
 
