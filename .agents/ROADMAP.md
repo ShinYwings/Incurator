@@ -295,30 +295,44 @@ the reference vault still has 0 `synthesis_nodes` because L3 there is mid-repair
 this item — check `synthesis_nodes` and `SYN-*` before treating it as proven in
 production.
 
-### C3. A source whose parse improved is never re-derived
+### C3. Parser drift — **PREMISE FALSIFIED; honesty half shipped v0.69.7**
 
-`l2_status='done'` means a source is never re-parsed, so **a shipped parser fix
-reaches only sources ingested after it**.
+The item claimed a shipped parser fix never reaches existing sources, measured as
+*"source 37: 646 spans stored, 2,050 computed from the same PDF today"*. An Arena
+agent ran the **production parse path** (`compile._section_dicts` →
+`source_spans.spans_from_sections`, no LLM, no writes) and the measurement did
+not survive:
 
-Measured on source 37: **646 spans stored, 2,050 computed from the same PDF
-today**, and **4** loss records stored against **437** the current parser finds.
-It was added 2026-08-04; v0.49.0 taught the parser to report unreadable regions
-on 08-08. It has never seen that improvement and never will.
+| claim | measured |
+|---|---|
+| 2,050 spans today vs 646 stored → the parser now finds more | 2,050 **emitted**, **646 distinct hashes** |
+| the extra spans are content the old parser missed | **0 new hashes, 0 hashes that disappeared** |
+| sources are never re-parsed | `parsers.parse()` runs **before** the hash comparison, so every `wiki add` re-parses every file |
 
-Consequences beyond one source:
+The 646↔2,050 gap is emission multiplicity collapsed by
+`UNIQUE(source_id, content_hash)` — one span is emitted 77×, mean 3.17×.
+Source 37 was recompiled 2026-08-22 (`GEN-cb7e5d2a`, authoritative) and **zero**
+spans were inserted. `force_pending` is already a full parser re-derivation.
 
-- Every stored measurement is a claim about whatever parser ran when that source
-  was last ingested, and nothing says so at the point of reading. This is how
-  ROADMAP 1 came to be scoped against a count that was wrong by 40×.
-- A parser improvement silently splits the corpus into sources that have it and
-  sources that do not, with no surface reporting the split.
+**A claim I made during this item was also wrong.** I said reference-mode sources
+never re-parse their target, reasoning from the 446-byte stub that `add_file`
+hashes. Source 37 is reference-mode and has three generations (08-08, 08-18,
+08-22): L2 re-parses the *resolved external file*, not the stub. I inferred a
+path from one file instead of reading the generation history.
 
-Not designed. The obvious approach — record the parser/contract version on the
-source and re-derive when it moves — is a schema and cost question
-(re-parsing the 673-page book takes 79 s; the whole vault is unmeasured), so it
-needs a plan rather than a patch.
+**So the 22.5-hour re-derivation this item implied was never needed** — the
+corpus is not stale. The user chose the honesty half, and it shipped as v0.69.7:
+`last_ingested` is stamped when an authoritative generation is published, and the
+ledger no longer reports "never" over 1,098 atoms.
 
-**This is upstream of E3** and should be settled first.
+**What genuinely remains** (small, no LLM, no schema):
+`upsert_source_span` returns the existing id on a hash match and **never updates
+metadata**, so a span's `loss` label cannot be repaired by re-parsing. Corpus-wide
+the Arena measured 1,254 placeholder-bearing spans, 1,135 labelled, **119
+unlabelled** (source 37: 93). `pipeline/source_spans.py::backfill_span_loss`
+already repairs exactly this deterministically and is wired into
+`wiki lint --fix` — so the first step is to run it and re-measure, not to write
+anything.
 
 ### C4. Community hierarchy is flat by construction
 
