@@ -27,11 +27,13 @@ def _repo_cache_root() -> Path:
     return _cfg.get_vault_cache_dir(Path("/nonexistent")).parent.parent
 
 
-def _build() -> tuple[Any, Any]:
+def _build() -> tuple[Any, Any, dict]:
+    from .. import config as _cfg
     from .. import gc as gc_mod
 
     paths = _resolve_root_or_die()
-    return paths, gc_mod.build_plan(paths, _repo_cache_root())
+    config = _cfg.load_config(paths)
+    return paths, gc_mod.build_plan(paths, _repo_cache_root()), config
 
 
 @gc_app.command("plan")
@@ -41,9 +43,11 @@ def gc_plan(
     """Show what would be reclaimed — and what grows but is deliberately kept."""
     from .. import gc as gc_mod
 
-    _paths, plan = _build()
+    paths, plan, config = _build()
+    sessions_n, sessions_bytes = gc_mod.plan_session_prune(paths, config)
     if json_output:
         _print_json({
+            "sessions_prunable": sessions_n,
             "reclaimable": [
                 {"path": str(i.path), "bytes": i.bytes, "reason": i.reason}
                 for i in plan.reclaimable
@@ -67,6 +71,25 @@ def gc_plan(
     else:
         _ok("Nothing to reclaim.")
 
+    days = gc_mod._session_retention_days(config)
+    if sessions_bytes:
+        console.print("\n[bold]Chat history[/bold]")
+        if days <= 0:
+            console.print(
+                f"  [cyan].curator/sessions.json[/cyan] — {gc_mod._human(sessions_bytes)}, "
+                f"retention [bold]off[/bold] (nothing is ever removed)"
+            )
+            console.print(
+                "    [dim]Set a window with `wiki config set gc.sessions_retention_days 90` "
+                "(30/90/180/365). Chats are your own writing, so the default keeps them "
+                "forever. A window removes them on EVERY device, not just this one.[/dim]"
+            )
+        else:
+            console.print(
+                f"  [cyan].curator/sessions.json[/cyan] — {gc_mod._human(sessions_bytes)}, "
+                f"keeping {days} days; [bold]{sessions_n}[/bold] session(s) past the window"
+            )
+
     if plan.retained:
         console.print("\n[bold]Grows, and deliberately kept[/bold]")
         for r in plan.retained:
@@ -82,8 +105,9 @@ def gc_run(
     """Delete the reclaimable items. Nothing synced is ever touched."""
     from .. import gc as gc_mod
 
-    _paths, plan = _build()
-    if not plan.reclaimable:
+    paths, plan, config = _build()
+    sessions_n, _bytes = gc_mod.plan_session_prune(paths, config)
+    if not plan.reclaimable and not sessions_n:
         if json_output:
             _print_json({"removed": 0, "bytes_freed": 0})
         else:
@@ -91,18 +115,31 @@ def gc_run(
         return
 
     if not yes and not json_output:
-        console.print(
-            f"About to delete {len(plan.reclaimable)} cache director(ies), "
-            f"{gc_mod._human(plan.bytes_reclaimable)}:"
-        )
-        for item in plan.reclaimable:
-            console.print(f"  {item.path}  [dim]{item.reason}[/dim]")
-        if not typer.confirm("Delete them?"):
+        if plan.reclaimable:
+            console.print(
+                f"About to delete {len(plan.reclaimable)} cache director(ies), "
+                f"{gc_mod._human(plan.bytes_reclaimable)}:"
+            )
+            for item in plan.reclaimable:
+                console.print(f"  {item.path}  [dim]{item.reason}[/dim]")
+        if sessions_n:
+            _warn(
+                f"{sessions_n} chat session(s) are past your retention window. "
+                f"Removing them takes effect on EVERY device you sync with, not "
+                f"just this one, and cannot be undone."
+            )
+        if not typer.confirm("Proceed?"):
             _warn("Cancelled; nothing was deleted.")
             raise typer.Exit(code=1)
 
     removed, freed = gc_mod.sweep(plan.reclaimable)
+    pruned = gc_mod.prune_sessions(paths, config)
     if json_output:
-        _print_json({"removed": removed, "bytes_freed": freed})
+        _print_json({"removed": removed, "bytes_freed": freed, "sessions_pruned": pruned})
     else:
-        _ok(f"Removed {removed} director(ies), freed {gc_mod._human(freed)}.")
+        if removed:
+            _ok(f"Removed {removed} director(ies), freed {gc_mod._human(freed)}.")
+        if pruned:
+            _ok(f"Removed {pruned} chat session(s) past the retention window.")
+        if not removed and not pruned:
+            _ok("Nothing to reclaim.")

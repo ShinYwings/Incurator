@@ -26,9 +26,10 @@ from __future__ import annotations
 
 import shutil
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from . import db
+from . import db, durable_io
 
 #: A cache directory is only swept when its vault root is under one of these.
 #:
@@ -238,3 +239,100 @@ def build_plan(paths, cache_root: Path) -> GcPlan:
                 )
             )
     return plan
+
+
+#: Chat-retention choices offered to the user. `0` means keep forever, and is the
+#: default: this is the user's own writing, so a timer never removes it unless
+#: they choose one.
+SESSION_RETENTION_CHOICES = (0, 30, 90, 180, 365)
+
+
+def _session_retention_days(config: dict) -> int:
+    raw = ((config or {}).get("gc") or {}).get("sessions_retention_days", 0)
+    try:
+        days = int(raw)
+    except (TypeError, ValueError):
+        return 0
+    return days if days > 0 else 0
+
+
+def plan_session_prune(paths, config: dict, *, now: datetime | None = None) -> tuple[int, int]:
+    """(sessions that would be removed, bytes the file currently occupies).
+
+    Read-only. Returns (0, size) when retention is off, which is the default.
+    """
+    days = _session_retention_days(config)
+    path = paths.internal / "sessions.json"
+    if not path.exists():
+        return 0, 0
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return 0, 0
+    if days <= 0:
+        return 0, size
+    doomed, _kept, _tombstones = _split_sessions(path, days, now)
+    return len(doomed), size
+
+
+def _split_sessions(
+    path: Path, days: int, now: datetime | None
+) -> tuple[list[dict], list[dict], dict]:
+    """Sessions older than the window, those kept, and the tombstone id list."""
+    import json
+
+    reference = now or datetime.now(timezone.utc)
+    cutoff_ms = (reference - timedelta(days=days)).timestamp() * 1000.0
+    data = json.loads(path.read_text(encoding="utf-8"))
+    sessions = data.get("chatSessions") or []
+    doomed: list[dict] = []
+    kept: list[dict] = []
+    for session in sessions:
+        stamp = session.get("updatedAt") or session.get("createdAt") or 0
+        try:
+            stamp = float(stamp)
+        except (TypeError, ValueError):
+            stamp = 0.0
+        # A session with no usable timestamp is KEPT. Deleting on a missing
+        # field would silently remove the oldest data, which is exactly what a
+        # user choosing a window does not expect.
+        (doomed if stamp and stamp < cutoff_ms else kept).append(session)
+    return doomed, kept, data
+
+
+def prune_sessions(paths, config: dict, *, now: datetime | None = None) -> int:
+    """Remove chat sessions past the retention window. Returns sessions removed.
+
+    Writes a tombstone for every removed session. That is not optional: the
+    plugin's merge re-seeds from whatever is on disk and from peers, so a prune
+    without tombstones is undone on the next save. It also means the removal
+    reaches every device -- which is what a retention window means, and why the
+    default is to keep and the CLI states it before deleting.
+    """
+    import json
+
+    days = _session_retention_days(config)
+    path = paths.internal / "sessions.json"
+    if days <= 0 or not path.exists():
+        return 0
+
+    doomed, kept, data = _split_sessions(path, days, now)
+    if not doomed:
+        return 0
+
+    tombstones = list(data.get("deletedSessionIds") or [])
+    seen = set(tombstones)
+    for session in doomed:
+        sid = session.get("id")
+        if sid and sid not in seen:
+            tombstones.append(sid)
+            seen.add(sid)
+
+    data["chatSessions"] = kept
+    data["deletedSessionIds"] = tombstones
+    active = data.get("activeChatSessionId")
+    if active and any(s.get("id") == active for s in doomed):
+        data["activeChatSessionId"] = kept[0]["id"] if kept else None
+
+    durable_io.atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2))
+    return len(doomed)
