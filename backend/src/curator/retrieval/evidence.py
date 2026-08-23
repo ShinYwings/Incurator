@@ -428,6 +428,23 @@ def build_evidence(
     q = request.working_query
     warnings: list[str] = []
     pack = EvidencePack(route=route, warnings=warnings)
+
+    # `seed_terms`' docstring has promised since v0.47.0 that "context_fetch
+    # warns about it rather than quietly returning nothing" when a non-English
+    # question reaches seeding. It never did — nothing in this module or in
+    # `context_service` inspected `english_query` at all. A documented invariant
+    # with no implementation is why ROADMAP A1 was misdiagnosed twice, so land
+    # the warning the contract already advertises.
+    #
+    # Scoped to `unset`: a derived-but-empty query is a whole-corpus question,
+    # which `intent` routes to `global`, and `global` does not seed entities —
+    # warning there would fire on a path working exactly as designed, and a
+    # warning that fires when nothing is wrong is one the user learns to skip.
+    if request.english_query_status == "unset" and q and not seed_terms(q):
+        warnings.append(
+            "english_query was not derived by the caller; internals received the "
+            "raw question and English-only entity seeding matched nothing"
+        )
     # §30.1: generate a unique retrieval execution ID for this call.
     pack.retrieval_execution_id = f"RTR-{uuid.uuid4().hex[:8]}"
 

@@ -57,8 +57,9 @@ def fetch_context(
         from ..retrieval import QueryRequest
 
         with llm.build_client(config) as client:
-            english_query, is_knowledge, reason = derive_search_query(
-                paths.state_db, client, query_text
+            derived = derive_search_query(paths.state_db, client, query_text)
+            english_query, is_knowledge, reason = (
+                derived.search_query, derived.is_knowledge_question, derived.reason
             )
             if not is_knowledge:
                 # Not a knowledge question — the message asks for something to be
@@ -77,10 +78,16 @@ def fetch_context(
                     "warnings": [f"no retrieval: {reason}"],
                     "coverage": {"sufficiency": "not_applicable"},
                 }
+            # Record that a derivation ran, so `build_evidence` can tell an
+            # empty-but-derived query (legitimate: a whole-corpus question has no
+            # search terms) from a caller that never derived one at all.
+            status = "derived"
             return ContextService(paths, client).context_fetch(
                 QueryRequest(
                     question=query_text,
                     english_query=english_query,
+                    english_query_status=status,
+                    intent=derived.intent,
                     workspace_path=workspace_path,
                     mode="auto",
                 ),

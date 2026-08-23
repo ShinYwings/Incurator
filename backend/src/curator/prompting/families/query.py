@@ -16,6 +16,12 @@ from ..registry import register
 
 Route = Literal["local", "global", "explore", "source-section"]
 
+#: What KIND of answer the message wants. Deliberately not the route: a route is
+#: the intent PLUS `policy.allowed_routes` PLUS `GraphStatus`. Emitting routes
+#: here would hand the model a policy decision it cannot see.
+#: Kept in step with `retrieval.models.QUERY_INTENTS` by a test.
+Intent = Literal["lookup", "synthesis", "discovery"]
+
 
 # --- internal search query -------------------------------------------
 
@@ -29,6 +35,23 @@ class SearchQueryOutput(BaseModel):
     search_query: str = ""
     is_knowledge_question: bool = True
     reason: str = ""
+
+
+class SearchQueryOutputV2(SearchQueryOutput):
+    """v2 adds the intent the extraction step already had to understand.
+
+    Measured before this existed: asking "내 볼트 전체의 주제를 정리해줘" eight
+    times produced eight different English queries, and the route flipped with
+    the synonym — `themes` and `summary` matched `_GLOBAL_SIGNALS`, `overview`
+    did not, so the SAME question reached `global` 6 times and `local` 2 times.
+    Routing on surface keywords of a sampled paraphrase is a lottery; routing on
+    a stated intent is not.
+
+    Defaults to "lookup" because a model that omits the field is expressing no
+    opinion, and no opinion must land on today's behaviour.
+    """
+
+    intent: Intent = "lookup"
 
 
 SEARCH_QUERY_SYSTEM = """\
@@ -59,6 +82,28 @@ Rules:
 Return ONLY JSON:
 {"search_query": "...", "is_knowledge_question": true, "reason": "..."}"""
 
+#: v2 = v1's rules verbatim, plus the intent. Additive, never a rewrite: every
+#: hard-won rule above (the pasted-body case, the notation-preservation rule,
+#: the 20-word cap) is load-bearing and is carried across unchanged.
+SEARCH_QUERY_SYSTEM_V2 = SEARCH_QUERY_SYSTEM.replace(
+    '''Return ONLY JSON:
+{"search_query": "...", "is_knowledge_question": true, "reason": "..."}''',
+    '''Also state the INTENT — what kind of answer the message wants:
+- "lookup"    — a specific fact, definition, mechanism, or named entity.
+- "synthesis" — a picture drawn ACROSS several sources or the whole corpus:
+                "summarise", "compare across the papers", "what are the themes",
+                "여러 논문을 종합해서", "전체의 주제를 정리". A whole-corpus question
+                often has NO search terms; that is correct — leave search_query
+                empty and set intent to "synthesis".
+- "discovery" — open-ended: what else is here, what connects to what, what is
+                worth noticing.
+Judge the intent of the MESSAGE. Never judge it from whichever English words you
+happened to choose for search_query.
+
+Return ONLY JSON:
+{"search_query": "...", "is_knowledge_question": true, "intent": "lookup", "reason": "..."}''',
+)
+
 SEARCH_QUERY_USER = """\
 Message:
 {{ message }}
@@ -66,6 +111,9 @@ Message:
 Return the JSON."""
 
 
+#: v1 stays registered so historical `prompt_runs` rows keep resolving. The
+#: registry returns the highest version for a bare `get(prompt_id)`, so nothing
+#: at the call site changes.
 SEARCH_QUERY_CONTRACT = register(
     PromptContract(
         prompt_id="curator.query_search_terms",
@@ -76,6 +124,32 @@ SEARCH_QUERY_CONTRACT = register(
         input_model=SearchQueryInput,
         output_model=SearchQueryOutput,
         system_template=SEARCH_QUERY_SYSTEM,
+        user_template=SEARCH_QUERY_USER,
+        temperature=0.0,
+    )
+)
+#: A `.replace()` that misses returns the original unchanged — so if v1's JSON
+#: line is ever edited, v2 would silently lose its intent instructions and the
+#: router would go back to reading keywords off a paraphrase. Fail at import
+#: instead.
+assert SEARCH_QUERY_SYSTEM_V2 != SEARCH_QUERY_SYSTEM, (
+    "SEARCH_QUERY_SYSTEM_V2's replace() no-opped: v1's closing JSON line changed"
+)
+assert "INTENT" in SEARCH_QUERY_SYSTEM_V2
+
+SEARCH_QUERY_CONTRACT_V2 = register(
+    PromptContract(
+        prompt_id="curator.query_search_terms",
+        version="v2",
+        family="query",
+        role="router",
+        purpose=(
+            "Derive the internal English search query AND the message's intent, "
+            "or decide there is no knowledge question."
+        ),
+        input_model=SearchQueryInput,
+        output_model=SearchQueryOutputV2,
+        system_template=SEARCH_QUERY_SYSTEM_V2,
         user_template=SEARCH_QUERY_USER,
         temperature=0.0,
     )

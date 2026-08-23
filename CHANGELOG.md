@@ -2,6 +2,53 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.65.0] - 2026-08-23
+### Fixed
+- **The same question no longer reaches a different corpus each time you ask it.**
+
+  Routing matched keywords against the *English paraphrase* the system derives
+  from your question — not against your question. Asking
+  "내 볼트 전체의 주제를 정리해줘" eight times produced eight different paraphrases,
+  and the route followed whichever synonym came out: `themes` and `summary` are
+  in the pattern, `overview` is not.
+
+  | | before | after |
+  |---|---|---|
+  | "summarise the themes of my whole vault" ×8 | **6 × `global`, 2 × `local`** | **4/4 `global`** |
+  | "explain across several papers why 2D GS beats 3D" ×4 | consistently `local` — the wrong corpus | **4/4 `global`** |
+  | a narrow fact question ×2 | — | **2/2 `local`** |
+
+  The extractor now states the message's **intent** alongside the search terms,
+  and routing reads that. It removes the lottery in both directions: a synthesis
+  question no longer needs to be lucky with vocabulary, and a narrow question is
+  no longer dragged to `global` because its paraphrase happened to contain the
+  word "summary".
+
+  **Intent is not route.** The model says what kind of question it is; the
+  existing policy and graph gates still decide where it can go. A workspace whose
+  `curate.yml` forbids `global` still degrades to `local` and records why, and an
+  unrecognised value falls through to the previous behaviour rather than
+  misrouting.
+
+- **The warning the code has promised since v0.47.0 now exists.** `seed_terms`
+  documents that "`context_fetch` warns about it rather than quietly returning
+  nothing" when an underived question reaches entity seeding. Nothing anywhere
+  inspected the derived query, so it never warned — a documented invariant with
+  no implementation, which is why this item was diagnosed wrongly three times.
+
+### Changed
+- `curator.query_search_terms` gains **v2**, which adds the intent to v1's rules
+  verbatim — a test asserts every v1 rule survives into v2, because those rules
+  (the pasted-body case, notation preservation, the length cap) are load-bearing
+  and a rewrite is how you lose one without noticing. **v1 stays registered** so
+  historical prompt traces keep resolving.
+- `derive_search_query` returns a `DerivedQuery` rather than a 3-tuple. Seven
+  in-repo call sites; `mypy` catches every one.
+- `QueryRequest.english_query_status` records only whether a derivation ran. A
+  first draft carried a third value for "ran and found no search target"; once
+  intent did the routing, nothing read it, and a vocabulary entry nothing
+  consumes reads as a guarantee somebody can rely on.
+
 ## [0.64.0] - 2026-08-23
 ### Added
 - **`wiki status` reports knowledge units that search cannot find.** The vault

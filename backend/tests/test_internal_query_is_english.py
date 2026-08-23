@@ -71,9 +71,13 @@ def test_a_knowledge_question_yields_an_english_search_query(tmp_path: Path) -> 
         reason="asks how a quadric is represented",
     ).model_dump_json())
 
-    query, is_knowledge, _ = derive_search_query(
+    derived = derive_search_query(
         paths.state_db, client, "ellipsoid 형태의 quadric 은 어떻게 매트릭스로 표현되나?"
     )
+
+    query = derived.search_query
+
+    is_knowledge = derived.is_knowledge_question
 
     assert is_knowledge is True
     assert query == "dual quadric matrix parametrization"
@@ -101,9 +105,15 @@ def test_a_do_this_to_my_text_request_is_not_a_knowledge_question(
         reason="asks for supplied text to be rewritten, needs no stored knowledge",
     ).model_dump_json())
 
-    query, is_knowledge, reason = derive_search_query(
+    derived = derive_search_query(
         paths.state_db, client, "다음 문장을 한글로 번역해줘: The quadric is parametrized..."
     )
+
+    query = derived.search_query
+
+    is_knowledge = derived.is_knowledge_question
+
+    reason = derived.reason
 
     assert is_knowledge is False
     assert query == ""
@@ -121,9 +131,15 @@ def test_derivation_failure_degrades_to_ascii_terms_not_silence(
     paths = cfg.WikiPaths(tmp_path)
     db.init_db(paths.state_db)
 
-    query, is_knowledge, reason = derive_search_query(
+    derived = derive_search_query(
         paths.state_db, _DeadClient(), "ellipsoid 형태의 quadric 은 어떻게 표현되나?"
     )
+
+    query = derived.search_query
+
+    is_knowledge = derived.is_knowledge_question
+
+    reason = derived.reason
 
     assert is_knowledge is True
     assert "quadric" in query and "ellipsoid" in query
@@ -148,11 +164,15 @@ def test_fallback_keeps_diacritics_it_used_to_shred(tmp_path: Path) -> None:
     paths = cfg.WikiPaths(tmp_path)
     db.init_db(paths.state_db)
 
-    query, is_knowledge, _ = derive_search_query(
+    derived = derive_search_query(
         paths.state_db,
         _DeadClient(),
         "Plücker Line 과 Dual Quadric 의 관통/접합 손실은 무슨 뜻이야?",
     )
+
+    query = derived.search_query
+
+    is_knowledge = derived.is_knowledge_question
 
     assert is_knowledge is True
     assert "Plücker" in query, f"the diacritic term was shredded: {query!r}"
@@ -173,9 +193,11 @@ def test_fallback_drops_single_character_noise(tmp_path: Path) -> None:
     paths = cfg.WikiPaths(tmp_path)
     db.init_db(paths.state_db)
 
-    query, _, _ = derive_search_query(
+    derived = derive_search_query(
         paths.state_db, _DeadClient(), "Plücker Line L = [l^T, m^T]^T 은 무엇인가?"
     )
+
+    query = derived.search_query
 
     assert "Plücker" in query
     for noise in (" L ", " T ", " m "):
@@ -192,9 +214,13 @@ def test_fallback_still_answers_the_mixed_script_case_it_was_built_for(
     paths = cfg.WikiPaths(tmp_path)
     db.init_db(paths.state_db)
 
-    query, is_knowledge, _ = derive_search_query(
+    derived = derive_search_query(
         paths.state_db, _DeadClient(), "ellipsoid 형태의 quadric 은 어떻게 표현되나?"
     )
+
+    query = derived.search_query
+
+    is_knowledge = derived.is_knowledge_question
     assert is_knowledge is True
     assert "quadric" in query and "ellipsoid" in query
     assert "형태의" in query, "Korean terms are searchable content, not punctuation"

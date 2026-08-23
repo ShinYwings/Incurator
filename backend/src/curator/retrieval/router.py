@@ -86,6 +86,27 @@ def choose_route(
     if request.source_key:
         return _pick("source-section", "question scoped to a specific source")
 
+    # 2.5 Derived intent, when the boundary produced one.
+    #
+    #     Authoritative over the regexes below because it is stated by the step
+    #     that read the USER'S words, while `working_query` is that step's
+    #     English paraphrase. Measured before this existed: the same question
+    #     asked eight times produced eight different paraphrases, and the route
+    #     followed whichever synonym was sampled — `themes` and `summary` are in
+    #     `_GLOBAL_SIGNALS`, `overview` is not — so one question reached `global`
+    #     6 times and `local` 2 times. Same input, different corpus.
+    #
+    #     The model proposes an intent; the gates below still dispose. A gate
+    #     that is not satisfied falls through to today's path rather than
+    #     erroring, and an unknown intent string matches nothing and does the
+    #     same, so a rogue value is inert rather than harmful.
+    if request.intent == "discovery" and policy.exploration_enabled and status.has_relations:
+        return _pick("explore", "derived intent: discovery")
+    if request.intent == "synthesis" and status.has_reports:
+        return _pick("global", "derived intent: synthesis")
+    if request.intent == "lookup":
+        return _pick("local", "derived intent: lookup")
+
     q = request.working_query
 
     # 3. Discovery signals → explore (only if exploration enabled + graph exists).
