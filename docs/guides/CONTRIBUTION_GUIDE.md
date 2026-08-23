@@ -116,9 +116,12 @@ testbed/
 ├── 05_Assets/           # Images, PDFs, binary data
 └── .curator/            # System internals (initialized via CLI)
     ├── Collections/     # Generated DAG (L1–L4)
-    ├── config.yml       # Testbed-specific LLM and path config
-    └── state.sqlite     # Provenance and hash tracking
+    └── config.yml       # Testbed-specific LLM and path config
 ```
+
+`state.sqlite` is **not** in the vault. It is machine-local, under
+`<repo>/.cache/vaults/<hash-of-vault-path>/` — see `config.py::WikiPaths.state_db`.
+A 0-byte stub may exist at `.curator/state.sqlite`; it is not the database.
 
 ---
 

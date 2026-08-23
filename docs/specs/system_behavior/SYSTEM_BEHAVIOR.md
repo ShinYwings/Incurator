@@ -2570,9 +2570,20 @@ Rules:
 
 ### 22.3 Directory Roles (Two-Track)
 
-- `.curator/` — AI-Only Space: `state.sqlite` (source of truth), DB-native search
-  indexes/traces, the derived `Collections/` Obsidian projection, and `runtime/`
-  snapshots. Hidden; not a user concern.
+- `.curator/` — AI-Only Space: the derived `Collections/` Obsidian projection,
+  `settings.yml`, the routing/ledger/log markdown, the cross-device sync journal,
+  and `runtime/` snapshots. Hidden; not a user concern.
+
+  **`state.sqlite` is NOT here**, despite this section having said so until
+  v0.70.0 while every other section in this document said "repo-cache
+  `state.sqlite`". It is machine-local, at
+  `<repo>/.cache/vaults/<sha256(resolved_vault_root)[:16]>/state.sqlite`
+  (`config.py::WikiPaths.state_db`), and it is deliberately outside the vault so
+  Syncthing never has to reconcile two devices writing one SQLite file.
+
+  The contradiction was not harmless: a 0-byte legacy stub can sit at
+  `<vault>/.curator/state.sqlite`, so following this section finds a file, opens
+  it, reads zero rows, and concludes the vault was never ingested.
 - `02_Wiki/` — Human-Only Space: explicitly promoted human knowledge only.
 - `wiki reset` may delete the entire derived `Collections/` projection because it
   is rebuildable from the DB (and the DB from source truth).

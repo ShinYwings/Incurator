@@ -339,7 +339,7 @@ def _auto_discover_pending(paths: cfg.WikiPaths) -> tuple[int, int]:
 # ---------------------------------------------------------------------------
 
 
-def _update_ledger(paths: cfg.WikiPaths) -> None:
+def update_ledger(paths: cfg.WikiPaths) -> None:
     """Rebuild ledger.md with current collection stats."""
     total_contexts  = sum(1 for _ in paths.contexts.glob("*.md"))   if paths.contexts.exists()   else 0
     total_atoms     = sum(1 for _ in paths.atoms.glob("*.md"))       if paths.atoms.exists()      else 0
@@ -381,7 +381,7 @@ def _update_ledger(paths: cfg.WikiPaths) -> None:
     paths.ledger.write_text("\n".join(lines), encoding="utf-8")
 
 
-def _update_overview(paths: cfg.WikiPaths) -> None:
+def update_overview(paths: cfg.WikiPaths) -> None:
     """Refresh overview.md — summarise every layer in Collections/."""
 
     def _read_layer(directory: "Path | None") -> list[tuple[str, str, str]]:
@@ -575,8 +575,8 @@ def run_l1_to_l3(
             f"created: [[{consts.LAYER_L3}/{cid}]]" for cid in concept_ids
         ]
         page_writer.append_log_entry(paths, today, "add", "L1-L3 pipeline", log_bullets)
-    _update_ledger(paths)
-    _update_overview(paths)
+    update_ledger(paths)
+    update_overview(paths)
     return results
 
 
@@ -621,8 +621,8 @@ def run_l3_from_existing_atoms(
     if changes:
         log_bullets = [f"created: [[{consts.LAYER_L3}/{cid}]]" for cid in concept_ids]
         page_writer.append_log_entry(paths, today, "add", "L3-only regeneration", log_bullets)
-    _update_ledger(paths)
-    _update_overview(paths)
+    update_ledger(paths)
+    update_overview(paths)
     return changes
 
 
