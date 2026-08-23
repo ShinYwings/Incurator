@@ -344,13 +344,31 @@ So the 119 are an internal data-completeness gap, not a visibility one, and
 to build. **Anyone reopening this should run `wiki lint` first and read what it
 already says.**
 
-### C4. Community hierarchy is flat by construction
+### C4. Community hierarchy is flat — **SURFACED v0.69.8**
 
-`_entities.py` hardcodes `level = 0`; one community holds 176 of 965 entities
-while 152 of 233 are single-relation pairs. §27.4 permits the degraded
-connected-components fallback but requires it be "surfaced by the audit" —
-`config_hash` records it only as an opaque digest and `graph_audit` returns
-violations only.
+Measured, and worse than this item recorded: the largest community holds **567**
+memberships (30%), **293 of 417** are bare pairs, every report is `level = 0`, and
+`parent_community_key` has never been set.
+
+§27.4 permits the degraded connected-components path on one condition — that it
+be *"recorded in `config_hash` and surfaced by the audit, not hidden"*. It was
+hidden: `config_hash` is a 16-character digest, irreversible where it is read,
+and `graph_audit` returns relation-level violations only. `wiki lint` now names
+the algorithm and reports the partition's shape.
+
+Three decisions, each ruling out a worse version: **INFO not violation** (§27.4
+permits this path; a permanent violation trains the reader to skip the audit);
+**no giant-component threshold** (§27.4 defers it to a benchmark freeze that has
+never run, and inventing the constant repeats the `PROMPT_CONTRACT_VERSION`
+failure — edited once while its prompt took twelve commits); **self-retiring**
+(a hash comparison, so it vanishes when an approved algorithm ships).
+
+**What is NOT done, and is deliberately not scoped here:** real hierarchy levels.
+§27.4 requires the algorithm be chosen by the frozen multi-metric benchmark, not
+assumed — *"Modularity alone is insufficient"* — and adopted only if it improves
+the approved gates with no homonym, provenance, report-support or stability
+regression. That is a Phase-E-sized project with a benchmark to build first, and
+it now has an honest baseline to be measured against.
 
 ## Phase D — Structural risk, ONE per release
 
