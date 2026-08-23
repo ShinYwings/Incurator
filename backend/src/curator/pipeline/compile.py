@@ -1197,17 +1197,33 @@ def compile_global_l3(
     # L4 Synthesis: distill all community reports into shared corpus-wide insights.
     # Skipped automatically when the report corpus is unchanged.
     synthesis_ids: list[str] = []
-    if not l3_errors:
-        try:
-            synthesis_ids = synthesis.generate_synthesis(
-                paths, client, curate_spec_hash=curate_spec_hash,
-                concept_ids_by_report=report_concept_ids,
-            )
-        except Exception as e:
-            # KEEP broad: synthesis is the final best-effort L4 step; record the
-            # error (surfaced via the errors list) rather than crashing L3.
-            logger.warning("L4 synthesis failed: %s", e)
-            l4_errors.append(str(e))
+    # NO `if not l3_errors:` gate here (ROADMAP C2).
+    #
+    # That gate blocked L4 whenever ANY report's prose failed, and `l3_errors`
+    # collects one entry per failed report. Across 417 reports with a provider
+    # that refuses on capacity, it was never empty — so in the whole vault's
+    # history `synthesis_nodes` never received a single row, while three
+    # retrieval paths read that table.
+    #
+    # It was inherited rather than decided: f663a0a split a shared `errors` list
+    # into l3/l4 while fixing status truthfulness and carried the condition over.
+    # And it contradicted what it guarded — `generate_synthesis` hashes its corpus
+    # and skips when unchanged, i.e. it is built to be re-run as the corpus fills,
+    # which is exactly what the gate prevented.
+    #
+    # Synthesis now runs over the reports that HAVE prose and re-runs when more
+    # gain it (see `pipeline/synthesis.py`), so a partial L3 yields a partial-but-
+    # honest L4 that completes itself rather than nothing at all.
+    try:
+        synthesis_ids = synthesis.generate_synthesis(
+            paths, client, curate_spec_hash=curate_spec_hash,
+            concept_ids_by_report=report_concept_ids,
+        )
+    except Exception as e:
+        # KEEP broad: synthesis is the final best-effort L4 step; record the
+        # error (surfaced via the errors list) rather than crashing L3.
+        logger.warning("L4 synthesis failed: %s", e)
+        l4_errors.append(str(e))
 
     # Mark L3 done for sources whose L2 is complete.
     with db.connect(paths.state_db) as conn:
@@ -1260,7 +1276,10 @@ def compile_global_l3(
         # `error`, never `skipped`. `skipped` means "this source contributed
         # nothing to the layer" — a different, non-failing outcome. Reporting a
         # failure as `skipped` is what let a broken L4 read as an ordinary no-op.
-        source_l4_status = "error" if (l3_errors or l4_errors) else (
+        # L4's status reflects L4's OWN work, the same principle f663a0a applied
+        # to L3. Now that a partial L3 no longer blocks synthesis, ORing in
+        # `l3_errors` would report a layer that ran and succeeded as failed.
+        source_l4_status = "error" if l4_errors else (
             "done" if sid in synthesis_source_ids else "skipped"
         )
         db.set_source_layer_status(

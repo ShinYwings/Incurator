@@ -18,6 +18,7 @@ from curator import db
 from curator import ingest_llm
 from curator.llm import ChatMessage
 from curator.pipeline import compile as compile_mod
+from curator.pipeline import synthesis
 
 SOURCE_MD = """\
 # Residual Learning
@@ -692,3 +693,60 @@ def test_a_failed_publish_keeps_the_staged_graph_batches(vault, monkeypatch) -> 
             "SELECT COUNT(*) FROM graph_batch_results WHERE source_id = 1"
         ).fetchone()[0]
     assert staged > 0, "the failure handler destroyed the extraction it should preserve"
+
+
+def test_compile_global_l3_attempts_l4_even_when_a_report_prose_failed(
+    vault, monkeypatch
+) -> None:
+    """ROADMAP C2: one failed report used to block the entire L4 layer.
+
+    `compile_global_l3` ran synthesis only `if not l3_errors`, and that list gets
+    one entry per failed report prose. On the reference vault -- 417 reports and a
+    provider refusing on capacity -- it was never empty, so across the vault's
+    whole history `synthesis_nodes` never received a single row, while three
+    retrieval paths read that table.
+
+    The gate was inherited rather than decided: f663a0a split a shared `errors`
+    list while fixing status truthfulness and carried the condition over. It also
+    contradicted what it guarded -- `generate_synthesis` hashes its corpus and
+    skips when unchanged, so it is built to be re-run as the corpus fills.
+
+    Asserted as "synthesis is INVOKED", because that is exactly what the gate
+    prevented. What it then produces depends on how much of the corpus is ready,
+    and `test_l4_runs_on_the_ready_corpus.py` covers that: this fixture builds a
+    single community, so a refused prose leaves nothing ready to synthesise.
+    """
+    paths = vault
+    compile_mod.compile_source_l2(paths, DynamicFakeClient(), 1)
+
+    called: list[bool] = []
+    real = synthesis.generate_synthesis
+
+    def _spy(*args, **kwargs):
+        called.append(True)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(synthesis, "generate_synthesis", _spy)
+
+    class _ProseRefused(DynamicFakeClient):
+        """Refuses ONLY the community-report prompt.
+
+        Matched on the Community Analyst persona rather than on the word
+        "Community": report titles flow into the synthesis prompt, so a looser
+        match would refuse synthesis too and hide the thing under test.
+        """
+
+        def chat(self, messages, **kwargs):
+            text = "\n".join(m.content for m in messages)
+            if "Curator's Community Analyst" in text:
+                raise RuntimeError("Antigravity capacity exhausted (429).")
+            return super().chat(messages, **kwargs)
+
+    try:
+        compile_mod.compile_global_l3(paths, _ProseRefused())
+    except RuntimeError as exc:
+        assert "L3 global clustering encountered errors" in str(exc)
+    else:
+        raise AssertionError("expected L3 to report the refused report")
+
+    assert called, "L4 was never attempted because a report prose failed"

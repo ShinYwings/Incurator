@@ -214,6 +214,19 @@ L1 is complete but L2/L3 are still pending. The global L3 stage automatically
 attempts shared L4 Synthesis after community reports settle; L4 is not a manual
 post-build step.
 
+**L4 is attempted whether or not every report succeeded (v0.69.6).** It
+synthesises over the reports that HAVE prose, and `corpus_dependency_hash` covers
+that set — so when a pending report is later written, the hash changes and the
+layer re-runs. A partial L3 therefore yields a partial-but-honest L4 that
+completes itself.
+
+Until v0.69.6 synthesis ran only when **zero** reports had failed. `l3_errors`
+takes one entry per failed report prose, so across 417 reports and a provider
+that refuses on capacity that list was never empty: `synthesis_nodes` had **no
+row in the vault's entire history**, while `retrieval/materializer.py`,
+`retrieval/evidence.py` and `context_service.py` all read that table. `l4_status`
+likewise reports L4's own outcome, no longer inheriting `l3_errors`.
+
 ```text
 wiki build [path]
   -> find sources with l1_status='done' and l2_status='pending'

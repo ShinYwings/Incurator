@@ -2,6 +2,40 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.69.6] - 2026-08-24
+### Fixed
+- **The top layer of the knowledge graph had never produced a single row.**
+
+  Not "L4 failed recently" — across the vault's entire history:
+
+  | | |
+  |---|---|
+  | `synthesis_nodes` rows | **0** |
+  | `SYN-*` files | **0** |
+  | sources at `l4_status='done'` | **0** |
+
+  Three retrieval paths read `synthesis_nodes`. None had ever had a row to read.
+
+  **One gate caused it.** Synthesis ran only when **zero** community reports had
+  failed, and that error list takes one entry per failed report prose. Across 417
+  reports with a provider that refuses on capacity, it was never empty — so one
+  failed report out of 417 silently suppressed the entire layer.
+
+  The gate was inherited rather than chosen: it was carried forward by a commit
+  about status reporting, which split a shared error list and kept the condition.
+  And it contradicted what it guarded — synthesis already hashes its corpus and
+  skips when unchanged, so it is built to be re-run as the corpus fills. The gate
+  prevented exactly that.
+
+  L4 now synthesises over the reports that **have prose**, and re-runs when more
+  gain it. A report without prose has not finished its own layer, so feeding those
+  skeletons would make L4's output depend on how far L3 happened to get. A partial
+  L3 now yields a partial-but-honest L4 that completes itself, instead of nothing.
+
+- **`l4_status` no longer reports a layer that ran and succeeded as failed.** It
+  had inherited the L3 error list; it now reflects L4's own outcome, the same
+  principle already applied to L3.
+
 ## [0.69.5] - 2026-08-24
 ### Fixed
 - **Every source in the vault was stuck at `l3: error`, and each retry made the
