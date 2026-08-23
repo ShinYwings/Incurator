@@ -252,6 +252,35 @@ def generate_report_prose(
         relations_block=rel_block,
         valid_span_ids_block="\n".join(span_ids),
     )
+    # Skip a report whose prose already matches these exact inputs (ROADMAP C1).
+    #
+    # L3 is a global pass, so one capacity refusal fails every source at once --
+    # and with no skip, the retry re-sent every report the provider had already
+    # written. Measured on the reference vault: 417 live reports, 238 of them
+    # already had prose, so a retry burned its first 238 calls on finished work
+    # and was refused again long before reaching the 179 still unwritten. All 36
+    # sources stayed at l3_status='error' across runs that should have converged.
+    #
+    # What v0.62.0 gave L2 and v0.63.0 gave graph extraction, one layer up -- and
+    # it needs no new table. `prompt_runs.input_hash` is the digest of the fully
+    # rendered prompt, the same key those two use, and the report already stores
+    # the `prompt_run_id` that produced its prose.
+    #
+    # Keyed on the RENDERED PROMPT, not on prose merely existing: a report whose
+    # grounding moved has a different prompt and must be rewritten.
+    # `curate_spec_hash` is compared separately because the curation policy shapes
+    # the output without appearing in the prompt text.
+    prior_run_id = str(report.get("prompt_run_id") or "")
+    if str(report.get("full_content") or "").strip() and prior_run_id:
+        prior = db.get_prompt_run(db_path, prior_run_id)
+        if (
+            prior is not None
+            and str(prior.get("input_hash") or "")
+            == prompting.render_prompt(contract, input_obj).input_hash
+            and str(prior.get("curate_spec_hash") or "") == (curate_spec_hash or "")
+        ):
+            return str(report.get("id") or "") or None
+
     result = prompting.run_prompt(
         db_path,
         client,

@@ -2,6 +2,41 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.69.5] - 2026-08-24
+### Fixed
+- **Every source in the vault was stuck at `l3: error`, and each retry made the
+  same mistake before it could make progress.**
+
+  L3 community-report generation is a **global** pass, so a single capacity
+  refusal from the provider fails every source at once. That part is by design.
+  What was not: the retry re-sent every report the provider had **already
+  written**, so it exhausted its budget on finished work and was refused again
+  long before reaching the reports that still needed writing.
+
+  Measured on the reference vault:
+
+  | | |
+  |---|---|
+  | sources at `l3_status='error'` | **36** (all of them) |
+  | live community reports | **417** |
+  | already had prose | **238** |
+  | of those, byte-identical prompt → now skipped | **185** |
+  | genuinely changed → correctly rewritten | **53** |
+  | never written | **179** |
+
+  A retry now spends its budget on **232 reports instead of 417**, which is what
+  makes the 179 unwritten ones reachable at all.
+
+  The skip is keyed on the **rendered prompt**, not on prose merely existing — a
+  report whose membership or eligible support moved has a different prompt and is
+  rewritten. This is what v0.62.0 gave L2 extraction and v0.63.0 gave graph
+  extraction, one layer up, and unlike those it needed **no new table**: the
+  report already stores the `prompt_run_id` whose `input_hash` is the same
+  digest-of-the-rendered-prompt those two use as their resume key.
+
+  Verified against the live vault with a client that raises if called, so the
+  measurement above cost zero provider calls.
+
 ## [0.69.4] - 2026-08-23
 ### Fixed
 - **Sending one chat message moved ~104 MB of disk I/O. It now moves ~7 MB.**
