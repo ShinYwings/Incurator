@@ -92,9 +92,39 @@ corrected with a test that fails if one does it again. The rest:
 - Vault rename/move silently mints a new empty DB (cache key is
   `sha256(resolved_root)[:16]`); also hits `VAULT_ROOT=testbed` from two
   directories.
-- `sessions.json` 15 MB, **81% re-embedded context** — one note stored 52×, a
-  1.39 MB base64 image, ~1.1 s per send. The 30-session cap is a provable no-op.
-  Supersedes the old "Chat Session Context Compaction" draft.
+- `sessions.json` — **re-measured 2026-08-23, and it is worse and simpler than
+  the audit said.** The audit reported "81% re-embedded context"; the real figure
+  is **93.9%**, and it is one field.
+
+  14.52 MB, 11 sessions, 310 messages. Actual conversation text is **0.87 MB
+  (5.9%)**. `contextRefs` is **13.98 MB (93.9%)**.
+
+  | field | values | distinct | size | deduped | redundant |
+  |---|---|---|---|---|---|
+  | `imageBase64` | 9 | 5 | 5.94 MB | 3.10 MB | 48% |
+  | `content` | 369 | 140 | 5.31 MB | 1.82 MB | 66% |
+  | `outline` | 99 | **3** | 1.90 MB | **0.04 MB** | **98%** |
+
+  **~8.2 MB of 14.5 MB is byte-identical duplication.** One ref payload is stored
+  23×; three distinct outlines are stored 99 times between them. Largest single
+  value: a 1.33 MB base64 image.
+
+  **This is not a retention question and must not wait for B2.** Deduplication is
+  lossless — nothing the user wrote is lost, because only byte-identical payloads
+  collapse, and a note that changed between two messages produces two different
+  payloads that stay separate. It is redundancy with zero information value.
+
+  It is also *upstream* of B2 rather than competing with it: B2's proposed default
+  for chat history is **keep**, on the grounds that it is the user's own writing.
+  Halving the file first is what makes "keep" affordable.
+
+  The 30-session cap is a provable no-op — there are 11 sessions, and the size is
+  in the refs, not the count. There are also **59 `deletedSessionIds`** against 11
+  live sessions.
+
+  Supersedes the old "Chat Session Context Compaction" draft. **Plugin-side
+  persisted schema, so it takes a plan and its own release** (CLAUDE.md: a stored
+  contract is an automatic plan and a migration rehearsal).
 - Sync journals never compact — **now 88 MB, up from the audited 24 MB**;
   `compress=True` exists unused with gzip measured at 9.86×; a stale peer is
   skipped silently while `autosync` reports success.
