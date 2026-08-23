@@ -63,8 +63,8 @@ evaluated_code:
     prior_entities_sha256: 9976a0f8e70e9edbd169b5e9b48801858ec9aade1c287fa0235d1284ea80d972
     reason: v0.69.7 stamps sources.last_ingested when an authoritative compiler
       generation is published, so the vault can say when a source was last
-      ingested - ledger.md reported "Last curated: never" over 1,098 atoms
-      because the column was NULL on all 44 rows. Non-impact is provable rather
+      ingested. Before this, ledger.md reported the vault as never curated, over
+      1,098 atoms, because the column was NULL on all 44 rows. Non-impact is provable rather
       than asserted, the change being purely additive (21 insertions, 0
       deletions; no existing statement altered) with one guarded UPDATE of
       sources.last_ingested as its only executable line. That column is read by
