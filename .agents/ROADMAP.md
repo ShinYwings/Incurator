@@ -81,6 +81,11 @@ It is the user's disk and Syncthing bandwidth today; it becomes an outage later.
 
 ### B1. `.curator` state audit — the remainder
 
+**Two closed in v0.69.1**: `wiki sync` now rebuilds all four files it always
+claimed, and every document that placed `state.sqlite` inside the vault is
+corrected with a test that fails if one does it again. The rest:
+
+
 - Losing `.cache/` reports a healthy **empty** vault: `connect()` self-heals a
   schema into any empty DB and `get_stats` returns zeros. Recovery exists (the
   in-vault sync journal + `wiki db import`) but is silent and undocumented.
@@ -114,8 +119,6 @@ It is the user's disk and Syncthing bandwidth today; it becomes an outage later.
   recreated by failed and re-run compiles. With C1 leaving 36 sources retrying
   L3, this grows for as long as C1 is open. Expiry alone would not have helped;
   **C1 is upstream of half this file's size.**
-- `wiki sync` claims to rebuild `ledger.md`/`overview.md` and calls neither.
-- `SYSTEM_BEHAVIOR.md` contradicts itself on where `state.sqlite` lives.
 - Arena record: `.agents/plans/curator_state_arena/`
 
 ### B2. There is no retention policy — for anything, backend or plugin
