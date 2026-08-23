@@ -136,7 +136,25 @@ def generate_synthesis(
     dependency hash is unchanged, so re-running without DAG changes costs no LLM.
     Source truth is never touched; every synthesis cites only allowed span ids.
     """
-    reports = db.list_community_reports(paths.state_db)
+    # Synthesise over the reports that are READY, not over every row.
+    #
+    # A community report without prose has not finished its own layer -- prose is
+    # precisely what the L3 pass adds (SYSTEM_BEHAVIOR §27.5); the row before it
+    # is a deterministic skeleton carrying identity and grounding. Feeding those
+    # skeletons would make L4's output depend on how far L3 happened to get
+    # before the provider refused.
+    #
+    # This is safe to do EARLY rather than waiting for a complete corpus, because
+    # `corpus_dependency_hash` below covers the set that was actually used: when
+    # a pending report gains prose the hash changes and this layer re-runs. That
+    # lifecycle is what `compile.py`'s `if not l3_errors:` gate prevented -- one
+    # failed report out of 417 blocked L4 entirely, and across the vault's whole
+    # history that list was never empty, so `synthesis_nodes` never had a row.
+    reports = [
+        r
+        for r in db.list_community_reports(paths.state_db)
+        if str(r.get("full_content") or "").strip()
+    ]
     if not reports:
         if db.list_synthesis_nodes(paths.state_db):
             db.clear_synthesis_nodes(paths.state_db)
