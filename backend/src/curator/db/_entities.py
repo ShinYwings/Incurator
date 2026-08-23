@@ -777,6 +777,27 @@ def publish_compiler_generation(
             "published_at = ?, audit_json = ? WHERE id = ?",
             (now, audit_json, gen_id),
         )
+        if source_id is not None:
+            # This IS the moment the source was (re)ingested, so it is where the
+            # stamp belongs -- and it is inside the caller's transaction, so the
+            # timestamp is atomic with the publish it describes.
+            #
+            # `run_l1_to_l3` selects only pending/force_pending/error sources, so
+            # its own `_mark_source_status(..., "curated", last_ingested=...)`
+            # fires at most ONCE in a source's life, when it first leaves the
+            # pending set. Every later recompile published a new authoritative
+            # generation and touched nothing. On the reference vault the result
+            # was 44 sources, 44 authoritative generations, and 0 non-NULL
+            # `last_ingested` -- so `ledger.md`, which `wiki sync` rebuilds,
+            # reported "Last curated: never" over 1,098 atoms.
+            #
+            # A corpus-wide generation (`source_id IS NULL`) is deliberately
+            # excluded: it is the global L3/L4 scope, and stamping every source
+            # from it would claim each had been individually re-ingested.
+            c.execute(
+                "UPDATE sources SET last_ingested = ? WHERE id = ?",
+                (now, source_id),
+            )
 
 
 def discard_compiler_generation(db_path: Path, gen_id: str) -> None:

@@ -2,6 +2,34 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.69.7] - 2026-08-24
+### Fixed
+- **`ledger.md` reported "Last curated: never" over a fully built knowledge
+  graph.**
+
+  On the reference vault: 44 sources, 37 contexts, 1,098 atoms, 233 concepts —
+  and `sources.last_ingested` was **NULL on all 44 rows**, so the one line in the
+  ledger that says when the vault was last curated said *never*. Since v0.69.1
+  `wiki sync` rebuilds that file, so the wrong answer was being rewritten on
+  every sync.
+
+  The cause is structural, not historical. `run_l1_to_l3` selects only sources
+  whose status is `pending`, `force_pending` or `error`, so the line that stamps
+  `last_ingested` fires **at most once in a source's life** — when it first
+  leaves the pending set. Every later recompile published a new authoritative
+  generation and touched nothing.
+
+  Publishing an authoritative generation now stamps the source, inside the same
+  transaction as the publish it describes. A corpus-wide generation
+  (`source_id IS NULL`) deliberately stamps nothing: it is the global L3/L4
+  scope, and stamping every source from it would claim each had been
+  individually re-ingested.
+
+  For vaults curated before this release, the ledger falls back to the publish
+  log, which has carried the real dates the whole time — so the line is truthful
+  immediately, with no migration and no re-ingest. On the reference vault it
+  reads `2026-08-22T20:06:14Z` instead of `never`.
+
 ## [0.69.6] - 2026-08-24
 ### Fixed
 - **The top layer of the knowledge graph had never produced a single row.**
