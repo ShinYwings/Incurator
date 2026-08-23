@@ -2,6 +2,55 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.67.0] - 2026-08-23
+### Added
+- **Every query trace now says whether a search-query derivation ran, and what
+  it found.**
+
+  Two facts used to be stored identically: *"a derivation ran and legitimately
+  found no search terms"* — which is normal for a whole-corpus question — and
+  *"no derivation ran at all"*. Both leave `english_query` empty.
+
+  Confusing them has a cost on record. Two single-run observations of one
+  question showed an empty derived query, and a routing design was built on the
+  premise that empty was a stable, deliberate signal. Running the same question
+  eight times gave **0/8 empty** and a **6-in-8 route flip** instead — an
+  entirely different bug. One sample was mistaken for a property, twice, because
+  nothing stored enough to check afterwards.
+
+  `retrieval_trace.context_service.derivation` now records `status`
+  (`derived` / `unset`), `search_query_empty`, and `routing_intent`.
+  `question_hash` already groups repeated runs of the same question, so the
+  eight-run check that found the real bug is now something you can do from
+  stored data.
+
+- **`wiki inspect answer` prints it, along with the route reason.**
+
+  Storing a fact in a JSON column that only `--json | jq` reaches is not
+  visibility. The human summary previously printed `route=` and nothing else —
+  not even *why* that route was chosen.
+
+  ```
+  Trace: QTR-1764bada route=global
+  Route reason: derived intent: synthesis
+  Derivation: derived - no search terms, intent=synthesis
+  ```
+
+  On the CLI and both MCP paths this reads `not run - routed on the raw
+  question`, which is honest: those three surfaces never derive. That gap is
+  real and tracked separately — this release makes it visible rather than
+  assumed.
+
+### Note
+- The field is `routing_intent`, not `intent`, deliberately.
+  `retrieval_trace["intent"]` already exists in the same document and means
+  something else: the keyword-cue detector (`definition` / `comparison` /
+  `procedure` / `default`) that steers query *expansion*. Different mechanism,
+  different vocabulary — they must not share a key.
+
+  Additive only. No schema migration, no change to routing behaviour, and the
+  context-service fixtures assert subsets rather than exact shapes.
+
 ## [0.66.0] - 2026-08-23
 ### Removed
 - **`curator.query_router` — a prompt contract that was promised for five months

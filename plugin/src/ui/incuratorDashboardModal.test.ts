@@ -40,6 +40,28 @@ describe("Incurator dashboard backend boundary", () => {
     expect(source).toContain("runWikiCommand([\"jobs\", \"rerun\"");
   });
 
+  it("does not label the expansion cue as bare Intent once a routing intent exists", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "incuratorDashboardModal.ts"), "utf8");
+
+    // `retrievalTrace.intent` is ExpandedQuery.intent -- the keyword cue that
+    // steers query EXPANSION (definition/comparison/procedure/default). Since
+    // v0.67.0 a ROUTING intent (lookup/synthesis/discovery) also lives in the
+    // same trace, so a row labelled just "Intent" now points at the wrong one.
+    expect(source).not.toContain('tbl("Mode/Intent"');
+    expect(source).toContain("Expansion cue");
+  });
+
+  it("shows whether a search-query derivation ran for the trace", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "incuratorDashboardModal.ts"), "utf8");
+
+    expect(source).toContain("context_service");
+    expect(source).toContain("derivation");
+    expect(source).toContain("no search terms");
+    expect(source).toContain("routed on the raw question");
+  });
+
   it("clears the Jobs poller on close and before replacing it", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
     const source = readFileSync(join(dir, "incuratorDashboardModal.ts"), "utf8");

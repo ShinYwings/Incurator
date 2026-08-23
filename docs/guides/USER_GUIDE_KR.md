@@ -971,7 +971,7 @@ Tier-2 LLM/HyDE query expansion은 기본적으로 recovery mechanism으로 켜�
 | `wiki prompt eval` | 오프라인 프롬프트 평가 픽스처를 실행합니다(LLM 불필요). |
 | `wiki inspect synthesis <SYN-…>` | L4 Synthesis node 하나의 read-only audit report를 검사합니다. community report, graph entity/relation, source span, prompt trace, warning을 포함합니다. |
 | `wiki inspect report <REP-…>` | L3 community report 하나의 source support를 검사합니다. |
-| `wiki inspect answer <QTR-…>` | query answer 하나의 지속 저장된 route, 선택 근거, prompt trace, warning을 검사합니다. |
+| `wiki inspect answer <QTR-…>` | query answer 하나의 지속 저장된 route, **route 사유**, **파생(derivation) 상태**, 선택 근거, prompt trace, warning을 검사합니다. derivation 줄은 *파생이 실행되었고 검색어를 찾지 못함*과 *파생이 아예 실행되지 않음*을 구분합니다 — 둘 다 빈 검색어를 남기지만, 볼트 전체를 묻는 질문에서 정상적인 결과는 전자뿐입니다. |
 | `wiki insight list [--workspace P] [--status pending]` | 잠정 인사이트 후보를 나열합니다. |
 | `wiki insight show <INS-…>` | 인사이트 후보 하나를 표시합니다. |
 | `wiki insight promote <INS-…>` | 후보를 `02_Wiki/`의 영구 노트로 승격합니다(명시적·사람 승인). |

@@ -1020,7 +1020,7 @@ high-confidence searches stable while still recovering paraphrase-heavy misses.
 | `wiki prompt eval` | Run the offline prompt-eval fixtures (no LLM). |
 | `wiki inspect synthesis <SYN-…>` | Inspect a read-only audit report for one L4 Synthesis node, including community reports, graph entities/relations, source spans, prompt traces, and warnings. |
 | `wiki inspect report <REP-…>` | Inspect the source support for one L3 community report. |
-| `wiki inspect answer <QTR-…>` | Inspect the persisted route, selected evidence, prompt traces, and warnings for one query answer. |
+| `wiki inspect answer <QTR-…>` | Inspect the persisted route, **route reason**, **derivation status**, selected evidence, prompt traces, and warnings for one query answer. The derivation line distinguishes *a derivation ran and found no search terms* from *no derivation ran* — both leave an empty search query, and only the first is a normal result for a whole-corpus question. |
 | `wiki insight list [--workspace P] [--status pending]` | List provisional insight candidates. |
 | `wiki insight show <INS-…>` | Show one insight candidate. |
 | `wiki insight promote <INS-…>` | Promote a candidate to a durable `02_Wiki/` note (explicit, human-approved). |

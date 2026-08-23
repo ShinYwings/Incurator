@@ -27,8 +27,6 @@ class DynamicFakeClient:
         text = "\n".join(m.content for m in messages)
         spans = re.findall(r"SPAN-[0-9a-f]{8}", text)
         first = spans[0] if spans else "SPAN-00000000"
-        if "Query Router" in text:
-            return json.dumps({"route": "local", "reason": "x", "confidence": 0.9})
         if "explore mode" in text:  # check before global (explore primer mentions reports)
             return json.dumps({
                 "followup_questions": ["How does residual learning relate to ODEs?"],
