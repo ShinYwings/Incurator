@@ -733,6 +733,13 @@ What this means in practice:
   unresolved endpoints, ungrounded report findings, and any homonym false merge,
   exiting non-zero on release-blocking findings.
 
+  It also reports, as an INFO, **which algorithm built your communities and what
+  shape they came out** — how many communities, the largest membership and its
+  share, and how many are bare pairs. Today that is the permitted degraded
+  `connected_components` fallback, which means the hierarchy is flat: every
+  community sits at level 0. That is allowed by design; going unmentioned was
+  not. The line retires itself once an approved hierarchy algorithm ships.
+
 ---
 
 ## 🧑‍🎨 Persona Setup

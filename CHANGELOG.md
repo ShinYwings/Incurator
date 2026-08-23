@@ -2,6 +2,38 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.69.8] - 2026-08-24
+### Fixed
+- **The knowledge graph's community layer is flat, and nothing said so.**
+
+  `SYSTEM_BEHAVIOR.md` §27.4 permits the degraded connected-components path on
+  one condition — that it "is recorded in `config_hash` and surfaced by the
+  audit, **not hidden**". It was hidden: `config_hash` is a 16-character digest
+  of a config dict, irreversible where anyone reads it, and the graph audit
+  returns relation-level violations only. No surface named the algorithm.
+
+  `wiki lint` now says it, measured on your own graph. On the reference vault:
+
+  ```
+  Communities are built by the `connected_components` fallback
+  (SYSTEM_BEHAVIOR §27.4), so the hierarchy is flat: 417 communities, all at
+  level 0, largest holds 567 of 1921 memberships (30%), and 293 are bare pairs.
+  ```
+
+  This is a **permitted degraded path, not a fault**, so it is an INFO rather
+  than a violation — a permanent violation would make the audit never clean and
+  teach you to skip it.
+
+  It applies **no giant-component threshold on purpose.** §27.4 gates that check
+  on "the approved threshold" from a benchmark freeze that has never run, and no
+  such constant exists in the codebase. Inventing one would be a hand-maintained
+  number that goes stale unnoticed — the same shape as the prompt-contract
+  version that has not been bumped in twelve commits of the prompt it versions.
+
+  And it retires itself: the signal is a hash comparison against the fallback
+  config, so the day an approved hierarchy algorithm ships, this line disappears
+  without anyone remembering to delete it.
+
 ## [0.69.7] - 2026-08-24
 ### Fixed
 - **`ledger.md` reported "Last curated: never" over a fully built knowledge
