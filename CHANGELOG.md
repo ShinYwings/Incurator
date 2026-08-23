@@ -2,6 +2,37 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.69.1] - 2026-08-23
+### Fixed
+- **`wiki sync` said it rebuilds four files and rebuilt two.**
+
+  Its own docstring, `sync.py`'s module docstring, the `wiki sync` CLI help, and
+  the CLI table in `CLAUDE.md` all say it rebuilds `index.md`, `ledger.md`,
+  `log.md` and `overview.md`. It called `rebuild_index` and `append_log_entry`;
+  `ledger.md` and `overview.md` were only ever written by `wiki build`.
+
+  So correcting a source and running `wiki sync` gave you a fresh `index.md`
+  beside a `ledger.md` reporting the previous build's counts — under a header
+  reading *"Auto-maintained by the Curator engine."* Both writers are pure
+  (directory globs, one COUNT query, a file write; no LLM), which is why sync can
+  simply call them.
+
+- **The docs put `state.sqlite` inside the vault. It has never been there.**
+
+  `SYSTEM_BEHAVIOR.md` said *"repo-cache `state.sqlite`"* in a dozen places and
+  *"`.curator/` — AI-Only Space: `state.sqlite` (source of truth)"* in §22.3. The
+  vault tree in `CLAUDE.md` and both contribution guides showed the second one.
+
+  It resolves to `<repo>/.cache/vaults/<sha256(resolved_vault_root)[:16]>/state.sqlite`
+  (`config.py::WikiPaths.state_db`) — deliberately outside the vault, so Syncthing
+  never has to reconcile two devices writing one SQLite file.
+
+  This was not a cosmetic error. A **0-byte legacy stub** can sit at the
+  documented path, so following the docs finds a file, opens it, reads zero rows,
+  and concludes the vault was never ingested. On the reference vault the stub is
+  0 bytes and the real database is **287 MB**. A test now fails if any of those
+  documents places it in the vault again.
+
 ## [0.69.0] - 2026-08-23
 ### Fixed
 - **A question asked in any language other than English could not reach a

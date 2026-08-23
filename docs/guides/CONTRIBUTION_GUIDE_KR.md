@@ -122,9 +122,13 @@ testbed/
 ├── 05_Assets/            # 이미지, PDF 및 바이너리 데이터
 └── .curator/             # 시스템 내부 상태 (CLI를 통해 초기화됨)
     ├── Collections/      # 생성된 DAG (L1-L4)
-    ├── config.yml        # Testbed 전용 LLM 및 경로 설정
-    └── state.sqlite      # 출처(Provenance) 및 해시 추적 데이터베이스
+    └── config.yml        # Testbed 전용 LLM 및 경로 설정
 ```
+
+`state.sqlite`는 vault 안에 **없습니다**. `<repo>/.cache/vaults/<vault 경로 해시>/`
+아래의 machine-local 파일입니다 — `config.py::WikiPaths.state_db` 참조.
+`.curator/state.sqlite`에 0바이트 stub이 있을 수 있지만 그것은 데이터베이스가
+아닙니다.
 
 ---
 

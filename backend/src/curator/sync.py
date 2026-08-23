@@ -1075,9 +1075,23 @@ def repair_logical_gaps(
 
 
 def finalize_routing_tables(paths: cfg.WikiPaths) -> None:
-    """Rebuild index.md, ledger.md, log.md, and overview.md."""
+    """Rebuild index.md, ledger.md, log.md, and overview.md.
+
+    All four, since v0.70.0. This docstring named four files and the body wrote
+    two: `ledger.md` and `overview.md` were only ever written by `wiki build`'s
+    Phase D, so a user who corrected a source and ran `wiki sync` got a fresh
+    `index.md` beside a `ledger.md` still reporting the previous build's counts —
+    under a header reading "Auto-maintained by the Curator engine".
+
+    Both writers are pure (directory globs, one COUNT query, a file write) with
+    no LLM and no provider, which is why sync can call them.
+    """
+    from . import ingest_llm
+
     today = page_writer.today_iso()
     page_writer.rebuild_index(paths, today)
+    ingest_llm.update_ledger(paths)
+    ingest_llm.update_overview(paths)
     page_writer.append_log_entry(
         paths,
         today,

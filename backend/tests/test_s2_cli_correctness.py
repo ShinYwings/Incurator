@@ -153,8 +153,8 @@ class TestLintReadOnly:
             patch("curator.cli._render_lint_report_terminal"),
             patch("curator.cli.console"),
             patch("curator.page_writer.rebuild_index", rebuild),
-            patch("curator.ingest_llm._update_overview", overview),
-            patch("curator.ingest_llm._update_ledger", ledger),
+            patch("curator.ingest_llm.update_overview", overview),
+            patch("curator.ingest_llm.update_ledger", ledger),
             patch("curator.page_writer.append_log_entry", log_entry),
         ):
             mock_lint.return_value = MagicMock(issues=[], errors=[], warnings=[], auto_fixed=0)

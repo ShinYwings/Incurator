@@ -1719,8 +1719,8 @@ def lint(
         from .. import ingest_llm as _ingest
         today = _pw.today_iso()
         _pw.rebuild_index(paths, today)
-        _ingest._update_overview(paths)
-        _ingest._update_ledger(paths)
+        _ingest.update_overview(paths)
+        _ingest.update_ledger(paths)
         _pw.append_log_entry(
             paths,
             today,

@@ -409,6 +409,7 @@ All agents (Claude Code, Codex, Antigravity) MUST treat the following decisions 
 
 ### Storage Model
 - **`state.sqlite` = single source of truth.** Holds source_spans, knowledge_units, graph entities/relations, community_reports, synthesis_nodes, dag_edges, job queue.
+  **It is machine-local, not in the vault**: `<repo>/.cache/vaults/<sha256(resolved_vault_root)[:16]>/state.sqlite` (`config.py::WikiPaths.state_db`). A 0-byte stub may sit at `<vault>/.curator/state.sqlite`; reading it returns zero rows and looks like an un-ingested vault. Find the live one with `ls -S .cache/vaults/*/state.sqlite | head -1`.
 - **`.curator/Collections/` markdown = derived disposable search corpus.** Regenerated from DB at any time. Not authoritative. Do not treat stale markdown as ground truth — re-emit from DB if in doubt.
 - **Search is DB-native (v0.3.2+).** SQLite FTS5/BM25 + chunk vector + RRF fusion + LLM reranking. Do not add external search-binary dependencies.
 - **No backward-compat shims.** New runs use the current code path directly.
@@ -550,7 +551,6 @@ wiki sources list|show|rm  # Manage tracked source files
 ├── 06_Archives/       Archives for deprecated or old sources
 └── .curator/          [Machine Space] Hidden core (managed by wiki CLI)
     ├── settings.yml   Vault-scoped portable settings (persona, sync policy, etc.)
-    ├── state.sqlite   Dedup hashes, run history, provenance
     ├── index.md       DAG routing table (all L1-L4 node IDs)
     ├── overview.md    Domain manifest
     ├── log.md         Append-only event log
@@ -561,6 +561,19 @@ wiki sources list|show|rm  # Manage tracked source files
         ├── 03_Concepts/
         └── 04_Synthesis/
 ```
+
+**`state.sqlite` is NOT in the vault.** It is machine-local, at
+`<repo>/.cache/vaults/<sha256(resolved_vault_root)[:16]>/state.sqlite`
+(`config.py::WikiPaths.state_db`). A 0-byte `state.sqlite` may exist at
+`<vault>/.curator/` as a legacy stub — opening it reads zero rows and looks
+exactly like a vault that was never ingested. That has cost real debugging time
+in this project more than once. To find the live DB:
+
+```bash
+ls -S .cache/vaults/*/state.sqlite | head -1
+```
+
+Each cache directory holds a `vault_root` file naming the vault it belongs to.
 
 ### Architecture Source Of Truth
 
