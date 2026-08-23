@@ -53,22 +53,6 @@ they make every later measurement trustworthy. **You cannot stabilise what you
 cannot see**, and this project has repeatedly lost time to state it never
 measured.
 
-### A6. `curator.query_router` is pinned in two specs and has zero call sites
-
-**Filed by the A1 Arena, 2026-08-23.** The contract is registered
-(`prompting/families/query.py`), required by `test_prompt_registry.py`, listed in
-`SYSTEM_BEHAVIOR.md` §15, and promised by §17: *"an LLM router
-(`curator.query_router`) is used only when deterministic signals are ambiguous."*
-
-It has **no production caller**. The spec describes behaviour the code does not
-have. Per CLAUDE.md — *"any divergence means both are wrong until reconciled"* —
-either the contract gets implemented or the spec drops it.
-
-v0.65.0 makes the second option the likely one: routing now reads a derived
-**intent** from `curator.query_search_terms@v2`, which is the job §17 imagined
-for the router, done without a second round trip. Deciding that is a small
-deliberate act, not a silent deletion.
-
 ### A7. The system cannot report when the extractor finds no search target
 
 **Filed by the A1 Arena, 2026-08-23, and it is why A1 took three diagnoses.**
@@ -87,6 +71,53 @@ mistaken for a property twice, because nothing stored enough to check.
 Bounded and cheap: record the derived query's emptiness and the chosen intent in
 the retrieval trace, which already has a free-text `reason` and a structured
 `route` block.
+
+### A8. The derivation reaches one surface out of four
+
+**Filed by the A6 Arena, 2026-08-23.** Found by the agent arguing *for* the LLM
+router, gathering evidence to defend it.
+
+`derive_search_query` has **exactly one caller in the entire backend**
+(`plugin_api/context.py:60`). So `QueryRequest.intent` — the field v0.65.0 added
+to make routing deterministic — is populated at one of four construction sites:
+
+| surface | `english_query` | `intent` |
+|---|---|---|
+| plugin ContextService (`plugin_api/context.py:86`) | derived | derived |
+| CLI `wiki query` (`query.py:377`) | `""` → `working_query` falls back to the raw question | `""` |
+| MCP `curator_query` (`mcp/server.py:2031`) | `english_query=question` — the **raw question mislabeled as English** | `""` |
+| MCP `curator_fetch_context` (`mcp/server.py:3255`) | absent | `""` |
+
+The consequence is the v0.47.0 defect, still live on three surfaces. Route
+signals are English-only **by contract** (`router.py:19-35`), so a Korean
+question through `wiki query` or `curator_query` cannot match `_GLOBAL_SIGNALS`
+or `_EXPLORE_SIGNALS` and lands on `local` by construction, every time.
+
+`router.py:26-35` says that defect was *"Fixed at the boundary instead; see
+`plugin_api/context.py`."* True of one boundary. The docstring reads as though
+it were all of them, which is how this stayed invisible through two releases
+that both touched routing.
+
+The MCP case is the worst of the three: passing the raw question as
+`english_query` does not merely skip the derivation, it **asserts the question is
+already English**, so `english_query_status` reports `set` and nothing downstream
+can tell that no derivation ran.
+
+**Not a router.** The fix is calling the derivation that already exists at those
+boundaries — one call, which also populates `english_query` correctly. The A6
+Arena rejected the second-contract approach on the merits; see
+`.agents/plans/router_contract_arena/`.
+
+**Pairs with A7**, which is the reason this took two releases to notice: nothing
+records whether a derivation ran, so "intent was empty" is invisible after the
+fact. Doing A7 first would make A8's fix measurable instead of assumed.
+
+**Also found in the same trace, and cheap to fix alongside:**
+`classify_intent_first` is accepted by `run_query` (`query.py:424`), documented
+as running *"intent classification before retrieval"* (`:446`), and set by two
+callers (`commands/core.py:1604`, `commands/common.py:2174`) — and **never read
+in the body**. `wiki query --no-intent-classify` is a flag that does nothing. It
+either gets wired to the derivation A8 adds, or it goes.
 
 ### A5. Safe decomposition and exception hardening
 
