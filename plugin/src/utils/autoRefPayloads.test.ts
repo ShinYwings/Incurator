@@ -59,7 +59,9 @@ const firstRef = (d: SessionData): ContextRef =>
 describe("auto context ref payloads are not persisted", () => {
   it("drops content, outline and windowPages from an auto ref", () => {
     const ref = firstRef(normalizeSessionData(wrap([auto()])));
-    expect(ref.content).toBeUndefined();
+    // Emptied, not deleted: `content` is required on ContextRef, and every
+    // reader gates on truthiness, so "" is equivalent at 14 bytes.
+    expect(ref.content).toBe("");
     expect(ref.outline).toBeUndefined();
     expect(ref.windowPages).toBeUndefined();
   });
@@ -86,6 +88,6 @@ describe("auto context ref payloads are not persisted", () => {
   it("survives a merge round-trip without resurrecting the payloads", () => {
     const a = normalizeSessionData(wrap([auto()]));
     const b = normalizeSessionData(wrap([auto()]));
-    expect(firstRef(mergeSessionData(a, b)).content).toBeUndefined();
+    expect(firstRef(mergeSessionData(a, b)).content).toBe("");
   });
 });

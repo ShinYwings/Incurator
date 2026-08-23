@@ -88,7 +88,12 @@ function sanitizeContextRefForSync(ref: ContextRef): ContextRef {
   // Only the PERSISTED copy loses these. The in-memory ref keeps its payload for
   // the turn it belongs to, because this runs on the way to disk.
   if (next.sourceViewType === "auto") {
-    delete next.content;
+    // `content` is REQUIRED on ContextRef, so it is emptied rather than deleted.
+    // Making it optional would push `string | undefined` through every consumer
+    // for no gain: each one already gates on truthiness (`if (ref.content)`), so
+    // "" and undefined behave identically, and "" costs ~14 bytes against the
+    // 5.29 MB it replaces.
+    next.content = "";
     delete next.outline;
     delete next.windowPages;
   }
