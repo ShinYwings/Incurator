@@ -4,7 +4,7 @@
 
 **"Feed your PDFs and notes to a local AI compiler. Ask questions grounded in your own knowledge. Edit notes like Cursor, and connect your vault to external IDEs via MCP."**
 
-Incurator is an intelligent knowledge compilation engine and Obsidian assistant designed for researchers, engineers, and deep thinkers. It bridges the gap between raw documents (PDFs, Markdown notes, research papers) and high-reasoning AI agents, turning your Obsidian vault into a structured, continuously evolving Directed Acyclic Graph (DAG) without token waste, truth decay, or hallucinations.
+Incurator is an intelligent knowledge compilation engine and Obsidian assistant designed for researchers, engineers, and deep thinkers. It bridges the gap between raw documents (PDFs, Markdown notes, research papers) and high-reasoning AI agents, turning your Obsidian vault into a structured, continuously evolving Directed Acyclic Graph (DAG). Every served finding cites the exact source spans that support it, and a finding that cannot is not emitted at all — so answers stay traceable to your own material rather than to the model's memory.
 
 > For the architectural design rationale and how Incurator solves the failure modes of traditional LLM Wikis, see [Project Philosophy](philosophy/about.md).
 
@@ -19,7 +19,7 @@ Incurator is an intelligent knowledge compilation engine and Obsidian assistant 
 ┌──────────────────────────────────────────────────────────────┐
 │ 🏛️ The Curator (.curator/ & state.sqlite)                    │
 │   L1 Contexts  →  L2 Atoms  →  L3 Concepts  →  L4 Synthesis  │
-│   (Zero-cost compilation on local SLMs / background workers) │
+│   (Runs on local SLMs or background workers — your choice)   │
 └──────────────────────────────┬───────────────────────────────┘
                                │
                                ▼ (Dynamic Curation Lens via curate.yml)
