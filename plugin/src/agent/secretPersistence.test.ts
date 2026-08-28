@@ -46,3 +46,39 @@ describe("DeepSeek key persistence (v0.62.4)", () => {
     expect(changeHandler).not.toContain("setSecret");
   });
 });
+
+describe("signing out must reach the store, not just the settings object (v0.71.0)", () => {
+  // Comments are stripped before every assertion here. Twice in this repo a
+  // source-text test was defeated by an explanatory comment satisfying the very
+  // string it searched for — including comments that name the function under
+  // test, which the sign-out fix now adds. Only real code should count.
+  const code = settingsSrc
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+
+  const signOutBody = (() => {
+    const start = code.indexOf('.setButtonText("Sign out")');
+    expect(start).toBeGreaterThan(-1);
+    const end = code.indexOf('signOut("deepseek")', start);
+    expect(end).toBeGreaterThan(start);
+    return code.slice(start, end);
+  })();
+
+  it("removes the key from the encrypted store before declaring the user signed out", () => {
+    // Clearing `settings.deepseekApiKey` is only half a sign-out: the encrypted
+    // machine-local store is the durable half, and `restoreDeepseekKeyFromStore`
+    // reads it at every launch. Without this call the user signs out, restarts,
+    // and is silently signed back in while the panel reports the key as cleared.
+    expect(signOutBody).toContain("deleteSecret(OBSIDIAN_DEEPSEEK_SECRET)");
+  });
+
+  it("still clears the settings half", () => {
+    expect(signOutBody).toContain('this.plugin.settings.deepseekApiKey = ""');
+  });
+
+  it("does not let an unreachable backend abort the sign-out", () => {
+    // The local half is already cleared by the time we get here, so a throw
+    // from the backend must not skip `signOut` and the notice.
+    expect(signOutBody).toMatch(/try\s*\{[\s\S]*deleteSecret[\s\S]*\}\s*catch/);
+  });
+});

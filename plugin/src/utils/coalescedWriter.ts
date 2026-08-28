@@ -38,8 +38,20 @@ export function createCoalescedWriter<T>(
         // Snapshot first, then release the slot: a save arriving after this
         // point has state this snapshot does not contain, and must not be told
         // it has been persisted.
-        const value = snapshot();
-        queued = null;
+        //
+        // `finally`, because the release must happen even when `snapshot()`
+        // THROWS. Releasing only on the success path left `queued` pointing at
+        // a rejected promise, and the join-the-batch fast path above then
+        // returned that same rejection to every later save() without ever
+        // calling write() again — persistence dead until Obsidian reloaded,
+        // while `inFlight()` reported false throughout. A failing write already
+        // self-healed; a failing snapshot did not, and nothing tested it.
+        let value: T;
+        try {
+          value = snapshot();
+        } finally {
+          queued = null;
+        }
         running = true;
         return write(value).finally(() => {
           running = false;

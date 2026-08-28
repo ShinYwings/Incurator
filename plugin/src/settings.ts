@@ -336,6 +336,17 @@ export class AIAgentSettingTab extends PluginSettingTab {
             .onClick(async () => {
               this.plugin.settings.deepseekApiKey = "";
               await this.plugin.saveSettings();
+              // The key lives in TWO places. `saveSettings` only handles the
+              // in-memory/data.json half; the encrypted machine-local store is
+              // what `restoreDeepseekKeyFromStore()` reads at launch, so without
+              // this the user signs out, restarts, and is silently signed back
+              // in. A backend that is down must not abort sign-out — the local
+              // half is already cleared either way.
+              try {
+                await this.plugin.incuratorClient.deleteSecret(OBSIDIAN_DEEPSEEK_SECRET);
+              } catch (e) {
+                logger.warn("Could not remove the stored DeepSeek key:", e);
+              }
               this.plugin.authResolver.signOut("deepseek");
               new Notice("DeepSeek API key cleared.");
               this.display();

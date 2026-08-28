@@ -10,6 +10,7 @@ import {
   extractAntigravityAnswerFromStderr,
   isAntigravityStatusLine,
   isQuotaErrorMessage,
+  isUnambiguousQuotaError,
   quotaEvidenceFor,
   userVisibleAnswer,
   sanitizeOpenAIMessages,
@@ -1308,5 +1309,45 @@ describe("output-token truncation detection (v0.24.0)", () => {
       );
       expect(chunk).toMatchObject({ finishReason: "length", truncated: true });
     });
+  });
+});
+
+describe("the mid-stream kill path must not fire on ordinary prose", () => {
+  it("does not classify prose about rate limiting as a quota error", () => {
+    // These phrases ARE real provider errors, which is why the close-time check
+    // still matches them — but that check runs `quotaEvidenceFor` first, so a
+    // produced answer is never used as evidence. The mid-stream check has no
+    // such protection: it kills the child process, destroying an answer the user
+    // already paid for. `agy` can route the final answer through stderr, which
+    // is exactly how such a sentence reaches this matcher.
+    for (const text of [
+      "The rate limit of convergence is governed by the spectral radius.",
+      "Handle 'too many requests' by backing off exponentially.",
+      "Section 4 discusses the rate_limit parameter in the config.",
+    ]) {
+      expect(isUnambiguousQuotaError(text)).toBe(false);
+    }
+  });
+
+  it("still fires on phrasings only a provider error produces", () => {
+    for (const text of [
+      "TerminalQuotaError: no capacity available",
+      "model_capacity_exhausted",
+      "You have exhausted your capacity for this model",
+      "insufficient balance",
+      "HTTP 429 returned by the endpoint",
+    ]) {
+      expect(isUnambiguousQuotaError(text)).toBe(true);
+    }
+  });
+
+  it("keeps the typed-id and token-count guarantees", () => {
+    expect(isUnambiguousQuotaError("SPAN-429fffff resolved")).toBe(false);
+    expect(isUnambiguousQuotaError("used 14293 tokens")).toBe(false);
+  });
+
+  it("the looser matcher still sees the ambiguous phrases, for close-time use", () => {
+    expect(isQuotaErrorMessage("rate limit exceeded")).toBe(true);
+    expect(isUnambiguousQuotaError("rate limit exceeded")).toBe(false);
   });
 });

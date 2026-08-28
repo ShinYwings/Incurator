@@ -243,8 +243,13 @@ def test_derivation_survives_the_post_synthesis_trace_rewrite(tmp_path: Path) ->
     assert trace is not None
     context = trace["retrieval_trace"]["context_service"]
     assert context["actions"], "the rewrite must have happened for this to prove anything"
+    # Exact equality on purpose: this catches a field silently DISAPPEARING from
+    # the block as well as one appearing. `is_knowledge_question` joined it in
+    # v0.71.0, when the funnel started carrying the flag end-to-end instead of
+    # recomputing it downstream — so it must survive the rewrite too.
     assert context["derivation"] == {
         "status": "derived",
         "search_query_empty": False,
         "routing_intent": "lookup",
+        "is_knowledge_question": True,
     }

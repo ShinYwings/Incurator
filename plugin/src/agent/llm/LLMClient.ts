@@ -47,6 +47,7 @@ import {
   formatQuotaErrorMessage,
   isAntigravityStatusLine,
   isQuotaErrorMessage,
+  isUnambiguousQuotaError,
   quotaEvidenceFor,
   userVisibleAnswer,
   mapOpenAIFinishReason,
@@ -1884,7 +1885,15 @@ export class LLMClient {
 
         // Token/quota exhausted mid-stream → fail fast instead of letting the
         // CLI spin until its print-timeout with no answer.
-        if (isQuotaErrorMessage(fullStderr)) {
+        //
+        // Strict subset: this path KILLS the child, so a false positive
+        // destroys an answer the user already paid for. `agy` can route the
+        // final answer through stderr (see the antigravity branch below), and
+        // "rate limit" / "too many requests" are ordinary English an answer can
+        // contain. The close-time check may use the looser matcher because
+        // `quotaEvidenceFor` excludes a produced answer from its evidence;
+        // there is no such protection here.
+        if (isUnambiguousQuotaError(fullStderr)) {
           child.kill();
           reject(new Error(formatQuotaErrorMessage(provider, fullStderr.trim())));
           return;

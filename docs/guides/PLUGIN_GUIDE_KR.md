@@ -874,6 +874,7 @@ Antigravity `agy` print mode는 일반적으로 최종 답변을 stdout에 쓰�
 - **DeepSeek**은 플러그인에 저장된 키(`✓ API key configured (saved in plugin)`)와 환경 변수로 제공된 키(`✓ Using DEEPSEEK_API_KEY from environment`)를 구분합니다. v0.62.4부터 저장된 키는 기기 로컬 `.cache/config/secrets/`에 암호화되어 있으며, 플러그인 `data.json`에도 `.curator`에도 있지 **않으므로**, `.curator` 삭제나 `wiki reset`으로는 지워지지 않습니다 — **Sign out**으로 제거하세요. 명령 팔레트의 **Check DeepSeek API Key**는 저장된 플러그인 키 또는 `DEEPSEEK_API_KEY`가 보이는지 확인하며, 브라우저 로그인 흐름을 실행하지 않습니다.
 - **CLI provider**(Antigravity, Claude, Codex)는 각자의 CLI로 인증합니다. 플러그인은 CLI 파일에서 읽을 수 있을 때만(Codex) 계정 이메일을 표시합니다. Antigravity `agy` 1.0.5는 세션을 OS 키체인에 보관하고 계정 조회 명령이 없어, 플러그인은 계정을 추측하지 않고 중립적인 `agy CLI session`으로 표시합니다.
 - **Sign out**은 플러그인이 제어할 수 있는 것(캐시된 자격증명, 저장된 DeepSeek 키, 플러그인이 읽을 수 있는 자격증명 파일)을 정리합니다. CLI provider는 실제 세션을 자체 키체인/설정에 보관하므로, 완전한 로그아웃은 provider CLI(`agy`, `claude`, `codex`) 실행이 추가로 필요할 수 있습니다 — 해당되는 경우 Sign out 알림이 안내합니다.
+  로그아웃은 저장된 DeepSeek 키를 플러그인 설정뿐 아니라 암호화 저장소에서도 제거합니다(v0.71.0). 이 수정 전에는 설정 쪽만 지웠기 때문에, 패널은 키가 지워졌다고 표시하는데 다음 재시작 때 키가 되살아났습니다. 저장된 키가 없는 상태로 로그아웃해도 오류가 아니며, 플러그인 로그아웃은 백엔드 자체의 DeepSeek 키를 건드리지 않습니다 — 둘은 의도적으로 따로 설정합니다.
 
 ---
 

@@ -1526,6 +1526,18 @@ Rules:
   different accounts or tiers — so the plugin stores under
   `obsidian-deepseek-api-key` while `wiki config provider` uses
   `deepseek-api-key`. They share the encryption, never the value.
+  **Signing out MUST reach the store, not just the settings object** (v0.71.0).
+  Because the key lives in two places, clearing `settings.deepseekApiKey` is only
+  half a sign-out: `restoreDeepseekKeyFromStore()` reads the encrypted store at
+  every load, so a sign-out that stops at the settings object is silently undone
+  by the next restart while the UI still reports the key as cleared. `wiki plugin
+  secret rm --name <name>` is the other half, and the sign-out button calls it.
+  Deleting an absent key is `ok: true, deleted: false`, never an error — the user
+  can sign out with nothing stored, or twice — and a backend that cannot be
+  reached must not abort sign-out, since the local half is already cleared.
+  Removal is per-name, so signing the plugin out leaves the backend's own key
+  (`deepseek-api-key`) untouched, consistent with the two being separate by
+  design.
   **The key is deliberately per-device and MUST NOT travel** (decision,
   2026-08-22). `.cache/config/secrets/` is repo-local, git-ignored, and its
   Fernet key is generated per machine, so each device is configured once. Two

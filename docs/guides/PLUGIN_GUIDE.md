@@ -1004,6 +1004,12 @@ Each provider's **Authentication** row shows its current state:
   keep their real session in their own keychain/config, fully signing out may
   still require running the provider CLI (`agy`, `claude`, `codex`); the Sign out
   notice says so when relevant.
+  Signing out removes the saved DeepSeek key from the encrypted store as well as
+  from the plugin's settings (v0.71.0). Before that fix it only cleared the
+  settings half, so the key came back at the next restart while the panel still
+  reported it as cleared. Signing out with no key saved is not an error, and
+  signing out of the plugin does not touch the backend's own DeepSeek key — the
+  two are configured separately on purpose.
 
 ---
 
