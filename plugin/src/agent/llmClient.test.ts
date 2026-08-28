@@ -23,6 +23,7 @@ import { POPOVER_PROFILE, type ToolPolicy } from "../context/promptRegistry";
 import {
   ADAPTERS,
   buildMcpToolExposure,
+  FETCH_MCP_SERVER_SCRIPT,
   LLMClient,
   syncAgyHeadlessReadPermission,
 } from "./llm/LLMClient";
@@ -1062,6 +1063,33 @@ describe("CLI tool-scope sandbox source contract (v0.23.0)", () => {
     expect(source).toContain("syncAgyHeadlessReadPermission(geminiDir)");
     expect(source).not.toContain("this.syncAgyReadPolicy()");
     expect(source).not.toContain("--dangerously-skip-permissions");
+  });
+
+  it("syncAgyMcpConfig auto-injects the incurator_fetch MCP server", () => {
+    expect(source).toContain("INCURATOR_FETCH_MCP_KEY");
+    expect(source).toContain("fetch_mcp_server.js");
+    expect(source).toContain("FETCH_MCP_SERVER_SCRIPT");
+  });
+});
+
+describe("Embedded fetch MCP server script", () => {
+  it("is syntactically valid JavaScript", () => {
+    // Strip the shebang (not valid inside new Function) before parsing.
+    const body = FETCH_MCP_SERVER_SCRIPT.replace(/^#!.*\n/, "");
+    expect(() => new Function(body)).not.toThrow();
+  });
+
+  it("contains the fetch_url tool definition", () => {
+    expect(FETCH_MCP_SERVER_SCRIPT).toContain('name: "fetch_url"');
+    expect(FETCH_MCP_SERVER_SCRIPT).toContain('"tools/list"');
+    expect(FETCH_MCP_SERVER_SCRIPT).toContain('"tools/call"');
+  });
+
+  it("does not allow POST/PUT/DELETE — only GET", () => {
+    // The script must use http.get / https.get, not http.request with arbitrary methods.
+    expect(FETCH_MCP_SERVER_SCRIPT).toContain("mod.get(");
+    expect(FETCH_MCP_SERVER_SCRIPT).not.toContain(".request(");
+    expect(FETCH_MCP_SERVER_SCRIPT).not.toContain("method:");
   });
 });
 

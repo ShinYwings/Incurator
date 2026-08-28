@@ -1196,7 +1196,6 @@ def compile_global_l3(
 
     # L4 Synthesis: distill all community reports into shared corpus-wide insights.
     # Skipped automatically when the report corpus is unchanged.
-    synthesis_ids: list[str] = []
     # NO `if not l3_errors:` gate here (ROADMAP C2).
     #
     # That gate blocked L4 whenever ANY report's prose failed, and `l3_errors`
@@ -1215,7 +1214,11 @@ def compile_global_l3(
     # gain it (see `pipeline/synthesis.py`), so a partial L3 yields a partial-but-
     # honest L4 that completes itself rather than nothing at all.
     try:
-        synthesis_ids = synthesis.generate_synthesis(
+        # Return value intentionally unused: L4's per-source status is derived
+        # below from what the synthesis nodes actually CITE, not from whether
+        # this call returned ids — it returns the existing ids unchanged on its
+        # skip path, which is precisely what made the old status line wrong.
+        synthesis.generate_synthesis(
             paths, client, curate_spec_hash=curate_spec_hash,
             concept_ids_by_report=report_concept_ids,
         )
@@ -1256,17 +1259,43 @@ def compile_global_l3(
         if part
     ) or None
 
+    live_reports = db.list_community_reports(paths.state_db)
     report_span_ids = {
         span_id
-        for report in db.list_community_reports(paths.state_db)
+        for report in live_reports
+        for span_id in (report.get("source_span_ids") or [])
+    }
+    # L4 reached a source only if a synthesis node actually CITES a report
+    # carrying that source's spans -- derived the same way as
+    # `_mark_clean_sync_status` below, which had it right all along.
+    #
+    # This used to be `report_source_ids if synthesis_ids else set()`, which was
+    # safe only under the invariant v0.69.6 deliberately removed: L4 previously
+    # ran only when EVERY report had prose, so "in a report" and "fed into
+    # synthesis" were the same set. Since v0.69.6 synthesis skips prose-less
+    # reports, and `generate_synthesis` returns the EXISTING node ids on its
+    # unchanged-corpus path, so `synthesis_ids` is non-empty on almost every
+    # round. A source whose report is still a bare skeleton was therefore marked
+    # `l4_status='done'` in the same round it was marked `l3_status='error'`.
+    synthesis_report_ids = {
+        report_id
+        for node in db.list_synthesis_nodes(paths.state_db)
+        for report_id in (node.get("community_report_ids") or [])
+    }
+    synthesis_span_ids = {
+        span_id
+        for report in live_reports
+        if report.get("id") in synthesis_report_ids
         for span_id in (report.get("source_span_ids") or [])
     }
     report_source_ids: set[int] = set()
-    if report_span_ids:
+    synthesis_source_ids: set[int] = set()
+    if report_span_ids or synthesis_span_ids:
         with db.connect(paths.state_db) as conn:
-            report_source_ids = _source_ids_for_span_ids(conn, report_span_ids)
-
-    synthesis_source_ids = report_source_ids if synthesis_ids else set()
+            if report_span_ids:
+                report_source_ids = _source_ids_for_span_ids(conn, report_span_ids)
+            if synthesis_span_ids:
+                synthesis_source_ids = _source_ids_for_span_ids(conn, synthesis_span_ids)
 
     for sid in l2_done_ids:
         l3_status = "error" if l3_errors else (
