@@ -33,6 +33,45 @@ All notable changes to Incurator are documented here.
   bytes against ~126 for its tombstone, about 31×.
 
 ### Fixed
+- **"Sign out" did not sign the user out.** The DeepSeek key lives in two
+  places, and the button only cleared one. `restoreDeepseekKeyFromStore()` reads
+  the encrypted machine-local store at every launch, so signing out and
+  restarting silently signed the user back in — while the panel reported the key
+  as cleared, and while the guide already promised "use **Sign out** to remove
+  it". `secret_store.delete_secret` had existed the whole time with no command in
+  front of it; `wiki plugin secret rm` is that command. Signing out with nothing
+  stored is not an error, an unreachable backend does not abort the sign-out, and
+  removal is per-name, so the backend's own key is untouched.
+- **The mid-stream quota kill fired on ordinary prose.** It matched
+  `"rate limit"` and `"too many requests"` anywhere in stderr and killed the
+  child process — destroying an answer the user had already paid for. The
+  close-time check can afford those phrases because it weighs evidence first and
+  never treats a produced answer as proof of failure; the mid-stream check has no
+  such protection, and `agy` can route answer text through stderr. It now matches
+  only phrasings a provider error produces, plus HTTP 429.
+- **A throwing snapshot wedged plugin persistence permanently.** The coalescing
+  writer cleared its queued slot *after* taking the snapshot, so a throw left the
+  slot occupied forever and every later write coalesced into a write that would
+  never run — silently, for the rest of the session.
+- **A source could be marked `l4_status='done'` in the same round it was marked
+  `l3_status='error'`.** The status line read "did synthesis return any ids?",
+  which was equivalent to "did this source reach L4" only under an invariant
+  v0.69.6 deliberately removed: L4 used to run only when every report had prose.
+  Since then synthesis skips prose-less reports, and returns the *existing* node
+  ids on its unchanged-corpus path — so the check was true on almost every round,
+  including for sources whose report was still a bare skeleton. Status now
+  follows what the synthesis nodes actually cite.
+- **A cleared `.cache/` made `wiki sync` overwrite an accurate ledger with
+  "Last curated: never".** `db.connect` self-heals an empty schema into a missing
+  database, so on a machine whose cache was cleared — or after a vault rename,
+  which re-keys the cache — the rebuild read zero rows and wrote them into files
+  headed "Auto-maintained by the Curator engine", where a human reads them.
+  v0.69.2 had already built this detection but wired it only into `wiki status`.
+  `finalize_routing_tables` now warns and refuses the write, per "false success
+  is forbidden" (`SYSTEM_BEHAVIOR.md` §32).
+- **Green success lines rendered as red.** Rich's auto-highlighter colors paths
+  magenta, which reads as red on dark themes, so `setup` output looked like a
+  wall of errors. Highlighting is off for the status lines.
 - **A corrupt `.curator/sessions.json` crashed `wiki gc` instead of being
   reported.** A store that will not parse raised straight out of `wiki gc plan` —
   read-only reporting that should never fail — and took the unrelated cache sweep
