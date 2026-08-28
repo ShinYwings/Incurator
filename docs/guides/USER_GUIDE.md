@@ -870,6 +870,16 @@ and the CLI prints a warning; the dashboard can refresh again later.
 | `wiki sync --reemit` | Re-emits the derived L2/L3/L4 markdown projection (ATM/CON/SYN) from the authoritative DB records and refreshes DB-native search rows. Re-emitting unchanged L4 concept links does not advance synthesis revisions. | Refreshing projections after DB-level corrections |
 | `wiki reindex` | Rebuilds the DB-native search index (FTS5 + chunks) from the authoritative records. Add `--embed` to also generate missing/stale chunk vector embeddings; unchanged chunk embeddings are reused only when the configured embedder identity is available, otherwise search degrades explicitly to FTS5-only. In normal use `wiki build` already embeds automatically, so `--embed` is mainly a manual recovery path after a model/embedder change. | After model/config changes, or if search drifts |
 
+> **`wiki sync` will refuse to rebuild `ledger.md` and `overview.md` if the local
+> database looks empty while a sync journal is present** (v0.71.0). The state
+> database is machine-local, and opening a missing one self-heals an empty schema
+> into place — so on a machine whose `.cache/` was cleared, or after a vault
+> rename (which re-keys the cache), a rebuild would read zero rows and write
+> "Last curated: never" over an accurate report. When that happens `wiki sync`
+> logs a warning naming the recoverable state, rebuilds only the index, and
+> leaves the two human-readable files alone. Import your journal
+> (`wiki db import`) and run it again.
+
 > **v0.3.1**: The frozen-staging commands were removed. L4 is now the shared
 > **Synthesis** layer (built automatically by
 > `wiki build`), and curation is a dynamic query-time lens (`wiki query`).
