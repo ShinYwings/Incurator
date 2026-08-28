@@ -4,7 +4,12 @@
 
 **"Feed your PDFs and notes to a local AI compiler. Ask questions grounded in your own knowledge. Edit notes like Cursor, and connect your vault to external IDEs via MCP."**
 
-Incurator is an intelligent knowledge compilation engine and Obsidian assistant designed for researchers, engineers, and deep thinkers. It bridges the gap between raw documents (PDFs, Markdown notes, research papers) and high-reasoning AI agents, turning your Obsidian vault into a structured, continuously evolving Directed Acyclic Graph (DAG). Every served finding cites the exact source spans that support it, and a finding that cannot is not emitted at all — so answers stay traceable to your own material rather than to the model's memory.
+Incurator turns the PDFs and notes already in your Obsidian vault into a
+knowledge graph your AI can actually use.
+
+It compiles them once — locally, on small models, for close to nothing — and then
+answers questions from that graph, citing the exact passage behind every claim.
+Anything it cannot trace back to your own material, it does not say.
 
 > For the architectural design rationale and how Incurator solves the failure modes of traditional LLM Wikis, see [Project Philosophy](philosophy/about.md).
 
@@ -37,45 +42,61 @@ Incurator is an intelligent knowledge compilation engine and Obsidian assistant 
     [03_Notes/] (Updated Notes)            [02_Wiki/] (Permanent Wiki)
 ```
 
-1. **Drop & Register (`wiki add`)**: Add PDFs, papers, or markdown notes to `03_Notes/` or `04_Resources/`. Incurator instantly builds an L1 structural index without making an LLM call.
-2. **Compile (`wiki build`)**: A lightweight background model (e.g., local Ollama SLM) extracts atomic facts (L2 Atoms) and clusters them into multi-source thematic topics (L3 Concepts).
-3. **Active Reading & Popover (Obsidian Studio)**: Open PDFs in split-view, highlight text to trigger instant in-line Q&A popovers, or chat in the sidebar with direct citations and provenance traces.
-4. **Interactive Note Editing (Diff Viewer)**: Apply AI suggestions to your notes in `03_Notes/` with a Cursor-style in-editor Diff Viewer—review additions/deletions line by line and accept or reject individual chunks.
-5. **Project-Scoped Curation (`curate.yml`)**: Scope your project's domain and target goals dynamically so agents only retrieve relevant, high-confidence evidence without cross-domain pollution.
-6. **Universal MCP Access**: Ask Cursor or Claude Desktop to reference your entire Obsidian knowledge base while writing code or reports.
+1. **Add** (`wiki add`) — drop PDFs or notes into `03_Notes/` / `04_Resources/`.
+   A structural index is built immediately, with no LLM call.
+2. **Compile** (`wiki build`) — a small local model extracts atomic facts and
+   clusters them into cross-source themes. This is the slow, cheap part.
+3. **Read and ask** — open a PDF in split view, select any text or formula for an
+   in-line answer, or chat in the sidebar. Every answer carries its citations.
+4. **Edit with review** — AI suggestions arrive as a diff inside your note. You
+   accept or reject each chunk; nothing is overwritten silently.
+5. **Scope it** (`curate.yml`) — tell a project what it cares about, so retrieval
+   stays on-topic instead of dredging the whole vault.
+6. **Use it elsewhere** — point Cursor or Claude Desktop at the vault over MCP.
 
 ---
 
-## 🌟 What Makes Incurator Unique: 6 Core Superpowers
+## 🌟 How This Differs From Other LLM Wikis
 
-### 1. Obsidian Studio: Active Reading & Cursor-Style Diff Editing
-- **In-Line Popover ("Ask Gemini" style)**: Select any text or mathematical formula in a note or PDF, click the floating trigger, and ask targeted questions grounded in your vault's compiled knowledge. Full LaTeX formula rendering supported.
-- **Interactive Diff Viewer**: AI edits are never dumped blindly into chat or silently overwritten. Incurator opens a CodeMirror 6 inline Diff Viewer directly inside your note, letting you review changes (`+` / `-`) and selectively accept or reject diff chunks.
-- **Split-View PDF Reader**: Drag and drop PDFs into split-views, view real-time ingestion status badges, and click citations to jump straight to exact pages.
+Most LLM wikis read your documents and write a pile of Markdown about them. That
+pile then becomes the problem: it is too large to fit in a context window, it
+drifts from the sources it came from, and nothing tells you which parts you can
+trust.
 
-### 2. Hierarchical DAG vs. Flat Wiki Sprawl
-Existing LLM Wikis dump hundreds of flat Markdown files, overflowing the AI's context window and causing truth decay. Incurator compiles knowledge into a **4-layer Directed Acyclic Graph (DAG)**:
-- **L1 Contexts**: Source structure and page locators (0 LLM tokens).
-- **L2 Atoms**: Irreducible, source-grounded factual claims.
-- **L3 Concepts**: Multi-source thematic clusters and community reports.
-- **L4 Synthesis**: Corpus-wide standing evidence nodes.
-- **Deep Contradiction Detection**: Run `wiki lint --deep` to automatically detect factual contradictions across different papers in your vault.
+Incurator compiles instead of summarising, and refuses to state anything it
+cannot trace back to your material.
 
-### 3. Lossless Zotero Integration & Apple Pencil Hash Drift Defense
-- **Reference Mode**: Directly integrate external Zotero libraries and PDFs without forced duplication into your vault.
-- **Hash Drift Defense**: When you annotate a PDF on iPad via Apple Pencil, the binary hash changes. Incurator tracks logical source identities and textual fingerprints, seamlessly healing links and preserving existing Atoms and Concepts without re-indexing from scratch.
+| | Typical LLM wiki | Incurator |
+|---|---|---|
+| **What you get** | Hundreds of flat Markdown files | A 4-layer graph you *query*, not read |
+| **Grounding** | The model summarises; sources drift over time | A finding that cannot cite its exact source spans **is not emitted at all** |
+| **Your notes** | The AI rewrites them | Read-only to the machine. AI output lands in a separate space you promote from |
+| **Scoping** | One global index for every question | `curate.yml` is a lens applied *at query time* — never a frozen, stale copy |
+| **Cost** | A frontier model for everything | Small local models do the compiling; frontier models only for interactive reasoning |
+| **Trust** | "Here is the answer" | Every answer carries its route, evidence and prompt traces (`wiki inspect answer`) |
 
-### 4. Universal MCP Server: An External Brain for Your Coding IDE
-Incurator includes a full-featured Model Context Protocol (MCP) server with **48+ tools**:
-- Connect your vault directly to **Cursor, VSCode, Antigravity IDE, or Claude Desktop**.
-- When writing code, your agent can call `curator_fetch_context` or `curator_traverse_evidence` to pull prior research papers, architectural RFCs, and API documentation directly from your Obsidian vault.
+The four layers exist so retrieval can be narrow: **L1** source structure (no LLM
+tokens), **L2** irreducible factual claims, **L3** cross-source themes, **L4**
+corpus-wide synthesis. A question touches the layer it needs instead of the whole
+vault.
 
-### 5. AI FinOps: Zero-Cost Compilation + Reasoning Freedom
-- **Local Background Worker**: Repetitive preprocessing and knowledge structuring (`L1 → L2 → L3`) run locally on Ollama (SLMs) or lightweight models for $0.
-- **Frontier Reasoning**: Commercial reasoning models (Claude, OpenAI, Gemini) are used strictly on-demand for interactive exploration, reducing overall token costs by over 90%.
+---
 
-### 6. Seamless Multi-Device Sync (Syncthing & iCloud)
-- Engineered with SQLite WAL checkpointing, deterministic relative paths, and automated `.stignore` rules to ensure conflict-free synchronization across macOS, Linux, and iPad.
+## 🧰 What You Actually Get
+
+- **Obsidian studio** — split-view PDF reading with ingestion badges, in-line
+  popovers on any selection or formula, and a CodeMirror diff viewer that lets you
+  accept or reject AI edits chunk by chunk instead of having them overwritten.
+- **Zotero without duplication** — reference external libraries in place. Annotate
+  a PDF on iPad and the binary hash changes; Incurator tracks logical identity and
+  text fingerprints so existing Atoms and Concepts survive.
+- **An MCP server with 48 tools** — point Cursor, VS Code, Antigravity or Claude
+  Desktop at your vault so a coding agent can pull your own papers and RFCs.
+- **Contradiction detection** — `wiki lint --deep` finds claims from different
+  papers that disagree.
+- **Multi-device sync** — SQLite WAL checkpointing, relative paths and generated
+  `.stignore` rules for conflict-free Syncthing/iCloud use across macOS, Linux and
+  iPad.
 
 ---
 
