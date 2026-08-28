@@ -78,6 +78,19 @@ class QueryRequest:
     #:                "unset"; treating it as "derived" is what made a dead
     #:                provider look like a working one.
     english_query_status: str = "unset"
+    #: Whether the derivation judged this message to be a knowledge question.
+    #:
+    #: `True` when nothing derived (the safe default: never refuse a question
+    #: because no classifier ran). `False` only when a derivation RAN and said
+    #: the message asks for something to be done to text the user supplied —
+    #: "translate this paragraph: <body>" — for which searching the body is
+    #: worse than not searching at all.
+    #:
+    #: Carried because v0.69.0 computed this in the funnel, paid for it, and
+    #: then read only three of the four returned fields. `search_query` is empty
+    #: for such a message, so `working_query` fell back to the raw body and
+    #: retrieval ran BM25 over a translation request.
+    is_knowledge_question: bool = True
     #: The derived intent (`QUERY_INTENTS`), or "" when no derivation ran.
     #:
     #: Routing used to read surface keywords off `working_query` — which is the

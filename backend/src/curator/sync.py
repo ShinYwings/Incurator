@@ -1086,7 +1086,31 @@ def finalize_routing_tables(paths: cfg.WikiPaths) -> None:
     Both writers are pure (directory globs, one COUNT query, a file write) with
     no LLM and no provider, which is why sync can call them.
     """
+    import logging
+
     from . import ingest_llm
+    from .db_sync import describe_recoverable_state
+
+    # Refuse to overwrite these files with a false "empty vault" report.
+    #
+    # `update_ledger`/`update_overview` read the machine-local database, and
+    # `db.connect` self-heals an empty schema into a missing one. So on a machine
+    # whose `.cache/` was cleared — or after a vault rename, which re-keys the
+    # cache — this would write "Last curated: never" and zero counts into files
+    # headed "Auto-maintained by the Curator engine", destroying an accurate
+    # report and persisting a wrong one where a human reads it.
+    #
+    # v0.69.2 added exactly this detection but wired it only into `wiki status`.
+    recoverable = describe_recoverable_state(paths)
+    if recoverable:
+        logging.getLogger(__name__).warning(
+            "Skipped rebuilding ledger.md/overview.md: the local database is "
+            "empty while a sync journal is present, so the rebuilt files would "
+            "report an empty vault. %s",
+            recoverable,
+        )
+        page_writer.rebuild_index(paths, page_writer.today_iso())
+        return
 
     today = page_writer.today_iso()
     page_writer.rebuild_index(paths, today)

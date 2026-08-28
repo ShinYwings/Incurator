@@ -117,3 +117,57 @@ def test_wiki_status_json_carries_it_too(tmp_path: Path, monkeypatch) -> None:
     result = CliRunner().invoke(app, ["status", "--json"])
     assert result.exit_code == 0, result.stdout
     assert "wiki db import" in _json.loads(result.stdout)["recoverable_state"]
+
+
+def test_reports_when_the_database_FILE_is_absent(tmp_path: Path) -> None:
+    """The primary trigger, which every other test in this file misses.
+
+    `_vault()` above calls `db.init_db()`, so the database file always exists by
+    the time these tests ask. But the motivating scenario — the repo's `.cache/`
+    cleared, a new machine, a renamed vault — leaves NO file at all, and the
+    check used to `return None` on exactly that. The warning was silent in every
+    situation its own docstring names.
+
+    A missing file means no rows, which is what "empty" means here.
+    """
+    from curator import config as cfg
+    from curator.db_sync import describe_recoverable_state
+
+    paths = cfg.WikiPaths(tmp_path / "vault")
+    sync_dir = paths.internal / "sync"
+    sync_dir.mkdir(parents=True, exist_ok=True)
+    (sync_dir / "dev-abc123.jsonl").write_text('{"table":"sources"}\n' * 200, encoding="utf-8")
+
+    assert not paths.state_db.exists()
+    message = describe_recoverable_state(paths)
+
+    assert message is not None, "silent in the very case this check exists for"
+    assert "wiki db import" in message
+
+
+def test_sync_refuses_to_rebuild_the_ledger_over_a_recoverable_state(
+    tmp_path: Path,
+) -> None:
+    """`wiki sync` would overwrite an accurate ledger with an empty-vault report.
+
+    v0.69.1 made sync rebuild `ledger.md`/`overview.md`; v0.69.2 added the
+    recoverable-state detection but wired it only into `wiki status`. On a
+    machine with a cleared cache the rebuild wrote zero counts and
+    "Last curated: never" into files headed "Auto-maintained by the Curator
+    engine" — persisting a false report where a human reads it.
+    """
+    from curator import config as cfg
+    from curator import sync as sync_mod
+
+    paths = cfg.WikiPaths(tmp_path / "vault")
+    paths.internal.mkdir(parents=True, exist_ok=True)
+    sync_dir = paths.internal / "sync"
+    sync_dir.mkdir(parents=True, exist_ok=True)
+    (sync_dir / "dev-abc123.jsonl").write_text('{"table":"sources"}\n' * 200, encoding="utf-8")
+    db.init_db(paths.state_db)
+
+    sync_mod.finalize_routing_tables(paths)
+
+    assert not paths.ledger.exists(), (
+        "sync wrote a ledger while the database was empty beside a recoverable journal"
+    )

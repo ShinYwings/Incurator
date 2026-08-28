@@ -1793,14 +1793,23 @@ def describe_recoverable_state(
     ]
     if not journals:
         return None
-    if not paths.state_db.exists():
-        return None
-    try:
-        stats = db.get_stats(paths.state_db)
-    except Exception:  # noqa: BLE001 - a DB we cannot read is not this check's business
-        return None
-    if stats.get("sources_total") or stats.get("units_live"):
-        return None
+
+    # An ABSENT database file is the primary trigger, not a reason to bail.
+    #
+    # This used to `return None` when `state_db` did not exist — which is exactly
+    # the state after the repo's `.cache/` is cleared, or on a new machine, or
+    # when the vault is renamed. The warning was therefore silent in every
+    # scenario its own docstring names, and every test missed it because each
+    # fixture called `db.init_db()` before asking.
+    #
+    # No file means no rows, which is what "empty" means here.
+    if paths.state_db.exists():
+        try:
+            stats = db.get_stats(paths.state_db)
+        except Exception:  # noqa: BLE001 - a DB we cannot read is not this check's business
+            return None
+        if stats.get("sources_total") or stats.get("units_live"):
+            return None
 
     names = ", ".join(p.name for p in journals[:3])
     if len(journals) > 3:
