@@ -683,6 +683,33 @@ def status(
             f"Run [bold]wiki add[/bold] to create L1 Contexts."
         )
 
+    # Only meaningful when something actually runs through agy — and there are
+    # TWO independent places that decide that, on different axes.
+    #
+    # `.curator/config.yml`'s `llm.primary` governs the curation pipeline. The
+    # Obsidian plugin's chat agent is governed by its OWN `provider` in
+    # `data.json`, and nothing bridges them. Checking only the backend's setting
+    # stays silent for a user who runs curation on Ollama and chat on
+    # Antigravity — which is exactly the user this warning exists for, since the
+    # chat path is what spawns agy and depends on the MCP registration.
+    try:
+        from .common import agy_mcp_registration_problem, uses_antigravity_anywhere
+
+        _agy_problem = (
+            agy_mcp_registration_problem(paths.root)
+            if uses_antigravity_anywhere(paths, config)
+            else ""
+        )
+    except Exception as _agy_exc:  # noqa: BLE001 - a health check must not take down `status`
+        _agy_problem = ""
+        _warn(f"Antigravity wiring check unavailable: {_agy_exc}")
+    if _agy_problem:
+        _warn(
+            f"Antigravity cannot reach this vault's tools. {_agy_problem} "
+            "Run [bold]wiki config provider[/bold] to re-register, then ask "
+            "the assistant again."
+        )
+
     from .. import migrate as _migrate
     vault_v = _migrate.get_vault_schema_version(paths)
     if vault_v < consts.VAULT_SCHEMA_VERSION:

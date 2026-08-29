@@ -334,6 +334,187 @@ def _resolve_root_or_die_impl(hint_path: Path | None = None) -> cfg.WikiPaths:
 
     cfg.set_last_root(root)
     return cfg.paths_from_config(root)
+def uses_antigravity_anywhere(paths: "cfg.WikiPaths", config: dict | None) -> bool:
+    """Whether anything on this vault spawns `agy`.
+
+    Two independent settings decide this and neither implies the other:
+    `.curator/config.yml`'s `llm.primary`/`fallback` drives the curation
+    pipeline, while the Obsidian plugin's chat agent reads its own `provider`
+    from the plugin's `data.json`. Nothing bridges them.
+
+    Reading only the backend's setting leaves silent the user who runs curation
+    on Ollama and chat on Antigravity — the case the warning exists for, because
+    the chat path is what spawns `agy` and depends on the MCP registration.
+    """
+    import json as _json
+
+    try:
+        llm = (config.get("llm") or {}) if isinstance(config, dict) else {}
+        for key in ("primary", "fallback"):
+            if "antigravity" in str(llm.get(key, "")):
+                return True
+    except Exception:  # noqa: BLE001 - a malformed config is the plugin's to report
+        _log.debug("Could not read llm provider from config", exc_info=True)
+
+    # The path is spelled out rather than imported from `mcp.server`, which
+    # pulls in the MCP SDK. That import is optional (`backend[mcp]`), and when it
+    # was absent this whole branch failed silently inside the `except` below —
+    # a check meant to end silent failures, failing silently.
+    try:
+        data_path = (
+            paths.root
+            / ".obsidian"
+            / "plugins"
+            / "incurator-obsidian-agent"
+            / "data.json"
+        )
+        if data_path.exists():
+            data = _json.loads(data_path.read_text(encoding="utf-8")) or {}
+            if str(data.get("provider", "")) == "antigravity":
+                return True
+    except Exception:  # noqa: BLE001 - absent or unreadable plugin settings
+        _log.debug("Could not read the plugin chat provider", exc_info=True)
+    return False
+
+
+def agy_mcp_registration_problem(vault_root: Path) -> str:
+    """Why headless `agy` cannot reach the curator tools, or "" if it can.
+
+    This check exists because the failure is otherwise invisible. The registry
+    is written by two independent processes — this backend on `wiki init`/`wiki
+    config`, and the Obsidian plugin on every turn — and when one of them
+    dropped the other's entry, nothing said so. What the user saw instead was
+    the assistant reaching for a shell command to grep their vault, being
+    refused, and reporting a permission error: three steps removed from the
+    cause, and pointing at the wrong thing.
+
+    Returns a sentence naming the specific problem, not a boolean, so `wiki
+    status` can print something actionable.
+    """
+    import json as _json
+
+    from .. import constants as _consts
+
+    registry = Path.home() / ".gemini" / "config" / "mcp_config.json"
+    if not registry.exists():
+        return (
+            f"The Antigravity CLI has no MCP registry at {registry}, so it "
+            f"cannot see this vault's tools."
+        )
+    try:
+        servers = (_json.loads(registry.read_text(encoding="utf-8")) or {}).get(
+            "mcpServers"
+        )
+    except Exception:
+        return f"{registry} is not readable as JSON, so its contents cannot be checked."
+    if not isinstance(servers, dict) or "incurator" not in servers:
+        return (
+            f"The curator MCP server is not registered in {registry}, so the "
+            f"assistant has no way to search this vault."
+        )
+
+    entry = servers["incurator"]
+    if not isinstance(entry, dict):
+        return f"The curator MCP entry in {registry} is not an object."
+    command = entry.get("command")
+    if not isinstance(command, str) or not command:
+        # Measured: a list here (`["wiki", "mcp"]`, an easy hand-edit) crashed
+        # this function with a TypeError out of `Path()`. A health check that
+        # takes down the command reporting the health is worse than no check.
+        return (
+            f"The curator MCP entry in {registry} has no usable command "
+            f"({command!r})."
+        )
+    args = entry.get("args")
+    if not isinstance(args, list) or "mcp" not in args:
+        return (
+            f"The curator MCP entry in {registry} does not run the `mcp` "
+            f"subcommand (args={args!r}), so it starts the wrong thing."
+        )
+    # Resolve it the way a SPAWNED process would, not the way an interactive
+    # shell does. `wiki` is commonly a shell alias or a venv console script that
+    # only exists on an interactive login PATH — v0.71.0 shipped exactly that,
+    # and the server was registered and dead: `agy mcp list` showed it and the
+    # model reported no tools. An earlier version of this check exempted the
+    # bare name and so could not detect the very bug it was written for.
+    import shutil
+
+    if Path(command).is_absolute():
+        resolved = command if Path(command).exists() else None
+    else:
+        resolved = shutil.which(command)
+    if resolved is None:
+        return (
+            f"The curator MCP server is registered as {command!r}, which a "
+            f"spawned process cannot resolve, so it never starts."
+        )
+    env = entry.get("env")
+    # An absent VAULT_ROOT used to pass, because "" is falsy and the mismatch
+    # branch was skipped — a registration with no vault to point at read as
+    # healthy.
+    registered_root = env.get("VAULT_ROOT") if isinstance(env, dict) else None
+    if not isinstance(registered_root, str) or not registered_root:
+        return (
+            f"The curator MCP entry in {registry} names no VAULT_ROOT, so it "
+            f"does not point at any vault."
+        )
+    if Path(registered_root) != vault_root:
+        return (
+            f"The curator MCP server is registered against {registered_root}, "
+            f"not this vault ({vault_root})."
+        )
+
+    settings = Path.home() / ".gemini" / "settings.json"
+    try:
+        admin = (_json.loads(settings.read_text(encoding="utf-8")) or {}).get("admin")
+    except Exception:
+        admin = None
+    if isinstance(admin, dict):
+        mcp_admin = admin.get("mcp")
+        if isinstance(mcp_admin, dict) and mcp_admin.get("enabled") is False:
+            return (
+                f"MCP is switched off in {settings} (`admin.mcp.enabled` is "
+                f"false), so no MCP server is loaded at all."
+            )
+
+    permissions = Path.home() / ".gemini" / _consts.BACKEND_ANTIGRAVITY_CLI / "settings.json"
+    try:
+        allow = (
+            (_json.loads(permissions.read_text(encoding="utf-8")) or {})
+            .get("permissions", {})
+            .get("allow", [])
+        )
+        if not isinstance(allow, list):
+            allow = []
+    except Exception:
+        allow = []
+    if "mcp(*)" not in allow:
+        return (
+            "The Antigravity CLI is missing the `mcp(*)` permission, so every "
+            "MCP tool is auto-denied in headless mode."
+        )
+    try:
+        rules = (
+            _json.loads(permissions.read_text(encoding="utf-8")) or {}
+        ).get("permissions", {})
+        blocking = [
+            rule
+            for key in ("deny", "ask")
+            for rule in (rules.get(key) or [])
+            if isinstance(rule, str) and rule.startswith("mcp(")
+        ]
+    except Exception:
+        blocking = []
+    if blocking:
+        # Nothing in this codebase writes these, but a rule that overrides the
+        # grant is precisely the kind of thing that would look healthy here.
+        return (
+            f"The Antigravity CLI has an MCP rule under deny/ask "
+            f"({', '.join(blocking)}) that overrides the grant."
+        )
+    return ""
+
+
 def _sync_mcp_configs(vault_root: Path) -> list[str]:
     """Upsert VAULT_ROOT into known MCP config files. Returns list of updated paths."""
     import json
