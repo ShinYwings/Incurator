@@ -1776,6 +1776,15 @@ by `sync_key`, preserves the receiving replica's integer id, and remaps every
 synchronized child `source_id` before applying child rows. JSONL import rejects
 `sources` rows without a non-empty `sync_key`.
 
+**"Every synchronized child `source_id`" includes the ones inside JSON arrays
+(v0.73.1).** `prompt_runs.source_ids` is a JSON array of `sources.id` integers,
+which a column-level remap cannot reach, so it arrived carrying the peer's
+numbering — each entry naming whatever unrelated source occupied that row number
+locally. Arrays of source ids MUST be translated with the same map the column
+remap uses, and an id with no local counterpart MUST be dropped rather than kept:
+a kept id silently names the wrong source, while a shorter array is merely
+incomplete.
+
 A `vault:<relpath>` key is normalized to forward slashes when it is derived, so
 the same file yields the same key regardless of the operating system that
 registered it. The derivation happens in the `sources_set_sync_key` trigger and

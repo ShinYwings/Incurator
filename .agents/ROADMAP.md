@@ -502,11 +502,14 @@ point at the same converged entity pair — correct, but duplicated. Deciding th
 natural key for a relation is a modelling question (does `assertion_source` or
 `description` participate?), not just plumbing.
 
-### D1d. `prompt_runs.source_ids` has never been remapped
+### D1d. Source-id arrays carried the peer's numbering — **SHIPPED v0.73.1**
 
-A JSON array of `sources.id` that the `sources` transport skips — a pre-existing
-gap in that feature, not in D1. D1's machinery reaches it almost for free, but
-folding it in silently would have blurred D1's acceptance criteria.
+`prompt_runs.source_ids` is a JSON array of `sources.id` integers, which the
+column-level remap cannot reach. Reproduced with two devices that registered the
+same files in a different order: the array arrived naming a different source than
+it meant. 2,984 rows carry one on the reference vault. Ids with no local
+counterpart are dropped rather than kept, because a kept id names the wrong
+source while a shorter array is merely incomplete.
 
 ### D2. The curation lens and the vault persona never reach the chat surface
 

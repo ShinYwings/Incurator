@@ -81,6 +81,7 @@ def db_import(
         "deleted": stats.deleted,
         "rejected": stats.rejected,
         "remapped": stats.remapped,
+        "provenance_dropped": stats.provenance_dropped,
     }
 
     if json_output:
@@ -97,6 +98,13 @@ def db_import(
                 else ""
             )
         )
+        if stats.provenance_dropped:
+            console.print(
+                f"[yellow]{stats.provenance_dropped} source reference(s) were "
+                f"dropped from provenance records[/yellow] because this file did "
+                f"not identify them. If it was an incremental export "
+                f"(--since), re-export without it to restore them."
+            )
         if stats.remapped:
             # Say it rather than repair in silence. A non-zero count means the
             # two devices had independently extracted the same entity or span
@@ -147,6 +155,9 @@ def db_autosync(
         "inserted": sum(s.inserted for s in res.imported.values()),
         "rejected": sum(s.rejected for s in res.imported.values()),
         "remapped": sum(s.remapped for s in res.imported.values()),
+        "provenance_dropped": sum(
+            s.provenance_dropped for s in res.imported.values()
+        ),
         "updated": sum(s.updated for s in res.imported.values()),
         "deleted": sum(s.deleted for s in res.imported.values()),
         "conflicts": res.conflicts,
@@ -168,6 +179,12 @@ def db_autosync(
                 else ""
             )
         )
+        if summary["provenance_dropped"]:
+            console.print(
+                f"[yellow]{summary['provenance_dropped']} source reference(s) "
+                f"were dropped from provenance records[/yellow] because a peer "
+                f"file did not identify them."
+            )
         if summary["remapped"]:
             # Same reasoning as `rejected` below, and the same omission it was
             # once fixed for: autosync is the hands-off path, so anything worth

@@ -1155,6 +1155,16 @@ How it stays safe across devices:
 - **One file per device.** Each device writes only its own `.curator/sync/dev-<id>.jsonl` and reads everyone else's. Because no two devices write the same file, Syncthing never creates write-write conflicts.
 - **Portable source identity.** Replica-local numeric source ids are remapped by
   portable source key, so two devices may independently create source id 1.
+
+  **Until v0.73.1 that remapping reached only the id COLUMNS, not ids inside JSON
+  arrays.** `prompt_runs.source_ids` records which sources an LLM call drew on,
+  and it arrived carrying the other device's numbering — so each entry named
+  whatever unrelated source happened to occupy that row number here. It is now
+  translated with the same map. A reference this device cannot identify is
+  dropped rather than left pointing at the wrong file, and the count is printed;
+  if you see one it usually means the file was an incremental
+  `wiki db export --since` snapshot that omitted a source you already hold, and
+  re-exporting without `--since` restores it.
 - **Last-Write-Wins merge.** Records merge row-by-row by monotonic revision;
   deletes propagate via tombstones. Concurrent reads and edits to different
   source records are safe. An intentional local reinsert advances past the

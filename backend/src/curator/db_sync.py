@@ -612,6 +612,13 @@ class ImportStats:
     #: the same entity or span, and every child that named the peer's id was
     #: repaired. Zero is the normal case.
     remapped: int = 0
+    #: Source ids removed from a provenance array because this import could not
+    #: resolve them to a local source (D1d). Usually zero. Non-zero most often
+    #: means the file was an incremental `--since` export that omitted a source
+    #: this device already holds, so the provenance arrived shorter than it was.
+    #: Reported rather than silent: the singular-column path raises for the same
+    #: condition, and staying quiet here would be the one inconsistency.
+    provenance_dropped: int = 0
     dry_run: bool = False
 
 
@@ -1219,6 +1226,9 @@ def import_knowledge(
                     # different ids for the same span. Silent resurrection is
                     # worse than a silently-skipped delete.
                     _translate_row_ids(row, tbl, entity_id_map, span_id_map)
+                    stats.provenance_dropped += _translate_source_id_arrays(
+                        row, tbl, source_id_map
+                    )
                     remote_row_id = row.get("id")
                     result = _lw_upsert(
                         conn,
@@ -2018,6 +2028,68 @@ def _translate_row_ids(
         mapped = both.get(value)
         if mapped is not None:
             row[column] = mapped
+
+
+# JSON arrays holding `sources.id` INTEGERS. The integer is AUTOINCREMENT and
+# deliberately replica-local — `sources.sync_key` is the portable identity, and
+# import already remaps every child's `source_id` COLUMN onto the local value.
+# A column remap cannot reach inside a JSON string, so these arrived carrying the
+# peer's numbering, where each entry names whatever unrelated source happens to
+# occupy that row number here. `SCHEMA.md` claims the transport remaps "every
+# synchronized child `source_id`"; without this it did not.
+_SOURCE_ID_ARRAY_REFS: dict[str, tuple[str, ...]] = {
+    "prompt_runs": ("source_ids",),
+}
+
+
+def _translate_source_id_arrays(
+    row: dict, table: str, source_id_map: dict[int, int | None]
+) -> int:
+    """Rewrite a JSON array of peer `sources.id` integers into local ones.
+
+    Returns how many entries were dropped, so the caller can report them.
+
+    An id with no local counterpart is DROPPED rather than kept, because a kept
+    id names whatever unrelated source occupies that row number here — silently
+    wrong provenance is worse than provenance that is honestly shorter.
+
+    But dropping must not be silent. An id is unmapped in two different
+    situations and only one of them is benign:
+
+    - the peer's source was rejected or tombstoned during this import — the row
+      genuinely has no local counterpart, and dropping is the whole point;
+    - **the file simply did not carry that source's row.** `wiki db export
+      --since` is documented as incremental, so a source that has not changed
+      since the cutoff is omitted even though the receiving device already holds
+      it. The entry is then dropped from a device that could have resolved it.
+
+    The singular-`source_id` path raises `ValueError` for the same condition,
+    which aborts the entire import. That is right for a span, which is
+    meaningless without its source, and disproportionate for provenance
+    metadata. So this drops and counts, and `wiki db import` prints the count —
+    the same standard `rejected` and `remapped` are held to.
+    """
+    dropped = 0
+    for column in _SOURCE_ID_ARRAY_REFS.get(table, ()):
+        raw = row.get(column)
+        if not isinstance(raw, str):
+            continue
+        try:
+            values = json.loads(raw)
+        except ValueError:
+            continue
+        if not isinstance(values, list):
+            continue
+        translated: list[int] = []
+        for value in values:
+            local = source_id_map.get(value) if isinstance(value, int) else None
+            if local is None:
+                dropped += 1
+                continue
+            translated.append(local)
+        if translated != values:
+            row[column] = json.dumps(translated)
+    return dropped
 
 
 def _candidate_rows(
