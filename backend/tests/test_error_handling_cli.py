@@ -24,7 +24,7 @@ def _make_vault(tmp_path: Path) -> Path:
 
 def test_sync_mcp_configs_warns_when_target_write_fails(tmp_path, capsys, monkeypatch):
     home = tmp_path / "home"
-    home.mkdir()
+    home.mkdir(exist_ok=True)
     (home / ".gemini").write_text("not a directory", encoding="utf-8")
     vault = _make_vault(tmp_path)
     monkeypatch.setattr(cli.Path, "home", lambda: home)
@@ -164,7 +164,7 @@ def test_config_provider_warns_when_snapshot_refresh_hits_locked_db(tmp_path):
     assert "database is locked" in result.output
 
 
-def test_sync_mcp_configs_registers_where_agy_actually_reads(tmp_path, monkeypatch):
+def test_sync_mcp_configs_registers_where_agy_actually_reads(tmp_path):
     """v0.71.0: the registry agy reads was never written, so its tools never existed.
 
     Measured against agy 1.1.22 on a real machine: with `incurator` present in
@@ -180,10 +180,9 @@ def test_sync_mcp_configs_registers_where_agy_actually_reads(tmp_path, monkeypat
     """
     import json
 
-    home = tmp_path / "home"
-    home.mkdir()
+    # `isolate_home_dir` (conftest) already points Path.home() at a temp dir.
+    home = Path.home()
     vault = _make_vault(tmp_path)
-    monkeypatch.setattr(cli.Path, "home", lambda: home)
 
     updated = cli._sync_mcp_configs(vault)
 
@@ -193,19 +192,18 @@ def test_sync_mcp_configs_registers_where_agy_actually_reads(tmp_path, monkeypat
     assert servers["incurator"]["env"]["VAULT_ROOT"] == str(vault)
 
 
-def test_sync_mcp_configs_keeps_servers_the_user_registered_themselves(tmp_path, monkeypatch):
+def test_sync_mcp_configs_keeps_servers_the_user_registered_themselves(tmp_path):
     """`agy mcp add` writes this same file, so a wholesale replace would delete
     whatever the user registered by hand."""
     import json
 
-    home = tmp_path / "home"
-    (home / ".gemini" / "config").mkdir(parents=True)
+    home = Path.home()
+    (home / ".gemini" / "config").mkdir(parents=True, exist_ok=True)
     (home / ".gemini" / "config" / "mcp_config.json").write_text(
         json.dumps({"mcpServers": {"theirs": {"command": "echo", "args": ["hi"]}}}),
         encoding="utf-8",
     )
     vault = _make_vault(tmp_path)
-    monkeypatch.setattr(cli.Path, "home", lambda: home)
 
     cli._sync_mcp_configs(vault)
 
@@ -216,7 +214,7 @@ def test_sync_mcp_configs_keeps_servers_the_user_registered_themselves(tmp_path,
     assert "incurator" in servers
 
 
-def test_sync_mcp_configs_registers_a_command_a_spawned_process_can_find(tmp_path, monkeypatch):
+def test_sync_mcp_configs_registers_a_command_a_spawned_process_can_find(tmp_path):
     """A bare `wiki` is registered and dead.
 
     Measured: `command -v wiki` finds nothing in a spawned process's PATH here --
@@ -230,10 +228,8 @@ def test_sync_mcp_configs_registers_a_command_a_spawned_process_can_find(tmp_pat
     """
     import json
 
-    home = tmp_path / "home"
-    home.mkdir()
+    home = Path.home()
     vault = _make_vault(tmp_path)
-    monkeypatch.setattr(cli.Path, "home", lambda: home)
 
     cli._sync_mcp_configs(vault)
 

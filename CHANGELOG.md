@@ -68,6 +68,17 @@ All notable changes to Incurator are documented here.
   codebase still refuses: that auto-approves every tool class including the
   shell, while this opens exactly the MCP servers Incurator registers.
 
+- **The test suite was rewriting the developer's real agy configuration.**
+  `wiki init` registers the MCP server under `~/.gemini/`, so every test that
+  ran `init` without patching home wrote the actual file. Found live: the real
+  `~/.gemini/config/mcp_config.json` pointed `VAULT_ROOT` at a deleted
+  `pytest-of-shin/pytest-1030/...` temp directory, leaving agy registered
+  against a vault that no longer existed — and reproduced on the next run, which
+  clobbered a correct registration again. A single autouse fixture now points
+  `HOME` and `Path.home()` at a temp directory for the whole suite; patching the
+  one offending test would have left the next one free to do it again. This
+  mattered more after the registration fix above, which writes one more file.
+
 - **The embedded fetch tool destroyed the very thing it was added to deliver.**
   It accumulated the response with `body += chunk`, coercing each Buffer to
   UTF-8. Measured on a 314-byte PDF: **132 replacement characters**, not
