@@ -494,13 +494,18 @@ peer's ids, so a row this device deleted walked back in past its own tombstone.
 required** (D1 was the first). Both times the difference showed up by measuring,
 not by reading the entry. Treat a Phase D item's stated remedy as a hypothesis.
 
-### D1c. `graph_relations` rows do not converge, only their endpoints
+### D1c. Relations converge on their natural key — **SHIPPED v0.74.0**
 
-Two devices asserting the same relation mint two `REL-` ids, and `graph_relations`
-has no natural-key UNIQUE constraint, so nothing dedupes them. After D1 both rows
-point at the same converged entity pair — correct, but duplicated. Deciding the
-natural key for a relation is a modelling question (does `assertion_source` or
-`description` participate?), not just plumbing.
+The roadmap called the key a modelling question. The data answered it:
+`(source_entity_id, target_entity_id, relation_type)` is already unique across
+all 2,787 relations on the reference vault, while `(source, target)` collides in
+125 groups; `assertion_source` and `description` add nothing, and `description`
+is LLM prose that differs between devices for the same assertion.
+
+No UNIQUE index: `db.connect` re-applies `SCHEMA_SQL` every open, so adding one
+would brick any vault already holding a duplicate. Convergence happens at import,
+where duplicates are created. Existing ones are left alone — no migration, no
+deletion.
 
 ### D1d. Source-id arrays carried the peer's numbering — **SHIPPED v0.73.1**
 

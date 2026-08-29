@@ -1153,6 +1153,14 @@ including a first import whose source-scoped rows do not yet have a local parent
 How it stays safe across devices:
 
 - **One file per device.** Each device writes only its own `.curator/sync/dev-<id>.jsonl` and reads everyone else's. Because no two devices write the same file, Syncthing never creates write-write conflicts.
+- **One edge per assertion.** When two devices independently extract the same
+  relationship between the same two things, it is stored once rather than twice
+  (v0.74.0). A doubled edge is not just clutter: the graph is what traversal
+  walks and what community summaries count, so a duplicate is weighted twice by
+  every question that follows it. Two assertions that say *different* things
+  about the same pair still both survive — the relationship type is part of what
+  makes an edge distinct.
+
 - **Portable source identity.** Replica-local numeric source ids are remapped by
   portable source key, so two devices may independently create source id 1.
 
