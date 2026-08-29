@@ -2,6 +2,27 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.73.2] - 2026-08-30
+
+### Fixed
+- **The plugin deleted the curator MCP server from Antigravity's config on every
+  turn, so the assistant had no way to search your vault.** `syncAgyMcpConfig`
+  wrote `~/.gemini/settings.json` by replacing `mcpServers` wholesale. That was
+  harmless only while agy ignored that file — it does not. `wiki init`/`wiki
+  config` register the `incurator` server there, and every plugin turn removed it
+  again, one second before agy started.
+
+  The visible symptom was a denial that looks unrelated: asked to find a paper in
+  their own literature notes, the assistant had no vault-search tool, reached for
+  a shell `rg` instead, and `command(wiki)` correctly refused it — so the turn
+  produced nothing and reported a permission error. The permission was not the
+  problem; the missing tool was.
+
+  All three files the plugin writes now reconcile through one function: keep what
+  the plugin does not manage, drop only what it registered and has since retired,
+  apply what it currently has. v0.71.0 fixed this for the two registry paths and
+  left `settings.json` on the old wholesale write.
+
 ## [0.73.1] - 2026-08-30
 
 ### Fixed

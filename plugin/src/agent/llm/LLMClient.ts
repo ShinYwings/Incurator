@@ -3047,6 +3047,23 @@ export class LLMClient {
     }
 
     const settingsPath = join(geminiDir, "settings.json");
+    const manifestPath = join(geminiDir, "incurator", "managed_mcp_servers.json");
+    let previouslyManaged: string[] = [];
+    try {
+      const parsed = JSON.parse(readFileSync(manifestPath, "utf-8"));
+      if (Array.isArray(parsed)) previouslyManaged = parsed.filter((n) => typeof n === "string");
+    } catch { /* first run, or unreadable — nothing of ours to prune */ }
+    const managedNow = Object.keys(mcpServers);
+    const retired = previouslyManaged.filter((name) => !managedNow.includes(name));
+
+    /** Keep what we do not manage, drop what we retired, apply what we have. */
+    const reconcile = (current: Record<string, unknown> | undefined) => {
+      const next: Record<string, unknown> = { ...(current ?? {}) };
+      for (const name of retired) delete next[name];
+      Object.assign(next, mcpServers);
+      return next;
+    };
+
     let existing: Record<string, unknown> = {};
     try {
       existing = JSON.parse(readFileSync(settingsPath, "utf-8"));
@@ -3058,7 +3075,14 @@ export class LLMClient {
         ...(existing.admin as Record<string, unknown> | undefined ?? {}),
         mcp: { enabled: true },
       },
-      mcpServers,
+      // Reconcile, do NOT replace. This write used to be a wholesale overwrite,
+      // which was harmless only while agy ignored this file. It does not: the
+      // backend registers the `incurator` server here (and in the two registry
+      // paths), and every plugin turn silently deleted it, leaving the model
+      // with no vault-search tool at all. Measured on a real session — the
+      // assistant fell back to shelling out to `rg`, which `command(wiki)`
+      // correctly refused, and the turn produced nothing.
+      mcpServers: reconcile(existing.mcpServers as Record<string, unknown> | undefined),
     };
 
     writeFileSync(settingsPath, `${JSON.stringify(merged, null, 2)}\n`);
@@ -3090,15 +3114,6 @@ export class LLMClient {
     // it, so nothing was live. Recording our own names is what makes the
     // difference expressible -- prune exactly what we registered and no longer
     // have, keep everything else untouched.
-    const manifestPath = join(geminiDir, "incurator", "managed_mcp_servers.json");
-    let previouslyManaged: string[] = [];
-    try {
-      const parsed = JSON.parse(readFileSync(manifestPath, "utf-8"));
-      if (Array.isArray(parsed)) previouslyManaged = parsed.filter((n) => typeof n === "string");
-    } catch { /* first run, or unreadable — nothing of ours to prune */ }
-    const managedNow = Object.keys(mcpServers);
-    const retired = previouslyManaged.filter((name) => !managedNow.includes(name));
-
     for (const registry of [
       join(geminiDir, "config", "mcp_config.json"),
       join(geminiDir, "antigravity", "mcp_config.json"),
@@ -3109,14 +3124,14 @@ export class LLMClient {
         try {
           current = JSON.parse(readFileSync(registry, "utf-8"));
         } catch { /* missing or malformed — start fresh */ }
-        const merged: Record<string, unknown> = {
-          ...((current.mcpServers as Record<string, unknown> | undefined) ?? {}),
-        };
-        for (const name of retired) delete merged[name];
-        Object.assign(merged, mcpServers);
         writeFileSync(
           registry,
-          `${JSON.stringify({ ...current, mcpServers: merged }, null, 2)}\n`
+          `${JSON.stringify({
+            ...current,
+            mcpServers: reconcile(
+              current.mcpServers as Record<string, unknown> | undefined
+            ),
+          }, null, 2)}\n`
         );
       } catch (e) {
         logger.warn(`Could not register MCP servers in ${registry}:`, e);
