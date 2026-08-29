@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.70.0)
+# Incurator Plugin Schema & API Contract (v0.71.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -1526,6 +1526,18 @@ Rules:
   different accounts or tiers — so the plugin stores under
   `obsidian-deepseek-api-key` while `wiki config provider` uses
   `deepseek-api-key`. They share the encryption, never the value.
+  **Signing out MUST reach the store, not just the settings object** (v0.71.0).
+  Because the key lives in two places, clearing `settings.deepseekApiKey` is only
+  half a sign-out: `restoreDeepseekKeyFromStore()` reads the encrypted store at
+  every load, so a sign-out that stops at the settings object is silently undone
+  by the next restart while the UI still reports the key as cleared. `wiki plugin
+  secret rm --name <name>` is the other half, and the sign-out button calls it.
+  Deleting an absent key is `ok: true, deleted: false`, never an error — the user
+  can sign out with nothing stored, or twice — and a backend that cannot be
+  reached must not abort sign-out, since the local half is already cleared.
+  Removal is per-name, so signing the plugin out leaves the backend's own key
+  (`deepseek-api-key`) untouched, consistent with the two being separate by
+  design.
   **The key is deliberately per-device and MUST NOT travel** (decision,
   2026-08-22). `.cache/config/secrets/` is repo-local, git-ignored, and its
   Fernet key is generated per machine, so each device is configured once. Two
@@ -2411,6 +2423,43 @@ the `find_mvg_text.py`-style exploit). This section governs the CLI path.
     is not a narrower grant, it is no grant.** `command(wiki)` was measured the
     same way and does work scoped, so the narrow command grant stays and only
     the read rule is forced wide by the CLI's parser.
+
+    **`mcp(*)` is required too, and it is wildcard-only for the same reason
+    (v0.71.0).** Calling any MCP tool needs its own `mcp` permission. Measured
+    against agy 1.1.22 with the server correctly registered and the model asked
+    to call `fetch_url`: `mcp(incurator_fetch)` auto-denied, `mcp(fetch_url)`
+    auto-denied, `mcp(*)` ran the call and returned a live value. So `mcp` joins
+    `read_file` on the wildcard-only side, and `command` remains the lone rule
+    that works scoped. Until this rule existed, **every** MCP tool was denied in
+    headless mode — including the whole curator surface that `command(wiki)`
+    exists to spawn.
+
+    **`mcp(*)` is a class-wide wildcard, and the spec MUST NOT describe it as
+    scoped.** Exactly as with `read_file(*)`, the wildcard covers the whole
+    permission class: it authorises calls into every server in agy's registry,
+    including servers the user registered themselves — which the merge behaviour
+    below deliberately preserves. It stays narrower than the CLI's blanket
+    permission-skip flag, which this codebase refuses (that approves every tool
+    class including the shell, while this approves no class but MCP), and the
+    scoped forms grant nothing, so there is no narrower option that works.
+
+    **The permission is useless unless the server is registered where the CLI
+    reads it (v0.71.0).** `~/.gemini/settings.json` is NOT that place. The plugin
+    wrote only there and the backend wrote there plus
+    `~/.gemini/antigravity/mcp_config.json`; the CLI's own registry, the one
+    `agy mcp add` writes and `agy mcp list` reads, is
+    `~/.gemini/config/mcp_config.json`, and it was empty. Both writers MUST
+    register there. **Neither merging nor replacing is correct on its own**:
+    replacing wholesale deletes servers the user registered with `agy mcp add`,
+    while merging leaves a server the user DELETED or disabled in the plugin
+    registered and callable indefinitely, `env` credentials included. So the
+    writer MUST record the server names it manages and, on each sync, remove
+    exactly those it no longer has — pruning its own retirements and nothing
+    else. The plugin keeps that list in
+    `~/.gemini/incurator/managed_mcp_servers.json`; losing it costs a future
+    prune, never a wrong deletion. This was the
+    root cause behind three consecutive permission fixes that granted nothing:
+    the grants were fine, nothing was ever registered where the CLI looked.
 
     A test MUST pin the rule *format*, and pinning the format is still not
     enough on its own — asserting a string was written is what let v0.48.4 ship

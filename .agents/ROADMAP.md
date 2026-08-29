@@ -293,7 +293,8 @@ referenced by live `community_reports`**.
 
 Those 238 are exactly what v0.69.5's L3 resume reads — `generate_report_prose`
 compares the referenced run's `input_hash` to decide whether to skip. Purging a
-referenced run silently un-resumes L3 and re-spends roughly 1,381 provider calls,
+referenced run silently un-resumes L3 and re-spends 238 provider calls (one per
+live report carrying prose and a run),
 with no error anywhere. **Any cap must keep referenced runs regardless of age or
 count.**
 

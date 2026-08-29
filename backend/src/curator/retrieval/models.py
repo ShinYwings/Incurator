@@ -78,6 +78,26 @@ class QueryRequest:
     #:                "unset"; treating it as "derived" is what made a dead
     #:                provider look like a working one.
     english_query_status: str = "unset"
+    #: Whether the derivation judged this message to be a knowledge question.
+    #:
+    #: `True` when nothing derived (the safe default: never refuse a question
+    #: because no classifier ran). `False` only when a derivation RAN and said
+    #: the message asks for something to be done to text the user supplied —
+    #: "translate this paragraph: <body>" — for which searching the body is
+    #: worse than not searching at all.
+    #:
+    #: **Recorded, not yet acted on — say so rather than imply otherwise.**
+    #: v0.69.0 computed this in the funnel, paid for it, and read only three of
+    #: the four returned fields; v0.71.0 carries the fourth into the request and
+    #: into the query trace so the cost is at least observable. But nothing in
+    #: `context_fetch` reads it to skip retrieval yet, so on the funnel path
+    #: `search_query` is still empty for such a message, `working_query` still
+    #: falls back to the raw body, and retrieval still runs BM25 over the
+    #: translation request. `plugin_api/context.py` gates its own path on
+    #: `derived.is_knowledge_question` and returns an empty pack; the funnel does
+    #: not, and making the two agree is a control-flow change that gets its own
+    #: plan (USER_REPORT.md, 2026-08-29).
+    is_knowledge_question: bool = True
     #: The derived intent (`QUERY_INTENTS`), or "" when no derivation ran.
     #:
     #: Routing used to read surface keywords off `working_query` — which is the

@@ -351,9 +351,38 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
 
   Antigravity 1.1.3 and later also deny tools that need an interactive approval
   when the plugin launches `agy` in headless (`-p`) mode. The plugin therefore
-  preserves your Antigravity CLI settings and adds two narrow rules under
+  preserves your Antigravity CLI settings and adds three rules under
   `permissions.allow` in `~/.gemini/antigravity-cli/settings.json`:
-  `read_file(*)`, and `command(wiki)` so the Incurator MCP server can be started.
+  `read_file(*)`, `command(wiki)` so the Incurator MCP server can be started,
+  and — since v0.71.0 — `mcp(*)` so its tools can actually be **called**.
+
+  Registering the server and granting `command(wiki)` were never enough on their
+  own, and this is why `agy` appeared to have Incurator's tools but could not use
+  them. Two things were missing, both measured against agy 1.1.22 rather than
+  assumed:
+
+  - **Calling an MCP tool needs its own permission, and only the wildcard works.**
+    `mcp(incurator_fetch)` and `mcp(fetch_url)` were both auto-denied; `mcp(*)`
+    let the call through. Same shape as `read_file` — a scoped rule here grants
+    nothing at all.
+
+    **What that costs you, stated plainly.** `mcp(*)` is a wildcard over the MCP
+    permission class, not a grant scoped to Incurator: it lets headless `agy`
+    call tools on **every** MCP server in its registry, including any you added
+    yourself with `agy mcp add`. It is still narrower than the CLI's blanket
+    permission-skip flag, which Incurator refuses — that approves every tool
+    class including the shell, while this approves no class but MCP — and the
+    scoped forms were measured and grant nothing, so there is no third option.
+    If you keep sensitive MCP servers registered with `agy`, that is the
+    trade-off to weigh.
+  - **The server has to be registered where the CLI looks.** Incurator used to
+    write `~/.gemini/settings.json`; `agy` reads its MCP registry from
+    `~/.gemini/config/mcp_config.json` — the file `agy mcp add` writes and
+    `agy mcp list` shows. It is now written too. Servers you added yourself
+    with `agy mcp add` are kept, and a server you delete or disable in
+    Incurator's settings is actually unregistered — Incurator tracks which names
+    it manages and removes only those. If `agy mcp list` shows `incurator`,
+    registration is working.
 
 > [!IMPORTANT]
 > **If you saw `jetski: no output produced` repeatedly, this is why — and it
@@ -1004,6 +1033,12 @@ Each provider's **Authentication** row shows its current state:
   keep their real session in their own keychain/config, fully signing out may
   still require running the provider CLI (`agy`, `claude`, `codex`); the Sign out
   notice says so when relevant.
+  Signing out removes the saved DeepSeek key from the encrypted store as well as
+  from the plugin's settings (v0.71.0). Before that fix it only cleared the
+  settings half, so the key came back at the next restart while the panel still
+  reported it as cleared. Signing out with no key saved is not an error, and
+  signing out of the plugin does not touch the backend's own DeepSeek key — the
+  two are configured separately on purpose.
 
 ---
 

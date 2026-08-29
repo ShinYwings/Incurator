@@ -205,3 +205,46 @@ def test_a_caller_supplied_english_query_is_never_overwritten(tmp_path: Path) ->
     )
     assert client.calls == 0, "the caller's English query was thrown away"
     assert response["english_query"] == "what does this concept mean?"
+
+
+def test_the_not_a_knowledge_question_verdict_is_not_thrown_away(tmp_path: Path) -> None:
+    """v0.69.0 computed this in the funnel, paid for it, and read three of four
+    fields.
+
+    `derive_search_query` returns `is_knowledge_question=False` for a message
+    like "이 문장을 번역해줘: <body>" — the case its own docstring exists to catch —
+    and sets `search_query` to "". The funnel kept only `search_query`, `status`
+    and `intent`, so `working_query` fell back to the raw body and retrieval ran
+    BM25 over a translation request. Strictly worse than before the change: the
+    classification is now bought and then discarded.
+
+    The verdict is carried on the request and recorded in the trace. Retrieval is
+    deliberately NOT vetoed here — that is a boundary judgement about what the
+    user's message is, and silently zeroing `wiki query` from the retrieval layer
+    was rejected when this was designed — but the fact is no longer invisible.
+    """
+    import json as _json
+
+    class _NotAQuestion:
+        model = "fake"
+
+        def chat(self, messages, *, json_mode: bool = False, temperature: float = 0.3) -> str:
+            # `intent` omitted, not empty: the contract's Literal rejects "" and
+            # the whole response would fall back, losing the very verdict under
+            # test. Omission defaults to "lookup", which is the documented
+            # "model expressed no opinion" path.
+            return _json.dumps({
+                "search_query": "",
+                "is_knowledge_question": False,
+                "reason": "asks for something to be done to supplied text",
+            })
+
+    paths = _vault(tmp_path)
+    response = _fetch(paths, "이 문장을 한글로 번역해줘: quick brown fox", _NotAQuestion())
+
+    trace = db.get_query_trace(paths.state_db, response["trace_id"])
+    assert trace is not None
+    derivation = trace["retrieval_trace"]["context_service"]["derivation"]
+    assert derivation["is_knowledge_question"] is False, (
+        "the classification was computed, paid for, and discarded"
+    )

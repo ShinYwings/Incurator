@@ -111,6 +111,30 @@ def plugin_secret_get(
         _log.debug("secret %s unavailable", name, exc_info=True)
         value = ""
     _print_json({"ok": True, "name": name, "present": bool(value), "value": value})
+
+@plugin_secret_app.command("rm")
+def plugin_secret_rm(
+    name: str = typer.Option(..., "--name", help="Secret name, e.g. deepseek-api-key."),
+) -> None:
+    """Forget a stored provider secret.
+
+    Signing out has to reach this. Clearing the key from `data.json` alone only
+    hides it: the encrypted store is a SEPARATE machine-local file, and the
+    plugin restores from it at launch, so a sign-out that skips this step is
+    undone by the next restart with no indication to the user.
+
+    Deleting a key that is not there is `ok: true, deleted: false`, not an
+    error — sign-out must succeed whether or not a key was ever stored.
+    """
+    from .. import secret_store
+
+    try:
+        deleted = secret_store.delete_secret(f"secret:{name}")
+    except Exception:  # noqa: BLE001 - unreadable or foreign store
+        _log.debug("secret %s not removable", name, exc_info=True)
+        deleted = False
+    _print_json({"ok": True, "name": name, "deleted": deleted})
+
 plugin_correction_app = typer.Typer(name="correction", no_args_is_help=True, add_completion=False)
 plugin_app.add_typer(plugin_correction_app, name="correction")
 plugin_models_app = typer.Typer(name="models", no_args_is_help=True, add_completion=False)

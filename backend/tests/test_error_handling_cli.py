@@ -24,7 +24,7 @@ def _make_vault(tmp_path: Path) -> Path:
 
 def test_sync_mcp_configs_warns_when_target_write_fails(tmp_path, capsys, monkeypatch):
     home = tmp_path / "home"
-    home.mkdir()
+    home.mkdir(exist_ok=True)
     (home / ".gemini").write_text("not a directory", encoding="utf-8")
     vault = _make_vault(tmp_path)
     monkeypatch.setattr(cli.Path, "home", lambda: home)
@@ -162,3 +162,82 @@ def test_config_provider_warns_when_snapshot_refresh_hits_locked_db(tmp_path):
     assert result.exit_code == 0, result.output
     assert "Runtime snapshot refresh skipped" in result.output
     assert "database is locked" in result.output
+
+
+def test_sync_mcp_configs_registers_where_agy_actually_reads(tmp_path):
+    """v0.71.0: the registry agy reads was never written, so its tools never existed.
+
+    Measured against agy 1.1.22 on a real machine: with `incurator` present in
+    `~/.gemini/settings.json` and `~/.gemini/antigravity/mcp_config.json`, the
+    CLI reported "No MCP servers configured" and the model answered that the
+    tools were not available. Driving `agy mcp add` and diffing `~/.gemini`
+    showed the CLI writes `~/.gemini/config/mcp_config.json`; registering there
+    is what made the server appear in `agy mcp list`.
+
+    This is the root cause behind three consecutive permission fixes that
+    granted nothing -- the grants were fine, the server was never registered
+    anywhere the CLI looked.
+    """
+    import json
+
+    # `isolate_home_dir` (conftest) already points Path.home() at a temp dir.
+    home = Path.home()
+    vault = _make_vault(tmp_path)
+
+    updated = cli._sync_mcp_configs(vault)
+
+    agy_registry = home / ".gemini" / "config" / "mcp_config.json"
+    assert str(agy_registry) in updated, "the file agy reads was not written"
+    servers = json.loads(agy_registry.read_text(encoding="utf-8"))["mcpServers"]
+    assert servers["incurator"]["env"]["VAULT_ROOT"] == str(vault)
+
+
+def test_sync_mcp_configs_keeps_servers_the_user_registered_themselves(tmp_path):
+    """`agy mcp add` writes this same file, so a wholesale replace would delete
+    whatever the user registered by hand."""
+    import json
+
+    home = Path.home()
+    (home / ".gemini" / "config").mkdir(parents=True, exist_ok=True)
+    (home / ".gemini" / "config" / "mcp_config.json").write_text(
+        json.dumps({"mcpServers": {"theirs": {"command": "echo", "args": ["hi"]}}}),
+        encoding="utf-8",
+    )
+    vault = _make_vault(tmp_path)
+
+    cli._sync_mcp_configs(vault)
+
+    servers = json.loads(
+        (home / ".gemini" / "config" / "mcp_config.json").read_text(encoding="utf-8")
+    )["mcpServers"]
+    assert "theirs" in servers, "sync deleted a server the user registered"
+    assert "incurator" in servers
+
+
+def test_sync_mcp_configs_registers_a_command_a_spawned_process_can_find(tmp_path):
+    """A bare `wiki` is registered and dead.
+
+    Measured: `command -v wiki` finds nothing in a spawned process's PATH here --
+    it is a shell alias to the repo-root venv's console script. agy listed the
+    server and then reported that no MCP tools existed, because starting it
+    failed. `resolve_wiki_command` already existed for this exact reason on the
+    Obsidian install path and simply was not used here.
+
+    This was the third of three independent breakages between the plugin and a
+    callable agy tool; the other two are pinned above and in the plugin tests.
+    """
+    import json
+
+    home = Path.home()
+    vault = _make_vault(tmp_path)
+
+    cli._sync_mcp_configs(vault)
+
+    servers = json.loads(
+        (home / ".gemini" / "config" / "mcp_config.json").read_text(encoding="utf-8")
+    )["mcpServers"]
+    command = servers["incurator"]["command"]
+    if command != "wiki":
+        assert Path(command).is_absolute(), f"not resolvable from a spawn: {command}"
+        assert command.endswith("/.venv/bin/wiki"), command
+        assert "/backend/" not in command, "venvs live at the repo root"

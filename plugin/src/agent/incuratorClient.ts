@@ -929,6 +929,21 @@ export class IncuratorClient {
     return typeof record.value === "string" ? record.value : "";
   }
 
+  /** Forget a stored provider secret. Used by sign-out.
+   *
+   *  Clearing `settings.deepseekApiKey` is NOT a sign-out on its own. The key
+   *  lives in a second place — the backend's encrypted machine-local store —
+   *  and `restoreDeepseekKeyFromStore()` reads it back at launch, so without
+   *  this call the user signs out, restarts, and is silently signed in again.
+   *
+   *  Resolves true only on a confirmed delete; a missing backend or an absent
+   *  key both resolve false, and neither should block the rest of sign-out. */
+  async deleteSecret(name: string): Promise<boolean> {
+    const result = await this.callBackendJson(["plugin", "secret", "rm", "--name", name]);
+    if (!result || typeof result !== "object") return false;
+    return (result as Record<string, unknown>).deleted === true;
+  }
+
   private async callBackendJson(cmdArgs: string[]): Promise<unknown | null> {
     if (!this.backendJson) return null;
     try {

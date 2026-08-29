@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.70.0)
+# Incurator - System Behavior (v0.71.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -2224,7 +2224,7 @@ rather than erroring.
 An unknown intent string matches no branch and is therefore inert — a rogue value
 degrades to the previous behaviour instead of misrouting.
 
-### What every query trace records about the derivation (v0.67.0)
+### What every query trace records about the derivation (v0.67.0, extended v0.71.0)
 
 `retrieval_trace.context_service.derivation` states, per query:
 
@@ -2233,6 +2233,7 @@ degrades to the previous behaviour instead of misrouting.
 | `status` | `"derived"` \| `"fallback"` \| `"unset"` | whether a derivation ran, and whether it succeeded |
 | `search_query_empty` | bool | whether it produced no search terms |
 | `routing_intent` | `""` \| `lookup` \| `synthesis` \| `discovery` | the intent it stated |
+| `is_knowledge_question` | bool | whether it judged the message to ask for stored knowledge at all (v0.71.0) |
 
 **Why `status` exists as a separate field.** *"A derivation ran and legitimately
 found no search terms"* and *"no derivation ran at all"* both store

@@ -150,3 +150,36 @@ def test_completing_a_report_re_triggers_synthesis(tmp_path: Path) -> None:
     assert client.calls == 2, "a newly completed report did not re-trigger synthesis"
     assert pending_id
 
+
+
+def test_l4_status_follows_what_synthesis_cited_not_merely_what_exists(
+    tmp_path: Path,
+) -> None:
+    """Retrospective review finding on v0.69.6, caught after it shipped.
+
+    v0.69.6 made synthesis skip prose-less reports, but left the per-source L4
+    status deriving from EVERY live report. Combined with `generate_synthesis`
+    returning the existing node ids on its unchanged-corpus path — so the old
+    `if synthesis_ids` gate is true on almost every round — a source whose report
+    was still a bare skeleton got `l4_status='done'` in the same round it got
+    `l3_status='error'`. Self-contradictory, and `l4_complete` then told callers
+    that content had reached the top layer when synthesis had filtered it out.
+
+    Status must follow what the synthesis nodes actually CITE.
+    """
+    paths = _vault(tmp_path)
+    written = _report(paths, "written", prose="Real prose.")
+    skeleton = _report(paths, "skeleton", prose="")
+    synthesis.generate_synthesis(paths, _Client())
+
+    cited = {
+        rid
+        for node in db.list_synthesis_nodes(paths.state_db)
+        for rid in (node.get("community_report_ids") or [])
+    }
+
+    assert written in cited, "a report with prose was not synthesised"
+    assert skeleton not in cited, (
+        "a prose-less report was cited by synthesis; L4 status derived from the "
+        "full report list would mark its source done"
+    )

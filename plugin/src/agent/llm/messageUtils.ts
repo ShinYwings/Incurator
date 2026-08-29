@@ -126,7 +126,9 @@ export function mapOpenAIFinishReason(
  *  "switch provider" hint — the raw CLI error is surfaced either way. So match
  *  narrowly. Mirrors the backend's `_is_capacity_error` (`llm.py`), extended
  *  with the API-provider phrasings the plugin also sees. */
-const QUOTA_PHRASES = [
+/** Phrases that only a provider error says. None of these is ordinary prose, so
+ *  matching one is safe even when the text might be an answer. */
+const UNAMBIGUOUS_QUOTA_PHRASES = [
   "no capacity available",
   "model_capacity_exhausted",
   "quota_exhausted",
@@ -139,10 +141,18 @@ const QUOTA_PHRASES = [
   "out of quota",
   "insufficient balance",
   "insufficient_quota",
-  "rate limit",
-  "rate_limit",
-  "too many requests",
 ];
+
+/** Real provider errors too, but ALSO ordinary English an answer can contain —
+ *  "the rate limit of convergence", a paragraph explaining HTTP 429 handling.
+ *
+ *  Kept out of the mid-stream kill path for that reason. The close-time check
+ *  may use them because it runs `quotaEvidenceFor` first, which refuses to treat
+ *  a produced answer as evidence; the mid-stream check has no such protection —
+ *  it kills the CLI outright, destroying an answer that was already paid for. */
+const AMBIGUOUS_QUOTA_PHRASES = ["rate limit", "rate_limit", "too many requests"];
+
+const QUOTA_PHRASES = [...UNAMBIGUOUS_QUOTA_PHRASES, ...AMBIGUOUS_QUOTA_PHRASES];
 
 /** Word-bounded, which does two jobs at once: `14293 tokens` is not an HTTP 429,
  *  and neither is a typed Curator id like `ATM-429abc12` or `SPAN-429fffff`.
@@ -157,6 +167,23 @@ const QUOTA_PHRASES = [
  *  them. The typed-id tests below therefore pin the guarantee, not the
  *  mechanism. */
 const HTTP_429_RE = /\b429\b/;
+
+/** The strict subset, for callers that ACT DESTRUCTIVELY on a match.
+ *
+ *  `isQuotaErrorMessage` is right at process close, where `quotaEvidenceFor` has
+ *  already excluded a produced answer from the evidence. It is wrong mid-stream,
+ *  where a match kills the child process: `agy` can route the final answer
+ *  through stderr (see the antigravity branch in `LLMClient`), so a reply that
+ *  merely discusses rate limiting would be killed and reported as a quota
+ *  failure — the exact bug v0.62.5 set out to fix, left in place on the one path
+ *  that destroys work rather than mislabels it. */
+export function isUnambiguousQuotaError(message: string): boolean {
+  const value = message.toLowerCase();
+  return (
+    UNAMBIGUOUS_QUOTA_PHRASES.some((phrase) => value.includes(phrase)) ||
+    HTTP_429_RE.test(value)
+  );
+}
 
 export function isQuotaErrorMessage(message: string): boolean {
   const value = message.toLowerCase();

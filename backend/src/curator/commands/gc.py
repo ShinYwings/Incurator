@@ -8,7 +8,7 @@ from .common import *
 
 gc_app = typer.Typer(
     name="gc",
-    help="Reclaim disk that carries no cross-device meaning, and report what grows but must be kept.",
+    help="Reclaim disk safely, apply the retention you have opted into, and report what grows but must be kept.",
     no_args_is_help=True,
     add_completion=False,
     rich_markup_mode="rich",
@@ -45,9 +45,12 @@ def gc_plan(
 
     paths, plan, config = _build()
     sessions_n, sessions_bytes = gc_mod.plan_session_prune(paths, config)
+    runs_keep = gc_mod.prompt_runs_keep(config)
+    runs_n = gc_mod.plan_prompt_run_cap(paths.state_db, runs_keep)
     if json_output:
         _print_json({
             "sessions_prunable": sessions_n,
+            "prompt_runs_prunable": runs_n,
             "reclaimable": [
                 {"path": str(i.path), "bytes": i.bytes, "reason": i.reason}
                 for i in plan.reclaimable
@@ -74,7 +77,15 @@ def gc_plan(
     days = gc_mod._session_retention_days(config)
     if sessions_bytes:
         console.print("\n[bold]Chat history[/bold]")
-        if days <= 0:
+        if sessions_n < 0:
+            # -1 means the store could not be parsed. Printing "0 past the
+            # window" here would report a corrupt file as healthy.
+            _warn(
+                f".curator/sessions.json — {gc_mod._human(sessions_bytes)}, "
+                f"UNREADABLE. Retention cannot run and `wiki gc run` will leave "
+                f"it untouched rather than overwrite what it cannot parse."
+            )
+        elif days <= 0:
             console.print(
                 f"  [cyan].curator/sessions.json[/cyan] — {gc_mod._human(sessions_bytes)}, "
                 f"retention [bold]off[/bold] (nothing is ever removed)"
@@ -90,6 +101,24 @@ def gc_plan(
                 f"keeping {days} days; [bold]{sessions_n}[/bold] session(s) past the window"
             )
 
+    console.print("\n[bold]LLM call log[/bold]")
+    total_runs = gc_mod._row_count(paths.state_db, "prompt_runs")
+    if runs_keep <= 0:
+        console.print(
+            f"  [cyan]prompt_runs[/cyan] — {total_runs:,} rows, cap [bold]off[/bold]"
+        )
+        console.print(
+            "    [dim]Set one with `wiki config set gc.prompt_runs_keep 1000`. Runs "
+            "still referenced by a report, unit, entity or relation are ALWAYS kept — "
+            "deleting one would silently re-bill a finished L3 report. Removal "
+            "applies to every device you sync with.[/dim]"
+        )
+    else:
+        console.print(
+            f"  [cyan]prompt_runs[/cyan] — {total_runs:,} rows, keeping {runs_keep:,} "
+            f"unreferenced; [bold]{runs_n:,}[/bold] over the cap"
+        )
+
     if plan.retained:
         console.print("\n[bold]Grows, and deliberately kept[/bold]")
         for r in plan.retained:
@@ -102,12 +131,20 @@ def gc_run(
     yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation prompt."),
     json_output: bool = typer.Option(False, "--json", help="Machine-readable JSON summary.", hidden=True),
 ) -> None:
-    """Delete the reclaimable items. Nothing synced is ever touched."""
+    """Delete the reclaimable items and apply any retention you have opted into.
+
+    Synced data is never touched by DEFAULT — the chat window and the
+    `prompt_runs` cap are both off until set — but when either is configured this
+    command does delete synced rows, and says so before acting. An earlier
+    version of this docstring claimed "nothing synced is ever touched", which
+    stopped being true the moment the cap shipped.
+    """
     from .. import gc as gc_mod
 
     paths, plan, config = _build()
     sessions_n, _bytes = gc_mod.plan_session_prune(paths, config)
-    if not plan.reclaimable and not sessions_n:
+    runs_n = gc_mod.plan_prompt_run_cap(paths.state_db, gc_mod.prompt_runs_keep(config))
+    if not plan.reclaimable and not sessions_n and not runs_n:
         if json_output:
             _print_json({"removed": 0, "bytes_freed": 0})
         else:
@@ -128,18 +165,33 @@ def gc_run(
                 f"Removing them takes effect on EVERY device you sync with, not "
                 f"just this one, and cannot be undone."
             )
+        if runs_n:
+            _warn(
+                f"{runs_n:,} unreferenced LLM call record(s) are over your cap. "
+                f"Removing them applies to EVERY device you sync with. Runs still "
+                f"referenced by an artifact are kept regardless."
+            )
         if not typer.confirm("Proceed?"):
             _warn("Cancelled; nothing was deleted.")
             raise typer.Exit(code=1)
 
     removed, freed = gc_mod.sweep(plan.reclaimable)
-    pruned = gc_mod.prune_sessions(paths, config)
+    try:
+        pruned = gc_mod.prune_sessions(paths, config)
+    except gc_mod.UnreadableSessionStore as exc:
+        # Report and leave it alone. Rewriting a store we cannot parse would
+        # destroy whatever it holds, and the cache sweep above is unrelated.
+        pruned = 0
+        _warn(f"Chat store left untouched: sessions.json is unreadable ({exc}).")
+    runs_removed = gc_mod.apply_prompt_run_cap(paths.state_db, gc_mod.prompt_runs_keep(config))
     if json_output:
-        _print_json({"removed": removed, "bytes_freed": freed, "sessions_pruned": pruned})
+        _print_json({"removed": removed, "bytes_freed": freed, "sessions_pruned": pruned, "prompt_runs_pruned": runs_removed})
     else:
         if removed:
             _ok(f"Removed {removed} director(ies), freed {gc_mod._human(freed)}.")
         if pruned:
             _ok(f"Removed {pruned} chat session(s) past the retention window.")
-        if not removed and not pruned:
+        if runs_removed:
+            _ok(f"Removed {runs_removed:,} unreferenced LLM call record(s).")
+        if not removed and not pruned and not runs_removed:
             _ok("Nothing to reclaim.")

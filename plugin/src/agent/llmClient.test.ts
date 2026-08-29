@@ -10,6 +10,7 @@ import {
   extractAntigravityAnswerFromStderr,
   isAntigravityStatusLine,
   isQuotaErrorMessage,
+  isUnambiguousQuotaError,
   quotaEvidenceFor,
   userVisibleAnswer,
   sanitizeOpenAIMessages,
@@ -23,6 +24,7 @@ import { POPOVER_PROFILE, type ToolPolicy } from "../context/promptRegistry";
 import {
   ADAPTERS,
   buildMcpToolExposure,
+  FETCH_MCP_SERVER_SCRIPT,
   LLMClient,
   syncAgyHeadlessReadPermission,
 } from "./llm/LLMClient";
@@ -388,14 +390,20 @@ describe("Antigravity headless read permission sync", () => {
     return join(testRoot, ".gemini");
   }
 
-  it("creates the live Antigravity CLI settings with the narrow read + scoped command rules", () => {
+  it("creates the live Antigravity CLI settings with the read, command, and mcp rules", () => {
     const geminiDir = freshGeminiDir();
 
     syncAgyHeadlessReadPermission(geminiDir);
 
+    // `mcp(*)` joined the set in v0.71.0. Calling any MCP tool needs its own
+    // permission, and — like `read_file`, unlike `command` — only the wildcard
+    // is honoured: measured against agy 1.1.22, `mcp(incurator_fetch)` and
+    // `mcp(fetch_url)` were both auto-denied and `mcp(*)` let the call through.
+    // Without it every MCP tool is denied in headless mode, which is why the
+    // curator tool surface `command(wiki)` exists to spawn was never reachable.
     const settingsPath = join(geminiDir, "antigravity-cli", "settings.json");
     expect(JSON.parse(readFileSync(settingsPath, "utf-8"))).toEqual({
-      permissions: { allow: ["read_file(*)", "command(wiki)"] },
+      permissions: { allow: ["read_file(*)", "command(wiki)", "mcp(*)"] },
     });
   });
 
@@ -477,7 +485,7 @@ describe("Antigravity headless read permission sync", () => {
         // `read_file()` is OUR retired rule and is replaced, not kept beside
         // its successor — a dead grant next to a live one reads as configured
         // read access when it is not.
-        allow: ["command(git status)", "command(wiki)", "read_file(*)"],
+        allow: ["command(git status)", "command(wiki)", "read_file(*)", "mcp(*)"],
         ask: ["write_file()"],
       },
     });
@@ -1063,6 +1071,33 @@ describe("CLI tool-scope sandbox source contract (v0.23.0)", () => {
     expect(source).not.toContain("this.syncAgyReadPolicy()");
     expect(source).not.toContain("--dangerously-skip-permissions");
   });
+
+  it("syncAgyMcpConfig auto-injects the incurator_fetch MCP server", () => {
+    expect(source).toContain("INCURATOR_FETCH_MCP_KEY");
+    expect(source).toContain("fetch_mcp_server.js");
+    expect(source).toContain("FETCH_MCP_SERVER_SCRIPT");
+  });
+});
+
+describe("Embedded fetch MCP server script", () => {
+  it("is syntactically valid JavaScript", () => {
+    // Strip the shebang (not valid inside new Function) before parsing.
+    const body = FETCH_MCP_SERVER_SCRIPT.replace(/^#!.*\n/, "");
+    expect(() => new Function(body)).not.toThrow();
+  });
+
+  it("contains the fetch_url tool definition", () => {
+    expect(FETCH_MCP_SERVER_SCRIPT).toContain('name: "fetch_url"');
+    expect(FETCH_MCP_SERVER_SCRIPT).toContain('"tools/list"');
+    expect(FETCH_MCP_SERVER_SCRIPT).toContain('"tools/call"');
+  });
+
+  it("does not allow POST/PUT/DELETE — only GET", () => {
+    // The script must use http.get / https.get, not http.request with arbitrary methods.
+    expect(FETCH_MCP_SERVER_SCRIPT).toContain("mod.get(");
+    expect(FETCH_MCP_SERVER_SCRIPT).not.toContain(".request(");
+    expect(FETCH_MCP_SERVER_SCRIPT).not.toContain("method:");
+  });
 });
 
 describe("CLI model effort arguments", () => {
@@ -1280,5 +1315,45 @@ describe("output-token truncation detection (v0.24.0)", () => {
       );
       expect(chunk).toMatchObject({ finishReason: "length", truncated: true });
     });
+  });
+});
+
+describe("the mid-stream kill path must not fire on ordinary prose", () => {
+  it("does not classify prose about rate limiting as a quota error", () => {
+    // These phrases ARE real provider errors, which is why the close-time check
+    // still matches them — but that check runs `quotaEvidenceFor` first, so a
+    // produced answer is never used as evidence. The mid-stream check has no
+    // such protection: it kills the child process, destroying an answer the user
+    // already paid for. `agy` can route the final answer through stderr, which
+    // is exactly how such a sentence reaches this matcher.
+    for (const text of [
+      "The rate limit of convergence is governed by the spectral radius.",
+      "Handle 'too many requests' by backing off exponentially.",
+      "Section 4 discusses the rate_limit parameter in the config.",
+    ]) {
+      expect(isUnambiguousQuotaError(text)).toBe(false);
+    }
+  });
+
+  it("still fires on phrasings only a provider error produces", () => {
+    for (const text of [
+      "TerminalQuotaError: no capacity available",
+      "model_capacity_exhausted",
+      "You have exhausted your capacity for this model",
+      "insufficient balance",
+      "HTTP 429 returned by the endpoint",
+    ]) {
+      expect(isUnambiguousQuotaError(text)).toBe(true);
+    }
+  });
+
+  it("keeps the typed-id and token-count guarantees", () => {
+    expect(isUnambiguousQuotaError("SPAN-429fffff resolved")).toBe(false);
+    expect(isUnambiguousQuotaError("used 14293 tokens")).toBe(false);
+  });
+
+  it("the looser matcher still sees the ambiguous phrases, for close-time use", () => {
+    expect(isQuotaErrorMessage("rate limit exceeded")).toBe(true);
+    expect(isUnambiguousQuotaError("rate limit exceeded")).toBe(false);
   });
 });

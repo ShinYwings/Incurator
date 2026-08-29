@@ -612,6 +612,7 @@ class ContextService:
                 english_query=derived.search_query,
                 english_query_status=derived.status,
                 intent=derived.intent,
+                is_knowledge_question=derived.is_knowledge_question,
             )
 
         status = router.graph_status(self.paths.state_db)
@@ -638,6 +639,7 @@ class ContextService:
             "status": request.english_query_status,
             "search_query_empty": not request.english_query.strip(),
             "routing_intent": request.intent,
+            "is_knowledge_question": request.is_knowledge_question,
         }
         route_admission = {
             "requested": downgraded_from or route,

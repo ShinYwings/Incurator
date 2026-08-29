@@ -246,12 +246,20 @@ def _show_recommended_models(host: str) -> None:
 def _hint(text: str) -> None:
     """Print a one-liner tip in a subdued style."""
     console.print(f"[dim]💡 {text}[/dim]")
+# `highlight=False` on all three: Rich's automatic highlighter colours paths and
+# `key=value` pairs magenta/bright-magenta, which on a dark theme reads as RED.
+# A user reading `✓ embedding-config: set embedding_model_path=/…/x.gguf` saw a
+# red-looking line and asked whether setup had failed. It had not — the ✓ was
+# green (`1;32`) and only the path was magenta (`35`/`95`).
+#
+# Severity is the marker's job here. A second, competing colour signal applied by
+# a generic highlighter can only muddy it, so these lines print their text plain.
 def _err(text: str) -> None:
-    console.print(f"[bold red]✗[/bold red] {text}")
+    console.print(f"[bold red]✗[/bold red] {text}", highlight=False)
 def _ok(text: str) -> None:
-    console.print(f"[bold green]✓[/bold green] {text}")
+    console.print(f"[bold green]✓[/bold green] {text}", highlight=False)
 def _warn(text: str) -> None:
-    console.print(f"[bold yellow]![/bold yellow] {text}")
+    console.print(f"[bold yellow]![/bold yellow] {text}", highlight=False)
 def _refresh_search_index_impl(paths: cfg.WikiPaths, *, embed: bool = True) -> None:
     """Rebuild the DB-native search index for this project (v0.3.2).
 
@@ -329,13 +337,31 @@ def _resolve_root_or_die_impl(hint_path: Path | None = None) -> cfg.WikiPaths:
 def _sync_mcp_configs(vault_root: Path) -> list[str]:
     """Upsert VAULT_ROOT into known MCP config files. Returns list of updated paths."""
     import json
+    # An absolute path, not the bare name. `wiki` is frequently a shell alias or
+    # a venv console script that only resolves in an interactive login shell --
+    # measured here: `command -v wiki` finds nothing in a spawned process's PATH.
+    # A registered server whose command cannot be found is registered and dead:
+    # `agy mcp list` lists it, and the model reports that no MCP tools exist.
+    # `resolve_wiki_command` already exists for exactly this reason on the
+    # Obsidian install path; it falls back to the bare name when the repo-root
+    # venv is genuinely absent.
+    from ..mcp.server import resolve_wiki_command
+
     entry = {
-        "command": "wiki",
+        "command": resolve_wiki_command(),
         "args": ["mcp"],
         "env": {"VAULT_ROOT": str(vault_root)},
     }
     targets = [
         Path.home() / ".gemini" / "settings.json",
+        # The file the agy CLI actually reads its MCP registry from. Measured
+        # against agy 1.1.22: with `incurator` written only to the two paths
+        # below, `agy mcp list` reported "No MCP servers configured" and the
+        # model answered that the tools were not available. Driving `agy mcp
+        # add` and diffing ~/.gemini shows the CLI writes THIS path (mirroring
+        # into the antigravity one). Registering here is what made the server
+        # appear in `agy mcp list` and its tools become callable.
+        Path.home() / ".gemini" / "config" / "mcp_config.json",
         Path.home() / ".gemini" / consts.CLOUD_ANTIGRAVITY / "mcp_config.json",
         vault_root / ".claude" / "settings.json",
     ]

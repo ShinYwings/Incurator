@@ -2,6 +2,212 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.71.0] - 2026-08-24
+### Added
+- **A cap on the LLM call log — with a guard that is the whole point.**
+
+  ```
+  wiki config set gc.prompt_runs_keep 1000     # 0 = keep everything (the default)
+  ```
+
+  `prompt_runs` is the largest growing table: **4,406 rows, 17.39 MB** on the
+  reference vault. The cap keeps the newest N **unreferenced** records.
+
+  **Records an artifact still points at are kept regardless of the cap.**
+  `community_reports.prompt_run_id` is what the L3 resume reads to decide a
+  report's prose need not be regenerated — delete one and the lookup returns
+  nothing, the skip fails, and finished reports are re-sent to the provider
+  **silently**. Here that is **238** live reports carrying prose and a run — 238
+  calls to rewrite them — undoing v0.69.5. Seven tables carry the column, `query_traces.prompt_trace_ids` is a
+  JSON array a plain join would miss, and a test fails if a future table carries
+  the column without joining the scan.
+
+  | cap | removed | kept |
+  |---|---|---|
+  | off (default) | 0 | 4,406 |
+  | 1,000 | 2,049 | 2,357 (incl. all 1,354 referenced) |
+
+  Deletion writes a tombstone per record, so it **applies to every device you
+  sync with** — `prompt_runs` is synced and exports are full snapshots, so a
+  delete without one is undone by the next sync. A call record averages ~3,920
+  bytes against ~126 for its tombstone, about 31×.
+
+### Fixed
+- **The Antigravity CLI could never call an Incurator tool, and three
+  consecutive "permission fixes" all shipped granting nothing.** Two independent
+  causes, both measured against agy 1.1.22 rather than reasoned about:
+
+  1. **The MCP server was registered where agy does not look.** The plugin wrote
+     `~/.gemini/settings.json`; the backend wrote that plus
+     `~/.gemini/antigravity/mcp_config.json`. Driving `agy mcp add` and diffing
+     `~/.gemini` shows the CLI's own registry is `~/.gemini/config/mcp_config.json`
+     — which was **empty**. `agy mcp list` reported "No MCP servers configured"
+     and the model answered that the tools were not available. Both writers now
+     register there too, merging rather than replacing so servers the user added
+     with `agy mcp add` survive — and pruning the ones Incurator itself
+     registered and no longer has, so deleting or disabling a server in the
+     plugin actually unregisters it. Neither merging nor replacing is correct
+     alone: replacing deletes the user's own servers, merging leaves a deleted
+     one registered and callable forever with its `env` credentials. Incurator
+     records which names it manages and removes exactly those.
+  2. **Calling any MCP tool needs an `mcp` permission, and only the wildcard is
+     honoured.** With the server correctly registered, `mcp(incurator_fetch)` and
+     `mcp(fetch_url)` were both auto-denied; `mcp(*)` let the call through and it
+     returned a live value. This is the identical finding v0.56.1 recorded for
+     `read_file` — a target-scoped rule is not a narrower grant, it is no grant.
+     `mcp(*)` joins the required permission set.
+  3. **The registered command was a bare `wiki`, which a spawned process cannot
+     find.** It is a shell alias to the repo-root venv's console script;
+     `command -v wiki` finds nothing in a clean PATH. So even once registered
+     and permitted, the server failed to start: `agy mcp list` showed it and the
+     model still reported that no MCP tools existed. `resolve_wiki_command()`
+     already existed for exactly this reason on the Obsidian install path and
+     simply was not used here.
+
+  **Verified end to end, not reasoned about**: after all three fixes, headless
+  `agy` called `curator_status` through the MCP server and returned this vault's
+  real numbers — 3,512 pages, 3,171 atoms, 273 concepts, 68 contexts. That is the
+  first time the Antigravity CLI has been able to call an Incurator tool.
+
+  **What `mcp(*)` costs, stated plainly**: it is a wildcard over the MCP
+  permission class, not a grant scoped to Incurator. It authorises headless calls
+  into every server in agy's registry — including any the user added with
+  `agy mcp add`, which the registration above deliberately preserves. It is still
+  meaningfully narrower than the CLI's blanket permission-skip flag, which this
+  codebase refuses: that approves every tool class including the shell, while
+  this approves no class but MCP. There is no third option — the scoped forms
+  were measured and grant nothing.
+
+- **The test suite was rewriting the developer's real agy configuration.**
+  `wiki init` registers the MCP server under `~/.gemini/`, so every test that
+  ran `init` without patching home wrote the actual file. Found live: the real
+  `~/.gemini/config/mcp_config.json` pointed `VAULT_ROOT` at a deleted
+  `pytest-of-shin/pytest-1030/...` temp directory, leaving agy registered
+  against a vault that no longer existed — and reproduced on the next run, which
+  clobbered a correct registration again. A single autouse fixture now points
+  `HOME` and `Path.home()` at a temp directory for the whole suite; patching the
+  one offending test would have left the next one free to do it again. This
+  mattered more after the registration fix above, which writes one more file.
+
+  The plugin suite then did the same thing, which is how the guard's other half
+  arrived: a test that spied on `os.homedir` **after** the module under test had
+  already bound it wrote its fixture server into the real registry. A vitest
+  setup file now fails the run if a test modified the real `~/.gemini`. It does
+  not sandbox the write — it makes it loud, which is the part that was missing.
+  Both leaks were found by chance, not by anything that would have complained.
+
+- **The embedded fetch tool destroyed the very thing it was added to deliver.**
+  It accumulated the response with `body += chunk`, coercing each Buffer to
+  UTF-8. Measured on a 314-byte PDF: **132 replacement characters**, not
+  recoverable. Binary responses are now saved to disk and the tool returns the
+  path plus a pointer to `curator_get_pdf_toc` / `curator_get_pdf_context`,
+  which read PDFs properly. The 100KB cap also stops the transfer now instead of
+  downloading the remainder to discard it.
+
+- **The fetch tool had no SSRF protection.** Verified by using it: it fetched
+  `http://127.0.0.1` without complaint, on a machine that runs Ollama (11434)
+  and Syncthing's unauthenticated REST API (8384). Since the model reads URLs
+  out of ingested documents, "talked into fetching it" is the realistic input.
+  Loopback, private, and link-local addresses are refused on the initial request
+  **and** the redirect hop; IPv4-mapped IPv6 (`[::ffff:127.0.0.1]`, which Node
+  normalises to hex and which matched no dotted-quad rule) is unmapped before
+  filtering; and the **resolved** address is checked inside the DNS lookup, so a
+  public hostname pointing at an internal address is refused too.
+
+  The tests for all of this **spawn the server and speak JSON-RPC to it**. The
+  tests that shipped with the feature only asserted the script string contained
+  certain substrings, which is why none of these defects were caught — and the
+  spawn-based tests immediately found one more: the server replied to JSON-RPC
+  notifications, which a server MUST NOT do.
+- **"Sign out" did not sign the user out.** The DeepSeek key lives in two
+  places, and the button only cleared one. `restoreDeepseekKeyFromStore()` reads
+  the encrypted machine-local store at every launch, so signing out and
+  restarting silently signed the user back in — while the panel reported the key
+  as cleared, and while the guide already promised "use **Sign out** to remove
+  it". `secret_store.delete_secret` had existed the whole time with no command in
+  front of it; `wiki plugin secret rm` is that command. Signing out with nothing
+  stored is not an error, an unreachable backend does not abort the sign-out, and
+  removal is per-name, so the backend's own key is untouched.
+- **The mid-stream quota kill fired on ordinary prose.** It matched
+  `"rate limit"` and `"too many requests"` anywhere in stderr and killed the
+  child process — destroying an answer the user had already paid for. The
+  close-time check can afford those phrases because it weighs evidence first and
+  never treats a produced answer as proof of failure; the mid-stream check has no
+  such protection, and `agy` can route answer text through stderr. It now matches
+  only phrasings a provider error produces, plus HTTP 429.
+- **A throwing snapshot wedged plugin persistence permanently.** The coalescing
+  writer cleared its queued slot *after* taking the snapshot, so a throw left the
+  slot occupied forever and every later write coalesced into a write that would
+  never run — silently, for the rest of the session.
+- **A source could be marked `l4_status='done'` in the same round it was marked
+  `l3_status='error'`.** The status line read "did synthesis return any ids?",
+  which was equivalent to "did this source reach L4" only under an invariant
+  v0.69.6 deliberately removed: L4 used to run only when every report had prose.
+  Since then synthesis skips prose-less reports, and returns the *existing* node
+  ids on its unchanged-corpus path — so the check was true on almost every round,
+  including for sources whose report was still a bare skeleton. Status now
+  follows what the synthesis nodes actually cite.
+- **A cleared `.cache/` made `wiki sync` overwrite an accurate ledger with
+  "Last curated: never".** `db.connect` self-heals an empty schema into a missing
+  database, so on a machine whose cache was cleared — or after a vault rename,
+  which re-keys the cache — the rebuild read zero rows and wrote them into files
+  headed "Auto-maintained by the Curator engine", where a human reads them.
+  v0.69.2 had already built this detection but wired it only into `wiki status`.
+  `finalize_routing_tables` now warns and refuses the write, per "false success
+  is forbidden" (`SYSTEM_BEHAVIOR.md` §32).
+- **Green success lines rendered as red.** Rich's auto-highlighter colors paths
+  magenta, which reads as red on dark themes, so `setup` output looked like a
+  wall of errors. Highlighting is off for the status lines.
+- **A corrupt `.curator/sessions.json` crashed `wiki gc` instead of being
+  reported.** A store that will not parse raised straight out of `wiki gc plan` —
+  read-only reporting that should never fail — and took the unrelated cache sweep
+  down with it. An unreadable store is now a first-class state: reported, and
+  **left untouched**, because rewriting a file the backend cannot read would
+  destroy whatever it still holds.
+
+### Note
+- `deleted_records` still has **no retention rule, deliberately.** Expiring a
+  tombstone is not "deleting on every device" — it is the opposite: it lets a
+  peer that was offline **restore** something you deleted. Nothing records
+  whether every device has seen a given tombstone, so there is no safe window.
+
+## [0.70.0] - 2026-08-24
+### Added
+- **`wiki gc` — reclaims what is safe, and tells you what it refuses to touch and
+  why.**
+
+  ```
+  wiki gc plan     # what would go, and what grows but is deliberately kept
+  wiki gc run      # delete it (asks first)
+  ```
+
+  Most of the growth **cannot be safely deleted**, and the report is the more
+  valuable half. `prompt_runs`, `query_traces`, `compiler_generations` and
+  `deleted_records` are all synced, and exports are full snapshots — so deleting a
+  row either propagates to every device or is undone by the next sync.
+  `deleted_records` (48,896 rows) is the tombstone table itself; expiring one
+  silently restores data you deleted, on any device that was offline. `wiki gc
+  plan` shows these numbers **with those reasons**.
+
+  What it reclaims: per-vault cache directories that are provably debris — the
+  recorded vault path is gone, **that path is under a temp prefix**, and the
+  cached database holds zero sources. All three are required: "the path is
+  missing" alone is a **mount test, not a liveness test**, and an unmounted
+  external drive hashes to the same directory while holding `state.sqlite`.
+  On the reference machine: **6.4 MB across 11 directories** — modest, and the
+  1.5 GB repo cache is mostly 1.2 GB of models plus the 288 MB live database.
+
+- **Chat retention, off by default.**
+
+  ```
+  wiki config set gc.sessions_retention_days 90     # 30 / 90 / 180 / 365
+  ```
+
+  Chats are your own writing, so nothing is removed unless you pick a window.
+  When you do, `wiki gc run` states that removal takes effect on **every device
+  you sync with** and cannot be undone. A session with no usable timestamp is
+  kept; the active-session pointer never dangles; existing tombstones survive.
+
 ## [0.69.8] - 2026-08-24
 ### Fixed
 - **The knowledge graph's community layer is flat, and nothing said so.**

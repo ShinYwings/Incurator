@@ -121,3 +121,65 @@ def test_plan_is_read_only(tmp_path: Path) -> None:
 
     assert count == 1 and size > 0
     assert len(_read(paths)["chatSessions"]) == 2, "plan must not delete"
+
+
+def test_a_corrupt_store_is_reported_not_crashed_or_overwritten(tmp_path: Path) -> None:
+    """Found reviewing the merged v0.70.0 rather than while writing it.
+
+    A `sessions.json` that will not parse raised `JSONDecodeError` straight out
+    of `wiki gc plan` — read-only reporting that should never fail — and took the
+    unrelated cache sweep down with it. Worse in principle: the backend must
+    never be the component that rewrites a store it cannot read, because that
+    destroys whatever the file still holds. The plugin already treats a corrupt
+    store as a first-class state and fails closed.
+    """
+    import pytest
+
+    from curator.gc import UnreadableSessionStore, plan_session_prune, prune_sessions
+
+    paths = cfg.WikiPaths(tmp_path / "vault")
+    paths.internal.mkdir(parents=True, exist_ok=True)
+    broken = paths.internal / "sessions.json"
+    broken.write_text("{ this is not json", encoding="utf-8")
+    before = broken.read_bytes()
+    policy = {"gc": {"sessions_retention_days": 30}}
+
+    count, size = plan_session_prune(paths, policy)
+    assert size > 0, "plan must report, not raise"
+    assert count == -1, (
+        "an unreadable store returned 0, which is what a healthy store past no "
+        "sessions returns -- SYSTEM_BEHAVIOR §32: false success is forbidden"
+    )
+
+    with pytest.raises(UnreadableSessionStore):
+        prune_sessions(paths, policy)
+
+    assert broken.read_bytes() == before, "an unreadable store was rewritten"
+
+
+def test_a_wrong_shaped_store_is_treated_the_same(tmp_path: Path) -> None:
+    """Valid JSON is not the same as a session store. A list reached
+    `data.get(...)` and raised AttributeError."""
+    import pytest
+
+    from curator.gc import UnreadableSessionStore, prune_sessions
+
+    paths = cfg.WikiPaths(tmp_path / "vault")
+    paths.internal.mkdir(parents=True, exist_ok=True)
+    (paths.internal / "sessions.json").write_text(json.dumps(["not", "a", "store"]), encoding="utf-8")
+
+    with pytest.raises(UnreadableSessionStore):
+        prune_sessions(paths, {"gc": {"sessions_retention_days": 30}})
+
+
+def test_a_malformed_session_entry_does_not_take_the_prune_down(tmp_path: Path) -> None:
+    """One bad entry must not block retention on the rest, nor be deleted for
+    being unparseable."""
+    paths = _vault(tmp_path, [_session("old", 120)])
+    data = json.loads((paths.internal / "sessions.json").read_text(encoding="utf-8"))
+    data["chatSessions"].append("a string, somehow")
+    (paths.internal / "sessions.json").write_text(json.dumps(data), encoding="utf-8")
+
+    removed = prune_sessions(paths, {"gc": {"sessions_retention_days": 90}}, now=NOW)
+
+    assert removed == 1

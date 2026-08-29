@@ -47,6 +47,8 @@ Incurator의 강력한 성능을 유지하고 지식을 안전하게 관리하�
     -   **페르소나 기반의 저장소 분리**: 지식을 관리하는 '관점'이나 '전문 페르소나'가 근본적으로 달라야 하는 경우(예: STEM 전문가 vs 요리 전문가)에만 별도의 Vault를 운영하세요. 하나의 Incurator 인스턴스는 한 번에 하나의 Curator만 실행할 수 있으므로, 무분별한 Vault 분리는 지식의 연결성을 저해합니다.
 -   **기계의 영역 존중 (AI 전용 공간)**: `.curator/` 폴더는 오직 에이전트와 시스템만을 위한 'AI 전용 공간'입니다. 이곳은 사람이 읽고 편집하기 어렵게 설계된 고밀도 데이터망이며, 수동으로 파일을 수정할 경우 지식 그래프의 정합성이 깨질 수 있습니다. 웬만한 상황에서는 이곳을 직접 건드리지 마세요.
 -   **무결성 검증**: `wiki sync`로 구조적·논리적 무결성을 검증하고 지원되는 수리를 적용합니다. `.curator/Collections/`의 생성 파일은 폐기 가능한 projection이므로 수동 편집을 DB 변경 입력 경로로 사용하지 마세요.
+
+> **로컬 DB가 비어 있는데 sync journal이 있으면 `wiki sync`는 `ledger.md`와 `overview.md` 재작성을 거부합니다**(v0.71.0). state 데이터베이스는 기기 로컬이고, 없는 DB를 열면 빈 스키마가 자동 생성됩니다 — 그래서 `.cache/`를 지운 기기나 vault 이름을 바꿔 캐시 키가 달라진 뒤에는, 재작성이 0건을 읽어 정확한 보고서 위에 "Last curated: never"를 덮어씁니다. 이 경우 `wiki sync`는 해당 상태를 경고로 남기고 index만 재작성하며, 사람이 읽는 두 파일은 건드리지 않습니다. journal을 가져온 뒤(`wiki db import`) 다시 실행하세요.
 -   **관찰 가능한 성능 저하(Observable Degradation)**: 모델, 외부 도구, 파서 또는 유지보수 단계가 사용할 수 없으면 선택적 보조 기능은 fallback할 수 있지만, 그 실패를 성공으로 조용히 처리하지 않습니다. 기존 명령/tool surface가 지원하는 경우 경고를 반환하며, MCP 내부 진단은 프로토콜 stdout이 아니라 로그로 기록합니다.
 -   **워크스페이스의 유연성**: 지식의 저장소(Vault)는 하나여야 하지만, 작업을 수행하는 **워크스페이스(Workspace)**는 어디에 있어도 상관없습니다. 중앙의 메인 Vault와 연결하여 그곳의 지식을 소비하세요. '지식의 창고(Vault)'에는 큐레이터가 살고, '지식의 작업실(Workspace)'에는 아티스트가 삽니다. 창고는 하나지만 작업실은 무한히 늘어날 수 있습니다.
 
@@ -978,9 +980,10 @@ Tier-2 LLM/HyDE query expansion은 기본적으로 recovery mechanism으로 켜�
 | `wiki prompt eval` | 오프라인 프롬프트 평가 픽스처를 실행합니다(LLM 불필요). |
 | `wiki inspect synthesis <SYN-…>` | L4 Synthesis node 하나의 read-only audit report를 검사합니다. community report, graph entity/relation, source span, prompt trace, warning을 포함합니다. |
 | `wiki inspect report <REP-…>` | L3 community report 하나의 source support를 검사합니다. |
+| `wiki config set gc.prompt_runs_keep <N>` | LLM 호출 기록을 **미참조** 레코드 `N`개로 제한합니다(최신부터 보존). `0`은 전부 보관이며 **기본값**입니다. 리포트·knowledge unit·엔티티·관계가 참조 중인 레코드는 상한과 무관하게 보존됩니다 — 그걸 지우면 이미 끝난 L3 리포트가 조용히 재청구됩니다. 삭제는 동기화되는 모든 기기에 적용됩니다. |
 | `wiki config set gc.sessions_retention_days <N>` | 채팅 보관 기간: `30`, `90`, `180`, `365`, 또는 영구 보관은 `0`(**기본값**). 채팅은 사용자 본인의 글이므로 기간을 직접 고르기 전에는 아무것도 삭제되지 않으며, 기간을 고르면 동기화되는 모든 기기에서 삭제됩니다. |
 | `wiki gc plan` | 회수 가능한 디스크와, 늘어나지만 **일부러 보존하는** 항목을 이유와 함께 보여줍니다. 증가분 대부분은 **기기 간 동기화되는** 데이터라, 로컬에서 지우면 모든 기기로 전파되거나 다음 동기화에서 되살아납니다. |
-| `wiki gc run` | 회수 가능한 항목과 보관 기간이 지난 채팅 세션을 삭제합니다 — 채팅 삭제는 **동기화되는 모든 기기에 적용되며 되돌릴 수 없다**고 확인 창에서 명시합니다(먼저 확인을 요청). 확실히 잔해인 vault 캐시 디렉터리만 대상입니다: 기록된 vault 경로가 사라졌고, 그 경로가 임시(temp) 접두사 아래이며, **또한** 캐시된 DB에 source가 0개일 때. 세 조건 모두 필요합니다 — "경로가 없다"만으로는 마운트 여부 검사일 뿐이고, 연결 해제된 외장 드라이브가 똑같이 보입니다. |
+| `wiki gc run` | 회수 가능한 항목, 보관 기간이 지난 채팅 세션, 그리고 `gc.prompt_runs_keep` 상한을 넘은 LLM 호출 기록을 삭제합니다 — 채팅 삭제는 **동기화되는 모든 기기에 적용되며 되돌릴 수 없다**고 확인 창에서 명시합니다(먼저 확인을 요청). 확실히 잔해인 vault 캐시 디렉터리만 대상입니다: 기록된 vault 경로가 사라졌고, 그 경로가 임시(temp) 접두사 아래이며, **또한** 캐시된 DB에 source가 0개일 때. 세 조건 모두 필요합니다 — "경로가 없다"만으로는 마운트 여부 검사일 뿐이고, 연결 해제된 외장 드라이브가 똑같이 보입니다. |
 | `wiki inspect answer <QTR-…>` | query answer 하나의 지속 저장된 route, **route 사유**, **파생(derivation) 상태**, 선택 근거, prompt trace, warning을 검사합니다. derivation 줄은 *파생이 실행되었고 검색어를 찾지 못함*과 *파생이 아예 실행되지 않음*을 구분합니다 — 둘 다 빈 검색어를 남기지만, 볼트 전체를 묻는 질문에서 정상적인 결과는 전자뿐입니다. |
 | `wiki insight list [--workspace P] [--status pending]` | 잠정 인사이트 후보를 나열합니다. |
 | `wiki insight show <INS-…>` | 인사이트 후보 하나를 표시합니다. |

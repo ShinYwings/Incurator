@@ -329,8 +329,35 @@ LLM이 제안 생성 → Diff 표시 → Accept / Reject
   Antigravity 1.1.3 이상은 플러그인이 `agy`를 headless(`-p`) 모드로 실행할 때
   대화형 승인이 필요한 도구도 거부합니다. 따라서 플러그인은 기존 Antigravity CLI
   설정을 보존하면서 `~/.gemini/antigravity-cli/settings.json`의
-  `permissions.allow`에 규칙 두 개를 추가합니다: `read_file(*)`, 그리고
-  Incurator MCP 서버를 띄우기 위한 `command(wiki)`.
+  `permissions.allow`에 규칙 세 개를 추가합니다: `read_file(*)`,
+  Incurator MCP 서버를 띄우기 위한 `command(wiki)`, 그리고 v0.71.0부터는 그
+  도구를 실제로 **호출**할 수 있게 하는 `mcp(*)`.
+
+  서버를 등록하고 `command(wiki)`를 주는 것만으로는 한 번도 충분하지 않았습니다.
+  `agy`가 Incurator 도구를 가진 것처럼 보이는데 쓰지는 못했던 이유가 이것이며,
+  빠진 것이 둘이었습니다. 둘 다 agy 1.1.22로 추정이 아니라 실측했습니다.
+
+  - **MCP 도구 호출에는 별도 권한이 필요하고, 와일드카드만 동작합니다.**
+    `mcp(incurator_fetch)`와 `mcp(fetch_url)`은 모두 자동 거부됐고 `mcp(*)`만
+    호출을 통과시켰습니다. `read_file`과 같은 형태로, 여기서 범위를 좁힌 규칙은
+    더 좁은 권한이 아니라 아예 권한이 없는 것입니다.
+
+    **대가를 그대로 적습니다.** `mcp(*)`는 Incurator로 범위가 좁혀진 권한이 아니라
+    MCP 권한 종류 전체에 대한 와일드카드입니다. 헤드리스 `agy`가 레지스트리에 있는
+    **모든** MCP 서버의 도구를 호출할 수 있게 되며, 직접 `agy mcp add`로 등록한
+    서버도 포함됩니다. 그래도 Incurator가 거부하는 CLI의 전면 권한 생략 플래그보다는
+    좁습니다 — 그 플래그는 셸을 포함해 모든 도구 종류를 승인하지만 이 규칙은 MCP
+    외에는 아무 종류도 열지 않습니다. 범위를 좁힌 형태는 실측 결과 아무 권한도 주지
+    못하므로 세 번째 선택지는 없습니다. `agy`에 민감한 MCP 서버를 등록해 두었다면
+    이 점을 저울질하세요.
+  - **CLI가 보는 곳에 서버가 등록돼 있어야 합니다.** Incurator는
+    `~/.gemini/settings.json`에 썼지만, `agy`는 MCP 레지스트리를
+    `~/.gemini/config/mcp_config.json`에서 읽습니다 — `agy mcp add`가 쓰고
+    `agy mcp list`가 보여주는 그 파일입니다. 이제 이쪽에도 씁니다. 직접
+    `agy mcp add`로 등록한 서버는 그대로 남고, Incurator 설정에서 삭제하거나
+    비활성화한 서버는 실제로 등록이 해제됩니다 — Incurator가 자기가 관리하는
+    이름을 기록해 두고 그것만 제거합니다. `agy mcp list`에 `incurator`가
+    보이면 등록이 정상입니다.
 
 > [!IMPORTANT]
 > **`jetski: no output produced`가 반복해서 떴다면 원인이 이것이고, 실제로 고치는
@@ -874,6 +901,7 @@ Antigravity `agy` print mode는 일반적으로 최종 답변을 stdout에 쓰�
 - **DeepSeek**은 플러그인에 저장된 키(`✓ API key configured (saved in plugin)`)와 환경 변수로 제공된 키(`✓ Using DEEPSEEK_API_KEY from environment`)를 구분합니다. v0.62.4부터 저장된 키는 기기 로컬 `.cache/config/secrets/`에 암호화되어 있으며, 플러그인 `data.json`에도 `.curator`에도 있지 **않으므로**, `.curator` 삭제나 `wiki reset`으로는 지워지지 않습니다 — **Sign out**으로 제거하세요. 명령 팔레트의 **Check DeepSeek API Key**는 저장된 플러그인 키 또는 `DEEPSEEK_API_KEY`가 보이는지 확인하며, 브라우저 로그인 흐름을 실행하지 않습니다.
 - **CLI provider**(Antigravity, Claude, Codex)는 각자의 CLI로 인증합니다. 플러그인은 CLI 파일에서 읽을 수 있을 때만(Codex) 계정 이메일을 표시합니다. Antigravity `agy` 1.0.5는 세션을 OS 키체인에 보관하고 계정 조회 명령이 없어, 플러그인은 계정을 추측하지 않고 중립적인 `agy CLI session`으로 표시합니다.
 - **Sign out**은 플러그인이 제어할 수 있는 것(캐시된 자격증명, 저장된 DeepSeek 키, 플러그인이 읽을 수 있는 자격증명 파일)을 정리합니다. CLI provider는 실제 세션을 자체 키체인/설정에 보관하므로, 완전한 로그아웃은 provider CLI(`agy`, `claude`, `codex`) 실행이 추가로 필요할 수 있습니다 — 해당되는 경우 Sign out 알림이 안내합니다.
+  로그아웃은 저장된 DeepSeek 키를 플러그인 설정뿐 아니라 암호화 저장소에서도 제거합니다(v0.71.0). 이 수정 전에는 설정 쪽만 지웠기 때문에, 패널은 키가 지워졌다고 표시하는데 다음 재시작 때 키가 되살아났습니다. 저장된 키가 없는 상태로 로그아웃해도 오류가 아니며, 플러그인 로그아웃은 백엔드 자체의 DeepSeek 키를 건드리지 않습니다 — 둘은 의도적으로 따로 설정합니다.
 
 ---
 

@@ -116,3 +116,32 @@ describe("createCoalescedWriter", () => {
     expect(written).toEqual([2]);
   });
 });
+
+  it("a throwing snapshot does not wedge persistence forever", async () => {
+    // The asymmetry this pins: a failing WRITE self-heals (tested above), but a
+    // failing SNAPSHOT used to leave `queued` pointing at a rejected promise.
+    // Every later save() then returned that same rejection via the join-the-batch
+    // fast path, never calling write() again — persistence dead until Obsidian
+    // was reloaded, with inFlight() reporting false the whole time.
+    let explode = true;
+    let state = 0;
+    const written: number[] = [];
+    const w = createCoalescedWriter(
+      () => {
+        if (explode) throw new Error("circular structure");
+        return state;
+      },
+      async (v) => {
+        written.push(v);
+      },
+    );
+
+    await expect(w.save()).rejects.toThrow("circular structure");
+    await tick();
+
+    explode = false;
+    state = 7;
+    await w.save();
+
+    expect(written).toEqual([7]);
+  });

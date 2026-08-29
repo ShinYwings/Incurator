@@ -112,3 +112,43 @@ def test_plugin_and_backend_keys_are_stored_separately(isolated_secrets: Path) -
                 "--name", "obsidian-deepseek-api-key")["value"] == "sk-obsidian-side"
     assert _run("plugin", "secret", "get",
                 "--name", "deepseek-api-key")["value"] == "sk-backend-side"
+
+
+def test_sign_out_can_actually_forget_the_key(isolated_secrets: Path) -> None:
+    """v0.71.0: the bridge was write-only, so "Sign out" could not finish.
+
+    The plugin's sign-out cleared `settings.deepseekApiKey` and stopped there.
+    But the key lives in TWO places, and this store is the durable one — the
+    plugin reads it back at launch via `restoreDeepseekKeyFromStore()`. With no
+    delete command, sign-out was undone by the next restart, silently, with the
+    UI still reporting the key as cleared. That is the failure this pins.
+    """
+    _run("plugin", "secret", "set", "--name", "deepseek-api-key", "--value", "sk-test-abc123")
+
+    removed = _run("plugin", "secret", "rm", "--name", "deepseek-api-key")
+    assert removed["ok"] is True
+    assert removed["deleted"] is True
+
+    got = _run("plugin", "secret", "get", "--name", "deepseek-api-key")
+    assert got["present"] is False, "the key came back after sign-out"
+    assert got["value"] == ""
+
+
+def test_signing_out_twice_is_not_an_error(isolated_secrets: Path) -> None:
+    """Sign-out must succeed whether or not a key was ever stored — the user can
+    click it with nothing saved, and a second click must not surface a crash."""
+    first = _run("plugin", "secret", "rm", "--name", "deepseek-api-key")
+    assert first["ok"] is True
+    assert first["deleted"] is False
+
+
+def test_removing_the_plugin_key_leaves_the_backend_key_alone(isolated_secrets: Path) -> None:
+    """The two keys are separate by design (the user configures them
+    independently). Signing out of the plugin must not sign the backend out."""
+    _run("plugin", "secret", "set", "--name", "deepseek-api-key", "--value", "sk-plugin")
+    _run("plugin", "secret", "set", "--name", "backend-deepseek", "--value", "sk-backend")
+
+    _run("plugin", "secret", "rm", "--name", "deepseek-api-key")
+
+    survivor = _run("plugin", "secret", "get", "--name", "backend-deepseek")
+    assert survivor["value"] == "sk-backend", "sign-out took the backend's key with it"

@@ -870,6 +870,16 @@ and the CLI prints a warning; the dashboard can refresh again later.
 | `wiki sync --reemit` | Re-emits the derived L2/L3/L4 markdown projection (ATM/CON/SYN) from the authoritative DB records and refreshes DB-native search rows. Re-emitting unchanged L4 concept links does not advance synthesis revisions. | Refreshing projections after DB-level corrections |
 | `wiki reindex` | Rebuilds the DB-native search index (FTS5 + chunks) from the authoritative records. Add `--embed` to also generate missing/stale chunk vector embeddings; unchanged chunk embeddings are reused only when the configured embedder identity is available, otherwise search degrades explicitly to FTS5-only. In normal use `wiki build` already embeds automatically, so `--embed` is mainly a manual recovery path after a model/embedder change. | After model/config changes, or if search drifts |
 
+> **`wiki sync` will refuse to rebuild `ledger.md` and `overview.md` if the local
+> database looks empty while a sync journal is present** (v0.71.0). The state
+> database is machine-local, and opening a missing one self-heals an empty schema
+> into place — so on a machine whose `.cache/` was cleared, or after a vault
+> rename (which re-keys the cache), a rebuild would read zero rows and write
+> "Last curated: never" over an accurate report. When that happens `wiki sync`
+> logs a warning naming the recoverable state, rebuilds only the index, and
+> leaves the two human-readable files alone. Import your journal
+> (`wiki db import`) and run it again.
+
 > **v0.3.1**: The frozen-staging commands were removed. L4 is now the shared
 > **Synthesis** layer (built automatically by
 > `wiki build`), and curation is a dynamic query-time lens (`wiki query`).
@@ -1027,9 +1037,10 @@ high-confidence searches stable while still recovering paraphrase-heavy misses.
 | `wiki prompt eval` | Run the offline prompt-eval fixtures (no LLM). |
 | `wiki inspect synthesis <SYN-…>` | Inspect a read-only audit report for one L4 Synthesis node, including community reports, graph entities/relations, source spans, prompt traces, and warnings. |
 | `wiki inspect report <REP-…>` | Inspect the source support for one L3 community report. |
+| `wiki config set gc.prompt_runs_keep <N>` | Cap the LLM call log at `N` **unreferenced** records, newest kept; `0` keeps everything (**the default**). Records still referenced by a report, knowledge unit, entity or relation are kept regardless of the cap — deleting one silently re-bills a finished L3 report. Removal applies to every device you sync with. |
 | `wiki config set gc.sessions_retention_days <N>` | Chat retention window: `30`, `90`, `180`, `365`, or `0` to keep forever (**the default**). Chats are your own writing, so nothing is removed unless you choose a window — and choosing one removes them on every device you sync with. |
 | `wiki gc plan` | Show what disk can be reclaimed, and what grows but is deliberately kept — with the reason each is kept. Most of the growth is **synced across your devices**, so deleting it locally either propagates everywhere or is undone by the next sync. |
-| `wiki gc run` | Delete the reclaimable items, and any chat sessions past your retention window — the prompt states that chat removal applies to **every device you sync with** and cannot be undone (asks first). Only per-vault cache directories that are provably debris: the recorded vault path is gone, that path is under a temp prefix, **and** the cached database holds zero sources. All three are required — "the path is missing" alone is a mount test, not a liveness test, and an unmounted drive would look identical. |
+| `wiki gc run` | Delete the reclaimable items, any chat sessions past your retention window, and any LLM call records over your `gc.prompt_runs_keep` cap — the prompt states that chat removal applies to **every device you sync with** and cannot be undone (asks first). Only per-vault cache directories that are provably debris: the recorded vault path is gone, that path is under a temp prefix, **and** the cached database holds zero sources. All three are required — "the path is missing" alone is a mount test, not a liveness test, and an unmounted drive would look identical. |
 | `wiki inspect answer <QTR-…>` | Inspect the persisted route, **route reason**, **derivation status**, selected evidence, prompt traces, and warnings for one query answer. The derivation line distinguishes *a derivation ran and found no search terms* from *no derivation ran* — both leave an empty search query, and only the first is a normal result for a whole-corpus question. |
 | `wiki insight list [--workspace P] [--status pending]` | List provisional insight candidates. |
 | `wiki insight show <INS-…>` | Show one insight candidate. |
