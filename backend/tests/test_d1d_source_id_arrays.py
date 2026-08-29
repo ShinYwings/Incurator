@@ -117,3 +117,36 @@ def test_an_id_for_a_source_this_device_lacks_is_dropped_not_left_dangling(
     assert all(i in live for i in got), (
         f"the array names source ids this device does not have: {got}, live={live}"
     )
+    # `all(i in live)` alone is too weak: an untranslated peer id can happen to
+    # BE a valid local id for a DIFFERENT file, which is the exact failure this
+    # release exists to stop. Assert the surviving entry is the id this device
+    # actually uses for A's source — which the import creates here — and that the
+    # bogus 99 is gone.
+    assert got == [_local_id(b, "03_Notes/paper.md")], (
+        f"expected exactly this device's id for A's source, got {got}"
+    )
+
+
+def test_dropping_a_source_reference_is_reported_not_silent(device, tmp_path: Path) -> None:
+    """An id can be unmapped because the file simply did not carry that source —
+    `wiki db export --since` omits anything unchanged, so a device that already
+    HOLDS the source still loses the reference. The singular-column path raises
+    for the same condition; staying quiet here would be the one inconsistency."""
+    a = device("a", ["03_Notes/paper.md"])
+    b = device("b", ["03_Notes/other.md"])
+    with db.connect(a) as conn:
+        conn.execute(
+            "INSERT INTO prompt_runs (trace_id, prompt_id, prompt_version, family,"
+            " input_hash, source_ids, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ("PTR-33333333", "extract", "v1", "extract", "h",
+             json.dumps([_local_id(a, "03_Notes/paper.md"), 99]),
+             "2026-01-01T00:00:00Z"),
+        )
+
+    export_path = tmp_path / "a.json"
+    export_knowledge(a, export_path)
+    stats = import_knowledge(b, export_path)
+
+    assert stats.provenance_dropped >= 1, (
+        "a provenance reference was dropped and nothing said so"
+    )

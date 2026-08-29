@@ -502,7 +502,7 @@ point at the same converged entity pair — correct, but duplicated. Deciding th
 natural key for a relation is a modelling question (does `assertion_source` or
 `description` participate?), not just plumbing.
 
-### D1d. Source-id arrays carried the peer's numbering — **SHIPPED v0.74.0**
+### D1d. Source-id arrays carried the peer's numbering — **SHIPPED v0.73.1**
 
 `prompt_runs.source_ids` is a JSON array of `sources.id` integers, which the
 column-level remap cannot reach. Reproduced with two devices that registered the

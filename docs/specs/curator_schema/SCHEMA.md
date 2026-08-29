@@ -1,4 +1,4 @@
-# Incurator - Schema & Operating Conventions (v0.74.0)
+# Incurator - Schema & Operating Conventions (v0.73.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -1777,7 +1777,7 @@ synchronized child `source_id` before applying child rows. JSONL import rejects
 `sources` rows without a non-empty `sync_key`.
 
 **"Every synchronized child `source_id`" includes the ones inside JSON arrays
-(v0.74.0).** `prompt_runs.source_ids` is a JSON array of `sources.id` integers,
+(v0.73.1).** `prompt_runs.source_ids` is a JSON array of `sources.id` integers,
 which a column-level remap cannot reach, so it arrived carrying the peer's
 numbering — each entry naming whatever unrelated source occupied that row number
 locally. Arrays of source ids MUST be translated with the same map the column

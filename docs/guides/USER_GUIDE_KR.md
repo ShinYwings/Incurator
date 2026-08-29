@@ -1096,6 +1096,15 @@ source가 없는 첫 가져오기의 source-scoped 행도 같은 방식으로 �
 - **기기당 파일 1개.** 각 기기는 자기 `.curator/sync/dev-<id>.jsonl`만 쓰고 나머지는 읽기만 합니다. 두 기기가 같은 파일을 쓰지 않으므로 Syncthing이 쓰기-쓰기 충돌을 만들지 않습니다.
 - **Portable source identity.** 기기별 숫자 source id는 portable key로
   remap되므로 두 기기가 각각 source id 1을 만들어도 충돌하지 않습니다.
+
+  **v0.73.1 이전에는 이 remap이 id 컬럼에만 닿았고 JSON 배열 안의 id에는 닿지
+  않았습니다.** `prompt_runs.source_ids`는 어떤 LLM 호출이 어떤 소스를 참조했는지
+  기록하는데, 상대 기기의 번호를 그대로 들고 도착했습니다 — 각 항목이 이 기기에서
+  그 번호를 차지한 무관한 소스를 가리켰습니다. 이제 같은 맵으로 번역합니다. 이
+  기기가 식별할 수 없는 참조는 잘못된 파일을 가리킨 채 남기지 않고 제거하며, 그
+  개수를 출력합니다. 이 수치가 보인다면 보통 `wiki db export --since` 증분
+  스냅샷이 이미 갖고 있는 소스를 생략했기 때문이고, `--since` 없이 다시 export하면
+  복구됩니다.
 - **Last-Write-Wins 병합.** 레코드는 monotonic revision 기준으로 병합되고,
   삭제는 tombstone으로 전파됩니다. 동시 읽기와 서로 다른 source 편집은
   안전합니다. 의도적인 로컬 재삽입은 다른 기기의 clock-skew 삭제를

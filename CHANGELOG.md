@@ -2,7 +2,7 @@
 
 All notable changes to Incurator are documented here.
 
-## [0.74.0] - 2026-08-30
+## [0.73.1] - 2026-08-30
 
 ### Fixed
 - **A synced prompt run named another device's sources.** `sources.id` is an
@@ -19,9 +19,20 @@ All notable changes to Incurator are documented here.
   `1` is a different source entirely. Silently wrong provenance, on 2,984 rows
   on the reference vault.
 
-  An id with no local counterpart is now dropped rather than kept. Keeping it
-  leaves the array pointing at an unrelated source; provenance that is honestly
-  shorter beats provenance that is quietly wrong.
+  An id with no local counterpart is now dropped rather than kept — keeping it
+  leaves the array pointing at an unrelated source, and provenance that is
+  honestly shorter beats provenance that is quietly wrong — **and the count is
+  printed**, by both `wiki db import` and `wiki db autosync`.
+
+  That last part matters more than it looks. An id is unmapped in two very
+  different situations: the peer's source was rejected or tombstoned, where
+  dropping is the whole point; or **the file simply did not carry it**, which is
+  what `wiki db export --since` does by design for anything unchanged — so a
+  device that already holds the source still loses the reference. The
+  singular-`source_id` path raises for the same condition, aborting the import.
+  That is right for a span, which is meaningless without its source, and
+  disproportionate for provenance metadata. Dropping quietly would have been the
+  one inconsistency; dropping and saying so is not.
 
   `SCHEMA.md` claimed the transport remaps "every synchronized child
   `source_id`". Until now it did not.
