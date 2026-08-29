@@ -241,3 +241,93 @@ def test_a_polymorphic_dependency_tombstone_is_translated(device, tmp_path: Path
     with db.connect(b) as conn:
         n = conn.execute("SELECT COUNT(*) FROM artifact_dependencies").fetchone()[0]
     assert n == 0, "the dependency tombstone named the peer's span id and matched nothing"
+
+
+def test_a_polymorphic_dependency_this_device_deleted_does_not_walk_back_in(
+    device, tmp_path: Path
+) -> None:
+    """The mirror direction for `artifact_dependencies`, which the outbound fix
+    did not close.
+
+    The pre-upsert translation walks `_SCALAR_ID_REFS`, keyed on column NAME.
+    `artifact_dependencies` is polymorphic — the kind lives in a sibling `*_type`
+    column — so it is invisible to that registry, exactly as it was invisible to
+    the reference-column registry in v0.72.0. The tombstone-token path got a
+    kind-free escape hatch; this path did not, so a row deleted here walks back
+    in past its own tombstone.
+    """
+    a, b = device("a"), device("b")
+
+    def seed(path: Path, span_id: str) -> None:
+        with db.connect(path) as conn:
+            conn.execute(
+                "INSERT INTO source_spans (id, source_id, relpath, span_type,"
+                " content_hash, text_preview, start_char, end_char, created_at)"
+                " VALUES (?, 1, ?, 'paragraph', 'hash-identical', 'same', 0, 10, ?)",
+                (span_id, "03_Notes/paper.md", "2026-01-01T00:00:00Z"),
+            )
+            conn.execute(
+                "INSERT INTO artifact_dependencies (artifact_id, artifact_type,"
+                " depends_on_id, depends_on_type, dependency_hash, created_at)"
+                " VALUES ('KNU-11111111', 'knowledge_unit', ?, 'source_span', 'h', ?)",
+                (span_id, "2026-01-01T00:00:00Z"),
+            )
+
+    seed(a, "SPAN-aaaaaaaa")
+    seed(b, "SPAN-bbbbbbbb")
+
+    with db.connect(b) as conn:
+        row = conn.execute("SELECT * FROM artifact_dependencies").fetchone()
+        record_row_tombstone_on_connection(conn, "artifact_dependencies", dict(row))
+        conn.execute("DELETE FROM artifact_dependencies")
+
+    export_path = tmp_path / "a.json"
+    export_knowledge(a, export_path)
+    import_knowledge(b, export_path)
+
+    with db.connect(b) as conn:
+        n = conn.execute("SELECT COUNT(*) FROM artifact_dependencies").fetchone()[0]
+    assert n == 0, "a dependency this device deleted came back past its own tombstone"
+
+
+def test_translation_does_not_launder_a_token_the_gate_would_refuse(
+    device, tmp_path: Path
+) -> None:
+    """The translation must not sit in front of the fail-closed decoder.
+
+    `_decode_composite_key` refuses an unsupported token version, extra top-level
+    fields, duplicate JSON keys, and non-canonical encoding — `SCHEMA.md` §11.17
+    calls this out by name. A permissive `json.loads` in the translation step
+    would parse such a token, rewrite one field, and re-canonicalize it into a
+    valid `v:1` token, which then passes validation downstream and DELETES a row
+    the gate existed to protect. Measured: it did exactly that.
+    """
+    import json as _json
+
+    a, b = device("a"), device("b")
+    _seed_span_and_support(a, "SPAN-aaaaaaaa")
+    _seed_span_and_support(b, "SPAN-bbbbbbbb")
+    assert _support_count(b) == 1
+
+    export_path = tmp_path / "a.json"
+    export_knowledge(a, export_path)
+
+    # A tombstone whose key is legitimate and whose SPAN genuinely converges —
+    # only the version is unsupported. Nothing else about it is wrong.
+    poisoned = _json.dumps(
+        {"key": {"knowledge_unit_id": "KNU-11111111",
+                 "source_span_id": "SPAN-aaaaaaaa",
+                 "support_role": "primary"}, "v": 2},
+        ensure_ascii=False, separators=(",", ":"), sort_keys=True,
+    )
+    with export_path.open("a", encoding="utf-8") as f:
+        f.write(_json.dumps({"type": "row", "table": "deleted_records", "row": {
+            "table_name": "claim_supports", "record_id": poisoned,
+            "deleted_at": "2026-06-01T00:00:00Z"}}) + "\n")
+
+    with pytest.raises(ValueError):
+        import_knowledge(b, export_path)
+
+    assert _support_count(b) == 1, (
+        "an unsupported token version was re-canonicalized into a valid one and applied"
+    )

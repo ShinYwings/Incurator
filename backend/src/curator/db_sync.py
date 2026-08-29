@@ -364,13 +364,21 @@ def _translate_tombstone_token(
     }
     if not any(maps[kind] for _name, kind in fields):
         return token
+    # Decode through the STRICT path, not a bare `json.loads`.
+    #
+    # `_decode_composite_key` is the fail-closed gate: unsupported token version,
+    # extra or missing top-level fields, duplicate JSON keys, and non-canonical
+    # encoding all raise there. A permissive parse here would sit in FRONT of it
+    # and launder a token that gate exists to refuse — re-canonicalizing a `v:2`
+    # payload into a valid `v:1` one, which then passes validation downstream and
+    # deletes a row. Measured: it did exactly that before this call was changed.
+    #
+    # A token that does not decode is left untouched and handed on unchanged, so
+    # the refusal still happens where it belongs rather than being swallowed here.
     try:
-        parsed = json.loads(token)
+        key = dict(_decode_composite_key(table_name, token))
     except ValueError:
-        return token  # a raw non-JSON token: nothing to translate
-    if not isinstance(parsed, dict) or not isinstance(parsed.get("key"), dict):
         return token
-    key = parsed["key"]
     changed = False
     for name, kind in fields:
         value = key.get(name)
@@ -1210,14 +1218,7 @@ def import_knowledge(
                     # past its own tombstone, because the two tokens name
                     # different ids for the same span. Silent resurrection is
                     # worse than a silently-skipped delete.
-                    for _column, _kind in _SCALAR_ID_REFS.get(tbl, ()):
-                        _current = row.get(_column)
-                        if isinstance(_current, str):
-                            _mapped = (
-                                entity_id_map if _kind == "entity" else span_id_map
-                            ).get(_current)
-                            if _mapped is not None:
-                                row[_column] = _mapped
+                    _translate_row_ids(row, tbl, entity_id_map, span_id_map)
                     remote_row_id = row.get("id")
                     result = _lw_upsert(
                         conn,
@@ -1955,6 +1956,53 @@ def _prescan_converged_ids(
                 (entity_map if table == "graph_entities" else span_map)[remote_id] = local
 
     return entity_map, span_map
+
+
+def _translate_row_ids(
+    row: dict,
+    table: str,
+    entity_map: dict[str, str],
+    span_map: dict[str, str],
+) -> None:
+    """Rewrite an incoming row's id columns into this device's ids, in place.
+
+    Runs BEFORE the upsert, not only in the post-pass, because `_lw_upsert` asks
+    `_row_is_blocked_by_tombstone`, which builds this row's token from the row's
+    OWN values — the peer's. A row this device deliberately deleted would
+    otherwise walk back in past its own tombstone, since the two tokens name
+    different ids for the same span. Silent resurrection is worse than a
+    silently-skipped delete.
+
+    Covers BOTH registries on purpose. `_SCALAR_ID_REFS` is keyed on column name
+    and so cannot see `artifact_dependencies`, whose id column is generic
+    (`depends_on_id`) with the kind in a sibling column. Consulting only that one
+    is what left the polymorphic table's mirror direction open after its outbound
+    direction was fixed — the same table, and the same blind spot, for the third
+    time. Reading both registries here is what stops there being a fourth.
+    """
+    for column, kind in _SCALAR_ID_REFS.get(table, ()):
+        value = row.get(column)
+        if isinstance(value, str):
+            mapped = (entity_map if kind == "entity" else span_map).get(value)
+            if mapped is not None:
+                row[column] = mapped
+
+    both = {**entity_map, **span_map}
+    for typed_table, column, type_column, type_to_kind in _TYPED_ID_REFS:
+        if typed_table != table:
+            continue
+        value = row.get(column)
+        if not isinstance(value, str):
+            continue
+        # `depends_on_type` gates its own column; `artifact_id`'s type lives in
+        # `artifact_type`, which is not always present, so fall back to the id's
+        # own prefix — `SPAN-`/`ENT-` are unambiguous.
+        row_type = row.get(type_column)
+        if isinstance(row_type, str) and row_type not in type_to_kind:
+            continue
+        mapped = both.get(value)
+        if mapped is not None:
+            row[column] = mapped
 
 
 def _candidate_rows(

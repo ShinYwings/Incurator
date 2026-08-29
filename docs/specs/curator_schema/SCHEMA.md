@@ -1663,9 +1663,10 @@ does not synthesize a revision from `last_ingested`, `added_at`, or the current
 clock. Malformed source rows are rejected instead of partially imported.
 
 **Tombstones are matched in the receiving device's ids, both directions
-(v0.73.0).** `claim_supports` and `entity_resolution_lineage` carry a raw,
-device-local id inside their composite tombstone token (`source_span_id`,
-`origin_entity_id`). The token is minted at deletion time, on the deleting
+(v0.73.0).** `claim_supports`, `entity_resolution_lineage`, and
+`artifact_dependencies` carry a raw, device-local id inside their composite
+tombstone token (`source_span_id`, `origin_entity_id`, and — polymorphically —
+`artifact_id`/`depends_on_id`). The token is minted at deletion time, on the deleting
 device, so it names an id the receiver has never held — the WHERE clause matched
 nothing, the delete was counted as applied, and the row survived.
 `source_pages`/`source_pdf_pages` are exempt by construction: they transport
@@ -1687,6 +1688,28 @@ Import therefore does three things, and all three are load-bearing:
 3. **A peer's token is re-expressed in local ids** before it is matched. An
    unknown id passes through unchanged, so a tombstone for a row this device
    never had still matches nothing rather than guessing.
+
+**Membership in the translation registries follows one rule, and it MUST be
+stated wherever they are edited**: a token field diverges between devices only if
+its table has a natural-key UNIQUE index, because that is what makes two devices'
+rows converge onto different local ids. `source_spans` and `graph_entities` have
+one; `knowledge_units` and `graph_relations` do not, so `KNU-`/`REL-` ids are
+inserted verbatim and already agree. That is why `graph_relation_supports` is
+absent by decision rather than by oversight, and why `source_pages`/
+`source_pdf_pages` are absent for the different reason that they already
+transport `source_sync_key`.
+
+**Both translation paths MUST consult both registries.** `artifact_dependencies`
+is polymorphic — its id column is generically named with the kind in a sibling
+column — so a registry keyed on column NAME cannot see it. Fixing only the token
+path left the row path open and a deleted dependency walked back in; that was the
+third time the same table slipped through a name-keyed scan.
+
+**The translation MUST decode through the fail-closed gate**, never a permissive
+`json.loads`. Re-canonicalizing a payload the gate would refuse — an unsupported
+version, extra fields, duplicate keys — turns it into a valid token that passes
+validation downstream and deletes a row. A token that does not decode is passed
+on untouched so the refusal happens where it belongs.
 
 **The token format does not change and `SCHEMA_VERSION` does not move.** A
 portable token is the tidier design and is what this was originally scoped as,

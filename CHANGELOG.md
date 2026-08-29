@@ -6,10 +6,11 @@ All notable changes to Incurator are documented here.
 
 ### Fixed
 - **A delete on one device could silently fail to apply on another — and a row
-  you deleted could walk back in.** `claim_supports` and
-  `entity_resolution_lineage` put a raw, device-local id into their composite
-  tombstone token (`source_span_id`, `origin_entity_id`), minted at deletion time
-  on the deleting device. The receiver has never held that id, so the WHERE
+  you deleted could walk back in.** `claim_supports`,
+  `entity_resolution_lineage`, and `artifact_dependencies` put a raw,
+  device-local id into their composite tombstone token (`source_span_id`,
+  `origin_entity_id`, and — polymorphically — `artifact_id`/`depends_on_id`),
+  minted at deletion time on the deleting device. The receiver has never held that id, so the WHERE
   clause matched nothing, the delete was counted as applied, and the row
   survived. `source_pages`/`source_pdf_pages` never had this because they already
   transport `source_sync_key`, a value both devices compute identically.
@@ -26,6 +27,16 @@ All notable changes to Incurator are documented here.
   before the tombstone check runs, and a peer's token is re-expressed in local
   ids before it is matched. An id this device does not know passes through
   unchanged, so a tombstone for a row it never had still matches nothing.
+
+  Two of those pieces were wrong on the first pass and are worth recording,
+  because both were the same mistake in different clothes. The row-translation
+  step read only the name-keyed registry, so the polymorphic
+  `artifact_dependencies` fell through it and a deleted dependency still walked
+  back in — the third time that table slipped past a scan keyed on column names.
+  And the token translation used a permissive `json.loads`, which put it in FRONT
+  of the fail-closed decoder: a token with an unsupported version was
+  re-canonicalized into a valid one and applied, deleting a row the gate existed
+  to protect. Both now have tests that fail if the fix is reverted.
 
 ### Note
 - **No `SCHEMA_VERSION` bump, and no change to the token format.** The roadmap
