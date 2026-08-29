@@ -89,6 +89,13 @@ All notable changes to Incurator are documented here.
   one offending test would have left the next one free to do it again. This
   mattered more after the registration fix above, which writes one more file.
 
+  The plugin suite then did the same thing, which is how the guard's other half
+  arrived: a test that spied on `os.homedir` **after** the module under test had
+  already bound it wrote its fixture server into the real registry. A vitest
+  setup file now fails the run if a test modified the real `~/.gemini`. It does
+  not sandbox the write — it makes it loud, which is the part that was missing.
+  Both leaks were found by chance, not by anything that would have complained.
+
 - **The embedded fetch tool destroyed the very thing it was added to deliver.**
   It accumulated the response with `body += chunk`, coercing each Buffer to
   UTF-8. Measured on a 314-byte PDF: **132 replacement characters**, not
