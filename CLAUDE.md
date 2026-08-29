@@ -196,12 +196,24 @@ Whenever a user requests a new feature, reports a bug, or uses the `/goal` comma
 6. **Test-Driven Development (TDD)**: Write failing tests before writing application logic.
 7. **Implementation & Incremental Commits**: Write code to make tests pass. Commit work incrementally using Conventional Commits (e.g., `feat(core): ...`, `fix(plugin): ...`).
 8. **Code Review BEFORE CI (MANDATORY, user directive 2026-08-24)**: After
-   writing the code and BEFORE pushing for CI, you MUST run the repo's
-   code-review skill on the change — `/code-review:code-review <PR#>`, or the
-   same five-lens pass over the diff when no PR exists yet (CLAUDE.md
-   compliance, shallow bug scan, git-history context, prior-PR guidance, and
-   contradictions with code comments). Fix or record every finding before the
-   PR is merged.
+   writing the code and BEFORE pushing for CI, you MUST invoke the repo's
+   code-review skill on the change: `/code-review:code-review <PR#>`.
+
+   **Invoke the skill. Do not hand-roll its equivalent.** Spawning your own
+   review agents "covering the same five lenses" is NOT compliance, however
+   thorough the prompts look — the skill pins the lens set, the confidence
+   scoring, and the >=80 filter, and a hand-rolled pass silently drops whichever
+   of those the author did not think to reproduce. This substitution has already
+   happened across several releases while the loop reported that review was
+   being done.
+
+   The only case that does not take a PR number is a change with no PR yet, and
+   the fix for that is to open the PR first. If a PR genuinely cannot exist, run
+   the same five lenses over the diff (CLAUDE.md compliance, shallow bug scan,
+   git-history context, prior-PR guidance, contradictions with code comments)
+   and state plainly in the report that the skill was not used, and why.
+
+   Fix or record every finding before the PR is merged.
 
    **This is not optional and not a formality.** It was skipped from v0.62.0
    through v0.71.0 — sixteen releases — and the single review that was finally
