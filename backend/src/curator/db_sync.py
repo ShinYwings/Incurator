@@ -1251,9 +1251,17 @@ def import_knowledge(
                             and local_rel_id is not None
                             and local_rel_id != remote_rel_id
                         ):
+                            # Converge onto OUR row, but merge into it rather
+                            # than dropping the peer's. Skipping outright loses
+                            # whatever the peer knew that we do not — measured: a
+                            # peer row eight months newer, with a better
+                            # description and 0.95 confidence against our 0.2,
+                            # vanished silently. Rewriting the id and letting
+                            # `_lw_upsert` run means the same last-write-wins
+                            # rule decides it that decides every other table,
+                            # instead of "whoever inserted first".
                             relation_id_map[remote_rel_id] = local_rel_id
-                            stats.skipped += 1
-                            continue
+                            row["id"] = local_rel_id
                     stats.provenance_dropped += _translate_source_id_arrays(
                         row, tbl, source_id_map
                     )

@@ -26,6 +26,13 @@ All notable changes to Incurator are documented here.
   so `graph_relation_supports`, `community_reports.relation_ids`, and
   `memory_paths.path_json` hops are not orphaned by the merge.
 
+  Converging **merges** rather than discarding. The first version of this skipped
+  the peer's row once it recognised the edge, which quietly made it "whoever
+  inserted first wins": measured, a peer row eight months newer, with a better
+  description and 0.95 confidence against 0.2, vanished without a trace. The
+  peer's row now takes the local id and goes through the same last-write-wins
+  merge as every other table, so neither side is privileged by insertion order.
+
 ### Note
 - **No UNIQUE index, deliberately.** `db.connect` re-applies `SCHEMA_SQL` on every
   open, and `CREATE UNIQUE INDEX` is not a no-op on an existing table the way

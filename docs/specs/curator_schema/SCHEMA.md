@@ -1684,6 +1684,12 @@ import loop, after the endpoints have been translated into local ids, and
 existing duplicates are left in place: preventing new ones needs no migration and
 destroys nothing.
 
+**Convergence MUST merge, not discard.** Recognising the edge and skipping the
+peer's row makes the outcome "whoever inserted first wins", which is not a merge
+rule and silently loses whatever the peer knew that this device does not. The
+peer's row takes the local id and goes through the same last-write-wins path as
+every other table.
+
 A converged relation's `REL-` id is remapped like a converged entity or span, so
 `graph_relation_supports.relation_id`, `community_reports.relation_ids`, and the
 `relation_id` inside `memory_paths.path_json` hops are not orphaned by the merge.
