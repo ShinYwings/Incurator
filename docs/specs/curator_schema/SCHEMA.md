@@ -1,4 +1,4 @@
-# Incurator - Schema & Operating Conventions (v0.74.0)
+# Incurator - Schema & Operating Conventions (v0.75.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -1661,6 +1661,19 @@ expression default, and local source writes advance it monotonically. JSONL
 import requires a valid remote `updated_at` value for every `sources` row; it
 does not synthesize a revision from `last_ingested`, `added_at`, or the current
 clock. Malformed source rows are rejected instead of partially imported.
+
+**The context pack states its curation lens and carries the persona (v0.75.0).**
+The lens reaches retrieval — the plugin resolves the workspace from the note in
+focus and `context_fetch` resolves the policy from it — but the pack reported only
+`workspace_id`, so a lens that narrowed nothing looked exactly like one that
+narrowed everything. The pack MUST carry a `policy` block naming what the lens
+did, including an explicit `applied` flag: a default policy is the lens running
+and narrowing nothing, which is a different fact from no lens, and it must not
+have to be recognised by its shape.
+
+The pack MUST also carry the vault `persona`. The surface that writes the answer
+is handed this pack and nothing else, so a persona that stops at retrieval shapes
+nothing the user reads.
 
 **Relations converge on a natural key, enforced at import rather than by an
 index (v0.74.0).** `graph_relations` carries a natural identity —

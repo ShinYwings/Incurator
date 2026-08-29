@@ -530,6 +530,48 @@ def _conflict_response(expected_snapshot_id: str, current_snapshot_id: str) -> d
     }
 
 
+def _policy_summary(policy: "curate_yml.CurationPolicy") -> dict[str, Any]:
+    """The curation lens, in the shape a reader can check a pack against.
+
+    Only the fields that change what is retrieved or how the answer must read —
+    a full dump would bury the two that usually matter (`source_include` and
+    `allowed_routes`) among a dozen that rarely differ.
+    """
+    default = curate_yml.resolve_curate_policy("")[0]
+    narrowing = {
+        "source_include": list(policy.source_include),
+        "source_exclude": list(policy.source_exclude),
+        "allowed_routes": sorted(policy.allowed_routes),
+        "prompt_profile": policy.prompt_profile,
+        "output_language": policy.output_language,
+        "require_source_spans": policy.require_source_spans,
+        "allow_general_knowledge": policy.allow_general_knowledge,
+        "avoid_merges": list(policy.avoid_merges),
+    }
+    differs = any(
+        getattr(policy, name) != getattr(default, name)
+        for name in (
+            "source_include",
+            "source_exclude",
+            "allowed_routes",
+            "prompt_profile",
+            "output_language",
+            "require_source_spans",
+            "allow_general_knowledge",
+            "avoid_merges",
+        )
+    )
+    return {
+        "workspace_id": policy.workspace_id,
+        "project": policy.project,
+        # False means this vault's default, not "no policy" — the lens ran and
+        # narrowed nothing. Saying so is the point: an inert lens that looks
+        # identical to an active one is what made this hard to see.
+        "applied": differs,
+        **narrowing,
+    }
+
+
 class ContextService:
     """Application façade for normalized context-pack operations."""
 
@@ -761,6 +803,18 @@ class ContextService:
             # question and show the user a query that was never executed.
             "english_query": request.working_query,
             "workspace_id": policy.workspace_id,
+            # What the curation lens actually did, and the persona the answer is
+            # meant to be written in.
+            #
+            # Both already reached retrieval; neither reached the surface that
+            # writes the answer. The plugin's chat model is handed this pack and
+            # nothing else, so a persona absent from it shapes nothing a user
+            # reads, and a lens that narrowed nothing was indistinguishable from
+            # one that narrowed everything — the reader had to infer it from the
+            # evidence. `applied` states it outright rather than leaving the
+            # default policy to be recognised by its shape.
+            "policy": _policy_summary(policy),
+            "persona": cfg.get_curator_persona(cfg.load_config(self.paths)),
             "budget": budget,
             "coverage": {
                 "sufficiency": coverage,
