@@ -683,6 +683,25 @@ def status(
             f"Run [bold]wiki add[/bold] to create L1 Contexts."
         )
 
+    # Only meaningful when the assistant actually runs through agy.
+    try:
+        _llm_cfg = (config.get("llm") or {}) if isinstance(config, dict) else {}
+        _uses_agy = "antigravity" in str(_llm_cfg.get("primary", "")) or "antigravity" in str(
+            _llm_cfg.get("fallback", "")
+        )
+    except Exception:
+        _uses_agy = False
+    if _uses_agy:
+        from .common import agy_mcp_registration_problem
+
+        _agy_problem = agy_mcp_registration_problem(paths.root)
+        if _agy_problem:
+            _warn(
+                f"Antigravity cannot reach this vault's tools. {_agy_problem} "
+                "Run [bold]wiki config provider[/bold] to re-register, then ask "
+                "the assistant again."
+            )
+
     from .. import migrate as _migrate
     vault_v = _migrate.get_vault_schema_version(paths)
     if vault_v < consts.VAULT_SCHEMA_VERSION:

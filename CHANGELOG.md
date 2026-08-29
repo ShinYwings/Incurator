@@ -23,6 +23,20 @@ All notable changes to Incurator are documented here.
   apply what it currently has. v0.71.0 fixed this for the two registry paths and
   left `settings.json` on the old wholesale write.
 
+- **And `wiki status` now says when Antigravity cannot reach this vault's
+  tools.** That is the point of this release, more than the one-line write fix.
+  Four separate defects in this wiring reached a real session before anything
+  complained — the registry written where the CLI does not read it, a permission
+  whose scoped form grants nothing, a command name a spawned process cannot
+  resolve, and now an entry deleted by the other writer. Every one of them was
+  found by a person hitting it, never by the system.
+
+  The check names the specific fault rather than returning a boolean: no
+  registry, server absent, command that cannot start, registration pointing at a
+  different vault, or the missing `mcp(*)` grant. Each has a test, because a
+  check that cannot detect the failure it was written for is the shape this repo
+  keeps repeating.
+
 ## [0.73.1] - 2026-08-30
 
 ### Fixed

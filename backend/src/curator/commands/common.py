@@ -334,6 +334,77 @@ def _resolve_root_or_die_impl(hint_path: Path | None = None) -> cfg.WikiPaths:
 
     cfg.set_last_root(root)
     return cfg.paths_from_config(root)
+def agy_mcp_registration_problem(vault_root: Path) -> str:
+    """Why headless `agy` cannot reach the curator tools, or "" if it can.
+
+    This check exists because the failure is otherwise invisible. The registry
+    is written by two independent processes — this backend on `wiki init`/`wiki
+    config`, and the Obsidian plugin on every turn — and when one of them
+    dropped the other's entry, nothing said so. What the user saw instead was
+    the assistant reaching for a shell command to grep their vault, being
+    refused, and reporting a permission error: three steps removed from the
+    cause, and pointing at the wrong thing.
+
+    Returns a sentence naming the specific problem, not a boolean, so `wiki
+    status` can print something actionable.
+    """
+    import json as _json
+
+    from .. import constants as _consts
+
+    registry = Path.home() / ".gemini" / "config" / "mcp_config.json"
+    if not registry.exists():
+        return (
+            f"The Antigravity CLI has no MCP registry at {registry}, so it "
+            f"cannot see this vault's tools."
+        )
+    try:
+        servers = (_json.loads(registry.read_text(encoding="utf-8")) or {}).get(
+            "mcpServers"
+        )
+    except Exception:
+        return f"{registry} is not readable as JSON, so its contents cannot be checked."
+    if not isinstance(servers, dict) or "incurator" not in servers:
+        return (
+            f"The curator MCP server is not registered in {registry}, so the "
+            f"assistant has no way to search this vault."
+        )
+
+    entry = servers["incurator"]
+    command = entry.get("command") if isinstance(entry, dict) else None
+    if not command:
+        return f"The curator MCP entry in {registry} has no command to run."
+    if command != "wiki" and not Path(command).exists():
+        return (
+            f"The curator MCP server is registered as {command!r}, which does "
+            f"not exist, so it cannot start."
+        )
+    registered_root = ""
+    if isinstance(entry, dict):
+        registered_root = str((entry.get("env") or {}).get("VAULT_ROOT", ""))
+    if registered_root and Path(registered_root) != vault_root:
+        return (
+            f"The curator MCP server is registered against {registered_root}, "
+            f"not this vault ({vault_root})."
+        )
+
+    permissions = Path.home() / ".gemini" / _consts.BACKEND_ANTIGRAVITY_CLI / "settings.json"
+    try:
+        allow = (
+            (_json.loads(permissions.read_text(encoding="utf-8")) or {})
+            .get("permissions", {})
+            .get("allow", [])
+        )
+    except Exception:
+        allow = []
+    if "mcp(*)" not in allow:
+        return (
+            "The Antigravity CLI is missing the `mcp(*)` permission, so every "
+            "MCP tool is auto-denied in headless mode."
+        )
+    return ""
+
+
 def _sync_mcp_configs(vault_root: Path) -> list[str]:
     """Upsert VAULT_ROOT into known MCP config files. Returns list of updated paths."""
     import json
