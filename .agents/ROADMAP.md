@@ -451,22 +451,29 @@ High risk: schema and contract changes. Each of these gets its own release, its
 own migration rehearsal, and its own rollback drill. Never two in a batch — see
 rule 1 above.
 
-### D1. `graph_entities` / `source_spans` transport on a surrogate id
+### D1. Converged entity/span ids orphaned their children — **SHIPPED v0.72.0**
 
-Both carry a natural identity — `UNIQUE(canonical_name, entity_type)` and
-`UNIQUE(source_id, content_hash)` — but sync transports them on the surrogate
-`id`, so two devices that independently extract the same thing mint different
-ids. The key lookup misses, the insert collides on content, and convergence has
-to be classified after the fact (v0.50.0 does this via `PRAGMA index_list`).
-`sources` solved the same problem properly with a `sync_key` transport identity,
-so the primary lookup finds converging rows directly and children remap to the
-local id.
+The entry below described the remedy as "a transport identity for both tables
+plus the id-remap plumbing — a schema change touching every referencing column."
+**That was wrong, and measuring it is what showed why.** Both tables already
+carry their natural key as a UNIQUE index, so unlike `sources` — which needed a
+separate `sync_key` because `relpath` alone was insufficient — no new column was
+required. The only missing piece was translating a peer's ids to ours at import.
 
-Nothing remaps `graph_relations.source_entity_id`/`target_entity_id` when an
-entity converges, so the classifier makes the symptom quiet without closing the
-gap. The real fix is a transport identity for both tables plus the id-remap
-plumbing — a schema change touching every referencing column, which is why it
-was left out of v0.50.0 rather than smuggled in.
+What shipped: a post-pass in `import_knowledge` that records the id this device
+already uses for each converged row and rewrites every reference, scalar columns
+and JSON arrays alike. No schema change, no `SCHEMA_VERSION` bump, export format
+unchanged, so old and new devices still interoperate.
+
+The bug was real and had already fired: the reference vault's peer export carried
+691 entities and `MipNeRF360` already existed here under a different id. Nothing
+broke that time only because that export happened to contain no relation touching
+it.
+
+Two alternative designs were rejected on evidence, recorded in the Arena and in
+the CHANGELOG: deriving the id from the natural key turns a delete into a
+permanent fleet-wide block on that key, and adding a `sync_key` column requires
+resurrecting the `ALTER TABLE` mechanism v0.33.0 deleted.
 
 ### D1b. Composite tombstones embed a device-local id (found while scoping D1)
 

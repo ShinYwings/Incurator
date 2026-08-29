@@ -1761,6 +1761,13 @@ def _remap_converged_ids(
                 continue
             # Only rows that actually mention a converged id are candidates, so
             # this stays proportional to the convergences, not to the table.
+            #
+            # LIKE is deliberately allowed to over-match. It selects CANDIDATES;
+            # the rewrite below is an exact per-element dict lookup, so a row
+            # pulled in by a substring or by a `%`/`_` in an id is simply left
+            # unchanged. Widening the candidate set costs a few scanned rows and
+            # cannot produce a wrong rewrite — which is why the ids are not
+            # escaped here.
             clauses = " OR ".join(f"{column} LIKE ?" for _ in id_map)
             params = [f"%{remote}%" for remote in id_map]
             # `rowid`, not `id`: several of these tables have a composite primary

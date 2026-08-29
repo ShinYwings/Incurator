@@ -1059,6 +1059,22 @@ export is likely truncated or malformed; re-export from that device.
 잘못된 row 하나가 그 기기의 동기화를 막지 못합니다. 해결 방법은 다른 기기에서
 다시 export한 뒤 가져오는 것입니다.
 
+참조가 다시 연결되었다는 줄이 보일 수도 있습니다.
+
+```
+Import complete: +8 inserted, ~1 updated, 3 skipped, 0 deleted
+2 reference(s) re-pointed at rows this device already had under a different id.
+```
+
+정상이며, 두 vault가 수렴하고 있다는 뜻입니다. 두 기기가 같은 소스를 각자 읽으면
+추출한 엔티티와 텍스트 span에 대해 각자 내부 id를 만듭니다. 내용이 같다는 것은
+인식되어 하나만 남고(그게 `skipped` 수치입니다), 상대 기기가 *자기* id에 붙여
+두었던 것들은 이쪽 id로 다시 연결해야 합니다. 그러지 않으면 이 vault에 존재한 적
+없는 것을 가리키게 됩니다. v0.72.0 이전에는 이 재연결이 없었습니다 — relation이
+여기 존재하지 않는 엔티티 id를 가리킨 채 도착했고, 경고도 없었습니다. 조용히
+고치지 않고 개수를 출력하는 이유는, 조용한 복구가 복구하지 않은 것과 구분되지
+않기 때문입니다.
+
 ### `wiki db autosync` — Syncthing 기반 자동 동기화
 
 이미 vault 폴더를 **Syncthing**으로 동기화하고 있다면, `wiki db autosync`가 위의 수동 내보내기/가져오기를 손댈 필요 없는 Zotero급 흐름으로 바꿔 줍니다.
