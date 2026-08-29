@@ -162,3 +162,55 @@ def test_config_provider_warns_when_snapshot_refresh_hits_locked_db(tmp_path):
     assert result.exit_code == 0, result.output
     assert "Runtime snapshot refresh skipped" in result.output
     assert "database is locked" in result.output
+
+
+def test_sync_mcp_configs_registers_where_agy_actually_reads(tmp_path, monkeypatch):
+    """v0.71.0: the registry agy reads was never written, so its tools never existed.
+
+    Measured against agy 1.1.22 on a real machine: with `incurator` present in
+    `~/.gemini/settings.json` and `~/.gemini/antigravity/mcp_config.json`, the
+    CLI reported "No MCP servers configured" and the model answered that the
+    tools were not available. Driving `agy mcp add` and diffing `~/.gemini`
+    showed the CLI writes `~/.gemini/config/mcp_config.json`; registering there
+    is what made the server appear in `agy mcp list`.
+
+    This is the root cause behind three consecutive permission fixes that
+    granted nothing -- the grants were fine, the server was never registered
+    anywhere the CLI looked.
+    """
+    import json
+
+    home = tmp_path / "home"
+    home.mkdir()
+    vault = _make_vault(tmp_path)
+    monkeypatch.setattr(cli.Path, "home", lambda: home)
+
+    updated = cli._sync_mcp_configs(vault)
+
+    agy_registry = home / ".gemini" / "config" / "mcp_config.json"
+    assert str(agy_registry) in updated, "the file agy reads was not written"
+    servers = json.loads(agy_registry.read_text(encoding="utf-8"))["mcpServers"]
+    assert servers["incurator"]["env"]["VAULT_ROOT"] == str(vault)
+
+
+def test_sync_mcp_configs_keeps_servers_the_user_registered_themselves(tmp_path, monkeypatch):
+    """`agy mcp add` writes this same file, so a wholesale replace would delete
+    whatever the user registered by hand."""
+    import json
+
+    home = tmp_path / "home"
+    (home / ".gemini" / "config").mkdir(parents=True)
+    (home / ".gemini" / "config" / "mcp_config.json").write_text(
+        json.dumps({"mcpServers": {"theirs": {"command": "echo", "args": ["hi"]}}}),
+        encoding="utf-8",
+    )
+    vault = _make_vault(tmp_path)
+    monkeypatch.setattr(cli.Path, "home", lambda: home)
+
+    cli._sync_mcp_configs(vault)
+
+    servers = json.loads(
+        (home / ".gemini" / "config" / "mcp_config.json").read_text(encoding="utf-8")
+    )["mcpServers"]
+    assert "theirs" in servers, "sync deleted a server the user registered"
+    assert "incurator" in servers

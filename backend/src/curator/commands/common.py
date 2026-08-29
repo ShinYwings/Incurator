@@ -344,6 +344,14 @@ def _sync_mcp_configs(vault_root: Path) -> list[str]:
     }
     targets = [
         Path.home() / ".gemini" / "settings.json",
+        # The file the agy CLI actually reads its MCP registry from. Measured
+        # against agy 1.1.22: with `incurator` written only to the two paths
+        # below, `agy mcp list` reported "No MCP servers configured" and the
+        # model answered that the tools were not available. Driving `agy mcp
+        # add` and diffing ~/.gemini shows the CLI writes THIS path (mirroring
+        # into the antigravity one). Registering here is what made the server
+        # appear in `agy mcp list` and its tools become callable.
+        Path.home() / ".gemini" / "config" / "mcp_config.json",
         Path.home() / ".gemini" / consts.CLOUD_ANTIGRAVITY / "mcp_config.json",
         vault_root / ".claude" / "settings.json",
     ]

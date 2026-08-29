@@ -329,8 +329,26 @@ LLM이 제안 생성 → Diff 표시 → Accept / Reject
   Antigravity 1.1.3 이상은 플러그인이 `agy`를 headless(`-p`) 모드로 실행할 때
   대화형 승인이 필요한 도구도 거부합니다. 따라서 플러그인은 기존 Antigravity CLI
   설정을 보존하면서 `~/.gemini/antigravity-cli/settings.json`의
-  `permissions.allow`에 규칙 두 개를 추가합니다: `read_file(*)`, 그리고
-  Incurator MCP 서버를 띄우기 위한 `command(wiki)`.
+  `permissions.allow`에 규칙 세 개를 추가합니다: `read_file(*)`,
+  Incurator MCP 서버를 띄우기 위한 `command(wiki)`, 그리고 v0.71.0부터는 그
+  도구를 실제로 **호출**할 수 있게 하는 `mcp(*)`.
+
+  서버를 등록하고 `command(wiki)`를 주는 것만으로는 한 번도 충분하지 않았습니다.
+  `agy`가 Incurator 도구를 가진 것처럼 보이는데 쓰지는 못했던 이유가 이것이며,
+  빠진 것이 둘이었습니다. 둘 다 agy 1.1.22로 추정이 아니라 실측했습니다.
+
+  - **MCP 도구 호출에는 별도 권한이 필요하고, 와일드카드만 동작합니다.**
+    `mcp(incurator_fetch)`와 `mcp(fetch_url)`은 모두 자동 거부됐고 `mcp(*)`만
+    호출을 통과시켰습니다. `read_file`과 같은 형태로, 여기서 범위를 좁힌 규칙은
+    더 좁은 권한이 아니라 아예 권한이 없는 것입니다. 그래도 Incurator가 여전히
+    거부하는 CLI의 전면 권한 생략 플래그보다는 좁습니다 — 그 플래그는 셸을 포함해
+    모든 도구 종류를 승인해 버립니다.
+  - **CLI가 보는 곳에 서버가 등록돼 있어야 합니다.** Incurator는
+    `~/.gemini/settings.json`에 썼지만, `agy`는 MCP 레지스트리를
+    `~/.gemini/config/mcp_config.json`에서 읽습니다 — `agy mcp add`가 쓰고
+    `agy mcp list`가 보여주는 그 파일입니다. 이제 이쪽에도 쓰며, 직접
+    `agy mcp add`로 등록한 서버가 남도록 병합합니다. `agy mcp list`에
+    `incurator`가 보이면 등록이 정상입니다.
 
 > [!IMPORTANT]
 > **`jetski: no output produced`가 반복해서 떴다면 원인이 이것이고, 실제로 고치는

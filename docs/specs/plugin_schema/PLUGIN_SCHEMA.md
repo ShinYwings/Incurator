@@ -2424,6 +2424,31 @@ the `find_mvg_text.py`-style exploit). This section governs the CLI path.
     same way and does work scoped, so the narrow command grant stays and only
     the read rule is forced wide by the CLI's parser.
 
+    **`mcp(*)` is required too, and it is wildcard-only for the same reason
+    (v0.71.0).** Calling any MCP tool needs its own `mcp` permission. Measured
+    against agy 1.1.22 with the server correctly registered and the model asked
+    to call `fetch_url`: `mcp(incurator_fetch)` auto-denied, `mcp(fetch_url)`
+    auto-denied, `mcp(*)` ran the call and returned a live value. So `mcp` joins
+    `read_file` on the wildcard-only side, and `command` remains the lone rule
+    that works scoped. Until this rule existed, **every** MCP tool was denied in
+    headless mode — including the whole curator surface that `command(wiki)`
+    exists to spawn.
+
+    This stays narrower than the CLI's blanket permission-skip flag, which this
+    codebase refuses: that auto-approves every tool class including the shell,
+    while `mcp(*)` opens exactly the servers Incurator registers.
+
+    **The permission is useless unless the server is registered where the CLI
+    reads it (v0.71.0).** `~/.gemini/settings.json` is NOT that place. The plugin
+    wrote only there and the backend wrote there plus
+    `~/.gemini/antigravity/mcp_config.json`; the CLI's own registry, the one
+    `agy mcp add` writes and `agy mcp list` reads, is
+    `~/.gemini/config/mcp_config.json`, and it was empty. Both writers MUST
+    register there, and MUST merge rather than replace, because `agy mcp add`
+    writes the same file and a user's own servers must survive. This was the
+    root cause behind three consecutive permission fixes that granted nothing:
+    the grants were fine, nothing was ever registered where the CLI looked.
+
     A test MUST pin the rule *format*, and pinning the format is still not
     enough on its own — asserting a string was written is what let v0.48.4 ship
     undetected, and asserting the string persists is what let v0.53.1 ship the

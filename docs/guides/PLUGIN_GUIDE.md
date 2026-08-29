@@ -351,9 +351,28 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
 
   Antigravity 1.1.3 and later also deny tools that need an interactive approval
   when the plugin launches `agy` in headless (`-p`) mode. The plugin therefore
-  preserves your Antigravity CLI settings and adds two narrow rules under
+  preserves your Antigravity CLI settings and adds three rules under
   `permissions.allow` in `~/.gemini/antigravity-cli/settings.json`:
-  `read_file(*)`, and `command(wiki)` so the Incurator MCP server can be started.
+  `read_file(*)`, `command(wiki)` so the Incurator MCP server can be started,
+  and — since v0.71.0 — `mcp(*)` so its tools can actually be **called**.
+
+  Registering the server and granting `command(wiki)` were never enough on their
+  own, and this is why `agy` appeared to have Incurator's tools but could not use
+  them. Two things were missing, both measured against agy 1.1.22 rather than
+  assumed:
+
+  - **Calling an MCP tool needs its own permission, and only the wildcard works.**
+    `mcp(incurator_fetch)` and `mcp(fetch_url)` were both auto-denied; `mcp(*)`
+    let the call through. Same shape as `read_file` — a scoped rule here grants
+    nothing at all. It stays narrower than the CLI's blanket permission-skip
+    flag, which Incurator still refuses: that would approve every tool class
+    including the shell.
+  - **The server has to be registered where the CLI looks.** Incurator used to
+    write `~/.gemini/settings.json`; `agy` reads its MCP registry from
+    `~/.gemini/config/mcp_config.json` — the file `agy mcp add` writes and
+    `agy mcp list` shows. It is now written too, merged so servers you added
+    yourself with `agy mcp add` are kept. If `agy mcp list` shows `incurator`,
+    registration is working.
 
 > [!IMPORTANT]
 > **If you saw `jetski: no output produced` repeatedly, this is why — and it

@@ -390,14 +390,20 @@ describe("Antigravity headless read permission sync", () => {
     return join(testRoot, ".gemini");
   }
 
-  it("creates the live Antigravity CLI settings with the narrow read + scoped command rules", () => {
+  it("creates the live Antigravity CLI settings with the read, command, and mcp rules", () => {
     const geminiDir = freshGeminiDir();
 
     syncAgyHeadlessReadPermission(geminiDir);
 
+    // `mcp(*)` joined the set in v0.71.0. Calling any MCP tool needs its own
+    // permission, and — like `read_file`, unlike `command` — only the wildcard
+    // is honoured: measured against agy 1.1.22, `mcp(incurator_fetch)` and
+    // `mcp(fetch_url)` were both auto-denied and `mcp(*)` let the call through.
+    // Without it every MCP tool is denied in headless mode, which is why the
+    // curator tool surface `command(wiki)` exists to spawn was never reachable.
     const settingsPath = join(geminiDir, "antigravity-cli", "settings.json");
     expect(JSON.parse(readFileSync(settingsPath, "utf-8"))).toEqual({
-      permissions: { allow: ["read_file(*)", "command(wiki)"] },
+      permissions: { allow: ["read_file(*)", "command(wiki)", "mcp(*)"] },
     });
   });
 
@@ -479,7 +485,7 @@ describe("Antigravity headless read permission sync", () => {
         // `read_file()` is OUR retired rule and is replaced, not kept beside
         // its successor — a dead grant next to a live one reads as configured
         // read access when it is not.
-        allow: ["command(git status)", "command(wiki)", "read_file(*)"],
+        allow: ["command(git status)", "command(wiki)", "read_file(*)", "mcp(*)"],
         ask: ["write_file()"],
       },
     });

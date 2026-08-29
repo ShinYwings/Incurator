@@ -33,6 +33,52 @@ All notable changes to Incurator are documented here.
   bytes against ~126 for its tombstone, about 31×.
 
 ### Fixed
+- **The Antigravity CLI could never call an Incurator tool, and three
+  consecutive "permission fixes" all shipped granting nothing.** Two independent
+  causes, both measured against agy 1.1.22 rather than reasoned about:
+
+  1. **The MCP server was registered where agy does not look.** The plugin wrote
+     `~/.gemini/settings.json`; the backend wrote that plus
+     `~/.gemini/antigravity/mcp_config.json`. Driving `agy mcp add` and diffing
+     `~/.gemini` shows the CLI's own registry is `~/.gemini/config/mcp_config.json`
+     — which was **empty**. `agy mcp list` reported "No MCP servers configured"
+     and the model answered that the tools were not available. Both writers now
+     register there too, merging rather than replacing so servers the user added
+     with `agy mcp add` survive.
+  2. **Calling any MCP tool needs an `mcp` permission, and only the wildcard is
+     honoured.** With the server correctly registered, `mcp(incurator_fetch)` and
+     `mcp(fetch_url)` were both auto-denied; `mcp(*)` let the call through and it
+     returned a live value. This is the identical finding v0.56.1 recorded for
+     `read_file` — a target-scoped rule is not a narrower grant, it is no grant.
+     `mcp(*)` joins the required permission set.
+
+  This is narrower than the CLI's blanket permission-skip flag, which this
+  codebase still refuses: that auto-approves every tool class including the
+  shell, while this opens exactly the MCP servers Incurator registers.
+
+- **The embedded fetch tool destroyed the very thing it was added to deliver.**
+  It accumulated the response with `body += chunk`, coercing each Buffer to
+  UTF-8. Measured on a 314-byte PDF: **132 replacement characters**, not
+  recoverable. Binary responses are now saved to disk and the tool returns the
+  path plus a pointer to `curator_get_pdf_toc` / `curator_get_pdf_context`,
+  which read PDFs properly. The 100KB cap also stops the transfer now instead of
+  downloading the remainder to discard it.
+
+- **The fetch tool had no SSRF protection.** Verified by using it: it fetched
+  `http://127.0.0.1` without complaint, on a machine that runs Ollama (11434)
+  and Syncthing's unauthenticated REST API (8384). Since the model reads URLs
+  out of ingested documents, "talked into fetching it" is the realistic input.
+  Loopback, private, and link-local addresses are refused on the initial request
+  **and** the redirect hop; IPv4-mapped IPv6 (`[::ffff:127.0.0.1]`, which Node
+  normalises to hex and which matched no dotted-quad rule) is unmapped before
+  filtering; and the **resolved** address is checked inside the DNS lookup, so a
+  public hostname pointing at an internal address is refused too.
+
+  The tests for all of this **spawn the server and speak JSON-RPC to it**. The
+  tests that shipped with the feature only asserted the script string contained
+  certain substrings, which is why none of these defects were caught — and the
+  spawn-based tests immediately found one more: the server replied to JSON-RPC
+  notifications, which a server MUST NOT do.
 - **"Sign out" did not sign the user out.** The DeepSeek key lives in two
   places, and the button only cleared one. `restoreDeepseekKeyFromStore()` reads
   the encrypted machine-local store at every launch, so signing out and

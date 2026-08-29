@@ -14,7 +14,7 @@ import {
   writeFileSync,
 } from "fs";
 import { homedir } from "os";
-import { join } from "path";
+import { dirname, join } from "path";
 import { buildSandboxPlan } from "../sandboxWrapper";
 import { promisify, TextDecoder } from "util";
 import { expandPath } from "../../utils/deviceRegistry";
@@ -91,7 +91,31 @@ const AGY_READ_PERMISSION = "read_file(*)";
 // `command(wiki)` survives an agy run; `$command$()` and `run_shell_command()`
 // are pruned like the read rule was.
 const AGY_COMMAND_PERMISSION = "command(wiki)";
-const AGY_REQUIRED_PERMISSIONS = [AGY_READ_PERMISSION, AGY_COMMAND_PERMISSION];
+// Calling ANY MCP tool needs its own permission, and — like `read_file` and
+// unlike `command` — only the wildcard is honoured. Measured against agy 1.1.22
+// with the server correctly registered, asking it to call `fetch_url`:
+//
+//   mcp(incurator_fetch)  -> auto-denied
+//   mcp(fetch_url)        -> auto-denied
+//   mcp(*)                -> the call ran and returned a live httpbin UUID
+//
+// So a target-scoped rule here is not a narrower grant, it is no grant — the
+// identical finding v0.56.1 recorded for `read_file`. Without this line every
+// MCP tool is denied in headless mode, which is why three consecutive
+// "permission fixes" (v0.53.1, v0.56.1, and the fetch server itself) all
+// shipped granting nothing.
+//
+// This is narrower than the CLI's blanket permission-skip flag, which this
+// codebase refuses and a test asserts never appears in this source at all --
+// hence not naming it here. That flag auto-approves EVERY tool class including
+// the shell; this rule opens exactly the MCP servers we register, and nothing
+// else.
+const AGY_MCP_PERMISSION = "mcp(*)";
+const AGY_REQUIRED_PERMISSIONS = [
+  AGY_READ_PERMISSION,
+  AGY_COMMAND_PERMISSION,
+  AGY_MCP_PERMISSION,
+];
 /**
  * Rules earlier releases of THIS function wrote, since measured to grant
  * nothing. Removed on upgrade so a dead rule cannot masquerade as configured
@@ -112,6 +136,7 @@ export const FETCH_MCP_SERVER_SCRIPT = `#!/usr/bin/env node
 const readline = require("readline");
 const https = require("https");
 const http = require("http");
+const dns = require("dns");
 
 const SERVER_INFO = {
   name: "incurator-fetch",
@@ -138,38 +163,191 @@ const TOOLS = [
   },
 ];
 
-function fetchUrl(url) {
-  return new Promise((resolve, reject) => {
-    if (!url.startsWith("http://") && !url.startsWith("https://")) {
-      return reject(new Error("Only http:// and https:// URLs are supported"));
+function isBlockedAddress(h) {
+  if (/^127\\./.test(h)) return true;
+  if (/^10\\./.test(h)) return true;
+  if (/^192\\.168\\./.test(h)) return true;
+  if (/^172\\.(1[6-9]|2[0-9]|3[01])\\./.test(h)) return true;
+  if (/^169\\.254\\./.test(h)) return true;          // link-local, incl. cloud metadata
+  if (h === "0.0.0.0" || h === "::" || h === "::1") return true;
+  if (/^(fc|fd|fe80)/.test(h)) return true;        // IPv6 ULA / link-local
+  return false;
+}
+
+function isBlockedHost(hostname) {
+  // SSRF guard. This tool is handed to a model that reads URLs out of ingested
+  // documents, so "the model was talked into fetching it" is the realistic
+  // input. Measured before this guard existed: it fetched http://127.0.0.1:8731
+  // without complaint, and a dev machine here runs Ollama on 11434 and
+  // Syncthing's unauthenticated REST API on 8384.
+  var h = (hostname || "").toLowerCase().replace(/^\\[|\\]$/g, "");
+  if (h === "localhost" || h.endsWith(".localhost")) return true;
+  // IPv4-mapped IPv6 defeats every decimal-dotted pattern below, because Node's
+  // URL parser normalises the readable form to hex: \`[::ffff:127.0.0.1]\` comes
+  // back as \`[::ffff:7f00:1]\`, which matches none of them. Unmap first.
+  var mapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(h);
+  if (mapped) {
+    var a = parseInt(mapped[1], 16);
+    var b = parseInt(mapped[2], 16);
+    h = [(a >> 8) & 255, a & 255, (b >> 8) & 255, b & 255].join(".");
+  } else if (h.indexOf("::ffff:") === 0) {
+    h = h.slice(7);                                // already dotted-quad form
+  }
+  return isBlockedAddress(h);
+}
+
+function checkUrl(url) {
+  if (!url.startsWith("http://") && !url.startsWith("https://")) {
+    throw new Error("Only http:// and https:// URLs are supported");
+  }
+  var parsed;
+  try {
+    parsed = new URL(url);
+  } catch (e) {
+    throw new Error("Malformed URL");
+  }
+  if (isBlockedHost(parsed.hostname)) {
+    throw new Error(
+      "Refusing to fetch a loopback, private, or link-local address (" +
+      parsed.hostname + "). This tool reaches the public web only."
+    );
+  }
+  return parsed;
+}
+
+// Content types we can honestly return as text. Anything else is binary:
+// coercing it into a JS string with += destroys it irreversibly. Measured on a
+// 314-byte PDF before this split: 132 replacement characters out, unrecoverable.
+function isTextual(contentType) {
+  var t = (contentType || "").toLowerCase();
+  if (!t) return true;
+  if (t.indexOf("text/") === 0) return true;
+  return /(json|xml|javascript|x-www-form-urlencoded|yaml)/.test(t);
+}
+
+var MAX_BYTES = 100000;
+
+function collect(res, resolve, reject) {
+  var textual = isTextual(res.headers["content-type"]);
+  var chunks = [];
+  var total = 0;
+  var truncated = false;
+  var settled = false;
+  res.on("data", function (c) {
+    total += c.length;
+    if (total <= MAX_BYTES) {
+      chunks.push(c);
+    } else if (!truncated) {
+      truncated = true;
+      res.destroy();
     }
-    const mod = url.startsWith("https") ? https : http;
-    const req = mod.get(url, { headers: { "User-Agent": "Incurator/1.0" } }, (res) => {
+  });
+  function done() {
+    if (settled) return;
+    settled = true;
+    var buf = Buffer.concat(chunks);
+    if (textual) {
+      resolve({
+        status: res.statusCode,
+        body: buf.toString("utf8") + (truncated ? "\\n\\n[truncated at 100KB]" : "")
+      });
+      return;
+    }
+    // Binary. Do NOT stringify it. Save it and hand back the path, so the model
+    // can use the tools that actually read this kind of file --
+    // curator_get_pdf_toc / curator_get_pdf_context for a PDF -- instead of
+    // being handed mojibake and guessing.
+    try {
+      var path = require("path");
+      var fs = require("fs");
+      var dir = path.join(require("os").homedir(), ".gemini", "incurator", "fetched");
+      fs.mkdirSync(dir, { recursive: true });
+      var ct = (res.headers["content-type"] || "").toLowerCase();
+      var ext = ct.indexOf("pdf") >= 0 ? ".pdf"
+        : ct.indexOf("png") >= 0 ? ".png"
+        : (ct.indexOf("jpeg") >= 0 || ct.indexOf("jpg") >= 0) ? ".jpg"
+        : "";
+      var dest = path.join(dir, "fetch-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8) + ext);
+      fs.writeFileSync(dest, buf);
+      resolve({
+        status: res.statusCode,
+        body:
+          "This URL returned binary content (" + (ct || "unknown type") + "), not text, so it " +
+          "was saved to disk instead of being returned inline -- returning it as text would " +
+          "corrupt it.\\n\\nSaved to: " + dest + "\\nBytes: " + buf.length +
+          (truncated ? " (TRUNCATED at 100KB -- incomplete file)" : "") +
+          "\\n\\nFor a PDF, read it with the curator tools rather than re-fetching: " +
+          "curator_get_pdf_toc for its table of contents, curator_get_pdf_context " +
+          "for the text of specific pages."
+      });
+    } catch (e) {
+      reject(new Error("Binary response could not be saved: " + e.message));
+    }
+  }
+  res.on("end", done);
+  res.on("close", function () { if (truncated) done(); });
+  res.on("error", reject);
+}
+
+function fetchUrl(url) {
+  return new Promise(function (resolve, reject) {
+    var parsed;
+    try {
+      parsed = checkUrl(url);
+    } catch (e) {
+      return reject(e);
+    }
+    var mod = parsed.protocol === "https:" ? https : http;
+    // Pin the resolved address. \`checkUrl\` only saw the hostname TEXT; the
+    // connect does its own DNS. An attacker who controls a domain's A record --
+    // no more capability than "can serve a web page", which the threat model
+    // already grants -- points it at 127.0.0.1 or 169.254.169.254 and the
+    // text-level check waves it through. Validating inside \`lookup\` closes it
+    // for the initial request and, since the redirect reuses this function, for
+    // the redirect hop too.
+    var guardedLookup = function (hostname, options, callback) {
+      return dns.lookup(hostname, options, function (err, address, family) {
+        if (err) return callback(err);
+        // Node calls back with an ARRAY when \`options.all\` is set, which
+        // happy-eyeballs (autoSelectFamily, on by default since Node 20) does.
+        // Reading it as a single address stringifies to "[object Object]",
+        // matches no rule, and the guard silently passes everything -- measured:
+        // a hostname resolving to 127.0.0.1 connected straight through.
+        var list = Array.isArray(address)
+          ? address.map(function (a) { return a.address; })
+          : [address];
+        for (var i = 0; i < list.length; i++) {
+          if (isBlockedAddress(String(list[i]).toLowerCase())) {
+            return callback(new Error(
+              "Refusing to connect: " + hostname + " resolves to a loopback, " +
+              "private, or link-local address (" + list[i] + ")."
+            ));
+          }
+        }
+        callback(null, address, family);
+      });
+    };
+    var req = mod.get(url, { headers: { "User-Agent": "Incurator/1.0" }, lookup: guardedLookup }, function (res) {
       // Follow one redirect
       if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
-        if (!res.headers.location.startsWith("http://") && !res.headers.location.startsWith("https://")) {
-           return reject(new Error("Redirect location must be http:// or https://"));
+        var target;
+        try {
+          // Re-check the destination. A public URL redirecting to
+          // 169.254.169.254 is the standard way around a scheme-only check.
+          target = checkUrl(new URL(res.headers.location, url).toString());
+        } catch (e) {
+          return reject(e);
         }
-        const rMod = res.headers.location.startsWith("https") ? https : http;
-        rMod.get(res.headers.location, { headers: { "User-Agent": "Incurator/1.0" } }, (r2) => {
-          let body = "";
-          r2.on("data", (c) => {
-            if (body.length < 100000) body += c;
-          });
-          r2.on("end", () => resolve({ status: r2.statusCode, body }));
-          r2.on("error", reject);
+        var rMod = target.protocol === "https:" ? https : http;
+        rMod.get(target.toString(), { headers: { "User-Agent": "Incurator/1.0" }, lookup: guardedLookup }, function (r2) {
+          collect(r2, resolve, reject);
         }).on("error", reject);
         return;
       }
-      let body = "";
-      res.on("data", (c) => {
-        if (body.length < 100000) body += c;
-      });
-      res.on("end", () => resolve({ status: res.statusCode, body }));
-      res.on("error", reject);
+      collect(res, resolve, reject);
     });
     req.on("error", reject);
-    req.setTimeout(30000, () => { req.destroy(new Error("timeout")); });
+    req.setTimeout(30000, function () { req.destroy(new Error("timeout")); });
   });
 }
 
@@ -242,6 +420,10 @@ rl.on("line", async (line) => {
     return;
   }
 
+  // JSON-RPC: a message with no id is a NOTIFICATION and the server MUST NOT
+  // reply to it. Answering one puts an unsolicited, id-less error on the wire;
+  // this repo's own client drops it, but a stricter one need not.
+  if (id === undefined || id === null) return;
   respondError(id, -32601, "Method not found: " + method);
 });
 `;
@@ -2870,6 +3052,43 @@ export class LLMClient {
     };
 
     writeFileSync(settingsPath, `${JSON.stringify(merged, null, 2)}\n`);
+
+    // ...and again where agy ACTUALLY reads its MCP registry.
+    //
+    // `~/.gemini/settings.json` is not that place. Measured: with the fetch
+    // server written there and nowhere else, `agy mcp list` reported "No MCP
+    // servers configured" and agy answered "that MCP server and tool are not
+    // available in my current environment". Driving `agy mcp add` and diffing
+    // the tree shows the CLI writes `~/.gemini/config/mcp_config.json` (and
+    // mirrors into `~/.gemini/antigravity/mcp_config.json`); registering there
+    // is what made the tool appear in `agy mcp list` and become callable.
+    //
+    // This was never fetch-specific. The `incurator` server — the whole curator
+    // tool surface `command(wiki)` exists to spawn — was registered the same
+    // wrong way, so headless agy has never had those tools either.
+    for (const registry of [
+      join(geminiDir, "config", "mcp_config.json"),
+      join(geminiDir, "antigravity", "mcp_config.json"),
+    ]) {
+      try {
+        mkdirSync(dirname(registry), { recursive: true });
+        let current: Record<string, unknown> = {};
+        try {
+          current = JSON.parse(readFileSync(registry, "utf-8"));
+        } catch { /* missing or malformed — start fresh */ }
+        // Merge, do not replace: this file is also written by `agy mcp add`, so
+        // servers the user registered themselves must survive.
+        const existingServers =
+          (current.mcpServers as Record<string, unknown> | undefined) ?? {};
+        writeFileSync(
+          registry,
+          `${JSON.stringify({ ...current, mcpServers: { ...existingServers, ...mcpServers } }, null, 2)}\n`
+        );
+      } catch (e) {
+        logger.warn(`Could not register MCP servers in ${registry}:`, e);
+      }
+    }
+
     syncAgyHeadlessReadPermission(geminiDir);
   }
 
