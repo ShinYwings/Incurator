@@ -44,7 +44,12 @@ All notable changes to Incurator are documented here.
      — which was **empty**. `agy mcp list` reported "No MCP servers configured"
      and the model answered that the tools were not available. Both writers now
      register there too, merging rather than replacing so servers the user added
-     with `agy mcp add` survive.
+     with `agy mcp add` survive — and pruning the ones Incurator itself
+     registered and no longer has, so deleting or disabling a server in the
+     plugin actually unregisters it. Neither merging nor replacing is correct
+     alone: replacing deletes the user's own servers, merging leaves a deleted
+     one registered and callable forever with its `env` credentials. Incurator
+     records which names it manages and removes exactly those.
   2. **Calling any MCP tool needs an `mcp` permission, and only the wildcard is
      honoured.** With the server correctly registered, `mcp(incurator_fetch)` and
      `mcp(fetch_url)` were both auto-denied; `mcp(*)` let the call through and it

@@ -2449,8 +2449,15 @@ the `find_mvg_text.py`-style exploit). This section governs the CLI path.
     `~/.gemini/antigravity/mcp_config.json`; the CLI's own registry, the one
     `agy mcp add` writes and `agy mcp list` reads, is
     `~/.gemini/config/mcp_config.json`, and it was empty. Both writers MUST
-    register there, and MUST merge rather than replace, because `agy mcp add`
-    writes the same file and a user's own servers must survive. This was the
+    register there. **Neither merging nor replacing is correct on its own**:
+    replacing wholesale deletes servers the user registered with `agy mcp add`,
+    while merging leaves a server the user DELETED or disabled in the plugin
+    registered and callable indefinitely, `env` credentials included. So the
+    writer MUST record the server names it manages and, on each sync, remove
+    exactly those it no longer has — pruning its own retirements and nothing
+    else. The plugin keeps that list in
+    `~/.gemini/incurator/managed_mcp_servers.json`; losing it costs a future
+    prune, never a wrong deletion. This was the
     root cause behind three consecutive permission fixes that granted nothing:
     the grants were fine, nothing was ever registered where the CLI looked.
 

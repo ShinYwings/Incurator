@@ -353,9 +353,11 @@ LLM이 제안 생성 → Diff 표시 → Accept / Reject
   - **CLI가 보는 곳에 서버가 등록돼 있어야 합니다.** Incurator는
     `~/.gemini/settings.json`에 썼지만, `agy`는 MCP 레지스트리를
     `~/.gemini/config/mcp_config.json`에서 읽습니다 — `agy mcp add`가 쓰고
-    `agy mcp list`가 보여주는 그 파일입니다. 이제 이쪽에도 쓰며, 직접
-    `agy mcp add`로 등록한 서버가 남도록 병합합니다. `agy mcp list`에
-    `incurator`가 보이면 등록이 정상입니다.
+    `agy mcp list`가 보여주는 그 파일입니다. 이제 이쪽에도 씁니다. 직접
+    `agy mcp add`로 등록한 서버는 그대로 남고, Incurator 설정에서 삭제하거나
+    비활성화한 서버는 실제로 등록이 해제됩니다 — Incurator가 자기가 관리하는
+    이름을 기록해 두고 그것만 제거합니다. `agy mcp list`에 `incurator`가
+    보이면 등록이 정상입니다.
 
 > [!IMPORTANT]
 > **`jetski: no output produced`가 반복해서 떴다면 원인이 이것이고, 실제로 고치는

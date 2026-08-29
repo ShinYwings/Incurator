@@ -378,8 +378,10 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
   - **The server has to be registered where the CLI looks.** Incurator used to
     write `~/.gemini/settings.json`; `agy` reads its MCP registry from
     `~/.gemini/config/mcp_config.json` — the file `agy mcp add` writes and
-    `agy mcp list` shows. It is now written too, merged so servers you added
-    yourself with `agy mcp add` are kept. If `agy mcp list` shows `incurator`,
+    `agy mcp list` shows. It is now written too. Servers you added yourself
+    with `agy mcp add` are kept, and a server you delete or disable in
+    Incurator's settings is actually unregistered — Incurator tracks which names
+    it manages and removes only those. If `agy mcp list` shows `incurator`,
     registration is working.
 
 > [!IMPORTANT]

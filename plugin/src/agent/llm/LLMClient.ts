@@ -3076,6 +3076,29 @@ export class LLMClient {
     // This was never fetch-specific. The `incurator` server — the whole curator
     // tool surface `command(wiki)` exists to spawn — was registered the same
     // wrong way, so headless agy has never had those tools either.
+    // Which names WE put there last time. Needed because neither merging nor
+    // replacing is correct on its own:
+    //
+    //   - replace wholesale -> deletes servers the user added with `agy mcp add`
+    //   - merge only        -> a server the user DELETES or disables in the
+    //                          plugin is never removed from the file agy reads,
+    //                          so it stays registered and callable forever,
+    //                          `env` credentials and all
+    //
+    // The second failure only became reachable when this registry started being
+    // written at all: `settings.json` did replace wholesale, but agy never read
+    // it, so nothing was live. Recording our own names is what makes the
+    // difference expressible -- prune exactly what we registered and no longer
+    // have, keep everything else untouched.
+    const manifestPath = join(geminiDir, "incurator", "managed_mcp_servers.json");
+    let previouslyManaged: string[] = [];
+    try {
+      const parsed = JSON.parse(readFileSync(manifestPath, "utf-8"));
+      if (Array.isArray(parsed)) previouslyManaged = parsed.filter((n) => typeof n === "string");
+    } catch { /* first run, or unreadable — nothing of ours to prune */ }
+    const managedNow = Object.keys(mcpServers);
+    const retired = previouslyManaged.filter((name) => !managedNow.includes(name));
+
     for (const registry of [
       join(geminiDir, "config", "mcp_config.json"),
       join(geminiDir, "antigravity", "mcp_config.json"),
@@ -3086,17 +3109,26 @@ export class LLMClient {
         try {
           current = JSON.parse(readFileSync(registry, "utf-8"));
         } catch { /* missing or malformed — start fresh */ }
-        // Merge, do not replace: this file is also written by `agy mcp add`, so
-        // servers the user registered themselves must survive.
-        const existingServers =
-          (current.mcpServers as Record<string, unknown> | undefined) ?? {};
+        const merged: Record<string, unknown> = {
+          ...((current.mcpServers as Record<string, unknown> | undefined) ?? {}),
+        };
+        for (const name of retired) delete merged[name];
+        Object.assign(merged, mcpServers);
         writeFileSync(
           registry,
-          `${JSON.stringify({ ...current, mcpServers: { ...existingServers, ...mcpServers } }, null, 2)}\n`
+          `${JSON.stringify({ ...current, mcpServers: merged }, null, 2)}\n`
         );
       } catch (e) {
         logger.warn(`Could not register MCP servers in ${registry}:`, e);
       }
+    }
+
+    try {
+      mkdirSync(dirname(manifestPath), { recursive: true });
+      writeFileSync(manifestPath, `${JSON.stringify(managedNow, null, 2)}\n`);
+    } catch (e) {
+      // Losing the manifest costs a future prune, not correctness of this write.
+      logger.warn("Could not record which MCP servers Incurator manages:", e);
     }
 
     syncAgyHeadlessReadPermission(geminiDir);
