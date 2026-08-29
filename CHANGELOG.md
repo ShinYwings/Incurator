@@ -2,6 +2,40 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.74.0] - 2026-08-30
+
+### Added
+- **Two devices asserting the same relation now keep one edge, not two.**
+  `graph_entities` and `source_spans` converge because each carries a natural-key
+  UNIQUE index; `graph_relations` has none, so two devices that independently
+  extracted "A works_at B" kept both rows. After v0.72.0 both pointed at the same
+  converged entity pair — correct, and doubled.
+
+  Doubling an edge is not cosmetic. `graph_relations` is what traversal walks and
+  what community construction counts, so a duplicated edge is weighted twice by
+  every query that follows it.
+
+  The key is `(source_entity_id, target_entity_id, relation_type)`. The roadmap
+  called this a modelling question; the data answered it. All 2,787 relations on
+  the reference vault are already unique under it, while `(source, target)` alone
+  collides in 125 groups. Adding `assertion_source` or `description` changes
+  nothing — and `description` especially does not belong, being LLM prose that
+  differs between devices for the same assertion.
+
+  Relations that converge have their `REL-` id remapped like entities and spans,
+  so `graph_relation_supports`, `community_reports.relation_ids`, and
+  `memory_paths.path_json` hops are not orphaned by the merge.
+
+### Note
+- **No UNIQUE index, deliberately.** `db.connect` re-applies `SCHEMA_SQL` on every
+  open, and `CREATE UNIQUE INDEX` is not a no-op on an existing table the way
+  `CREATE TABLE IF NOT EXISTS` is. Adding one would make any vault that already
+  holds a duplicate **fail to open, on every command** — measured: the index
+  builds on data that satisfies it and raises `IntegrityError` on data that does
+  not. Convergence is enforced at import instead, where duplicates are created.
+  Existing duplicates are left in place rather than deleted; preventing new ones
+  needs no migration and destroys nothing.
+
 ## [0.73.1] - 2026-08-30
 
 ### Fixed

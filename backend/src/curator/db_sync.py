@@ -1117,6 +1117,9 @@ def import_knowledge(
             # Only convergences land here; a row the peer alone has maps to
             # itself and is left out, so an empty map means nothing to repair.
             entity_id_map, span_id_map = _prescan_converged_ids(conn, in_path)
+            # Relations converge too, but only AFTER their endpoints do, so this
+            # one is filled in-stream rather than by the pre-scan.
+            relation_id_map: dict[str, str] = {}
             planned_source_inserts: set[int] = set()
             # Sources the database refused. Their child rows are LOST, not
             # merely skipped: there is no parent to attach them to, so nothing
@@ -1225,7 +1228,32 @@ def import_knowledge(
                     # past its own tombstone, because the two tokens name
                     # different ids for the same span. Silent resurrection is
                     # worse than a silently-skipped delete.
-                    _translate_row_ids(row, tbl, entity_id_map, span_id_map)
+                    _translate_row_ids(
+                        row, tbl, entity_id_map, span_id_map, relation_id_map
+                    )
+                    if tbl == "graph_relations":
+                        # `graph_relations` carries a natural identity but has no
+                        # UNIQUE index enforcing it, and cannot be given one: the
+                        # schema is re-applied on every `db.connect`, so a
+                        # `CREATE UNIQUE INDEX` would fail to open any vault that
+                        # already holds a duplicate. The other two converging
+                        # tables lean on their index; this one has to be checked
+                        # explicitly, here, where the duplicate would be created.
+                        #
+                        # The endpoints were translated a line above, so the key
+                        # is compared in THIS device's ids.
+                        remote_rel_id = row.get("id")
+                        local_rel_id = _local_id_for_natural_key(
+                            conn, "graph_relations", row
+                        )
+                        if (
+                            isinstance(remote_rel_id, str)
+                            and local_rel_id is not None
+                            and local_rel_id != remote_rel_id
+                        ):
+                            relation_id_map[remote_rel_id] = local_rel_id
+                            stats.skipped += 1
+                            continue
                     stats.provenance_dropped += _translate_source_id_arrays(
                         row, tbl, source_id_map
                     )
@@ -1274,7 +1302,9 @@ def import_knowledge(
                 # Children of a converged row still name the peer's id. Repair
                 # them before anything reads the graph, or a relation points at
                 # an entity this device has never had and nothing complains.
-                stats.remapped = _remap_converged_ids(conn, entity_id_map, span_id_map)
+                stats.remapped = _remap_converged_ids(
+                    conn, entity_id_map, span_id_map, relation_id_map
+                )
                 _reconcile_authoritative_generations(conn)
 
     return stats
@@ -1811,6 +1841,22 @@ def _lw_upsert(
 _NATURAL_KEY_COLS: dict[str, tuple[str, ...]] = {
     "graph_entities": ("canonical_name", "entity_type"),
     "source_spans": ("source_id", "content_hash"),
+    # D1c. `graph_relations` has no UNIQUE index on this, and CANNOT be given
+    # one: `db.connect` runs `SCHEMA_SQL` on every open, and `CREATE UNIQUE
+    # INDEX` — unlike `CREATE TABLE IF NOT EXISTS` — is not a no-op on an
+    # existing table. A vault holding even one duplicate would fail to open, on
+    # every command. Measured: the index builds cleanly on data that satisfies
+    # it and raises `IntegrityError` on data that does not.
+    #
+    # So convergence is enforced at import instead, where the duplicates are
+    # actually created. Existing rows are left alone; only new ones are
+    # prevented. The key was a modelling question the roadmap flagged, and the
+    # data settled it: all 2,787 relations on the reference vault are already
+    # unique under (source, target, type), while (source, target) alone collides
+    # in 125 groups. Adding `assertion_source` or `description` changes nothing,
+    # so neither belongs in it — `description` especially, being LLM prose that
+    # differs between devices for the same assertion.
+    "graph_relations": ("source_entity_id", "target_entity_id", "relation_type"),
 }
 
 # Scalar columns naming a converged id. `graph_entities.redirect_to_entity_id`
@@ -1827,6 +1873,7 @@ _SCALAR_ID_REFS: dict[str, tuple[tuple[str, str], ...]] = {
     ),
     "claim_supports": (("source_span_id", "span"),),
     "memory_paths": (("start_node_id", "entity"),),
+    "graph_relation_supports": (("relation_id", "relation"),),
 }
 
 # `artifact_dependencies` is polymorphic: the SAME column holds an id whose kind
@@ -1859,7 +1906,10 @@ _TYPED_ID_REFS: tuple[tuple[str, str, str, dict[str, str]], ...] = (
 # below tests `isinstance(value, str)` and would skip every one of them
 # silently.
 _JSON_OBJECT_ID_REFS: dict[str, tuple[tuple[str, tuple[str, ...], str], ...]] = {
-    "memory_paths": (("path_json", ("from", "to"), "entity"),),
+    "memory_paths": (
+        ("path_json", ("from", "to"), "entity"),
+        ("path_json", ("relation_id",), "relation"),
+    ),
 }
 
 # JSON arrays of ids. A plain column rewrite cannot reach inside these, and
@@ -1869,7 +1919,11 @@ _JSON_ARRAY_ID_REFS: dict[str, tuple[tuple[str, str], ...]] = {
     "knowledge_units": (("source_span_ids", "span"),),
     "graph_entities": (("source_span_ids", "span"),),
     "graph_relations": (("source_span_ids", "span"),),
-    "community_reports": (("entity_ids", "entity"), ("source_span_ids", "span")),
+    "community_reports": (
+        ("entity_ids", "entity"),
+        ("relation_ids", "relation"),
+        ("source_span_ids", "span"),
+    ),
     "entity_aliases": (("source_span_ids", "span"),),
     "graph_relation_supports": (("source_span_ids", "span"),),
     "synthesis_nodes": (("source_span_ids", "span"),),
@@ -1988,6 +2042,7 @@ def _translate_row_ids(
     table: str,
     entity_map: dict[str, str],
     span_map: dict[str, str],
+    relation_map: dict[str, str] | None = None,
 ) -> None:
     """Rewrite an incoming row's id columns into this device's ids, in place.
 
@@ -2005,10 +2060,12 @@ def _translate_row_ids(
     direction was fixed — the same table, and the same blind spot, for the third
     time. Reading both registries here is what stops there being a fourth.
     """
+    by_kind = {"entity": entity_map, "span": span_map,
+               "relation": relation_map or {}}
     for column, kind in _SCALAR_ID_REFS.get(table, ()):
         value = row.get(column)
         if isinstance(value, str):
-            mapped = (entity_map if kind == "entity" else span_map).get(value)
+            mapped = by_kind[kind].get(value)
             if mapped is not None:
                 row[column] = mapped
 
@@ -2137,13 +2194,15 @@ def _remap_converged_ids(
     conn: "db.sqlite3.Connection",
     entity_map: dict[str, str],
     span_map: dict[str, str],
+    relation_map: dict[str, str] | None = None,
 ) -> int:
     """Rewrite every reference to a peer id that converged onto a local row.
 
     Returns the number of references rewritten, so a caller can report it rather
     than have the repair be invisible.
     """
-    maps = {"entity": entity_map, "span": span_map}
+    maps = {"entity": entity_map, "span": span_map,
+            "relation": relation_map or {}}
     rewritten = 0
 
     for table, refs in _SCALAR_ID_REFS.items():
