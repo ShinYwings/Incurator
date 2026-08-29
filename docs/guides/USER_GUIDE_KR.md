@@ -1105,6 +1105,17 @@ source가 없는 첫 가져오기의 source-scoped 행도 같은 방식으로 �
   모든 키 필드를 저장합니다. Source 범위 키는 기기별 숫자 id가 아니라
   portable source key를 사용하므로 오래된 snapshot이 삭제된
   provenance/support 행을 되살릴 수 없습니다.
+
+  **v0.73.0 이전에는 이 마지막 문장이 모든 테이블에서 참이 아니었습니다.**
+  `claim_supports`, `entity_resolution_lineage`, `artifact_dependencies` 세 개는
+  tombstone에 기기 로컬 id를 그대로 넣었습니다. 두 기기가 같은 소스를 각자 읽어
+  같은 텍스트 span에 서로 다른 내부 id를 붙인 경우, 한쪽에서 삭제하면 상대가 가진
+  적 없는 id를 가리키게 되어 그쪽에서는 아무것도 지워지지 않으면서 성공했다고
+  보고했습니다. 반대 방향도 일어났고 그쪽이 더 나빴습니다 — 지운 support 행이
+  다음 동기화 때 자기 tombstone을 지나쳐 되살아났습니다. 도착한 행을 상대 기기의
+  id로 검사했기 때문입니다. 이제 tombstone을 맞추기 전에 두 기기의 id를 서로
+  번역해 양방향 모두 닫혔습니다. 이 기기가 가진 적 없는 것에 대한 tombstone은
+  여전히 아무것도 매치하지 않습니다 — 그게 맞는 동작입니다.
 - **무한 루프 없음** — 취약한 해시 가드 없이. 기기는 자기 파일을 가져오지 않고, 실제로 변경이 있을 때만 다시 내보냅니다.
 - **Snapshot identity.** JSONL header의 export id로 교체된 파일을 식별하므로
   mtime이 같아도 새 snapshot을 건너뛰지 않습니다.

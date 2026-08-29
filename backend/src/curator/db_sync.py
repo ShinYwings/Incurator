@@ -304,9 +304,29 @@ _COMPOSITE_KEY_SPECS: dict[str, _CompositeKeySpec] = {
 # different id. `source_pages`/`source_pdf_pages` are absent on purpose: they
 # already transport `source_sync_key`, a value both devices compute identically,
 # which is exactly why they never had this bug.
-_TOKEN_ID_FIELDS: dict[str, tuple[tuple[str, str], ...]] = {
+# `None` as the kind means "this field's type is not fixed — try both maps".
+# The ids are prefixed (`SPAN-`, `ENT-`) and the maps are keyed by the whole id,
+# so a lookup in both is unambiguous.
+#
+# Which tables belong here follows from ONE property: a token field diverges
+# between devices only if its table has a natural-key UNIQUE index, because that
+# is what makes two devices' rows converge to different local ids. `source_spans`
+# and `graph_entities` have one; `knowledge_units` and `graph_relations` do not,
+# so `KNU-`/`REL-` ids are inserted verbatim and already agree. That is why
+# `graph_relation_supports` — `(relation_id, knowledge_unit_id, support_hash)` —
+# is deliberately absent rather than overlooked.
+#
+# `source_pages`/`source_pdf_pages` are absent for the other reason: they already
+# transport `source_sync_key`, which both devices compute identically, and that
+# is exactly why they never had this bug.
+_TOKEN_ID_FIELDS: dict[str, tuple[tuple[str, str | None], ...]] = {
     "claim_supports": (("source_span_id", "span"),),
     "entity_resolution_lineage": (("origin_entity_id", "entity"),),
+    # Polymorphic, and the token carries only `depends_on_type` — `artifact_type`
+    # is not a transport field — so `artifact_id` is dispatched by prefix. This is
+    # the same table whose reference columns a name-keyed registry could not see
+    # in v0.72.0; here it hides in a tombstone instead.
+    "artifact_dependencies": (("artifact_id", None), ("depends_on_id", None)),
 }
 
 
@@ -337,7 +357,11 @@ def _translate_tombstone_token(
     fields = _TOKEN_ID_FIELDS.get(table_name)
     if not fields:
         return token
-    maps = {"entity": entity_map, "span": span_map}
+    maps: dict[str | None, dict[str, str]] = {
+        "entity": entity_map,
+        "span": span_map,
+        None: {**entity_map, **span_map},
+    }
     if not any(maps[kind] for _name, kind in fields):
         return token
     try:

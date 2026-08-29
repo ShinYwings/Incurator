@@ -1164,6 +1164,18 @@ How it stays safe across devices:
   key field in validated canonical JSON. Source-scoped keys use the portable
   source key rather than a device's numeric id, so stale snapshots cannot
   recreate a deleted provenance/support row.
+
+  **Until v0.73.0 that last sentence was not true for every table.** Three of
+  them — `claim_supports`, `entity_resolution_lineage`, and
+  `artifact_dependencies` — put a raw, device-local id in the tombstone instead.
+  When two devices had each read the same source and given the same text span
+  their own internal id, a delete on one device named an id the other had never
+  had, so the delete quietly did nothing there while reporting success. The
+  reverse also happened, and was worse: a support row you deleted could come back
+  on the next sync, past its own tombstone, because the arriving row was checked
+  under the other device's id. Both directions are now closed by translating
+  between the two devices' ids before the tombstone is matched. A tombstone for
+  something this device never had still matches nothing, as it should.
 - **No infinite loops** — without any fragile hash guard. A device never imports its own file, and it re-exports only when something actually changed.
 - **Snapshot identity.** Each JSONL header has an export id, so a replaced file
   is not skipped merely because its mtime is unchanged.

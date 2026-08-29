@@ -198,3 +198,46 @@ def test_a_tombstone_for_a_row_this_device_never_had_still_matches_nothing(
     import_knowledge(b, export_path)
 
     assert _support_count(b) == 1, "the delete removed an unrelated row"
+
+
+def test_a_polymorphic_dependency_tombstone_is_translated(device, tmp_path: Path) -> None:
+    """`artifact_dependencies` hides a span id in a generically-named column.
+
+    Its token is `(artifact_id, depends_on_id, depends_on_type)` — and
+    `artifact_type` is NOT a transport field, so `artifact_id` has to be
+    dispatched by prefix rather than by a declared kind. This is the same table
+    whose reference columns a name-keyed registry could not see in v0.72.0; here
+    it hides in a tombstone instead.
+    """
+    a, b = device("a"), device("b")
+
+    def seed(path: Path, span_id: str) -> None:
+        with db.connect(path) as conn:
+            conn.execute(
+                "INSERT INTO source_spans (id, source_id, relpath, span_type,"
+                " content_hash, text_preview, start_char, end_char, created_at)"
+                " VALUES (?, 1, ?, 'paragraph', 'hash-identical', 'same', 0, 10, ?)",
+                (span_id, "03_Notes/paper.md", "2026-01-01T00:00:00Z"),
+            )
+            conn.execute(
+                "INSERT INTO artifact_dependencies (artifact_id, artifact_type,"
+                " depends_on_id, depends_on_type, dependency_hash, created_at)"
+                " VALUES ('KNU-11111111', 'knowledge_unit', ?, 'source_span', 'h', ?)",
+                (span_id, "2026-01-01T00:00:00Z"),
+            )
+
+    seed(a, "SPAN-aaaaaaaa")
+    seed(b, "SPAN-bbbbbbbb")
+
+    with db.connect(a) as conn:
+        row = conn.execute("SELECT * FROM artifact_dependencies").fetchone()
+        record_row_tombstone_on_connection(conn, "artifact_dependencies", dict(row))
+        conn.execute("DELETE FROM artifact_dependencies")
+
+    export_path = tmp_path / "a.json"
+    export_knowledge(a, export_path)
+    import_knowledge(b, export_path)
+
+    with db.connect(b) as conn:
+        n = conn.execute("SELECT COUNT(*) FROM artifact_dependencies").fetchone()[0]
+    assert n == 0, "the dependency tombstone named the peer's span id and matched nothing"
