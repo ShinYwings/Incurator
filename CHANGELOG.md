@@ -2,6 +2,62 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.73.0] - 2026-08-30
+
+### Fixed
+- **A delete on one device could silently fail to apply on another — and a row
+  you deleted could walk back in.** `claim_supports`,
+  `entity_resolution_lineage`, and `artifact_dependencies` put a raw,
+  device-local id into their composite tombstone token (`source_span_id`,
+  `origin_entity_id`, and — polymorphically — `artifact_id`/`depends_on_id`),
+  minted at deletion time on the deleting device. The receiver has never held that id, so the WHERE
+  clause matched nothing, the delete was counted as applied, and the row
+  survived. `source_pages`/`source_pdf_pages` never had this because they already
+  transport `source_sync_key`, a value both devices compute identically.
+
+  The mirror case is worse and was not in the original report:
+  `_row_is_blocked_by_tombstone` builds an incoming row's token from that row's
+  **own** ids — the peer's — while the local tombstone names the local id. So a
+  row deliberately deleted here was re-inserted by the next sync, silently, with
+  its own tombstone sitting beside it. Deleted data returning is a worse failure
+  than a delete that quietly does nothing.
+
+  Both are closed by translating between the two devices' ids: a pre-scan builds
+  the peer-to-local map before anything is applied, incoming rows carry local ids
+  before the tombstone check runs, and a peer's token is re-expressed in local
+  ids before it is matched. An id this device does not know passes through
+  unchanged, so a tombstone for a row it never had still matches nothing.
+
+  Two of those pieces were wrong on the first pass and are worth recording,
+  because both were the same mistake in different clothes. The row-translation
+  step read only the name-keyed registry, so the polymorphic
+  `artifact_dependencies` fell through it and a deleted dependency still walked
+  back in — the third time that table slipped past a scan keyed on column names.
+  And the token translation used a permissive `json.loads`, which put it in FRONT
+  of the fail-closed decoder: a token with an unsupported version was
+  re-canonicalized into a valid one and applied, deleting a row the gate existed
+  to protect. Both now have tests that fail if the fix is reverted.
+
+### Note
+- **No `SCHEMA_VERSION` bump, and no change to the token format.** The roadmap
+  called for swapping these transport fields to a portable form and warned this
+  would need a version bump and a fleet-wide gate. It is not constructible today:
+  `claim_supports`'s key also contains `knowledge_unit_id`, and `knowledge_units`
+  has **no natural-key UNIQUE index**, so there is no portable form for that half
+  of the key. Translating the ids that genuinely converge — which are exactly the
+  ones that differ between devices — closes the gap without inventing an identity
+  the schema does not have.
+
+  This is the second release running where the roadmap's remedy was larger than
+  the defect required. Both times the difference was found by measuring rather
+  than by reading the entry.
+
+  One limit, stated rather than papered over: the map is built from the rows in
+  the import file, so a `wiki db export --since` snapshot that omits the
+  referenced spans yields a smaller map and those tokens behave as before.
+  Nothing regresses, and the hands-off autosync path always writes a full
+  snapshot.
+
 ## [0.72.0] - 2026-08-29
 
 ### Fixed

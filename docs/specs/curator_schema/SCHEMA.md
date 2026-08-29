@@ -1,4 +1,4 @@
-# Incurator - Schema & Operating Conventions (v0.72.0)
+# Incurator - Schema & Operating Conventions (v0.73.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -1661,6 +1661,69 @@ expression default, and local source writes advance it monotonically. JSONL
 import requires a valid remote `updated_at` value for every `sources` row; it
 does not synthesize a revision from `last_ingested`, `added_at`, or the current
 clock. Malformed source rows are rejected instead of partially imported.
+
+**Tombstones are matched in the receiving device's ids, both directions
+(v0.73.0).** `claim_supports`, `entity_resolution_lineage`, and
+`artifact_dependencies` carry a raw, device-local id inside their composite
+tombstone token (`source_span_id`, `origin_entity_id`, and — polymorphically —
+`artifact_id`/`depends_on_id`). The token is minted at deletion time, on the deleting
+device, so it names an id the receiver has never held — the WHERE clause matched
+nothing, the delete was counted as applied, and the row survived.
+`source_pages`/`source_pdf_pages` are exempt by construction: they transport
+`source_sync_key`, which both devices compute identically.
+
+The mirror direction is worse. `_row_is_blocked_by_tombstone` computes an
+incoming row's token from that row's **own** ids, so a row this device deleted
+was re-inserted by the next sync, past its own tombstone. Deleted data returning
+outranks a delete that quietly does nothing.
+
+Import therefore does three things, and all three are load-bearing:
+
+1. **A pre-scan** reads the file once for `source_spans`/`graph_entities` only
+   and resolves each peer id to the local id for the same natural key, before
+   anything is applied. In-stream is too late: `deleted_records` is
+   `SYNC_TABLES` index 0.
+2. **Incoming rows are translated before the upsert**, not only in the
+   post-pass, so the blocking check sees local ids.
+3. **A peer's token is re-expressed in local ids** before it is matched. An
+   unknown id passes through unchanged, so a tombstone for a row this device
+   never had still matches nothing rather than guessing.
+
+**Membership in the translation registries follows one rule, and it MUST be
+stated wherever they are edited**: a token field diverges between devices only if
+its table has a natural-key UNIQUE index, because that is what makes two devices'
+rows converge onto different local ids. `source_spans` and `graph_entities` have
+one; `knowledge_units` and `graph_relations` do not, so `KNU-`/`REL-` ids are
+inserted verbatim and already agree. That is why `graph_relation_supports` is
+absent by decision rather than by oversight, and why `source_pages`/
+`source_pdf_pages` are absent for the different reason that they already
+transport `source_sync_key`.
+
+**Both translation paths MUST consult both registries.** `artifact_dependencies`
+is polymorphic — its id column is generically named with the kind in a sibling
+column — so a registry keyed on column NAME cannot see it. Fixing only the token
+path left the row path open and a deleted dependency walked back in; that was the
+third time the same table slipped through a name-keyed scan.
+
+**The translation MUST decode through the fail-closed gate**, never a permissive
+`json.loads`. Re-canonicalizing a payload the gate would refuse — an unsupported
+version, extra fields, duplicate keys — turns it into a valid token that passes
+validation downstream and deletes a row. A token that does not decode is passed
+on untouched so the refusal happens where it belongs.
+
+**The token format does not change and `SCHEMA_VERSION` does not move.** A
+portable token is the tidier design and is what this was originally scoped as,
+but it is not constructible: `claim_supports`'s key also contains
+`knowledge_unit_id`, and `knowledge_units` has no natural-key UNIQUE index, so
+half the key has no portable form. Translating the ids that converge closes the
+gap without inventing an identity the schema does not have.
+
+The map is built from the rows present in the import file. A
+`wiki db export --since` snapshot that omits the referenced spans yields a
+smaller map, and those tokens behave as they did before — no regression, and the
+autosync path always writes a full snapshot. (`export_knowledge(tables=...)`
+narrows it further but is a Python-level argument with no CLI flag.)
+
 
 **Converged entity and span ids are remapped, not left dangling (v0.72.0).**
 `graph_entities` and `source_spans` are transported on their surrogate `id`, but
