@@ -32,6 +32,22 @@ All notable changes to Incurator are documented here.
   `wiki db import` prints the count. A silent repair would be indistinguishable
   from no repair.
 
+- **The test suite was running the developer's own provider CLI.**
+  `cfg.DEFAULT_CONFIG` sets `llm.primary = "antigravity-cli::..."`, so every test
+  that saved the default config and built a client spawned the real `agy` —
+  against the user's account and quota. Confirmed by `ps` during a full run: real
+  `agy` processes whose parent was pytest and whose `--log-file` pointed into
+  `pytest-of-shin/pytest-1047/...`. The user noticed before the suite did,
+  because nothing in the suite was watching.
+
+  A conftest guard now fails any test that tries to run `agy`, `claude`, `codex`,
+  `gemini`, or `ollama`, naming the test and saying to patch `subprocess.run`
+  instead. Ordinary subprocess calls are unaffected.
+
+  The side effect is large: the full backend suite went from **4,060 seconds to
+  67**. Most of that hour was spent waiting on real provider responses inside
+  tests that never meant to make them.
+
 ### Note
 - **No schema change, and no `SCHEMA_VERSION` bump.** The roadmap described this
   as "a schema change touching every referencing column"; measuring it showed
