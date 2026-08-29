@@ -2,6 +2,53 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.72.0] - 2026-08-29
+
+### Fixed
+- **A relation from another device could point at an entity this device has
+  never had.** `graph_entities` and `source_spans` sync on their surrogate `id`,
+  but both carry a natural identity — `UNIQUE(canonical_name, entity_type)` and
+  `UNIQUE(source_id, content_hash)`. Two devices that independently extract the
+  same thing mint different ids, so the peer's row collides on content and is
+  correctly reported `skipped`; the data is already here. **Its children were
+  not translated.** `graph_relations.source_entity_id` has no foreign key, so
+  the relation was written verbatim, naming an id that exists nowhere locally —
+  no error, no counter, invisible to anything but a join that comes back empty.
+
+  This is not hypothetical. The reference vault's peer export carried 691
+  entities, and one of them — `MipNeRF360` — already existed here under a
+  different id. No relation broke that time **only because that export happened
+  to contain no relation touching it.** Replaying the same collision with the
+  relation present, against a copy of the real database and through the real
+  `import_knowledge`, reproduced the dangling endpoint and then showed it
+  repaired: `skipped=1 remapped=1`, endpoint re-pointed at the local id.
+
+  Import now records the id this device already uses for each converged row and
+  rewrites every reference: scalar columns *and* JSON arrays
+  (`knowledge_units.source_span_ids`, `community_reports.entity_ids`, and eight
+  more). A provenance array citing a span this device does not have is worse
+  than a dangling scalar — nothing ever flags it.
+
+  `wiki db import` prints the count. A silent repair would be indistinguishable
+  from no repair.
+
+### Note
+- **No schema change, and no `SCHEMA_VERSION` bump.** The roadmap described this
+  as "a schema change touching every referencing column"; measuring it showed
+  the referencing columns already hold the right data and the natural keys
+  already exist as UNIQUE indexes. `sources` needed a separate `sync_key` column
+  because `relpath` alone was not enough; these two tables do not. The export
+  format is unchanged, so a device on this release and one on an older release
+  still interoperate — the newer one repairs its imports, the older one keeps
+  the defect.
+
+  The alternative designs were rejected on evidence, not preference. Deriving
+  the id from the natural key makes a delete tombstone the *natural key*,
+  permanently blocking that entity from ever syncing again on any device. Adding
+  a `sync_key` column means resurrecting the `ALTER TABLE` migration mechanism
+  this project deliberately deleted in v0.33.0 — without it, adding a column to
+  an existing table is a silent no-op that crashes on first read.
+
 ## [0.71.0] - 2026-08-29
 ### Added
 - **A cap on the LLM call log — with a guard that is the whole point.**

@@ -468,6 +468,37 @@ gap. The real fix is a transport identity for both tables plus the id-remap
 plumbing — a schema change touching every referencing column, which is why it
 was left out of v0.50.0 rather than smuggled in.
 
+### D1b. Composite tombstones embed a device-local id (found while scoping D1)
+
+`claim_supports` and `entity_resolution_lineage` put a raw, device-local id into
+their composite tombstone token (`source_span_id`, `origin_entity_id`). Device A
+deleting a `claim_supports` row records a token naming A's span id; device B
+holds the same span under its own id, so `_apply_tombstone` matches zero rows —
+B's copy survives while the tombstone reports as applied. A silent failed delete.
+
+`source_pages`/`source_pdf_pages` do not have this because they already transport
+`source_sync_key` instead of the raw `source_id`. The fix is the same swap. It
+changes a transport field, so it needs a `SCHEMA_VERSION` bump and the existing
+hard version gate — its own release, per the Phase D rule.
+
+D1's remap does NOT cover this: the remap repairs references between rows, and a
+tombstone token is computed at deletion time on the deleting device, before any
+import exists to repair.
+
+### D1c. `graph_relations` rows do not converge, only their endpoints
+
+Two devices asserting the same relation mint two `REL-` ids, and `graph_relations`
+has no natural-key UNIQUE constraint, so nothing dedupes them. After D1 both rows
+point at the same converged entity pair — correct, but duplicated. Deciding the
+natural key for a relation is a modelling question (does `assertion_source` or
+`description` participate?), not just plumbing.
+
+### D1d. `prompt_runs.source_ids` has never been remapped
+
+A JSON array of `sources.id` that the `sources` transport skips — a pre-existing
+gap in that feature, not in D1. D1's machinery reaches it almost for free, but
+folding it in silently would have blurred D1's acceptance criteria.
+
 ### D2. The curation lens and the vault persona never reach the chat surface
 
 **From `knowledge_value_arena` [P1]. Not re-verified in this pass — carry the

@@ -515,6 +515,12 @@ class ImportStats:
     #: separately because reporting them as `inserted` claims data arrived that
     #: was silently dropped (B2).
     rejected: int = 0
+    #: References rewritten because a peer row converged onto one this device
+    #: already had under a different id (D1). Reported rather than silent: a
+    #: non-zero count means the peer and this device had independently extracted
+    #: the same entity or span, and every child that named the peer's id was
+    #: repaired. Zero is the normal case.
+    remapped: int = 0
     dry_run: bool = False
 
 
@@ -1009,6 +1015,11 @@ def import_knowledge(
             }
             source_id_map: dict[int, int | None] = {}
             source_sync_keys: dict[int, str] = {}
+            # Peer id -> the id this device already uses for the same row.
+            # Only convergences land here; a row the peer alone has maps to
+            # itself and is left out, so an empty map means nothing to repair.
+            entity_id_map: dict[str, str] = {}
+            span_id_map: dict[str, str] = {}
             planned_source_inserts: set[int] = set()
             # Sources the database refused. Their child rows are LOST, not
             # merely skipped: there is no parent to attach them to, so nothing
@@ -1104,6 +1115,7 @@ def import_knowledge(
                             )
                         )
                         row["source_id"] = local_source_id
+                    remote_row_id = row.get("id")
                     result = _lw_upsert(
                         conn,
                         tbl,
@@ -1113,6 +1125,15 @@ def import_knowledge(
                         source_sync_key=source_sync_key,
                         parent_will_be_inserted=parent_will_be_inserted,
                     )
+                    if tbl in _NATURAL_KEY_COLS and isinstance(remote_row_id, str):
+                        # `row["source_id"]` is already local by here, so the
+                        # span natural key resolves against this device's ids.
+                        local_row_id = _local_id_for_natural_key(conn, tbl, row)
+                        if local_row_id is not None and local_row_id != remote_row_id:
+                            target = (
+                                entity_id_map if tbl == "graph_entities" else span_id_map
+                            )
+                            target[remote_row_id] = local_row_id
                     if result == "inserted":
                         stats.inserted += 1
                     elif result == "updated":
@@ -1122,6 +1143,10 @@ def import_knowledge(
                     else:
                         stats.skipped += 1
             if not dry_run:
+                # Children of a converged row still name the peer's id. Repair
+                # them before anything reads the graph, or a relation points at
+                # an entity this device has never had and nothing complains.
+                stats.remapped = _remap_converged_ids(conn, entity_id_map, span_id_map)
                 _reconcile_authoritative_generations(conn)
 
     return stats
@@ -1628,6 +1653,140 @@ def _lw_upsert(
     if not dry_run:
         _do_upsert(conn, table_name, row)
     return "inserted"
+
+
+# --- D1: converging a peer's surrogate id onto ours -------------------------
+#
+# `graph_entities` and `source_spans` are transported on their surrogate `id`,
+# but both carry a natural identity — `UNIQUE(canonical_name, entity_type)` and
+# `UNIQUE(source_id, content_hash)`. Two devices that independently extract the
+# same thing mint different ids, so the peer's row collides on content and is
+# correctly skipped (see `_do_insert`) — the data is already here.
+#
+# What was missing is the other half. The peer's CHILDREN still name the peer's
+# id, which does not exist locally, and nothing translated them: a relation
+# arrived pointing at an entity this device has never had, silently, with no FK
+# to catch it. `sources` solved exactly this in `_lw_upsert_source` — on a
+# duplicate it looks up the local id "so the peer's child rows attach to it
+# instead of being orphaned." These two tables never got the same treatment.
+#
+# Measured on the reference vault: the peer export carried 691 entities and one
+# of them, `MipNeRF360`, already existed locally under a different id. No
+# relation broke that time only because that export happened to contain no
+# relation touching it.
+#
+# This runs as a POST-PASS rather than in the row loop, because `SYNC_TABLES`
+# order does not dominate the references: `synthesis_nodes` (index 6) carries
+# `source_span_ids` but is written before `source_spans` (index 7). A post-pass
+# is order-independent, and it is cheap because convergences are rare — one in
+# 691 above — so it touches only rows that actually name a converged id.
+_NATURAL_KEY_COLS: dict[str, tuple[str, ...]] = {
+    "graph_entities": ("canonical_name", "entity_type"),
+    "source_spans": ("source_id", "content_hash"),
+}
+
+# Scalar columns naming a converged id. `graph_entities.redirect_to_entity_id`
+# is included even though it is self-referencing: a redirect target can converge
+# just as an endpoint can, and the post-pass sees the whole table.
+_SCALAR_ID_REFS: dict[str, tuple[tuple[str, str], ...]] = {
+    "graph_relations": (("source_entity_id", "entity"), ("target_entity_id", "entity")),
+    "graph_entities": (("redirect_to_entity_id", "entity"),),
+    "entity_aliases": (("entity_id", "entity"),),
+    "entity_merge_proposals": (("source_entity_id", "entity"), ("target_entity_id", "entity")),
+    "entity_resolution_lineage": (
+        ("origin_entity_id", "entity"),
+        ("canonical_entity_id", "entity"),
+    ),
+    "claim_supports": (("source_span_id", "span"),),
+}
+
+# JSON arrays of ids. A plain column rewrite cannot reach inside these, and
+# leaving them is worse than a dangling FK, not better: nothing ever flags a
+# provenance array that cites a span this device does not have.
+_JSON_ARRAY_ID_REFS: dict[str, tuple[tuple[str, str], ...]] = {
+    "knowledge_units": (("source_span_ids", "span"),),
+    "graph_entities": (("source_span_ids", "span"),),
+    "graph_relations": (("source_span_ids", "span"),),
+    "community_reports": (("entity_ids", "entity"), ("source_span_ids", "span")),
+    "entity_aliases": (("source_span_ids", "span"),),
+    "graph_relation_supports": (("source_span_ids", "span"),),
+    "synthesis_nodes": (("source_span_ids", "span"),),
+    "query_traces": (("source_span_ids", "span"),),
+    "prompt_runs": (("source_span_ids", "span"),),
+    "memory_paths": (("source_span_ids", "span"),),
+}
+
+
+def _local_id_for_natural_key(
+    conn: "db.sqlite3.Connection", table: str, row: dict
+) -> str | None:
+    """The id this device already uses for the row the peer is describing."""
+    cols = _NATURAL_KEY_COLS[table]
+    if any(row.get(col) is None for col in cols):
+        return None
+    where = " AND ".join(f"{col} = ?" for col in cols)
+    found = conn.execute(
+        f"SELECT id FROM {table} WHERE {where}",  # noqa: S608 - names are literals above
+        tuple(row[col] for col in cols),
+    ).fetchone()
+    return str(found["id"]) if found is not None else None
+
+
+def _remap_converged_ids(
+    conn: "db.sqlite3.Connection",
+    entity_map: dict[str, str],
+    span_map: dict[str, str],
+) -> int:
+    """Rewrite every reference to a peer id that converged onto a local row.
+
+    Returns the number of references rewritten, so a caller can report it rather
+    than have the repair be invisible.
+    """
+    maps = {"entity": entity_map, "span": span_map}
+    rewritten = 0
+
+    for table, refs in _SCALAR_ID_REFS.items():
+        for column, kind in refs:
+            for remote_id, local_id in maps[kind].items():
+                cursor = conn.execute(
+                    f"UPDATE {table} SET {column} = ? WHERE {column} = ?",  # noqa: S608
+                    (local_id, remote_id),
+                )
+                rewritten += cursor.rowcount or 0
+
+    for table, refs in _JSON_ARRAY_ID_REFS.items():
+        for column, kind in refs:
+            id_map = maps[kind]
+            if not id_map:
+                continue
+            # Only rows that actually mention a converged id are candidates, so
+            # this stays proportional to the convergences, not to the table.
+            clauses = " OR ".join(f"{column} LIKE ?" for _ in id_map)
+            params = [f"%{remote}%" for remote in id_map]
+            # `rowid`, not `id`: several of these tables have a composite primary
+            # key and no `id` column at all (`graph_relation_supports`,
+            # `claim_supports`). Every one of them is an ordinary rowid table.
+            for row in conn.execute(
+                f"SELECT rowid AS _rid, {column} AS payload FROM {table} WHERE {clauses}",  # noqa: S608
+                params,
+            ).fetchall():
+                try:
+                    ids = json.loads(row["payload"] or "[]")
+                except (TypeError, ValueError):
+                    continue  # malformed payloads are not this repair's business
+                if not isinstance(ids, list):
+                    continue
+                updated = [id_map.get(value, value) if isinstance(value, str) else value
+                           for value in ids]
+                if updated == ids:
+                    continue
+                rewritten += sum(1 for a, b in zip(ids, updated) if a != b)
+                conn.execute(
+                    f"UPDATE {table} SET {column} = ? WHERE rowid = ?",  # noqa: S608
+                    (json.dumps(updated), row["_rid"]),
+                )
+
+    return rewritten
 
 
 def _do_insert(conn: "db.sqlite3.Connection", table: str, row: dict) -> str:

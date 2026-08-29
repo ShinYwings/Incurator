@@ -1,4 +1,4 @@
-# Incurator - Schema & Operating Conventions (v0.71.0)
+# Incurator - Schema & Operating Conventions (v0.72.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -1661,6 +1661,48 @@ expression default, and local source writes advance it monotonically. JSONL
 import requires a valid remote `updated_at` value for every `sources` row; it
 does not synthesize a revision from `last_ingested`, `added_at`, or the current
 clock. Malformed source rows are rejected instead of partially imported.
+
+**Converged entity and span ids are remapped, not left dangling (v0.72.0).**
+`graph_entities` and `source_spans` are transported on their surrogate `id`, but
+both carry a natural identity — `UNIQUE(canonical_name, entity_type)` and
+`UNIQUE(source_id, content_hash)`. Two devices that independently extract the
+same thing mint different ids, so the peer's row collides on content and is
+correctly reported `skipped`: the data is already here. **The peer's children,
+however, still name the peer's id.** There is no foreign key on
+`graph_relations.source_entity_id`/`target_entity_id`, so before this release a
+relation arrived pointing at an entity the receiving device had never had —
+silently, with no error, no counter, and no way to notice except by joining
+through `graph_entities` and finding nothing.
+
+Import therefore records, for each of these two tables, the id this device
+already uses for the row the peer is describing, and rewrites every reference to
+the peer's id afterwards. The rewrite covers **scalar columns**
+(`graph_relations.source_entity_id`/`target_entity_id`,
+`graph_entities.redirect_to_entity_id`, `entity_aliases.entity_id`,
+`entity_merge_proposals.*_entity_id`, `entity_resolution_lineage.*_entity_id`,
+`claim_supports.source_span_id`) **and JSON arrays** (`source_span_ids` on
+`knowledge_units`, `graph_entities`, `graph_relations`, `community_reports`,
+`entity_aliases`, `graph_relation_supports`, `synthesis_nodes`, `query_traces`,
+`prompt_runs`, `memory_paths`; and `community_reports.entity_ids`). A JSON array
+naming a span this device does not have is worse than a dangling scalar, not
+better — nothing ever flags it.
+
+The rewrite runs **after** all rows are applied, not during the row loop,
+because `SYNC_TABLES` order does not dominate the references: `synthesis_nodes`
+carries `source_span_ids` but is written before `source_spans`. It is cheap
+because convergences are rare — measured on the reference vault, one in 691
+imported entities — so it touches only rows that actually name a converged id.
+
+`ImportStats.remapped` counts the rewritten references and `wiki db import`
+prints it. A silent repair would be indistinguishable from no repair.
+
+**This needs no schema change and no `SCHEMA_VERSION` bump.** The natural keys
+already exist as UNIQUE indexes; unlike `sources`, which needed a separate
+`sync_key` column because `relpath` alone was insufficient, these two tables do
+not. The export format is unchanged, so a device running this release and one
+running an older release still interoperate — the newer one repairs its imports,
+the older one keeps the defect. Degradation, not a fleet-wide gate.
+
 
 **Portable source transport identity (`SCHEMA_VERSION = 12`):** every source has
 a unique, non-empty `sync_key`. The key is derived from a portable integration
