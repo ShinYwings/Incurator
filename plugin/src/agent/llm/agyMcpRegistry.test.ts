@@ -120,3 +120,43 @@ describe("what Incurator registers in agy's MCP registry", () => {
     expect(Object.keys(mirror)).toContain("alpha");
   });
 });
+
+describe("the backend's own server survives a plugin turn (v0.73.2)", () => {
+  it("does not delete a server the plugin never registered", () => {
+    // `wiki config` / `wiki init` register the curator MCP server — the one
+    // carrying vault search — into the same files. The settings.json write used
+    // to replace `mcpServers` wholesale, which deleted it on every plugin turn.
+    // Measured on a real session: the assistant had no vault-search tool, fell
+    // back to shelling out to `rg`, and `command(wiki)` correctly refused it, so
+    // the turn produced nothing at all.
+    mkdirSync(geminiDir, { recursive: true });
+    writeFileSync(
+      join(geminiDir, "settings.json"),
+      JSON.stringify({ mcpServers: { incurator: { command: "wiki", args: ["mcp"] } } })
+    );
+
+    sync([{ name: "incurator_fetch", enabled: true }]);
+
+    const settings = JSON.parse(
+      readFileSync(join(geminiDir, "settings.json"), "utf-8")
+    ).mcpServers;
+    expect(Object.keys(settings).sort()).toEqual(["incurator", "incurator_fetch"]);
+  });
+
+  it("still retires a server the plugin itself dropped, in settings.json too", () => {
+    sync([{ name: "doomed", enabled: true }]);
+    expect(
+      Object.keys(
+        JSON.parse(readFileSync(join(geminiDir, "settings.json"), "utf-8")).mcpServers
+      )
+    ).toContain("doomed");
+
+    sync([]);
+
+    expect(
+      Object.keys(
+        JSON.parse(readFileSync(join(geminiDir, "settings.json"), "utf-8")).mcpServers
+      )
+    ).not.toContain("doomed");
+  });
+});
