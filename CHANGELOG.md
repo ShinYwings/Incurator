@@ -32,10 +32,15 @@ All notable changes to Incurator are documented here.
   found by a person hitting it, never by the system.
 
   The check names the specific fault rather than returning a boolean: no
-  registry, server absent, command that cannot start, registration pointing at a
-  different vault, or the missing `mcp(*)` grant. Each has a test, because a
-  check that cannot detect the failure it was written for is the shape this repo
-  keeps repeating.
+  registry, server absent, a command a spawned process cannot resolve, a
+  registration pointing at a different vault, or the missing `mcp(*)` grant.
+
+  Each was then exercised against a copy of the real configuration rather than a
+  fixture — and that is how the check's own hole was found. Its first version
+  exempted a bare `wiki` command outright, so it returned OK for the v0.71.0 bug
+  it was written to catch: a shell alias that resolves interactively and not in a
+  spawned process, leaving the server listed and dead. It now resolves the
+  command the way a spawn does.
 
 ## [0.73.1] - 2026-08-30
 

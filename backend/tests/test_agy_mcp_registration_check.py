@@ -63,13 +63,46 @@ def test_it_notices_a_registry_that_does_not_exist(wired: Path) -> None:
     assert "no MCP registry" in agy_mcp_registration_problem(wired)
 
 
-def test_it_notices_a_command_that_cannot_start(wired: Path) -> None:
-    """The v0.71.0 failure: a bare `wiki` that a spawned process cannot find, or
-    an absolute path into a venv that has since been removed."""
+def test_it_notices_an_absolute_command_that_no_longer_exists(wired: Path) -> None:
+    """A venv that was rebuilt or removed under a registration pointing into it."""
     d = json.loads(_registry().read_text())
     d["mcpServers"]["incurator"]["command"] = "/nonexistent/bin/wiki"
     _registry().write_text(json.dumps(d))
-    assert "does not exist" in agy_mcp_registration_problem(wired)
+    assert "cannot resolve" in agy_mcp_registration_problem(wired)
+
+
+def test_it_notices_a_bare_name_a_spawned_process_cannot_resolve(
+    wired: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The v0.71.0 failure itself, and the one the first version of this check
+    could not see.
+
+    `wiki` is commonly a shell alias or a venv console script that exists only on
+    an interactive login PATH. Registered that way the server is listed and dead:
+    `agy mcp list` shows it and the model reports no tools. An earlier version of
+    this check exempted the bare name outright, so it returned OK for the exact
+    bug it was written to catch — measured against a copy of the real config.
+    """
+    d = json.loads(_registry().read_text())
+    d["mcpServers"]["incurator"]["command"] = "wiki"
+    _registry().write_text(json.dumps(d))
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    assert "cannot resolve" in agy_mcp_registration_problem(wired)
+
+
+def test_a_bare_name_that_IS_on_the_path_is_accepted(
+    wired: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The check must not fire on a legitimate installation."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir(exist_ok=True)
+    (bindir / "wiki").write_text("#!/bin/sh\n")
+    (bindir / "wiki").chmod(0o755)
+    d = json.loads(_registry().read_text())
+    d["mcpServers"]["incurator"]["command"] = "wiki"
+    _registry().write_text(json.dumps(d))
+    monkeypatch.setenv("PATH", f"/usr/bin:/bin:{bindir}")
+    assert agy_mcp_registration_problem(wired) == ""
 
 
 def test_it_notices_registration_against_a_different_vault(wired: Path) -> None:

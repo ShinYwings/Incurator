@@ -374,10 +374,22 @@ def agy_mcp_registration_problem(vault_root: Path) -> str:
     command = entry.get("command") if isinstance(entry, dict) else None
     if not command:
         return f"The curator MCP entry in {registry} has no command to run."
-    if command != "wiki" and not Path(command).exists():
+    # Resolve it the way a SPAWNED process would, not the way an interactive
+    # shell does. `wiki` is commonly a shell alias or a venv console script that
+    # only exists on an interactive login PATH — v0.71.0 shipped exactly that,
+    # and the server was registered and dead: `agy mcp list` showed it and the
+    # model reported no tools. An earlier version of this check exempted the
+    # bare name and so could not detect the very bug it was written for.
+    import shutil
+
+    if Path(command).is_absolute():
+        resolved = command if Path(command).exists() else None
+    else:
+        resolved = shutil.which(command)
+    if resolved is None:
         return (
-            f"The curator MCP server is registered as {command!r}, which does "
-            f"not exist, so it cannot start."
+            f"The curator MCP server is registered as {command!r}, which a "
+            f"spawned process cannot resolve, so it never starts."
         )
     registered_root = ""
     if isinstance(entry, dict):
