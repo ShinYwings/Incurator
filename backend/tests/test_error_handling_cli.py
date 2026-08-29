@@ -214,3 +214,34 @@ def test_sync_mcp_configs_keeps_servers_the_user_registered_themselves(tmp_path,
     )["mcpServers"]
     assert "theirs" in servers, "sync deleted a server the user registered"
     assert "incurator" in servers
+
+
+def test_sync_mcp_configs_registers_a_command_a_spawned_process_can_find(tmp_path, monkeypatch):
+    """A bare `wiki` is registered and dead.
+
+    Measured: `command -v wiki` finds nothing in a spawned process's PATH here --
+    it is a shell alias to the repo-root venv's console script. agy listed the
+    server and then reported that no MCP tools existed, because starting it
+    failed. `resolve_wiki_command` already existed for this exact reason on the
+    Obsidian install path and simply was not used here.
+
+    This was the third of three independent breakages between the plugin and a
+    callable agy tool; the other two are pinned above and in the plugin tests.
+    """
+    import json
+
+    home = tmp_path / "home"
+    home.mkdir()
+    vault = _make_vault(tmp_path)
+    monkeypatch.setattr(cli.Path, "home", lambda: home)
+
+    cli._sync_mcp_configs(vault)
+
+    servers = json.loads(
+        (home / ".gemini" / "config" / "mcp_config.json").read_text(encoding="utf-8")
+    )["mcpServers"]
+    command = servers["incurator"]["command"]
+    if command != "wiki":
+        assert Path(command).is_absolute(), f"not resolvable from a spawn: {command}"
+        assert command.endswith("/.venv/bin/wiki"), command
+        assert "/backend/" not in command, "venvs live at the repo root"

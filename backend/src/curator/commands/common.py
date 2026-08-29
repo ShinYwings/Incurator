@@ -337,8 +337,18 @@ def _resolve_root_or_die_impl(hint_path: Path | None = None) -> cfg.WikiPaths:
 def _sync_mcp_configs(vault_root: Path) -> list[str]:
     """Upsert VAULT_ROOT into known MCP config files. Returns list of updated paths."""
     import json
+    # An absolute path, not the bare name. `wiki` is frequently a shell alias or
+    # a venv console script that only resolves in an interactive login shell --
+    # measured here: `command -v wiki` finds nothing in a spawned process's PATH.
+    # A registered server whose command cannot be found is registered and dead:
+    # `agy mcp list` lists it, and the model reports that no MCP tools exist.
+    # `resolve_wiki_command` already exists for exactly this reason on the
+    # Obsidian install path; it falls back to the bare name when the repo-root
+    # venv is genuinely absent.
+    from ..mcp.server import resolve_wiki_command
+
     entry = {
-        "command": "wiki",
+        "command": resolve_wiki_command(),
         "args": ["mcp"],
         "env": {"VAULT_ROOT": str(vault_root)},
     }

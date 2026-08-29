@@ -51,6 +51,18 @@ All notable changes to Incurator are documented here.
      returned a live value. This is the identical finding v0.56.1 recorded for
      `read_file` — a target-scoped rule is not a narrower grant, it is no grant.
      `mcp(*)` joins the required permission set.
+  3. **The registered command was a bare `wiki`, which a spawned process cannot
+     find.** It is a shell alias to the repo-root venv's console script;
+     `command -v wiki` finds nothing in a clean PATH. So even once registered
+     and permitted, the server failed to start: `agy mcp list` showed it and the
+     model still reported that no MCP tools existed. `resolve_wiki_command()`
+     already existed for exactly this reason on the Obsidian install path and
+     simply was not used here.
+
+  **Verified end to end, not reasoned about**: after all three fixes, headless
+  `agy` called `curator_status` through the MCP server and returned this vault's
+  real numbers — 3,512 pages, 3,171 atoms, 273 concepts, 68 contexts. That is the
+  first time the Antigravity CLI has been able to call an Incurator tool.
 
   This is narrower than the CLI's blanket permission-skip flag, which this
   codebase still refuses: that auto-approves every tool class including the
