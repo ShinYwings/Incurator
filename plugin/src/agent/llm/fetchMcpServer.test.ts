@@ -7,7 +7,7 @@ vi.mock("obsidian", () => ({
   requestUrl: vi.fn(async () => ({ json: {} })),
 }));
 import { spawn } from "child_process";
-import { mkdtempSync, writeFileSync, rmSync } from "fs";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { createServer, Server } from "http";
@@ -33,9 +33,9 @@ beforeAll(() => {
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 /** Send lines to a fresh server process and collect the replies it writes. */
-function converse(lines: object[], timeoutMs = 15000): Promise<any[]> {
+function converse(lines: object[], timeoutMs = 15000, script?: string): Promise<any[]> {
   return new Promise((resolve, reject) => {
-    const proc = spawn("node", [scriptPath], { stdio: ["pipe", "pipe", "pipe"] });
+    const proc = spawn("node", [script ?? scriptPath], { stdio: ["pipe", "pipe", "pipe"] });
     let out = "";
     const timer = setTimeout(() => { proc.kill(); reject(new Error("server timed out")); }, timeoutMs);
     proc.stdout.on("data", (c) => { out += c.toString(); });
@@ -48,6 +48,13 @@ function converse(lines: object[], timeoutMs = 15000): Promise<any[]> {
     proc.stdin.end();
   });
 }
+
+/** A real PDF header followed by every byte value — the bytes UTF-8 destroys. */
+const PDF_BYTES = Buffer.concat([
+  Buffer.from("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n", "binary"),
+  Buffer.from(Array.from({ length: 256 }, (_, i) => i)),
+  Buffer.from("\n%%EOF\n"),
+]);
 
 const INIT = {
   jsonrpc: "2.0", id: 1, method: "initialize",
@@ -111,38 +118,78 @@ describe("the SSRF guard, actually running", () => {
 describe("binary content is never stringified", () => {
   let server: Server;
   let port: number;
+  let openScriptPath: string;
 
   beforeAll(async () => {
-    server = createServer((_req, res) => {
+    server = createServer((req, res) => {
+      if (req.url === "/x.txt") {
+        res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end("hello, text");
+        return;
+      }
       res.writeHead(200, { "Content-Type": "application/pdf" });
-      res.end(Buffer.concat([Buffer.from("%PDF-1.4\n"), Buffer.from(Array.from({ length: 256 }, (_, i) => i))]));
+      res.end(PDF_BYTES);
     });
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
     port = (server.address() as any).port;
+
+    // The SSRF guard blocks every address a test server can bind to, so the
+    // binary path is unreachable through the shipped script. Rather than assert
+    // on the refusal and CALL that a binary test -- which is what the first
+    // version of this block did, and it would have passed with the binary
+    // handling deleted -- take the REAL script and neuter only
+    // `isBlockedAddress`. Everything under test (content-type split, buffering,
+    // the disk save, the reply text) is the shipped code; the guard is
+    // orthogonal and has its own spawned tests above.
+    const opened = FETCH_MCP_SERVER_SCRIPT.replace(
+      "function isBlockedAddress(h) {",
+      "function isBlockedAddress(h) {\n  return false;"
+    );
+    expect(opened).not.toBe(FETCH_MCP_SERVER_SCRIPT);
+    openScriptPath = join(dir, "server-open.js");
+    writeFileSync(openScriptPath, opened);
   });
   afterAll(() => new Promise<void>((r) => server.close(() => r())));
 
-  it("saves a PDF to disk instead of returning corrupted text", async () => {
-    // Measured on the original: a 314-byte PDF came back with 132 U+FFFD
-    // characters -- irreversibly destroyed, and useless as "PDF information",
-    // which was the whole stated purpose of this tool.
-    //
-    // The guard blocks 127.0.0.1, so this drives the collector directly rather
-    // than through fetch_url; what is under test here is the binary handling.
-    const replies = await converse([INIT,
-      { jsonrpc: "2.0", id: 2, method: "tools/call",
-        params: { name: "fetch_url", arguments: { url: `http://127.0.0.1:${port}/x.pdf` } } }]);
-    // Blocked by the SSRF guard before it can reach the local server -- which is
-    // itself the correct behaviour, and is asserted above. The binary path is
-    // covered by the unit-level check below.
-    expect(replies[1].result.isError).toBe(true);
+  it("saves a PDF to disk with its bytes intact, instead of returning corrupted text", async () => {
+    // Measured on the original implementation: a 314-byte PDF came back with 132
+    // U+FFFD characters -- irreversibly destroyed, and useless as the "PDF
+    // information" this tool existed to deliver. `body += chunk` coerces each
+    // Buffer to UTF-8.
+    const replies = await converse(
+      [INIT, { jsonrpc: "2.0", id: 2, method: "tools/call",
+               params: { name: "fetch_url", arguments: { url: `http://127.0.0.1:${port}/x.pdf` } } }],
+      15000, openScriptPath
+    );
+    const text = replies[1].result.content[0].text as string;
+    expect(text).not.toContain("\uFFFD");
+    expect(text).toContain("binary content");
+    expect(text).toContain("curator_get_pdf_context");
+
+    const saved = /Saved to: (.+)/.exec(text);
+    expect(saved, `no path in reply: ${text}`).toBeTruthy();
+    const bytes = readFileSync(saved![1].trim());
+    // The whole point: the file on disk is byte-identical to what was served.
+    expect(Buffer.compare(bytes, PDF_BYTES)).toBe(0);
+    rmSync(saved![1].trim(), { force: true });
   });
 
-  it("declares only textual content types as text", () => {
-    // Pinned against the script source because `isTextual` is not exported from
-    // the spawned process. Kept minimal and behavioural.
-    expect(FETCH_MCP_SERVER_SCRIPT).toContain('function isTextual(contentType)');
-    expect(FETCH_MCP_SERVER_SCRIPT).toContain('buf.toString("utf8")');
-    expect(FETCH_MCP_SERVER_SCRIPT).toContain("curator_get_pdf_context");
+  it("still returns a textual response inline", async () => {
+    const replies = await converse(
+      [INIT, { jsonrpc: "2.0", id: 2, method: "tools/call",
+               params: { name: "fetch_url", arguments: { url: `http://127.0.0.1:${port}/x.txt` } } }],
+      15000, openScriptPath
+    );
+    expect(replies[1].result.content[0].text).toContain("hello, text");
+  });
+
+  it("tells the model what it actually does", async () => {
+    // The description is what the model reads when deciding to call this on a
+    // PDF URL. It promised "the response body as plain text" long after the tool
+    // stopped doing that for binary.
+    const replies = await converse([INIT, { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }]);
+    const description = replies[1].result.tools[0].description as string;
+    expect(description).toMatch(/saved to disk/i);
+    expect(description).toContain("curator_get_pdf_context");
   });
 });

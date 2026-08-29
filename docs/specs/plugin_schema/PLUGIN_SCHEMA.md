@@ -2434,9 +2434,14 @@ the `find_mvg_text.py`-style exploit). This section governs the CLI path.
     headless mode — including the whole curator surface that `command(wiki)`
     exists to spawn.
 
-    This stays narrower than the CLI's blanket permission-skip flag, which this
-    codebase refuses: that auto-approves every tool class including the shell,
-    while `mcp(*)` opens exactly the servers Incurator registers.
+    **`mcp(*)` is a class-wide wildcard, and the spec MUST NOT describe it as
+    scoped.** Exactly as with `read_file(*)`, the wildcard covers the whole
+    permission class: it authorises calls into every server in agy's registry,
+    including servers the user registered themselves — which the merge behaviour
+    below deliberately preserves. It stays narrower than the CLI's blanket
+    permission-skip flag, which this codebase refuses (that approves every tool
+    class including the shell, while this approves no class but MCP), and the
+    scoped forms grant nothing, so there is no narrower option that works.
 
     **The permission is useless unless the server is registered where the CLI
     reads it (v0.71.0).** `~/.gemini/settings.json` is NOT that place. The plugin

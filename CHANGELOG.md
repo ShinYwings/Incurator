@@ -64,9 +64,14 @@ All notable changes to Incurator are documented here.
   real numbers — 3,512 pages, 3,171 atoms, 273 concepts, 68 contexts. That is the
   first time the Antigravity CLI has been able to call an Incurator tool.
 
-  This is narrower than the CLI's blanket permission-skip flag, which this
-  codebase still refuses: that auto-approves every tool class including the
-  shell, while this opens exactly the MCP servers Incurator registers.
+  **What `mcp(*)` costs, stated plainly**: it is a wildcard over the MCP
+  permission class, not a grant scoped to Incurator. It authorises headless calls
+  into every server in agy's registry — including any the user added with
+  `agy mcp add`, which the registration above deliberately preserves. It is still
+  meaningfully narrower than the CLI's blanket permission-skip flag, which this
+  codebase refuses: that approves every tool class including the shell, while
+  this approves no class but MCP. There is no third option — the scoped forms
+  were measured and grant nothing.
 
 - **The test suite was rewriting the developer's real agy configuration.**
   `wiki init` registers the MCP server under `~/.gemini/`, so every test that

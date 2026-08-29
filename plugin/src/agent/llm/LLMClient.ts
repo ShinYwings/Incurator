@@ -105,11 +105,17 @@ const AGY_COMMAND_PERMISSION = "command(wiki)";
 // "permission fixes" (v0.53.1, v0.56.1, and the fetch server itself) all
 // shipped granting nothing.
 //
-// This is narrower than the CLI's blanket permission-skip flag, which this
-// codebase refuses and a test asserts never appears in this source at all --
-// hence not naming it here. That flag auto-approves EVERY tool class including
-// the shell; this rule opens exactly the MCP servers we register, and nothing
-// else.
+// State the cost plainly rather than talk it down. `mcp(*)` is a wildcard over
+// the MCP permission CLASS, exactly as `read_file(*)` is over reads -- it is not
+// scoped to Incurator. It authorises headless calls into EVERY server in agy's
+// registry, and `syncAgyMcpConfig` deliberately merges into that registry so
+// servers the user added with `agy mcp add` survive; those become callable too.
+//
+// It is still meaningfully narrower than the CLI's blanket permission-skip flag,
+// which this codebase refuses and a test asserts never appears in this source at
+// all -- hence not naming it here: that flag approves every tool CLASS including
+// the shell, while this one approves no class but MCP. There is no third option;
+// the scoped forms were measured and grant nothing.
 const AGY_MCP_PERMISSION = "mcp(*)";
 const AGY_REQUIRED_PERMISSIONS = [
   AGY_READ_PERMISSION,
@@ -147,9 +153,13 @@ const TOOLS = [
   {
     name: "fetch_url",
     description:
-      "Fetch the text content of a URL via HTTP GET. " +
-      "Returns the response body as plain text (HTML/JSON/etc). " +
-      "Only GET requests are supported — no POST, PUT, or DELETE.",
+      "Fetch a URL via HTTP GET. Textual responses (HTML/JSON/plain text) are " +
+      "returned inline, truncated at 100KB. A BINARY response (PDF, image) is " +
+      "NOT returned inline -- returning it as text would corrupt it -- it is " +
+      "saved to disk and the reply gives you the path; for a PDF, read it with " +
+      "curator_get_pdf_toc or curator_get_pdf_context. Only GET is supported. " +
+      "Public web addresses only: loopback, private, and link-local addresses " +
+      "are refused.",
     inputSchema: {
       type: "object",
       properties: {

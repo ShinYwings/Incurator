@@ -364,9 +364,17 @@ lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
   - **Calling an MCP tool needs its own permission, and only the wildcard works.**
     `mcp(incurator_fetch)` and `mcp(fetch_url)` were both auto-denied; `mcp(*)`
     let the call through. Same shape as `read_file` — a scoped rule here grants
-    nothing at all. It stays narrower than the CLI's blanket permission-skip
-    flag, which Incurator still refuses: that would approve every tool class
-    including the shell.
+    nothing at all.
+
+    **What that costs you, stated plainly.** `mcp(*)` is a wildcard over the MCP
+    permission class, not a grant scoped to Incurator: it lets headless `agy`
+    call tools on **every** MCP server in its registry, including any you added
+    yourself with `agy mcp add`. It is still narrower than the CLI's blanket
+    permission-skip flag, which Incurator refuses — that approves every tool
+    class including the shell, while this approves no class but MCP — and the
+    scoped forms were measured and grant nothing, so there is no third option.
+    If you keep sensitive MCP servers registered with `agy`, that is the
+    trade-off to weigh.
   - **The server has to be registered where the CLI looks.** Incurator used to
     write `~/.gemini/settings.json`; `agy` reads its MCP registry from
     `~/.gemini/config/mcp_config.json` — the file `agy mcp add` writes and
