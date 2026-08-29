@@ -174,3 +174,132 @@ def test_a_knowledge_unit_must_not_cite_a_span_this_device_does_not_have(
         }
     missing = [s for s in cited if s not in present]
     assert missing == [], f"claim cites spans this device does not have: {missing}"
+
+
+def _add_span(path: Path, span_id: str, content_hash: str = "hash-identical") -> None:
+    with db.connect(path) as conn:
+        conn.execute(
+            "INSERT INTO source_spans (id, source_id, relpath, span_type,"
+            " content_hash, text_preview, start_char, end_char, created_at)"
+            " VALUES (?, 1, ?, 'paragraph', ?, ?, 0, 10, ?)",
+            (span_id, "03_Notes/paper.md", content_hash, "same text",
+             "2026-01-01T00:00:00Z"),
+        )
+
+
+def test_a_polymorphic_dependency_column_is_remapped_too(device, tmp_path: Path) -> None:
+    """`artifact_dependencies` names the id's KIND in a sibling column.
+
+    A registry keyed on column name cannot see these — the same blind spot that
+    hid `graph_batch_results.trace_id` from v0.71.0's prompt-run scan. It is not
+    a dormant branch either: 6,241 rows on the reference vault carry a `SPAN-`
+    id this way, written by three call sites in the compile and synthesis paths.
+    """
+    a, b = device("a"), device("b")
+    _add_span(a, "SPAN-aaaaaaaa")
+    _add_span(b, "SPAN-bbbbbbbb")
+    with db.connect(b) as conn:
+        conn.execute(
+            "INSERT INTO artifact_dependencies (artifact_id, artifact_type,"
+            " depends_on_id, depends_on_type, dependency_hash, created_at)"
+            " VALUES ('KNU-11111111', 'knowledge_unit', 'SPAN-bbbbbbbb',"
+            " 'source_span', 'h', '2026-01-01T00:00:00Z')",
+        )
+
+    export_path = tmp_path / "b.json"
+    export_knowledge(b, export_path)
+    import_knowledge(a, export_path)
+
+    with db.connect(a) as conn:
+        rows = conn.execute(
+            "SELECT depends_on_id FROM artifact_dependencies WHERE depends_on_type='source_span'"
+        ).fetchall()
+    ids = {r["depends_on_id"] for r in rows}
+    assert "SPAN-bbbbbbbb" not in ids, "a dependency still names the peer's span id"
+    assert "SPAN-aaaaaaaa" in ids
+
+
+def test_a_merge_reversal_payload_is_remapped(device, tmp_path: Path) -> None:
+    """`entity_resolution_lineage.rewrite_json` is replayed verbatim.
+
+    `reverse_entity_merge` reads it back to restore relation endpoints. If it
+    still names the peer's id, reversing that merge later re-points a relation at
+    an entity this device never had — the same dangling reference, arriving
+    through a path nothing else watches. It is nested, so neither the flat-array
+    nor the hop-object handler reaches it.
+    """
+    a, b = device("a"), device("b")
+    _add_entity(a, "ENT-aaaaaaaa", "Alan Turing")
+    _add_entity(b, "ENT-bbbbbbbb", "Alan Turing")
+    payload = {
+        "origin_entity": {"id": "ENT-bbbbbbbb", "canonical_name": "Alan Turing"},
+        "relation_rewrites": [
+            {"relation_id": "REL-11111111", "field": "source_entity_id",
+             "from": "ENT-bbbbbbbb", "to": "ENT-cccccccc"}
+        ],
+    }
+    with db.connect(b) as conn:
+        conn.execute(
+            "INSERT INTO entity_resolution_lineage (decision_id, origin_entity_id,"
+            " canonical_entity_id, rewrite_json)"
+            " VALUES ('DEC-1', 'ENT-bbbbbbbb', 'ENT-cccccccc', ?)",
+            (json.dumps(payload, sort_keys=True),),
+        )
+
+    export_path = tmp_path / "b.json"
+    export_knowledge(b, export_path)
+    import_knowledge(a, export_path)
+
+    with db.connect(a) as conn:
+        row = conn.execute(
+            "SELECT origin_entity_id, rewrite_json FROM entity_resolution_lineage"
+            " WHERE decision_id = 'DEC-1'"
+        ).fetchone()
+    assert row is not None, "the lineage row did not arrive"
+    assert row["origin_entity_id"] == "ENT-aaaaaaaa", "the scalar column was not remapped"
+    replayed = json.loads(row["rewrite_json"])
+    assert replayed["origin_entity"]["id"] == "ENT-aaaaaaaa"
+    assert replayed["relation_rewrites"][0]["from"] == "ENT-aaaaaaaa", (
+        "reversing this merge would re-point a relation at the peer's id"
+    )
+
+
+def test_the_candidate_scan_is_chunked_rather_than_one_giant_or_chain(
+    device, tmp_path: Path
+) -> None:
+    """One `LIKE ?` per converged id in a single statement eventually raises
+    "Expression tree is too large", and the transaction it raises inside commits
+    only on a clean exit — so it would discard the ENTIRE import, not just the
+    repair.
+
+    The threshold is a build-time property, not a constant: `SQLITE_MAX_EXPR_DEPTH`
+    defaults to 1000 and this build reports 10000. Asserting on a crash would
+    therefore pass or fail by machine. Assert the chunking itself instead, which
+    is what actually removes the dependence.
+    """
+    from curator import db_sync
+
+    id_map = {f"ENT-r{i:07d}": f"ENT-l{i:07d}" for i in range(2500)}
+    widths: list[int] = []
+
+    class _EmptyCursor:
+        def fetchall(self):  # noqa: ANN201
+            return []
+
+    class _RecordingConn:
+        def execute(self, sql: str, params=None):  # noqa: ANN001
+            widths.append(sql.count("LIKE ?"))
+            return _EmptyCursor()
+
+    db_sync._candidate_rows(_RecordingConn(), "community_reports", "entity_ids", id_map)
+
+    assert widths, "the scan issued no query at all"
+    assert len(widths) > 1, (
+        f"2,500 converged ids went out as {len(widths)} query — unchunked, so the "
+        f"width is bounded only by whatever this build happens to allow"
+    )
+    assert max(widths) <= 1000, (
+        f"widest chunk was {max(widths)} clauses; must stay under the 1000 that "
+        f"a default-configured SQLite allows"
+    )
+    assert sum(widths) == len(id_map), "chunking dropped or duplicated ids"

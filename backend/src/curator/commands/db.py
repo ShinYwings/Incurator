@@ -168,6 +168,14 @@ def db_autosync(
                 else ""
             )
         )
+        if summary["remapped"]:
+            # Same reasoning as `rejected` below, and the same omission it was
+            # once fixed for: autosync is the hands-off path, so anything worth
+            # telling the user in `wiki db import` is worth telling them here.
+            console.print(
+                f"[dim]{summary['remapped']} reference(s) re-pointed at rows this "
+                f"device already had under a different id.[/dim]"
+            )
         if summary["rejected"]:
             # autosync is the hands-off default, so a silent loss here is the
             # one this feature exists to prevent. Never let it print green only.

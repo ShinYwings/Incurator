@@ -24,10 +24,32 @@ All notable changes to Incurator are documented here.
   repaired: `skipped=1 remapped=1`, endpoint re-pointed at the local id.
 
   Import now records the id this device already uses for each converged row and
-  rewrites every reference: scalar columns *and* JSON arrays
+  rewrites the references to it in four shapes, because they do not all look
+  alike: **scalar columns**; **JSON arrays** of ids
   (`knowledge_units.source_span_ids`, `community_reports.entity_ids`, and eight
-  more). A provenance array citing a span this device does not have is worse
-  than a dangling scalar — nothing ever flags it.
+  more); **JSON arrays of objects**, where the id sits under a key
+  (`memory_paths.path_json` hops); and **polymorphic columns**, where the id's
+  kind is named by a sibling column (`artifact_dependencies`, 6,241 rows of it
+  on the reference vault — a registry keyed on column *name* cannot see those,
+  the same blind spot that hid `graph_batch_results.trace_id` in v0.71.0).
+
+  `entity_resolution_lineage.rewrite_json` is rewritten too. It is a replay
+  payload rather than a reference list: `reverse_entity_merge` reads it back
+  verbatim, so leaving it stale would re-point a relation at the peer's id the
+  next time a merge was reversed — the same defect, through a path nothing
+  watches.
+
+  A provenance array citing a span this device does not have is worse than a
+  dangling scalar, not better: nothing ever flags it.
+
+  The candidate scan is **chunked**. One `LIKE ?` per converged id in a single
+  statement eventually raises SQLite's "Expression tree is too large", and how
+  many is a build-time property rather than a constant — `SQLITE_MAX_EXPR_DEPTH`
+  defaults to 1000, while the build measured here reports 10000. So a vault that
+  syncs cleanly on one machine could crash on a distro build with the default,
+  and it would not fail softly: the raise lands inside the import transaction,
+  which commits only on a clean exit, so it would discard the entire import
+  rather than skip the repair.
 
   `wiki db import` prints the count. A silent repair would be indistinguishable
   from no repair.

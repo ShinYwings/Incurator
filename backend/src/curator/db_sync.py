@@ -1698,6 +1698,40 @@ _SCALAR_ID_REFS: dict[str, tuple[tuple[str, str], ...]] = {
         ("canonical_entity_id", "entity"),
     ),
     "claim_supports": (("source_span_id", "span"),),
+    "memory_paths": (("start_node_id", "entity"),),
+}
+
+# `artifact_dependencies` is polymorphic: the SAME column holds an id whose kind
+# is named by a sibling column. 6,241 rows on the reference vault carry a `SPAN-`
+# id this way. A registry keyed on column name alone cannot see them — the same
+# structural blind spot that hid `graph_batch_results.trace_id` from the v0.71.0
+# prompt-run scan, which is why this one is keyed on the type column instead.
+#
+# `entity` is declared in the schema but written by no current call site; it is
+# handled anyway because the cost is one more tuple and the failure mode of
+# missing it is silent.
+_TYPED_ID_REFS: tuple[tuple[str, str, str, dict[str, str]], ...] = (
+    (
+        "artifact_dependencies",
+        "artifact_id",
+        "artifact_type",
+        {"entity": "entity", "source_span": "span"},
+    ),
+    (
+        "artifact_dependencies",
+        "depends_on_id",
+        "depends_on_type",
+        {"entity": "entity", "source_span": "span"},
+    ),
+)
+
+# JSON arrays of OBJECTS, where an id sits under a key rather than being the
+# element itself. `memory_paths.path_json` is a list of hops shaped
+# `{"from": ENT-, "relation_id": REL-, "to": ENT-, ...}`; the flat-array rewrite
+# below tests `isinstance(value, str)` and would skip every one of them
+# silently.
+_JSON_OBJECT_ID_REFS: dict[str, tuple[tuple[str, tuple[str, ...], str], ...]] = {
+    "memory_paths": (("path_json", ("from", "to"), "entity"),),
 }
 
 # JSON arrays of ids. A plain column rewrite cannot reach inside these, and
@@ -1732,6 +1766,47 @@ def _local_id_for_natural_key(
     return str(found["id"]) if found is not None else None
 
 
+def _candidate_rows(
+    conn: "db.sqlite3.Connection", table: str, column: str, id_map: dict[str, str]
+) -> list:
+    """Rows whose JSON column might name a converged id. CHUNKED, deliberately.
+
+    One `LIKE ?` per converged id in a single statement raises SQLite's
+    "Expression tree is too large" once the map is big enough, and **how big is a
+    build-time property, not a constant**: `SQLITE_MAX_EXPR_DEPTH` defaults to
+    1000, while the build here reports 10000 (measured: 5,000 clauses parse,
+    10,000 raise). So the ceiling cannot be reasoned about from one machine —
+    a vault that syncs fine on this laptop can crash on a distro build with the
+    default.
+
+    And it does not fail softly. The raise lands inside `db.connect`'s
+    transaction, which commits only on a clean exit, so it would discard **the
+    entire import**, not merely skip the repair. One real peer export carried 691
+    entities in a single file.
+
+    `db/_entities.py` already chunks its own span LIKE scan for exactly this
+    reason; this reuses the same `_SQL_VAR_CHUNK` bound rather than inventing a
+    second one.
+
+    LIKE is allowed to over-match on purpose. It selects CANDIDATES; the caller
+    rewrites by exact per-element lookup, so a row pulled in by a substring or by
+    a `%`/`_` inside an id is simply left unchanged. Widening the candidate set
+    costs a few scanned rows and cannot produce a wrong rewrite.
+    """
+    from .db.schema import _chunked
+
+    rows: list = []
+    for chunk in _chunked(list(id_map)):
+        clauses = " OR ".join(f"{column} LIKE ?" for _ in chunk)
+        rows.extend(
+            conn.execute(
+                f"SELECT rowid AS _rid, {column} AS payload FROM {table} WHERE {clauses}",  # noqa: S608
+                [f"%{remote}%" for remote in chunk],
+            ).fetchall()
+        )
+    return rows
+
+
 def _remap_converged_ids(
     conn: "db.sqlite3.Connection",
     entity_map: dict[str, str],
@@ -1748,9 +1823,26 @@ def _remap_converged_ids(
     for table, refs in _SCALAR_ID_REFS.items():
         for column, kind in refs:
             for remote_id, local_id in maps[kind].items():
+                # OR REPLACE because several of these columns are part of a
+                # composite primary key (`claim_supports`,
+                # `artifact_dependencies`). If this device already holds the row
+                # under its own id, the peer's copy IS that same row, so letting
+                # SQLite drop the loser is the correct resolution rather than an
+                # IntegrityError. Tables without such a key never conflict, so
+                # the clause costs them nothing.
                 cursor = conn.execute(
-                    f"UPDATE {table} SET {column} = ? WHERE {column} = ?",  # noqa: S608
+                    f"UPDATE OR REPLACE {table} SET {column} = ? WHERE {column} = ?",  # noqa: S608
                     (local_id, remote_id),
+                )
+                rewritten += cursor.rowcount or 0
+
+    for table, column, type_column, type_to_kind in _TYPED_ID_REFS:
+        for type_value, kind in type_to_kind.items():
+            for remote_id, local_id in maps[kind].items():
+                cursor = conn.execute(
+                    f"UPDATE OR REPLACE {table} SET {column} = ? "  # noqa: S608
+                    f"WHERE {column} = ? AND {type_column} = ?",
+                    (local_id, remote_id, type_value),
                 )
                 rewritten += cursor.rowcount or 0
 
@@ -1768,15 +1860,7 @@ def _remap_converged_ids(
             # unchanged. Widening the candidate set costs a few scanned rows and
             # cannot produce a wrong rewrite — which is why the ids are not
             # escaped here.
-            clauses = " OR ".join(f"{column} LIKE ?" for _ in id_map)
-            params = [f"%{remote}%" for remote in id_map]
-            # `rowid`, not `id`: several of these tables have a composite primary
-            # key and no `id` column at all (`graph_relation_supports`,
-            # `claim_supports`). Every one of them is an ordinary rowid table.
-            for row in conn.execute(
-                f"SELECT rowid AS _rid, {column} AS payload FROM {table} WHERE {clauses}",  # noqa: S608
-                params,
-            ).fetchall():
+            for row in _candidate_rows(conn, table, column, id_map):
                 try:
                     ids = json.loads(row["payload"] or "[]")
                 except (TypeError, ValueError):
@@ -1791,6 +1875,78 @@ def _remap_converged_ids(
                 conn.execute(
                     f"UPDATE {table} SET {column} = ? WHERE rowid = ?",  # noqa: S608
                     (json.dumps(updated), row["_rid"]),
+                )
+
+    # `entity_resolution_lineage.rewrite_json` is a REPLAY payload, not a
+    # reference list: `reverse_entity_merge` reads it back verbatim to restore
+    # relation endpoints to their pre-merge values. Its scalar columns are
+    # remapped above, so leaving the payload alone would leave the row internally
+    # inconsistent — reversing that merge later would re-point a relation at the
+    # peer's id, reintroducing exactly the dangling reference this pass exists to
+    # remove, through a path nothing else watches. It is nested
+    # (`{"origin_entity": {...}, "relation_rewrites": [{"from": .., "to": ..}]}`),
+    # so neither the flat-array nor the hop-object handler can reach it.
+    if entity_map:
+        for row in _candidate_rows(
+            conn, "entity_resolution_lineage", "rewrite_json", entity_map
+        ):
+            try:
+                payload = json.loads(row["payload"] or "{}")
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(payload, dict):
+                continue
+            changed = 0
+            origin = payload.get("origin_entity")
+            if isinstance(origin, dict):
+                for key in ("id", "redirect_to_entity_id"):
+                    value = origin.get(key)
+                    if isinstance(value, str) and value in entity_map:
+                        origin[key] = entity_map[value]
+                        changed += 1
+            for rewrite in payload.get("relation_rewrites") or []:
+                if not isinstance(rewrite, dict):
+                    continue
+                for key in ("from", "to"):
+                    value = rewrite.get(key)
+                    if isinstance(value, str) and value in entity_map:
+                        rewrite[key] = entity_map[value]
+                        changed += 1
+            if not changed:
+                continue
+            rewritten += changed
+            conn.execute(
+                "UPDATE entity_resolution_lineage SET rewrite_json = ? WHERE rowid = ?",
+                (json.dumps(payload, sort_keys=True), row["_rid"]),
+            )
+
+    for table, object_refs in _JSON_OBJECT_ID_REFS.items():
+        for column, keys, kind in object_refs:
+            id_map = maps[kind]
+            if not id_map:
+                continue
+            for row in _candidate_rows(conn, table, column, id_map):
+                try:
+                    hops = json.loads(row["payload"] or "[]")
+                except (TypeError, ValueError):
+                    continue
+                if not isinstance(hops, list):
+                    continue
+                changed = 0
+                for hop in hops:
+                    if not isinstance(hop, dict):
+                        continue
+                    for key in keys:
+                        value = hop.get(key)
+                        if isinstance(value, str) and value in id_map:
+                            hop[key] = id_map[value]
+                            changed += 1
+                if not changed:
+                    continue
+                rewritten += changed
+                conn.execute(
+                    f"UPDATE {table} SET {column} = ? WHERE rowid = ?",  # noqa: S608
+                    (json.dumps(hops), row["_rid"]),
                 )
 
     return rewritten
