@@ -53,7 +53,7 @@ All notable changes to Incurator are documented here.
   than by reading the entry.
 
   One limit, stated rather than papered over: the map is built from the rows in
-  the import file, so a partial export (`--since`, `--tables`) that omits the
+  the import file, so a `wiki db export --since` snapshot that omits the
   referenced spans yields a smaller map and those tokens behave as before.
   Nothing regresses, and the hands-off autosync path always writes a full
   snapshot.

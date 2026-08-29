@@ -1229,7 +1229,21 @@ def import_knowledge(
                         source_sync_key=source_sync_key,
                         parent_will_be_inserted=parent_will_be_inserted,
                     )
-                    if tbl in _NATURAL_KEY_COLS and isinstance(remote_row_id, str):
+                    already_mapped = (
+                        entity_id_map if tbl == "graph_entities" else span_id_map
+                    ).get(remote_row_id) if isinstance(remote_row_id, str) else None
+                    if (
+                        tbl in _NATURAL_KEY_COLS
+                        and isinstance(remote_row_id, str)
+                        and already_mapped is None
+                    ):
+                        # The pre-scan resolved almost all of these already; this
+                        # is the fallback for a row it could not (its source row
+                        # appeared later in the file, so the local `source_id`
+                        # was unknown at pre-scan time). Skipping the ones it did
+                        # resolve avoids running the same natural-key lookup
+                        # twice for every span and entity in the import.
+                        #
                         # `row["source_id"]` is already local by here, so the
                         # span natural key resolves against this device's ids.
                         local_row_id = _local_id_for_natural_key(conn, tbl, row)
@@ -1891,10 +1905,11 @@ def _prescan_converged_ids(
     key is `(source_id, content_hash)` and the peer's integer is meaningless
     locally.
 
-    A partial export (`--since`, `--tables`) may not carry the referenced rows;
-    then the map is simply smaller and those tokens behave as they did before.
-    Nothing regresses, and the hands-off autosync path always writes a full
-    snapshot.
+    A `wiki db export --since` snapshot may not carry the referenced rows; then
+    the map is simply smaller and those tokens behave as they did before. Nothing
+    regresses, and the hands-off autosync path always writes a full snapshot.
+    (`export_knowledge(tables=...)` can narrow it further, but that is a
+    Python-level argument used by tests — there is no CLI flag for it.)
     """
     entity_map: dict[str, str] = {}
     span_map: dict[str, str] = {}

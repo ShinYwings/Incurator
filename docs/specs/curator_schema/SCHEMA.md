@@ -1718,10 +1718,11 @@ but it is not constructible: `claim_supports`'s key also contains
 half the key has no portable form. Translating the ids that converge closes the
 gap without inventing an identity the schema does not have.
 
-The map is built from the rows present in the import file. A partial export
-(`--since`, `--tables`) that omits the referenced spans yields a smaller map, and
-those tokens behave as they did before — no regression, and the autosync path
-always writes a full snapshot.
+The map is built from the rows present in the import file. A
+`wiki db export --since` snapshot that omits the referenced spans yields a
+smaller map, and those tokens behave as they did before — no regression, and the
+autosync path always writes a full snapshot. (`export_knowledge(tables=...)`
+narrows it further but is a Python-level argument with no CLI flag.)
 
 
 **Converged entity and span ids are remapped, not left dangling (v0.72.0).**

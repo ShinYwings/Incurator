@@ -28,7 +28,13 @@ from pathlib import Path
 import pytest
 
 from curator import db
-from curator.db_sync import export_knowledge, import_knowledge, record_row_tombstone_on_connection
+from curator.db_sync import (
+    _canonical_composite_key,
+    export_knowledge,
+    import_knowledge,
+    record_row_tombstone_on_connection,
+    record_tombstone_on_connection,
+)
 
 
 @pytest.fixture()
@@ -159,14 +165,26 @@ def test_a_row_this_device_deleted_does_not_walk_back_in(device, tmp_path: Path)
     )
 
 
-def test_a_tombstone_for_a_row_this_device_never_had_still_matches_nothing(
+def test_an_unmapped_id_passes_through_while_others_are_translated(
     device, tmp_path: Path
 ) -> None:
-    """Translation must not invent matches. An unknown id passes through
-    unchanged, so the delete correctly affects nothing rather than guessing."""
+    """Translation must not invent matches — tested with a NON-EMPTY map.
+
+    The first version of this test gave the sync no converging ids at all, so
+    `_translate_tombstone_token` short-circuited on `if not any(maps[kind] ...)`
+    and never reached the per-field pass-through it claimed to exercise. It
+    passed against code with no translation logic whatsoever, which makes it
+    evidence of nothing.
+
+    So: one span genuinely converges (filling the map), and a SECOND tombstone
+    names a span that does not. The first must apply; the second must not touch
+    the unrelated row that happens to sit beside it.
+    """
     a, b = device("a"), device("b")
     _seed_span_and_support(a, "SPAN-aaaaaaaa")
-    # B has a support row for a DIFFERENT span entirely.
+    _seed_span_and_support(b, "SPAN-bbbbbbbb")
+
+    # An unrelated support row on B, keyed on a span A has never seen.
     with db.connect(b) as conn:
         conn.execute(
             "INSERT INTO source_spans (id, source_id, relpath, span_type,"
@@ -187,17 +205,68 @@ def test_a_tombstone_for_a_row_this_device_never_had_still_matches_nothing(
             " 'other-hash', ?, ?)",
             ("2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
         )
+    assert _support_count(b) == 2
 
+    # A deletes its own support (its span DOES converge onto B's), and also
+    # tombstones one naming a span nobody has.
     with db.connect(a) as conn:
         row = conn.execute("SELECT * FROM claim_supports").fetchone()
         record_row_tombstone_on_connection(conn, "claim_supports", dict(row))
         conn.execute("DELETE FROM claim_supports")
+        record_tombstone_on_connection(
+            conn, "claim_supports",
+            _canonical_composite_key("claim_supports", {
+                "knowledge_unit_id": "KNU-99999999",
+                "source_span_id": "SPAN-nosuchid",
+                "support_role": "primary",
+            }),
+        )
 
     export_path = tmp_path / "a.json"
     export_knowledge(a, export_path)
     import_knowledge(b, export_path)
 
-    assert _support_count(b) == 1, "the delete removed an unrelated row"
+    with db.connect(b) as conn:
+        remaining = [
+            r["source_span_id"]
+            for r in conn.execute("SELECT source_span_id FROM claim_supports")
+        ]
+    assert remaining == ["SPAN-unrelated"], (
+        f"expected only the unrelated row to survive, got {remaining}"
+    )
+
+
+def test_an_entity_lineage_delete_also_crosses_devices(device, tmp_path: Path) -> None:
+    """`entity_resolution_lineage` is the other table the fix names, and it had
+    no test at all — every case above only seeded `claim_supports`."""
+    a, b = device("a"), device("b")
+    for path, entity_id in ((a, "ENT-aaaaaaaa"), (b, "ENT-bbbbbbbb")):
+        with db.connect(path) as conn:
+            conn.execute(
+                "INSERT INTO graph_entities (id, canonical_name, entity_type,"
+                " description, source_span_ids, knowledge_unit_ids, created_at,"
+                " updated_at) VALUES (?, 'Alan Turing', 'person', '', '[]', '[]', ?, ?)",
+                (entity_id, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+            )
+            conn.execute(
+                "INSERT INTO entity_resolution_lineage (decision_id,"
+                " origin_entity_id, canonical_entity_id, rewrite_json)"
+                " VALUES ('DEC-1', ?, 'ENT-survivor', '{}')",
+                (entity_id,),
+            )
+
+    with db.connect(a) as conn:
+        row = conn.execute("SELECT * FROM entity_resolution_lineage").fetchone()
+        record_row_tombstone_on_connection(conn, "entity_resolution_lineage", dict(row))
+        conn.execute("DELETE FROM entity_resolution_lineage")
+
+    export_path = tmp_path / "a.json"
+    export_knowledge(a, export_path)
+    import_knowledge(b, export_path)
+
+    with db.connect(b) as conn:
+        n = conn.execute("SELECT COUNT(*) FROM entity_resolution_lineage").fetchone()[0]
+    assert n == 0, "the lineage tombstone named the peer's entity id and matched nothing"
 
 
 def test_a_polymorphic_dependency_tombstone_is_translated(device, tmp_path: Path) -> None:
