@@ -124,3 +124,82 @@ def test_it_notices_the_missing_wildcard_permission(wired: Path) -> None:
 def test_a_malformed_registry_is_reported_not_swallowed(wired: Path) -> None:
     _registry().write_text("{ not json")
     assert "not readable as JSON" in agy_mcp_registration_problem(wired)
+
+
+def test_a_list_command_does_not_crash_the_check(wired: Path) -> None:
+    """Measured by review: `["wiki", "mcp"]` — an easy hand-edit — raised
+    TypeError out of `Path()`. A health check that takes down the command
+    reporting the health is worse than no check at all."""
+    d = json.loads(_registry().read_text())
+    d["mcpServers"]["incurator"]["command"] = ["wiki", "mcp"]
+    _registry().write_text(json.dumps(d))
+    assert "no usable command" in agy_mcp_registration_problem(wired)
+
+
+def test_a_non_dict_env_does_not_crash_the_check(wired: Path) -> None:
+    """The other reproduced crash: `env` as a string hit `.get` on `str`."""
+    d = json.loads(_registry().read_text())
+    d["mcpServers"]["incurator"]["env"] = "not-a-dict"
+    _registry().write_text(json.dumps(d))
+    assert "no VAULT_ROOT" in agy_mcp_registration_problem(wired)
+
+
+def test_an_absent_vault_root_is_a_problem_not_a_pass(wired: Path) -> None:
+    """An empty string is falsy, so the mismatch branch used to be skipped and a
+    registration pointing at no vault read as healthy."""
+    d = json.loads(_registry().read_text())
+    d["mcpServers"]["incurator"]["env"] = {}
+    _registry().write_text(json.dumps(d))
+    assert "no VAULT_ROOT" in agy_mcp_registration_problem(wired)
+
+
+def test_it_notices_the_wrong_subcommand(wired: Path) -> None:
+    """`command` resolving is not enough — it has to actually start the server."""
+    d = json.loads(_registry().read_text())
+    d["mcpServers"]["incurator"]["args"] = ["status"]
+    _registry().write_text(json.dumps(d))
+    assert "does not run the `mcp` subcommand" in agy_mcp_registration_problem(wired)
+
+
+def test_it_notices_mcp_switched_off_at_the_admin_level(wired: Path) -> None:
+    """The plugin writes `admin.mcp.enabled: true` on every sync, treating it as
+    a master switch. Nothing checked it, so a stale `false` read as healthy."""
+    p = Path.home() / ".gemini" / "settings.json"
+    p.write_text(json.dumps({"admin": {"mcp": {"enabled": False}}}))
+    assert "switched off" in agy_mcp_registration_problem(wired)
+
+
+def test_it_notices_a_deny_rule_that_overrides_the_grant(wired: Path) -> None:
+    """Nothing in this codebase writes deny/ask, which is exactly why a rule
+    there would have looked healthy."""
+    p = Path.home() / ".gemini" / "antigravity-cli" / "settings.json"
+    p.write_text(json.dumps({"permissions": {
+        "allow": ["read_file(*)", "command(wiki)", "mcp(*)"],
+        "deny": ["mcp(incurator)"],
+    }}))
+    assert "overrides the grant" in agy_mcp_registration_problem(wired)
+
+
+def test_the_plugin_chat_provider_alone_is_enough_to_warrant_the_check(
+    tmp_path: Path,
+) -> None:
+    """The gate reads TWO independent settings.
+
+    Curation on Ollama and chat on Antigravity is a real configuration, and the
+    chat path is the one that spawns agy. Gating only on the backend's
+    `llm.primary` stayed silent for exactly the user this warning exists for.
+    """
+    from curator import config as cfg
+    from curator.commands.common import uses_antigravity_anywhere
+
+    vault = tmp_path / "vault"
+    plugin_dir = vault / ".obsidian" / "plugins" / "incurator-obsidian-agent"
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "data.json").write_text(json.dumps({"provider": "antigravity"}))
+    paths = cfg.paths_from_config(vault)
+
+    backend_on_ollama = {"llm": {"primary": "ollama::llama3", "fallback": ""}}
+    assert uses_antigravity_anywhere(paths, backend_on_ollama) is True
+
+    (plugin_dir / "data.json").write_text(json.dumps({"provider": "deepseek"}))
+    assert uses_antigravity_anywhere(paths, backend_on_ollama) is False

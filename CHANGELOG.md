@@ -35,12 +35,27 @@ All notable changes to Incurator are documented here.
   registry, server absent, a command a spawned process cannot resolve, a
   registration pointing at a different vault, or the missing `mcp(*)` grant.
 
-  Each was then exercised against a copy of the real configuration rather than a
-  fixture — and that is how the check's own hole was found. Its first version
+  **It checks both places that decide whether agy runs.** `.curator/config.yml`'s
+  `llm.primary` governs the curation pipeline; the Obsidian plugin's chat agent
+  reads its own `provider` from the plugin's `data.json`, and nothing bridges
+  them. Gating on the backend setting alone stayed silent for a user running
+  curation on Ollama and chat on Antigravity — the chat path is the one that
+  spawns agy, so that was exactly the user the warning exists for.
+
+  Each fault was then exercised against a copy of the real configuration rather
+  than a fixture — and that is how the check's own hole was found. Its first version
   exempted a bare `wiki` command outright, so it returned OK for the v0.71.0 bug
   it was written to catch: a shell alias that resolves interactively and not in a
   spawned process, leaving the server listed and dead. It now resolves the
   command the way a spawn does.
+
+  Review found two more ways to break it that had gone unexercised: a `command`
+  given as a list and an `env` given as a string each raised out of the check
+  itself, and the call site did not guard them — a health check that takes down
+  the command reporting the health. Both are handled and the call site is
+  wrapped. It also gained the cases it could not see: `admin.mcp.enabled` set
+  false, a `deny`/`ask` rule overriding the grant, an absent (not merely wrong)
+  `VAULT_ROOT`, and `args` that do not run the `mcp` subcommand.
 
 ## [0.73.1] - 2026-08-30
 
