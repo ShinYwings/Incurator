@@ -475,22 +475,24 @@ the CHANGELOG: deriving the id from the natural key turns a delete into a
 permanent fleet-wide block on that key, and adding a `sync_key` column requires
 resurrecting the `ALTER TABLE` mechanism v0.33.0 deleted.
 
-### D1b. Composite tombstones embed a device-local id (found while scoping D1)
+### D1b. Tombstones matched the wrong device's ids — **SHIPPED v0.73.0**
 
-`claim_supports` and `entity_resolution_lineage` put a raw, device-local id into
-their composite tombstone token (`source_span_id`, `origin_entity_id`). Device A
-deleting a `claim_supports` row records a token naming A's span id; device B
-holds the same span under its own id, so `_apply_tombstone` matches zero rows —
-B's copy survives while the tombstone reports as applied. A silent failed delete.
+The entry below said this "changes a transport field, so it needs a
+`SCHEMA_VERSION` bump and the existing hard version gate — its own release."
+**It did not.** A portable token turned out not to be constructible:
+`claim_supports`'s key also contains `knowledge_unit_id`, and `knowledge_units`
+has no natural-key UNIQUE index, so half the key has no portable form. What
+shipped instead translates the ids that genuinely converge, which are exactly the
+ones that differ between devices — no token-format change, no version bump, no
+fleet gate.
 
-`source_pages`/`source_pdf_pages` do not have this because they already transport
-`source_sync_key` instead of the raw `source_id`. The fix is the same swap. It
-changes a transport field, so it needs a `SCHEMA_VERSION` bump and the existing
-hard version gate — its own release, per the Phase D rule.
+Scoping it also turned up the mirror failure the original entry missed, and the
+worse one: `_row_is_blocked_by_tombstone` builds an incoming row's token from the
+peer's ids, so a row this device deleted walked back in past its own tombstone.
 
-D1's remap does NOT cover this: the remap repairs references between rows, and a
-tombstone token is computed at deletion time on the deleting device, before any
-import exists to repair.
+**Second release running where the roadmap's remedy was larger than the defect
+required** (D1 was the first). Both times the difference showed up by measuring,
+not by reading the entry. Treat a Phase D item's stated remedy as a hypothesis.
 
 ### D1c. `graph_relations` rows do not converge, only their endpoints
 

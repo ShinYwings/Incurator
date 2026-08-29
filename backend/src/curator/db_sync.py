@@ -300,6 +300,65 @@ _COMPOSITE_KEY_SPECS: dict[str, _CompositeKeySpec] = {
 }
 
 
+# Which composite tombstone fields name a row this device may hold under a
+# different id. `source_pages`/`source_pdf_pages` are absent on purpose: they
+# already transport `source_sync_key`, a value both devices compute identically,
+# which is exactly why they never had this bug.
+_TOKEN_ID_FIELDS: dict[str, tuple[tuple[str, str], ...]] = {
+    "claim_supports": (("source_span_id", "span"),),
+    "entity_resolution_lineage": (("origin_entity_id", "entity"),),
+}
+
+
+def _translate_tombstone_token(
+    table_name: str,
+    token: str,
+    entity_map: dict[str, str],
+    span_map: dict[str, str],
+) -> str:
+    """Re-express a peer's tombstone in this device's own ids.
+
+    `claim_supports` and `entity_resolution_lineage` put a raw, device-local id
+    into their composite token, minted at deletion time on the deleting device.
+    The receiver has never held that id, so the WHERE clause matches nothing, the
+    delete is counted as applied, and the row survives — a silent failed delete.
+
+    A portable token would be the tidier fix, and it is the one the roadmap
+    called for, but it is not constructible today: `claim_supports`'s key also
+    contains `knowledge_unit_id`, and `knowledge_units` has **no natural-key
+    UNIQUE index**, so there is no portable form for that half. Translating what
+    we can — the ids that genuinely converge, which are the only ones that
+    diverge between devices — closes the gap without inventing an identity this
+    schema does not have.
+
+    Unknown ids pass through unchanged, so a token naming a row this device does
+    not have still matches nothing, which is correct.
+    """
+    fields = _TOKEN_ID_FIELDS.get(table_name)
+    if not fields:
+        return token
+    maps = {"entity": entity_map, "span": span_map}
+    if not any(maps[kind] for _name, kind in fields):
+        return token
+    try:
+        parsed = json.loads(token)
+    except ValueError:
+        return token  # a raw non-JSON token: nothing to translate
+    if not isinstance(parsed, dict) or not isinstance(parsed.get("key"), dict):
+        return token
+    key = parsed["key"]
+    changed = False
+    for name, kind in fields:
+        value = key.get(name)
+        mapped = maps[kind].get(value) if isinstance(value, str) else None
+        if mapped is not None:
+            key[name] = mapped
+            changed = True
+    if not changed:
+        return token
+    return _canonical_composite_key(table_name, key)
+
+
 def _canonical_composite_key(
     table_name: str,
     key: Mapping[str, object],
@@ -1018,8 +1077,7 @@ def import_knowledge(
             # Peer id -> the id this device already uses for the same row.
             # Only convergences land here; a row the peer alone has maps to
             # itself and is left out, so an empty map means nothing to repair.
-            entity_id_map: dict[str, str] = {}
-            span_id_map: dict[str, str] = {}
+            entity_id_map, span_id_map = _prescan_converged_ids(conn, in_path)
             planned_source_inserts: set[int] = set()
             # Sources the database refused. Their child rows are LOST, not
             # merely skipped: there is no parent to attach them to, so nothing
@@ -1057,7 +1115,12 @@ def import_knowledge(
                     applied = _apply_tombstone(
                         conn,
                         target_table,
-                        row["record_id"],
+                        _translate_tombstone_token(
+                            target_table,
+                            row["record_id"],
+                            entity_id_map,
+                            span_id_map,
+                        ),
                         row["deleted_at"],
                         dry_run=dry_run,
                     )
@@ -1115,6 +1178,22 @@ def import_knowledge(
                             )
                         )
                         row["source_id"] = local_source_id
+                    # Translate the peer's ids to ours BEFORE the upsert, not
+                    # only in the post-pass afterwards. `_lw_upsert` asks
+                    # `_row_is_blocked_by_tombstone`, which builds this row's
+                    # token from the row's OWN values — the peer's. A row this
+                    # device deliberately deleted would otherwise walk back in
+                    # past its own tombstone, because the two tokens name
+                    # different ids for the same span. Silent resurrection is
+                    # worse than a silently-skipped delete.
+                    for _column, _kind in _SCALAR_ID_REFS.get(tbl, ()):
+                        _current = row.get(_column)
+                        if isinstance(_current, str):
+                            _mapped = (
+                                entity_id_map if _kind == "entity" else span_id_map
+                            ).get(_current)
+                            if _mapped is not None:
+                                row[_column] = _mapped
                     remote_row_id = row.get("id")
                     result = _lw_upsert(
                         conn,
@@ -1764,6 +1843,94 @@ def _local_id_for_natural_key(
         tuple(row[col] for col in cols),
     ).fetchone()
     return str(found["id"]) if found is not None else None
+
+
+def _prescan_converged_ids(
+    conn: "db.sqlite3.Connection", in_path: Path
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Peer id -> local id, for rows this device already has under another id.
+
+    Built BEFORE anything is applied, by reading the file once for just the two
+    tables that converge. Doing it in-stream instead is not enough: the maps are
+    needed by the very first records in the file.
+
+    Tombstones are `SYNC_TABLES` index 0, so they are applied before any span or
+    entity row is seen — and a `claim_supports` tombstone names the DELETING
+    device's span id. Without the map the WHERE clause matches nothing, the
+    delete is reported as applied, and the row survives. The mirror case is
+    worse: `_row_is_blocked_by_tombstone` computes an incoming row's token from
+    that row's own (peer) ids, so a row this device deliberately deleted walks
+    back in past its own tombstone.
+
+    `source_id` is remapped to the local value here too, because a span's natural
+    key is `(source_id, content_hash)` and the peer's integer is meaningless
+    locally.
+
+    A partial export (`--since`, `--tables`) may not carry the referenced rows;
+    then the map is simply smaller and those tokens behave as they did before.
+    Nothing regresses, and the hands-off autosync path always writes a full
+    snapshot.
+    """
+    entity_map: dict[str, str] = {}
+    span_map: dict[str, str] = {}
+    sync_key_to_local: dict[str, int] = {
+        str(r["sync_key"]): int(r["id"])
+        for r in conn.execute(
+            "SELECT id, sync_key FROM sources WHERE sync_key IS NOT NULL AND sync_key != ''"
+        )
+    }
+    peer_source_sync_key: dict[int, str] = {}
+
+    opener: IO[str]
+    if in_path.suffix == ".gz":
+        opener = gzip.open(in_path, "rt", encoding="utf-8")  # type: ignore[assignment]
+    else:
+        opener = in_path.open("r", encoding="utf-8")
+
+    with opener as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue  # the main pass reports malformed input; this one only looks
+            if rec.get("type") != "row":
+                continue
+            table = rec.get("table")
+            if table not in ("sources", "source_spans", "graph_entities"):
+                continue
+            row = rec.get("row")
+            if not isinstance(row, dict):
+                continue
+
+            if table == "sources":
+                remote_id, key = row.get("id"), row.get("sync_key")
+                if isinstance(remote_id, int) and isinstance(key, str) and key:
+                    peer_source_sync_key[remote_id] = key
+                continue
+
+            remote_id = row.get("id")
+            if not isinstance(remote_id, str):
+                continue
+            if table == "graph_entities":
+                local = _local_id_for_natural_key(conn, table, row)
+            else:
+                peer_source_id = row.get("source_id")
+                if not isinstance(peer_source_id, int):
+                    continue
+                sync_key = peer_source_sync_key.get(peer_source_id)
+                local_source_id = sync_key_to_local.get(sync_key or "")
+                if local_source_id is None:
+                    continue
+                local = _local_id_for_natural_key(
+                    conn, table, {**row, "source_id": local_source_id}
+                )
+            if local is not None and local != remote_id:
+                (entity_map if table == "graph_entities" else span_map)[remote_id] = local
+
+    return entity_map, span_map
 
 
 def _candidate_rows(
