@@ -327,6 +327,12 @@ _TOKEN_ID_FIELDS: dict[str, tuple[tuple[str, str | None], ...]] = {
     # the same table whose reference columns a name-keyed registry could not see
     # in v0.72.0; here it hides in a tombstone instead.
     "artifact_dependencies": (("artifact_id", None), ("depends_on_id", None)),
+    # v0.74.0 made `REL-` ids converge, which is exactly what puts this table
+    # here: before that, relation ids were inserted verbatim and already agreed
+    # between devices, so its token needed no translation. The membership rule
+    # below is not a static fact about the schema — it moves when a table gains
+    # a natural identity.
+    "graph_relation_supports": (("relation_id", "relation"),),
 }
 
 
@@ -335,6 +341,7 @@ def _translate_tombstone_token(
     token: str,
     entity_map: dict[str, str],
     span_map: dict[str, str],
+    relation_map: dict[str, str] | None = None,
 ) -> str:
     """Re-express a peer's tombstone in this device's own ids.
 
@@ -360,6 +367,7 @@ def _translate_tombstone_token(
     maps: dict[str | None, dict[str, str]] = {
         "entity": entity_map,
         "span": span_map,
+        "relation": relation_map or {},
         None: {**entity_map, **span_map},
     }
     if not any(maps[kind] for _name, kind in fields):
@@ -1116,10 +1124,9 @@ def import_knowledge(
             # Peer id -> the id this device already uses for the same row.
             # Only convergences land here; a row the peer alone has maps to
             # itself and is left out, so an empty map means nothing to repair.
-            entity_id_map, span_id_map = _prescan_converged_ids(conn, in_path)
-            # Relations converge too, but only AFTER their endpoints do, so this
-            # one is filled in-stream rather than by the pre-scan.
-            relation_id_map: dict[str, str] = {}
+            entity_id_map, span_id_map, relation_id_map = _prescan_converged_ids(
+                conn, in_path
+            )
             planned_source_inserts: set[int] = set()
             # Sources the database refused. Their child rows are LOST, not
             # merely skipped: there is no parent to attach them to, so nothing
@@ -1162,6 +1169,7 @@ def import_knowledge(
                             row["record_id"],
                             entity_id_map,
                             span_id_map,
+                            relation_id_map,
                         ),
                         row["deleted_at"],
                         dry_run=dry_run,
@@ -1913,6 +1921,16 @@ _TYPED_ID_REFS: tuple[tuple[str, str, str, dict[str, str]], ...] = (
 # `{"from": ENT-, "relation_id": REL-, "to": ENT-, ...}`; the flat-array rewrite
 # below tests `isinstance(value, str)` and would skip every one of them
 # silently.
+# JSON arrays whose entries carry MIXED prefixes, so the kind cannot be declared
+# per column. `insight_candidates.affected_node_ids` holds any of
+# `ATM-|CON-|SYN-|KNU-|ENT-|REL-|REP-` (`insight_lifecycle._PATCHABLE`); only the
+# two prefixes that converge need translating and the rest must pass through
+# untouched. A registry keyed on one kind per column cannot express that, which
+# is why this one is separate rather than folded into the list above.
+_MIXED_JSON_ARRAY_ID_REFS: dict[str, tuple[str, ...]] = {
+    "insight_candidates": ("affected_node_ids",),
+}
+
 _JSON_OBJECT_ID_REFS: dict[str, tuple[tuple[str, tuple[str, ...], str], ...]] = {
     "memory_paths": (
         ("path_json", ("from", "to"), "entity"),
@@ -1956,9 +1974,16 @@ def _local_id_for_natural_key(
     return str(found["id"]) if found is not None else None
 
 
+def _open_export(in_path: Path) -> "IO[str]":
+    """Open an export for reading, transparently handling `.gz`."""
+    if in_path.suffix == ".gz":
+        return gzip.open(in_path, "rt", encoding="utf-8")  # type: ignore[return-value]
+    return in_path.open("r", encoding="utf-8")
+
+
 def _prescan_converged_ids(
     conn: "db.sqlite3.Connection", in_path: Path
-) -> tuple[dict[str, str], dict[str, str]]:
+) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
     """Peer id -> local id, for rows this device already has under another id.
 
     Built BEFORE anything is applied, by reading the file once for just the two
@@ -1985,6 +2010,7 @@ def _prescan_converged_ids(
     """
     entity_map: dict[str, str] = {}
     span_map: dict[str, str] = {}
+    relation_map: dict[str, str] = {}
     sync_key_to_local: dict[str, int] = {
         str(r["sync_key"]): int(r["id"])
         for r in conn.execute(
@@ -1993,13 +2019,7 @@ def _prescan_converged_ids(
     }
     peer_source_sync_key: dict[int, str] = {}
 
-    opener: IO[str]
-    if in_path.suffix == ".gz":
-        opener = gzip.open(in_path, "rt", encoding="utf-8")  # type: ignore[assignment]
-    else:
-        opener = in_path.open("r", encoding="utf-8")
-
-    with opener as f:
+    with _open_export(in_path) as f:
         for line in f:
             line = line.strip()
             if not line:
@@ -2011,7 +2031,9 @@ def _prescan_converged_ids(
             if rec.get("type") != "row":
                 continue
             table = rec.get("table")
-            if table not in ("sources", "source_spans", "graph_entities"):
+            if table not in (
+                "sources", "source_spans", "graph_entities", "graph_relations"
+            ):
                 continue
             row = rec.get("row")
             if not isinstance(row, dict):
@@ -2042,7 +2064,39 @@ def _prescan_converged_ids(
             if local is not None and local != remote_id:
                 (entity_map if table == "graph_entities" else span_map)[remote_id] = local
 
-    return entity_map, span_map
+    # Relations are resolved in a SECOND pass over the same file, because their
+    # natural key names entities and so can only be compared once the entity map
+    # is complete. A `graph_relation_supports` tombstone embeds `relation_id`,
+    # and tombstones are `SYNC_TABLES` index 0 — filling this in-stream would
+    # leave it empty exactly when the tombstone needs it.
+    if entity_map:
+        with _open_export(in_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                if rec.get("type") != "row" or rec.get("table") != "graph_relations":
+                    continue
+                row = rec.get("row")
+                if not isinstance(row, dict):
+                    continue
+                remote_id = row.get("id")
+                if not isinstance(remote_id, str):
+                    continue
+                probe = dict(row)
+                for column in ("source_entity_id", "target_entity_id"):
+                    value = probe.get(column)
+                    if isinstance(value, str) and value in entity_map:
+                        probe[column] = entity_map[value]
+                local = _local_id_for_natural_key(conn, "graph_relations", probe)
+                if local is not None and local != remote_id:
+                    relation_map[remote_id] = local
+
+    return entity_map, span_map, relation_map
 
 
 def _translate_row_ids(
@@ -2312,6 +2366,29 @@ def _remap_converged_ids(
                 "UPDATE entity_resolution_lineage SET rewrite_json = ? WHERE rowid = ?",
                 (json.dumps(payload, sort_keys=True), row["_rid"]),
             )
+
+    both = {**entity_map, **(relation_map or {})}
+    for table, columns in _MIXED_JSON_ARRAY_ID_REFS.items():
+        if not both:
+            continue
+        for column in columns:
+            for row in _candidate_rows(conn, table, column, both):
+                try:
+                    values = json.loads(row["payload"] or "[]")
+                except (TypeError, ValueError):
+                    continue
+                if not isinstance(values, list):
+                    continue
+                updated = [
+                    both.get(v, v) if isinstance(v, str) else v for v in values
+                ]
+                if updated == values:
+                    continue
+                rewritten += sum(1 for a, b in zip(values, updated) if a != b)
+                conn.execute(
+                    f"UPDATE {table} SET {column} = ? WHERE rowid = ?",  # noqa: S608
+                    (json.dumps(updated), row["_rid"]),
+                )
 
     for table, object_refs in _JSON_OBJECT_ID_REFS.items():
         for column, keys, kind in object_refs:

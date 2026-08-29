@@ -23,8 +23,21 @@ All notable changes to Incurator are documented here.
   differs between devices for the same assertion.
 
   Relations that converge have their `REL-` id remapped like entities and spans,
-  so `graph_relation_supports`, `community_reports.relation_ids`, and
-  `memory_paths.path_json` hops are not orphaned by the merge.
+  so `graph_relation_supports`, `community_reports.relation_ids`,
+  `memory_paths.path_json` hops, and `insight_candidates.affected_node_ids` are
+  not orphaned by the merge. That last one holds mixed prefixes — any of
+  `ATM-|CON-|SYN-|KNU-|ENT-|REL-|REP-` — so a registry declaring one kind per
+  column cannot express it and it needed a separate one.
+
+  **Making relations converge also moved a rule.**
+  `graph_relation_supports`'s tombstone token embeds `relation_id`, which was
+  safe only while `REL-` ids were inserted verbatim and therefore already agreed
+  between devices. It no longer is, so that table joins the tombstone-translation
+  registry — and because tombstones are `SYNC_TABLES` index 0, the pre-scan now
+  resolves relations too, in a second pass over the same file, since a relation's
+  natural key names entities and can only be compared once the entity map is
+  complete. The registry's membership rule is not a static fact about the schema;
+  it moves when a table gains a natural identity.
 
   Converging **merges** rather than discarding. The first version of this skipped
   the peer's row once it recognised the edge, which quietly made it "whoever

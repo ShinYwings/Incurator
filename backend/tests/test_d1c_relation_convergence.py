@@ -179,3 +179,54 @@ def test_our_newer_row_is_not_overwritten_by_an_older_peer(device, tmp_path: Pat
         rows = conn.execute("SELECT description FROM graph_relations").fetchall()
     assert len(rows) == 1
     assert rows[0]["description"] == "ours, newer"
+
+
+def test_a_support_delete_crosses_devices_once_relations_converge(
+    device, tmp_path: Path
+) -> None:
+    """`graph_relation_supports`'s tombstone embeds `relation_id`.
+
+    That was safe only while `REL-` ids were inserted verbatim and therefore
+    already agreed between devices. Making relations converge is what breaks it:
+    the token now names an id the receiving device does not use. The membership
+    rule for the translation registry is not a static fact about the schema — it
+    moves when a table gains a natural identity, and this release moved it.
+    """
+    from curator.db_sync import record_row_tombstone_on_connection
+
+    a, b = device("a"), device("b")
+    _seed(a, "aaaaaaa")
+    _seed(b, "bbbbbbb")
+    for path, prefix in ((a, "aaaaaaa"), (b, "bbbbbbb")):
+        with db.connect(path) as conn:
+            conn.execute(
+                "INSERT INTO knowledge_units (id, unit_type, canonical_name,"
+                " statement, source_span_ids, created_at, updated_at)"
+                " VALUES ('KNU-11111111', 'claim', 'c', 'c.', '[]', ?, ?)",
+                ("2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+            )
+            conn.execute(
+                "INSERT INTO graph_relation_supports (relation_id,"
+                " knowledge_unit_id, source_span_ids, assertion_source,"
+                " confidence, support_status, support_hash, source_lineage_hash,"
+                " created_at, updated_at)"
+                " VALUES (?, 'KNU-11111111', '[]', 'source_states', 1.0,"
+                " 'unchecked', 'h', 'lh', ?, ?)",
+                (f"REL-{prefix}0001", "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+            )
+
+    with db.connect(a) as conn:
+        row = conn.execute("SELECT * FROM graph_relation_supports").fetchone()
+        record_row_tombstone_on_connection(conn, "graph_relation_supports", dict(row))
+        conn.execute("DELETE FROM graph_relation_supports")
+
+    export_path = tmp_path / "a.json"
+    export_knowledge(a, export_path)
+    import_knowledge(b, export_path)
+
+    with db.connect(b) as conn:
+        n = conn.execute("SELECT COUNT(*) FROM graph_relation_supports").fetchone()[0]
+    assert n == 0, (
+        "the support tombstone named the deleting device's relation id, which "
+        "this device no longer shares now that relations converge"
+    )
