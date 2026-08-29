@@ -584,6 +584,12 @@ class ContextService:
     ) -> None:
         self.paths = paths
         self.client = client
+        # Read once per service, not once per turn. `load_config` parses YAML off
+        # disk and measured 3.7 ms; `context_fetch` had no other reason to touch
+        # the config, so adding the persona would have put that on every chat
+        # turn for a value that cannot change while the process holds this
+        # instance.
+        self._persona: dict[str, Any] | None = None
         # P8 rollback seam: a route can be disabled here (tests/programmatic) or via
         # the INCURATOR_DISABLED_ROUTES env var, degrading it to the safe local route.
         self.disabled_routes: frozenset[str] = (
@@ -591,6 +597,26 @@ class ContextService:
             if disabled_routes is not None
             else _disabled_routes_from_env()
         )
+
+    def _vault_persona(self) -> dict[str, Any]:
+        """The vault persona, read once and reused.
+
+        The surface that writes the answer is handed the context pack and
+        nothing else, so a persona that stops at retrieval shapes nothing the
+        user reads. An unreadable config yields the built-in default rather than
+        failing the fetch: a missing voice is a worse answer, not no answer.
+        """
+        if self._persona is None:
+            try:
+                self._persona = cfg.get_curator_persona(cfg.load_config(self.paths))
+            except Exception:  # noqa: BLE001 - a malformed config is `wiki lint`'s to report
+                import logging
+
+                logging.getLogger(__name__).debug(
+                    "Could not load the vault persona", exc_info=True
+                )
+                self._persona = cfg.get_curator_persona({})
+        return self._persona
 
     def context_fetch(
         self,
@@ -814,7 +840,7 @@ class ContextService:
             # evidence. `applied` states it outright rather than leaving the
             # default policy to be recognised by its shape.
             "policy": _policy_summary(policy),
-            "persona": cfg.get_curator_persona(cfg.load_config(self.paths)),
+            "persona": self._vault_persona(),
             "budget": budget,
             "coverage": {
                 "sufficiency": coverage,
