@@ -1,4 +1,4 @@
-# Incurator - Schema & Operating Conventions (v0.73.0)
+# Incurator - Schema & Operating Conventions (v0.74.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -1775,6 +1775,15 @@ The integer `sources.id` remains replica-local. Import resolves/upserts a source
 by `sync_key`, preserves the receiving replica's integer id, and remaps every
 synchronized child `source_id` before applying child rows. JSONL import rejects
 `sources` rows without a non-empty `sync_key`.
+
+**"Every synchronized child `source_id`" includes the ones inside JSON arrays
+(v0.74.0).** `prompt_runs.source_ids` is a JSON array of `sources.id` integers,
+which a column-level remap cannot reach, so it arrived carrying the peer's
+numbering — each entry naming whatever unrelated source occupied that row number
+locally. Arrays of source ids MUST be translated with the same map the column
+remap uses, and an id with no local counterpart MUST be dropped rather than kept:
+a kept id silently names the wrong source, while a shorter array is merely
+incomplete.
 
 A `vault:<relpath>` key is normalized to forward slashes when it is derived, so
 the same file yields the same key regardless of the operating system that

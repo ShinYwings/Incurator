@@ -1219,6 +1219,7 @@ def import_knowledge(
                     # different ids for the same span. Silent resurrection is
                     # worse than a silently-skipped delete.
                     _translate_row_ids(row, tbl, entity_id_map, span_id_map)
+                    _translate_source_id_arrays(row, tbl, source_id_map)
                     remote_row_id = row.get("id")
                     result = _lw_upsert(
                         conn,
@@ -2018,6 +2019,47 @@ def _translate_row_ids(
         mapped = both.get(value)
         if mapped is not None:
             row[column] = mapped
+
+
+# JSON arrays holding `sources.id` INTEGERS. The integer is AUTOINCREMENT and
+# deliberately replica-local — `sources.sync_key` is the portable identity, and
+# import already remaps every child's `source_id` COLUMN onto the local value.
+# A column remap cannot reach inside a JSON string, so these arrived carrying the
+# peer's numbering, where each entry names whatever unrelated source happens to
+# occupy that row number here. `SCHEMA.md` claims the transport remaps "every
+# synchronized child `source_id`"; without this it did not.
+_SOURCE_ID_ARRAY_REFS: dict[str, tuple[str, ...]] = {
+    "prompt_runs": ("source_ids",),
+}
+
+
+def _translate_source_id_arrays(
+    row: dict, table: str, source_id_map: dict[int, int | None]
+) -> None:
+    """Rewrite a JSON array of peer `sources.id` integers into local ones.
+
+    An id with no local counterpart is DROPPED rather than kept. Keeping it would
+    leave the array naming an unrelated local source — silently wrong provenance
+    is worse than provenance that is honestly shorter. The same reasoning as
+    `_do_insert`'s: a wrong answer costs more than a missing one.
+    """
+    for column in _SOURCE_ID_ARRAY_REFS.get(table, ()):
+        raw = row.get(column)
+        if not isinstance(raw, str):
+            continue
+        try:
+            values = json.loads(raw)
+        except ValueError:
+            continue
+        if not isinstance(values, list):
+            continue
+        translated = [
+            source_id_map[value]
+            for value in values
+            if isinstance(value, int) and source_id_map.get(value) is not None
+        ]
+        if translated != values:
+            row[column] = json.dumps(translated)
 
 
 def _candidate_rows(

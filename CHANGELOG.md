@@ -2,6 +2,30 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.74.0] - 2026-08-30
+
+### Fixed
+- **A synced prompt run named another device's sources.** `sources.id` is an
+  AUTOINCREMENT integer and deliberately replica-local; `sources.sync_key` is the
+  portable identity, and import already resolves a peer's source by that key,
+  keeps the receiving device's own integer, and remaps every child's `source_id`
+  **column**. `prompt_runs.source_ids` is a JSON **array** of those integers, and
+  a column remap cannot reach inside a JSON string — so the array arrived holding
+  the peer's numbering, where each entry names whatever unrelated source happens
+  to occupy that row number locally.
+
+  Reproduced with two devices that registered the same two files in a different
+  order: the array arrived as `[1]` while this device uses `2` for that file and
+  `1` is a different source entirely. Silently wrong provenance, on 2,984 rows
+  on the reference vault.
+
+  An id with no local counterpart is now dropped rather than kept. Keeping it
+  leaves the array pointing at an unrelated source; provenance that is honestly
+  shorter beats provenance that is quietly wrong.
+
+  `SCHEMA.md` claimed the transport remaps "every synchronized child
+  `source_id`". Until now it did not.
+
 ## [0.73.0] - 2026-08-30
 
 ### Fixed
