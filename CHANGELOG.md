@@ -2,7 +2,7 @@
 
 All notable changes to Incurator are documented here.
 
-## [0.71.0] - 2026-08-24
+## [0.71.0] - 2026-08-29
 ### Added
 - **A cap on the LLM call log — with a guard that is the whole point.**
 

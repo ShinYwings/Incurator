@@ -44,5 +44,5 @@ _(empty — last triaged 2026-08-23; the two remaining items became ROADMAP 19 a
   쓰는 코드)를 호출해 실제 홈 디렉터리를 오염시켰다.
   영향: 사용자의 agy MCP 등록이 존재하지 않는 vault를 가리키게 된다. v0.71.0에서
   `config/mcp_config.json`까지 쓰게 되면서 잘못된 항목이 퍼질 범위도 넓어졌다.
-  할 일: 홈 디렉터리에 쓰는 테스트를 찾아 `monkeypatch.setattr(cli.Path, "home", ...)`
+  [해결됨 v0.71.0 — conftest.py + vitest.setup.ts 가드] 할 일: 홈 디렉터리에 쓰는 테스트를 찾아 `monkeypatch.setattr(cli.Path, "home", ...)`
   를 강제하고, 홈 경로 쓰기를 막는 autouse fixture를 conftest에 넣는 것을 검토한다.

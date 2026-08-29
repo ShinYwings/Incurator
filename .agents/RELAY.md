@@ -1,39 +1,57 @@
-# RELAY — v0.71.0 in flight
+# RELAY — IDLE
 
-**Branch**: `release/v0.71.0` · **PR**: #187 (OPEN)
+## Last shipped
 
-## Goal
+**v0.71.0 (#187) — the Antigravity CLI can finally call an Incurator tool.**
 
-Phase B2 — retention. Cap the LLM call log (`prompt_runs`) without ever deleting
-a record an artifact still points at, and prune plugin sessions by age.
+Three independent breakages stood between the plugin and a callable agy tool,
+each fatal alone, all measured against agy 1.1.22 rather than reasoned about:
 
-## Progress
+1. The MCP server was registered in `~/.gemini/settings.json`; agy reads
+   `~/.gemini/config/mcp_config.json`, which was empty.
+2. Calling any MCP tool needs an `mcp` permission and only the wildcard is
+   honoured — `mcp(incurator_fetch)` and `mcp(fetch_url)` were auto-denied.
+3. The registered command was the bare name `wiki`, a shell alias a spawned
+   process cannot find, so the server never started.
 
-- `wiki gc plan` / `wiki gc run`, `gc.prompt_runs_keep`, session retention: DONE
-- The code-review skill was run on #187 and found six issues; all fixed.
-  One was a fleet-wide silent data-loss path (`graph_batch_results.trace_id` —
-  a prompt-run reference under a different column name that the completeness
-  test was structurally incapable of catching).
-- Retrospective reviews of v0.62.0–v0.71.0 found five more; all fixed here:
-  sign-out never reached the encrypted store, the mid-stream quota kill fired on
-  prose, a throwing snapshot wedged plugin persistence, per-source L4 status
-  counted reports synthesis never cited, and a cleared `.cache/` overwrote an
-  accurate ledger with "Last curated: never".
-- Re-review of the post-review commits: running now.
+Never fetch-specific: the whole curator surface `command(wiki)` exists to spawn
+was registered the same wrong way. It explains v0.53.1, v0.56.1, and the fetch
+server itself — three permission fixes that shipped granting nothing.
+Verified after: headless agy called `curator_status` and returned 3,512 pages.
 
-## Critical context
+Also: the `prompt_runs` cap, session retention, and the review fixes (sign-out
+that never reached the encrypted store, a mid-stream quota kill firing on prose,
+a throwing snapshot wedging plugin persistence, L4 status counting uncited
+reports, a cleared `.cache/` overwriting an accurate ledger).
 
-- **Code review before CI is now a mandatory workflow step** (CLAUDE.md step 8,
-  user directive 2026-08-24). It had been skipped for sixteen releases.
-- The full backend suite caught a regression `734e420` introduced and I had not
-  re-run pytest after: `is_knowledge_question` joined the derivation trace block
-  without updating the exact-equality assertion that pins that block's shape.
-  **Run the full suite before the PR, not just the touched files.**
-- One LOW finding is recorded, not fixed: the provider key transits as CLI argv.
-  Fixing it means threading stdin through `runBackendCommand`, the spawn every
-  backend call shares. It is in `USER_REPORT.md` as its own item.
+## What this round changed about how to work here
 
-## Immediate next action
+**Code review before CI is a mandatory workflow step** (CLAUDE.md step 8). It
+had been skipped for sixteen releases; the first run found six issues including
+a fleet-wide data-loss path.
 
-Land the re-review findings, merge #187, then take the next `ROADMAP.md` item —
-Phase B2's remaining synced-table targets, then Phase D.
+**Verification has to touch the real thing.** Nearly every bug this round shared
+one shape — a check that never reached its target:
+
+- the fetch server's tests asserted on the script *string*; every defect passed
+- a binary test asserted an SSRF refusal, so it never exercised binary handling
+- a registry test mocked `os.homedir` too late, so nothing was written and three
+  "must be absent" assertions passed vacuously
+- both suites were rewriting the developer's real `~/.gemini` and nothing said so
+
+So: **mutate the fix and confirm the test fails.** Every fix this round was
+checked that way. Guards now exist in `backend/tests/conftest.py` and
+`plugin/vitest.setup.ts` so a home-directory leak is loud instead of silent.
+
+**Run the FULL backend suite before the PR**, not just touched files — 734e420
+broke an exact-equality assertion that only the full run caught.
+
+## Open
+
+`.agents/USER_REPORT.md` holds three filed items: the provider key transiting as
+CLI argv, `is_knowledge_question` gating nothing in the funnel, and the
+pytest-wrote-to-real-home finding (now fixed, entry can be retired).
+
+Next: `.agents/ROADMAP.md` Phase D — D1 (`graph_entities`/`source_spans`
+surrogate-id transport). Phase D items are stored-contract changes: one per
+release, each with a migration rehearsal and rollback drill.
