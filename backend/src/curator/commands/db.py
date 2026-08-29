@@ -80,6 +80,7 @@ def db_import(
         "skipped": stats.skipped,
         "deleted": stats.deleted,
         "rejected": stats.rejected,
+        "remapped": stats.remapped,
     }
 
     if json_output:
@@ -96,6 +97,15 @@ def db_import(
                 else ""
             )
         )
+        if stats.remapped:
+            # Say it rather than repair in silence. A non-zero count means the
+            # two devices had independently extracted the same entity or span
+            # and minted different ids for it -- normal, not an error, but the
+            # user should be able to see that their two vaults are converging.
+            console.print(
+                f"[dim]{stats.remapped} reference(s) re-pointed at rows this "
+                f"device already had under a different id.[/dim]"
+            )
         if stats.rejected:
             console.print(
                 f"[yellow]{stats.rejected} row(s) were refused by the database "
@@ -136,6 +146,7 @@ def db_autosync(
         "imported_files": len(res.imported),
         "inserted": sum(s.inserted for s in res.imported.values()),
         "rejected": sum(s.rejected for s in res.imported.values()),
+        "remapped": sum(s.remapped for s in res.imported.values()),
         "updated": sum(s.updated for s in res.imported.values()),
         "deleted": sum(s.deleted for s in res.imported.values()),
         "conflicts": res.conflicts,
@@ -157,6 +168,14 @@ def db_autosync(
                 else ""
             )
         )
+        if summary["remapped"]:
+            # Same reasoning as `rejected` below, and the same omission it was
+            # once fixed for: autosync is the hands-off path, so anything worth
+            # telling the user in `wiki db import` is worth telling them here.
+            console.print(
+                f"[dim]{summary['remapped']} reference(s) re-pointed at rows this "
+                f"device already had under a different id.[/dim]"
+            )
         if summary["rejected"]:
             # autosync is the hands-off default, so a silent loss here is the
             # one this feature exists to prevent. Never let it print green only.

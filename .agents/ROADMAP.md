@@ -451,22 +451,60 @@ High risk: schema and contract changes. Each of these gets its own release, its
 own migration rehearsal, and its own rollback drill. Never two in a batch — see
 rule 1 above.
 
-### D1. `graph_entities` / `source_spans` transport on a surrogate id
+### D1. Converged entity/span ids orphaned their children — **SHIPPED v0.72.0**
 
-Both carry a natural identity — `UNIQUE(canonical_name, entity_type)` and
-`UNIQUE(source_id, content_hash)` — but sync transports them on the surrogate
-`id`, so two devices that independently extract the same thing mint different
-ids. The key lookup misses, the insert collides on content, and convergence has
-to be classified after the fact (v0.50.0 does this via `PRAGMA index_list`).
-`sources` solved the same problem properly with a `sync_key` transport identity,
-so the primary lookup finds converging rows directly and children remap to the
-local id.
+The entry below described the remedy as "a transport identity for both tables
+plus the id-remap plumbing — a schema change touching every referencing column."
+**That was wrong, and measuring it is what showed why.** Both tables already
+carry their natural key as a UNIQUE index, so unlike `sources` — which needed a
+separate `sync_key` because `relpath` alone was insufficient — no new column was
+required. The only missing piece was translating a peer's ids to ours at import.
 
-Nothing remaps `graph_relations.source_entity_id`/`target_entity_id` when an
-entity converges, so the classifier makes the symptom quiet without closing the
-gap. The real fix is a transport identity for both tables plus the id-remap
-plumbing — a schema change touching every referencing column, which is why it
-was left out of v0.50.0 rather than smuggled in.
+What shipped: a post-pass in `import_knowledge` that records the id this device
+already uses for each converged row and rewrites every reference, scalar columns
+and JSON arrays alike. No schema change, no `SCHEMA_VERSION` bump, export format
+unchanged, so old and new devices still interoperate.
+
+The bug was real and had already fired: the reference vault's peer export carried
+691 entities and `MipNeRF360` already existed here under a different id. Nothing
+broke that time only because that export happened to contain no relation touching
+it.
+
+Two alternative designs were rejected on evidence, recorded in the Arena and in
+the CHANGELOG: deriving the id from the natural key turns a delete into a
+permanent fleet-wide block on that key, and adding a `sync_key` column requires
+resurrecting the `ALTER TABLE` mechanism v0.33.0 deleted.
+
+### D1b. Composite tombstones embed a device-local id (found while scoping D1)
+
+`claim_supports` and `entity_resolution_lineage` put a raw, device-local id into
+their composite tombstone token (`source_span_id`, `origin_entity_id`). Device A
+deleting a `claim_supports` row records a token naming A's span id; device B
+holds the same span under its own id, so `_apply_tombstone` matches zero rows —
+B's copy survives while the tombstone reports as applied. A silent failed delete.
+
+`source_pages`/`source_pdf_pages` do not have this because they already transport
+`source_sync_key` instead of the raw `source_id`. The fix is the same swap. It
+changes a transport field, so it needs a `SCHEMA_VERSION` bump and the existing
+hard version gate — its own release, per the Phase D rule.
+
+D1's remap does NOT cover this: the remap repairs references between rows, and a
+tombstone token is computed at deletion time on the deleting device, before any
+import exists to repair.
+
+### D1c. `graph_relations` rows do not converge, only their endpoints
+
+Two devices asserting the same relation mint two `REL-` ids, and `graph_relations`
+has no natural-key UNIQUE constraint, so nothing dedupes them. After D1 both rows
+point at the same converged entity pair — correct, but duplicated. Deciding the
+natural key for a relation is a modelling question (does `assertion_source` or
+`description` participate?), not just plumbing.
+
+### D1d. `prompt_runs.source_ids` has never been remapped
+
+A JSON array of `sources.id` that the `sources` transport skips — a pre-existing
+gap in that feature, not in D1. D1's machinery reaches it almost for free, but
+folding it in silently would have blurred D1's acceptance criteria.
 
 ### D2. The curation lens and the vault persona never reach the chat surface
 

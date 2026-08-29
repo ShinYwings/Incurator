@@ -1116,6 +1116,24 @@ A refused row does not stop the import — the rest of the file still lands — 
 one bad row cannot wedge syncing on that device. Re-exporting from the other
 device and importing again is the fix.
 
+You may also see a line about re-pointed references:
+
+```
+Import complete: +8 inserted, ~1 updated, 3 skipped, 0 deleted
+2 reference(s) re-pointed at rows this device already had under a different id.
+```
+
+That is normal and means your two vaults are converging. When both devices read
+the same source independently, each one mints its own internal id for the
+entities and text spans it extracts. The content is recognised as the same and
+kept once — that is the `skipped` count — but anything the other device attached
+to *its* id has to be re-pointed at yours, or it would reference something this
+vault has never had. Before v0.72.0 that re-pointing did not happen: a relation
+could arrive naming an entity id that existed nowhere here, with nothing to
+warn you. The count is printed rather than repaired quietly, so a silent repair
+cannot be mistaken for no repair.
+
+
 ### `wiki db autosync` — automatic sync over Syncthing
 
 If you already sync your vault folder with **Syncthing**, `wiki db autosync` turns the manual export/import above into a hands-off, Zotero-grade flow.
