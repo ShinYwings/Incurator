@@ -35,3 +35,14 @@ _(empty — last triaged 2026-08-23; the two remaining items became ROADMAP 19 a
   할 일: 퍼널에도 게이트를 넣어 `plugin_api/context.py`와 동작을 일치시킨다.
   확인할 것 — 빈 pack을 받은 `QueryOrchestrator`가 무엇을 답하는지. "정보가
   없습니다"로 답하면 번역 요청에 대한 답으로 틀렸다.
+
+- [코드리뷰 findings, 2026-08-29] 테스트가 사용자의 실제 홈 설정에 썼다.
+  `~/.gemini/antigravity/mcp_config.json`의 `incurator` 항목이 `VAULT_ROOT`를
+  `/private/var/folders/.../pytest-of-shin/pytest-1023/test_plugin_models_pull_report0/vault`
+  로 가리키고 있었다 — 이미 삭제된 pytest 임시 디렉터리다. 즉 어떤 테스트가
+  `Path.home()`을 monkeypatch하지 않은 채 `_sync_mcp_configs`(또는 그 경로를
+  쓰는 코드)를 호출해 실제 홈 디렉터리를 오염시켰다.
+  영향: 사용자의 agy MCP 등록이 존재하지 않는 vault를 가리키게 된다. v0.71.0에서
+  `config/mcp_config.json`까지 쓰게 되면서 잘못된 항목이 퍼질 범위도 넓어졌다.
+  할 일: 홈 디렉터리에 쓰는 테스트를 찾아 `monkeypatch.setattr(cli.Path, "home", ...)`
+  를 강제하고, 홈 경로 쓰기를 막는 autouse fixture를 conftest에 넣는 것을 검토한다.
