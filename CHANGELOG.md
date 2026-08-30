@@ -2,6 +2,48 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.76.0] - 2026-08-30
+
+### Added
+- **The backend now runs the Antigravity CLI inside an OS sandbox, like the
+  plugin already did.** `AntigravityCliClient._run` spawned `agy` with a bare
+  `subprocess.run` and set `ANTIGRAVITY_TRUST_WORKSPACE` — asking the CLI to skip
+  its own guardrails — on the one code path that feeds it ingested, untrusted
+  source material. The plugin has refused to run an agentic CLI uncontained since
+  v0.23.0, after measuring that `agy` ignores its own `--sandbox` and creates
+  files anyway. The backend never got the same treatment; the gap was latent only
+  while the read permission was broken, and v0.56.1 fixed the permission.
+
+  Verified by running the real generated profile, not by reading it: a write
+  inside the vault succeeds, a write to `$HOME` or `/tmp` is refused, a read of
+  `/etc/hosts` still works, the refusal survives three levels of nested shells
+  (which is how `agy` runs), and the CLI's own `~/.gemini` stays writable so it
+  does not crash. An unsupported platform raises rather than silently running
+  uncontained.
+
+  **This is a write sandbox, and it does not close the v0.56.1 read grant.**
+  Reads were never restricted on either path — denying them breaks the CLI's
+  ability to read its own binaries. What this buys is write and process
+  containment and one behaviour across both spawn paths. Closing the read
+  exposure would need a read-restricted profile allowlisting everything `agy`
+  needs, which breaks on every CLI release; the standing recommendation remains a
+  vision model reached over an API, which needs no filesystem grant at all.
+
+### Fixed
+- **The test guard that stops the suite spending the user's provider account was
+  defeated by this release's own change.** Wrapping the spawn moved the CLI's
+  name off `argv[0]`, and the guard only looked there — so tests began running
+  real `agy` again. The user noticed before the suite did, for the second time.
+  The full backend run went from 70 s to over 10 minutes, which is what that
+  costs.
+
+  The guard now scans every argument, skipping known wrappers, because a guard
+  that inspects one position is defeated by anything that shifts it. It is also a
+  `Popen` **subclass** rather than a replacement function: substituting a
+  function broke every library annotating `subprocess.Popen[bytes]` at runtime,
+  including the installed `mcp` package, which turned an unrelated test into a
+  `TypeError`.
+
 ## [0.75.0] - 2026-08-30
 
 ### Added

@@ -69,28 +69,56 @@ def block_real_provider_cli(monkeypatch: pytest.MonkeyPatch) -> None:
     real_popen = subprocess.Popen
     blocked = {"agy", "claude", "codex", "gemini", "ollama"}
 
-    def _blocked_name(cmd) -> str:  # type: ignore[no-untyped-def]
-        name = ""
-        if isinstance(cmd, (list, tuple)) and cmd:
-            name = Path(str(cmd[0])).name
-        elif isinstance(cmd, str):
-            name = Path(cmd.split()[0]).name if cmd.split() else ""
-        return name if name in blocked else ""
+    # Wrappers that PRECEDE the real command. v0.76.0 began wrapping the agy
+    # spawn in `sandbox-exec`/`bwrap`, which moved the CLI's name off argv[0] —
+    # and this guard, which only looked at argv[0], stopped seeing it. Tests
+    # started spending the user's provider account again, and they noticed before
+    # the suite did, for the second time. Scanning every argument is the fix: a
+    # guard that only inspects one position is defeated by anything that shifts
+    # it.
+    wrappers = {"sandbox-exec", "bwrap", "env", "nice", "timeout", "stdbuf"}
 
-    def guarded_popen(cmd, *args, **kwargs):  # type: ignore[no-untyped-def]
-        # `Popen`, not just `run`: `ensure_ollama_serving` and
-        # `_ensure_ollama_running` start a real detached `ollama serve` this way.
-        # Guarding only `run` would leave the background-daemon path open, which
-        # is the harder one to notice — it survives the test that started it.
-        name = _blocked_name(cmd)
-        if name:
-            raise AssertionError(
-                f"A test tried to start the real {name!r} CLI in the background. "
-                f"That spends the user's own provider account and leaves a "
-                f"process running. Patch `subprocess.Popen` in this test. "
-                f"Command: {cmd!r}"
-            )
-        return real_popen(cmd, *args, **kwargs)
+    def _blocked_name(cmd) -> str:  # type: ignore[no-untyped-def]
+        if isinstance(cmd, str):
+            parts = cmd.split()
+        elif isinstance(cmd, (list, tuple)):
+            parts = [str(c) for c in cmd]
+        else:
+            return ""
+        for part in parts:
+            name = Path(part).name
+            if name in blocked:
+                return name
+            if name in wrappers or part.startswith("-"):
+                continue
+        return ""
+
+    class guarded_popen(real_popen):  # type: ignore[misc,valid-type]
+        """Guard `Popen`, not just `run`.
+
+        `ensure_ollama_serving` and `_ensure_ollama_running` start a real
+        detached `ollama serve` this way, and guarding only `run` would leave the
+        background-daemon path open — the harder one to notice, because it
+        survives the test that started it.
+
+        A SUBCLASS, not a function. Replacing `subprocess.Popen` with a plain
+        function breaks every library that writes `subprocess.Popen[bytes]` as a
+        type annotation evaluated at runtime — the installed `mcp` package does
+        exactly that, and the substitution turned an unrelated test into
+        `TypeError: 'function' object is not subscriptable`. A guard that breaks
+        the code it is watching over is worse than no guard.
+        """
+
+        def __init__(self, cmd, *args, **kwargs):  # type: ignore[no-untyped-def]
+            name = _blocked_name(cmd)
+            if name:
+                raise AssertionError(
+                    f"A test tried to start the real {name!r} CLI in the "
+                    f"background. That spends the user's own provider account "
+                    f"and leaves a process running. Patch `subprocess.Popen` in "
+                    f"this test. Command: {cmd!r}"
+                )
+            super().__init__(cmd, *args, **kwargs)
 
     def guarded_run(cmd, *args, **kwargs):  # type: ignore[no-untyped-def]
         name = ""

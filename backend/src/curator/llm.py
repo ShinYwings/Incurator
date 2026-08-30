@@ -58,8 +58,10 @@ def _repo_temp_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     # these since v0.53.2 (LLMClient.getAugmentedEnv); the backend's own CLI
     # clients were left inheriting them.
     #
-    # Order matters: `extra` is applied AFTER, so a caller that deliberately
-    # sets ANTIGRAVITY_TRUST_WORKSPACE (AntigravityCliClient does) still gets it.
+    # Order matters: `extra` is applied AFTER, so a caller that deliberately sets
+    # one of these still gets it. No caller sets a `*_TRUST_WORKSPACE` any more —
+    # `AntigravityCliClient` did until v0.76.0, which is what this comment used to
+    # point at.
     for key in [k for k in env if k.startswith("ANTIGRAVITY_")]:
         del env[key]
 
@@ -979,6 +981,115 @@ class ClaudeCodeClient:
 
 
 
+class SandboxUnavailableError(RuntimeError):
+    """This platform cannot contain the CLI, so it must not be spawned.
+
+    Raised rather than returning an empty prefix on purpose. Falling back to an
+    unwrapped spawn is the failure this repo keeps naming: a guarantee that
+    quietly is not there. The plugin already refuses on Linux without `bwrap`;
+    the backend runs the same binary over the same untrusted material and must
+    not be laxer.
+    """
+
+
+# The CLI's OWN state dirs, never the whole `~/.config` or `~/Library/Caches` —
+# granting those would let the agent drop a `~/.config/autostart` script or
+# overwrite another app's settings.
+_CLI_HOME_DIRS = (".gemini", ".antigravity", ".claude", ".codex")
+
+
+def _cli_runtime_write_dirs() -> list[str]:
+    """Where the contained CLI is still allowed to write.
+
+    The temp dir is the repo cache one, not the system's. `_repo_temp_env`
+    already points `TMPDIR` there, so that is where the CLI actually writes — and
+    `test_workspace_hygiene` forbids this module from asking the stdlib for the
+    system temp path at all, precisely so runtime files cannot escape into it.
+    Granting that path here would have re-opened the same door from the other
+    side.
+    """
+    home = str(Path.home())
+    return [
+        str(_repo_cache_dir("llm", "tmp")),
+        *(f"{home}/{d}" for d in _CLI_HOME_DIRS),
+    ]
+
+
+def _seatbelt_quote(path: str) -> str:
+    return '"' + path.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def os_sandbox_prefix(
+    allowed_roots: list[str],
+    *,
+    platform: str | None = None,
+) -> list[str]:
+    """Argv to prepend so the agentic CLI runs contained.
+
+    This mirrors the plugin's `sandboxWrapper.ts`, and it is a **write** sandbox,
+    the same as that one. macOS is `(allow default)` + `(deny file-write*)` with
+    the vault and the CLI's own dirs re-granted; Linux read-only-binds the whole
+    filesystem and re-binds those roots.
+
+    **Reads stay allowed, deliberately.** Denying them breaks the CLI's ability to
+    read its own binaries and libraries. So this does NOT close the read exposure
+    the v0.56.1 `read_file(*)` grant opened — it adds write and process
+    containment and aligns the two spawn paths. Anything describing it as the fix
+    for that grant would be false.
+
+    Raises `SandboxUnavailableError` when the platform cannot be contained.
+    """
+    plat = platform or sys.platform
+    roots = [r for r in dict.fromkeys(allowed_roots) if r]
+    write_dirs = [d for d in dict.fromkeys([*roots, *_cli_runtime_write_dirs()]) if d]
+
+    if plat == "darwin":
+        rules = "\n".join(
+            f"  (allow file-write* (subpath {_seatbelt_quote(d)}))" for d in write_dirs
+        )
+        profile = (
+            "(version 1)\n"
+            "(allow default)\n"
+            "(deny file-write*)\n"
+            f"{rules}\n"
+            '  (allow file-write-data (literal "/dev/null"))\n'
+            '  (allow file-write-data (literal "/dev/dtracehelper"))\n'
+        )
+        return ["sandbox-exec", "-p", profile, "--"]
+
+    if plat.startswith("linux"):
+        bwrap = shutil.which("bwrap")
+        if not bwrap:
+            raise SandboxUnavailableError(
+                "bwrap is not installed, so the Antigravity CLI cannot be "
+                "contained. Install bubblewrap, or switch the provider to one "
+                "reached over an API."
+            )
+        args = [
+            bwrap,
+            "--ro-bind", "/", "/",
+            "--dev", "/dev",
+            "--proc", "/proc",
+            "--tmpfs", "/tmp",
+            "--unshare-all",
+            "--share-net",  # the CLI needs network to reach its provider
+            "--die-with-parent",
+        ]
+        for d in write_dirs:
+            # Never re-bind the host /tmp: `--tmpfs /tmp` above isolates it, and
+            # binding it back would undo that.
+            if d == "/tmp" or d.startswith("/private/"):
+                continue
+            args += ["--bind-try", d, d]
+        args.append("--")
+        return args
+
+    raise SandboxUnavailableError(
+        f"No OS sandbox is available on {plat!r}, so the Antigravity CLI cannot "
+        f"be contained. Switch the provider to one reached over an API."
+    )
+
+
 class AntigravityCliClient:
     """LLM backend using the *agy* CLI (Google Antigravity subscription).
 
@@ -1006,6 +1117,19 @@ class AntigravityCliClient:
         self.model = model
         self.effort = effort
         self._capacity_blocked_until = 0.0
+
+    def _sandbox_roots(self) -> list[str]:
+        """Directories the contained CLI may still write to.
+
+        The vault is the point — the CLI writes its own logs and scratch there.
+        Everything outside is denied, which is the containment. An empty list is
+        valid and simply means nothing but the CLI's own state dirs is writable.
+        """
+        roots: list[str] = []
+        vault = os.environ.get("VAULT_ROOT", "")
+        if vault:
+            roots.append(str(Path(vault).resolve()))
+        return roots
 
     def _raise_capacity_error(self) -> None:
         # Both: the instance flag stays for `ping()`'s existing use, and the
@@ -1082,10 +1206,17 @@ class AntigravityCliClient:
                 "15m",
             ]
         )
-        env = _repo_temp_env({
-            "ANTIGRAVITY_TRUST_WORKSPACE": "true",
-            "AGY_TRUST_WORKSPACE": "true",
-        })
+        # `*_TRUST_WORKSPACE` is deliberately NOT set. It asks the CLI to skip
+        # its own guardrails, on the one path that feeds it ingested, untrusted
+        # source material.
+        env = _repo_temp_env({})
+        # Contain the spawn. The plugin has refused to run an agentic CLI
+        # uncontained since v0.23.0 — measured then that `agy` ignores its own
+        # `--sandbox` and still created files — while the backend ran the same
+        # binary over the same material with a bare `subprocess.run`. That gap
+        # was latent only while the read permission was broken; v0.56.1 fixed the
+        # permission and left the gap open.
+        cmd = os_sandbox_prefix(self._sandbox_roots()) + cmd
         try:
             result = subprocess.run(
                 cmd,
