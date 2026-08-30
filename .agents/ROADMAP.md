@@ -516,7 +516,16 @@ it meant. 2,984 rows carry one on the reference vault. Ids with no local
 counterpart are dropped rather than kept, because a kept id names the wrong
 source while a shorter array is merely incomplete.
 
-### D2. The curation lens and the vault persona never reach the chat surface
+### D2. The curation lens and the vault persona reach the chat surface — **SHIPPED v0.75.0**
+
+Both halves landed: `context_service` puts `policy.applied_filters` and
+`persona` into the pack, and `providerContextFormat.ts` renders both INTO the
+prompt. That second half is the one that matters — the formatter is the only
+thing the model ever sees, so a persona that stops at the pack shapes nothing.
+Confirmed 2026-08-31: `providerContextLens.test.ts` passes 5/5, asserting the
+persona line appears when set and is absent when not.
+
+The original entry follows, as the finding it closed.
 
 **From `knowledge_value_arena` [P1]. Not re-verified in this pass — carry the
 audit's finding forward and confirm before planning.**
@@ -557,13 +566,34 @@ was looking. Fixed in the same release; the guard scans the whole argv now.
 Low risk, and deliberately after C: judging answer quality against a DAG whose
 top layers are empty measures the wrong thing.
 
-### E1. Entity descriptions are frequently circular
+### E1. Entity descriptions are frequently circular — **PREMISE FALSIFIED 2026-08-31**
+
+Measured against the live DB, all 2,481 non-redirected entities: **16 are
+circular (0.6%)** and 77 more are empty (3.1%). "Frequently" is not what the data
+says. Examples of the real ones: `'meshing' -> 'Meshing process.'`,
+`'relighting' -> 'Relighting method.'` — a real defect, at a rate that does not
+justify a release of its own. Fold it into E3-era prompt work if that happens;
+do not schedule it alone.
+
+The original entry follows.
 
 **From `knowledge_value_arena` [P2]. Not re-verified — confirm before planning.**
 The audit found graph entity descriptions that restate the entity name rather
 than saying what it is or does, which is what the extraction contract requires.
 
-### E2. Span segmentation isolates fragments
+### E2. Span segmentation isolates fragments — **CONFIRMED AND QUANTIFIED 2026-08-31**
+
+Measured over all 25,394 retrieval chunks in the live DB: median **181 chars**,
+p10 71, p90 265. **21% are under 100 chars and 56% under 200.** For comparison,
+retrieval chunks are normally 500–1,500. At this size a claim's supporting
+sentence lands in a neighbouring chunk as a matter of course, which is exactly
+what the audit described.
+
+**This one needs the user before it can ship.** Changing chunk size means
+re-embedding the corpus — a reindex of the user's vault, which CLAUDE.md makes a
+stop-and-ask, not an agent decision. Plan it, then ask.
+
+The original entry follows.
 
 **From `knowledge_value_arena` [P2]. Not re-verified — confirm before planning.**
 Segmentation produces spans small enough that a claim's supporting context lands
@@ -663,7 +693,23 @@ model from trying.
 granted-looking path, so a directory the user never authorised reads as a corrupt
 file rather than as a permission problem.
 
-### E6. The same file registers twice, differing only by Unicode normalisation
+### E6. The same file registers twice, differing only by Unicode normalisation — **CONFIRMED IN THE LIVE VAULT 2026-08-31**
+
+Not hypothetical. Of 50 registered sources, **18 (36%) have relpaths stored in
+NFD**, and **one pair already collides**: `04_Resources/References/Camera Pose
+Estimation from Lines us…` is registered twice, the two rows differing only by
+normalisation form.
+
+Splits cleanly, and the split matters:
+
+- **Prevention** — normalise at registration so this stops happening. No
+  migration, agent ships it.
+- **The pair that already exists** — merging two `sources` rows and their
+  downstream knowledge rewrites the user's data. That is a stop-and-ask, and it
+  is the reason this entry is not simply "fix it". Detect and report first; merge
+  only on the user's word.
+
+The original entry follows.
 
 **Triaged in from `USER_REPORT.md` 2026-08-23.** macOS filesystems hand back NFD
 where most tooling produces NFC, so one file becomes two `sources` rows and its
