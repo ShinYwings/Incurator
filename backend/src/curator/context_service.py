@@ -531,44 +531,67 @@ def _conflict_response(expected_snapshot_id: str, current_snapshot_id: str) -> d
 
 
 def _policy_summary(policy: "curate_yml.CurationPolicy") -> dict[str, Any]:
-    """The curation lens, in the shape a reader can check a pack against.
+    """The curation lens, in the shape the spec already documented for it.
 
-    Only the fields that change what is retrieved or how the answer must read —
-    a full dump would bury the two that usually matter (`source_include` and
-    `allowed_routes`) among a dozen that rarely differ.
+    `policy.applied_filters` / `policy.excluded` is not a shape invented here —
+    it is what `docs/specs/system_behavior/context_service_fixtures/` and
+    `PLUGIN_SCHEMA.md` §15.1 have described since Plan F, and what the roadmap
+    entry for this work named: *"once it emits `policy.applied_filters`, an inert
+    lens becomes visible as an empty filter set rather than something that has to
+    be inferred."* No code had ever emitted it. A first attempt here invented a
+    parallel `policy` shape instead, which would have put two incompatible
+    meanings on one key.
+
+    **A filter is listed only if it actually narrows retrieval.** Every field of
+    `CurationPolicy` was traced to its consumers: `source_include`,
+    `source_exclude`, `allowed_routes`, `exploration_enabled`, and
+    `max_explore_followups` reach `retrieval/`; the rest are compiled and read
+    nowhere on the answering path today. Reporting a difference in an inert field
+    as an applied filter would be the same false-visibility problem in reverse —
+    the user told which knob they turned, and the system telling them it did
+    something with it.
     """
     default = curate_yml.resolve_curate_policy("")[0]
-    narrowing = {
-        "source_include": list(policy.source_include),
-        "source_exclude": list(policy.source_exclude),
-        "allowed_routes": sorted(policy.allowed_routes),
-        "prompt_profile": policy.prompt_profile,
-        "output_language": policy.output_language,
-        "require_source_spans": policy.require_source_spans,
-        "allow_general_knowledge": policy.allow_general_knowledge,
-        "avoid_merges": list(policy.avoid_merges),
-    }
-    differs = any(
-        getattr(policy, name) != getattr(default, name)
-        for name in (
-            "source_include",
-            "source_exclude",
-            "allowed_routes",
-            "prompt_profile",
-            "output_language",
-            "require_source_spans",
-            "allow_general_knowledge",
-            "avoid_merges",
+    applied: list[dict[str, Any]] = []
+    excluded: list[str] = []
+
+    if policy.source_include:
+        applied.append({"filter": "source_include", "value": list(policy.source_include)})
+    if policy.source_exclude:
+        applied.append({"filter": "source_exclude", "value": list(policy.source_exclude)})
+        excluded.extend(policy.source_exclude)
+    if policy.allowed_routes != default.allowed_routes:
+        applied.append({"filter": "allowed_routes", "value": sorted(policy.allowed_routes)})
+        excluded.extend(sorted(default.allowed_routes - policy.allowed_routes))
+    if policy.exploration_enabled != default.exploration_enabled:
+        applied.append(
+            {"filter": "exploration_enabled", "value": policy.exploration_enabled}
         )
-    )
+        if not policy.exploration_enabled:
+            excluded.append("explore")
+    if policy.max_explore_followups != default.max_explore_followups:
+        applied.append(
+            {"filter": "max_explore_followups", "value": policy.max_explore_followups}
+        )
+
     return {
         "workspace_id": policy.workspace_id,
         "project": policy.project,
-        # False means this vault's default, not "no policy" — the lens ran and
-        # narrowed nothing. Saying so is the point: an inert lens that looks
-        # identical to an active one is what made this hard to see.
-        "applied": differs,
-        **narrowing,
+        # An empty list is the signal for an inert lens, per the spec. It means
+        # the lens ran and narrowed nothing — a different fact from no lens.
+        "applied_filters": applied,
+        "excluded": excluded,
+        # Declared, but not filters: recorded so a reader can see what the
+        # workspace asked for even where the answering path does not yet honour
+        # it. Kept out of `applied_filters` precisely so it cannot be mistaken
+        # for something that took effect.
+        "declared": {
+            "prompt_profile": policy.prompt_profile,
+            "output_language": policy.output_language,
+            "require_source_spans": policy.require_source_spans,
+            "allow_general_knowledge": policy.allow_general_knowledge,
+            "avoid_merges": list(policy.avoid_merges),
+        },
     }
 
 

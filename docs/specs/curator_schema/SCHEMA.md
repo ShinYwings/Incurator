@@ -1666,14 +1666,30 @@ clock. Malformed source rows are rejected instead of partially imported.
 The lens reaches retrieval — the plugin resolves the workspace from the note in
 focus and `context_fetch` resolves the policy from it — but the pack reported only
 `workspace_id`, so a lens that narrowed nothing looked exactly like one that
-narrowed everything. The pack MUST carry a `policy` block naming what the lens
-did, including an explicit `applied` flag: a default policy is the lens running
-and narrowing nothing, which is a different fact from no lens, and it must not
-have to be recognised by its shape.
+narrowed everything.
 
-The pack MUST also carry the vault `persona`. The surface that writes the answer
-is handed this pack and nothing else, so a persona that stops at retrieval shapes
-nothing the user reads.
+The pack MUST carry the `policy` block **in the shape this spec already
+documented** — `applied_filters` and `excluded`, as in the Plan F fixture under
+`docs/specs/system_behavior/context_service_fixtures/` and `PLUGIN_SCHEMA.md`
+§15.1. No code had ever emitted it; inventing a second `policy` shape would put
+two incompatible meanings on one key. An empty `applied_filters` is the signal
+for an inert lens: the lens ran and narrowed nothing, which is a different fact
+from no lens at all.
+
+**A field belongs in `applied_filters` only if it actually narrows retrieval.**
+Traced to their consumers, that is `source_include`, `source_exclude`,
+`allowed_routes`, `exploration_enabled`, and `max_explore_followups`. The rest of
+`CurationPolicy` is compiled and read nowhere on the answering path today, and
+goes under `declared` instead — reporting an inert field as an applied filter
+would be the same false visibility pointing the other way: telling the user the
+system acted on a knob they turned when it did not.
+
+The pack MUST also carry the vault `persona`, **and the plugin MUST render both
+into the prompt.** The surface that writes the answer is handed this pack and
+nothing else, so a persona that stops at retrieval shapes nothing the user reads
+— and one that stops at the backend's JSON shapes nothing either. Adding a field
+to the response is not the same as the model seeing it; `formatCuratorContextPack`
+is the only thing it ever sees.
 
 **Relations converge on a natural key, enforced at import rather than by an
 index (v0.74.0).** `graph_relations` carries a natural identity —

@@ -56,26 +56,80 @@ def _pack(root: Path, workspace: str) -> dict:
     )
 
 
-def test_the_pack_says_which_lens_it_applied(vault: Path) -> None:
-    """A pack that does not name its policy cannot be checked against one."""
+def test_the_pack_lists_the_filters_the_lens_actually_applied(vault: Path) -> None:
+    """The shape is the one the spec already documented, not a new one.
+
+    `policy.applied_filters` / `excluded` is what the Plan F fixture and
+    `PLUGIN_SCHEMA.md` §15.1 have described all along, and what this roadmap
+    entry named. A first pass here invented a parallel `policy` shape, which
+    would have put two incompatible meanings on the same key.
+    """
     pack = _pack(vault, str(vault / "01_Workspaces" / "proj"))
     assert "policy" in pack, "the context pack does not report the curation lens at all"
     policy = pack["policy"]
-    assert policy.get("workspace_id") == "proj"
-    assert policy.get("prompt_profile") == "technical-research"
-    assert "03_Notes/**" in (policy.get("source_include") or [])
+    assert policy["workspace_id"] == "proj"
+    filters = {f["filter"]: f["value"] for f in policy["applied_filters"]}
+    assert "source_include" in filters, (
+        f"a workspace that narrows to 03_Notes reported no filter: {policy}"
+    )
+    assert "03_Notes/**" in filters["source_include"]
 
 
-def test_an_inert_lens_is_visible_as_such(vault: Path) -> None:
-    """Outside a workspace the policy is the default. That is correct behaviour,
-    and it must be legible as "nothing was narrowed" rather than inferred."""
+def test_an_inert_lens_reports_an_empty_filter_set(vault: Path) -> None:
+    """Outside a workspace the lens runs and narrows nothing. The spec's own
+    words: an inert lens must be "visible as an empty filter set rather than
+    something that has to be inferred"."""
     pack = _pack(vault, "")
     policy = pack["policy"]
-    assert policy.get("workspace_id") == "default"
-    assert policy.get("source_include") == []
-    assert policy.get("applied") is False, (
-        "a default policy must announce that it narrowed nothing"
+    assert policy["workspace_id"] == "default"
+    assert policy["applied_filters"] == []
+    assert policy["excluded"] == []
+
+
+def test_a_field_that_changes_routing_counts_as_a_filter(vault: Path) -> None:
+    """`exploration_enabled` is read by `router.choose_route`, so turning it off
+    makes the explore route unreachable.
+
+    The first version of this compared eight fields chosen by hand and this was
+    not among them, so a workspace that disabled exploration reported that it had
+    narrowed nothing — while demonstrably changing where questions route.
+    """
+    ws = vault / "01_Workspaces" / "explore_off"
+    ws.mkdir()
+    (ws / "curate.yml").write_text(
+        "workspace_id: explore_off\nproject: explore_off\n"
+        "reasoning:\n  exploration_enabled: false\n",
+        encoding="utf-8",
     )
+    policy = _pack(vault, str(ws))["policy"]
+    filters = {f["filter"]: f["value"] for f in policy["applied_filters"]}
+    assert "exploration_enabled" in filters, (
+        f"disabling exploration changes routing but reported no filter: {policy}"
+    )
+    assert "explore" in policy["excluded"]
+
+
+def test_a_field_that_changes_nothing_is_declared_but_not_claimed_as_applied(
+    vault: Path,
+) -> None:
+    """The mirror error, and the one that is easier to miss.
+
+    `output_language` is compiled into the policy and read nowhere on the
+    answering path. Listing it as an applied filter would tell the user the
+    system acted on a knob they turned when it did not — the same false
+    visibility this feature exists to remove, pointing the other way.
+    """
+    ws = vault / "01_Workspaces" / "lang"
+    ws.mkdir()
+    (ws / "curate.yml").write_text(
+        "workspace_id: lang\nproject: lang\noutput:\n  language: Korean\n",
+        encoding="utf-8",
+    )
+    policy = _pack(vault, str(ws))["policy"]
+    assert policy["applied_filters"] == [], (
+        f"an inert field was reported as an applied filter: {policy}"
+    )
+    assert "output_language" in policy["declared"]
 
 
 def test_the_pack_carries_the_vault_persona(vault: Path) -> None:
