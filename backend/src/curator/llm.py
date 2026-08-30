@@ -1011,6 +1011,13 @@ def _cli_runtime_write_dirs() -> list[str]:
     home = str(Path.home())
     return [
         str(_repo_cache_dir("llm", "tmp")),
+        # The CLI's own log and output files. `_run` passes `--log-file` into
+        # `llm/agy_logs` and then READS it back to classify capacity errors, and
+        # `CodexCliClient` writes into `llm/codex_outputs` the same way. Granting
+        # only the temp dir denied those writes, which breaks the CLI's logging
+        # and silently blinds the capacity check that reads it.
+        str(_repo_cache_dir("llm", "agy_logs")),
+        str(_repo_cache_dir("llm", "codex_outputs")),
         *(f"{home}/{d}" for d in _CLI_HOME_DIRS),
     ]
 

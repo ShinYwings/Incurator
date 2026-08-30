@@ -44,6 +44,27 @@ All notable changes to Incurator are documented here.
   including the installed `mcp` package, which turned an unrelated test into a
   `TypeError`.
 
+  Code review caught that the scan was added to the `Popen` guard and not to the
+  `subprocess.run` one beside it — which is the call `AntigravityCliClient._run`
+  actually uses. The account stayed protected only because `run` delegates to
+  `Popen`, so the block fired from the wrong guard and reported a background
+  spawn for a blocking call. Both now share one argv scan.
+
+- **The sandbox denied the CLI its own log file.** `_run` passes `--log-file`
+  into `.cache/llm/agy_logs` and then reads it back to classify capacity errors,
+  but the write allowlist granted only the temp dir, so the write was denied and
+  the capacity check was reading a file that could never exist. `agy_logs` and
+  `codex_outputs` are now writable, with a test that performs the write under a
+  real sandbox rather than asserting on the list.
+
+- **`*_TRUST_WORKSPACE` is gone from the backend spawn, and its rationale was
+  wrong.** v0.54.1 set it on the theory that agy would otherwise stall at a
+  workspace-trust prompt it cannot show under `--print`. That was never measured,
+  and the plugin disproves it — it has spawned agy with `-p` and no trust flag
+  for many releases without stalling. The live permission test was setting the
+  flags too, so the one live check of agy's permission behaviour ran in an
+  environment the product never creates; it now runs production's.
+
 ## [0.75.0] - 2026-08-30
 
 ### Added

@@ -121,12 +121,14 @@ def block_real_provider_cli(monkeypatch: pytest.MonkeyPatch) -> None:
             super().__init__(cmd, *args, **kwargs)
 
     def guarded_run(cmd, *args, **kwargs):  # type: ignore[no-untyped-def]
-        name = ""
-        if isinstance(cmd, (list, tuple)) and cmd:
-            name = Path(str(cmd[0])).name
-        elif isinstance(cmd, str):
-            name = Path(cmd.split()[0]).name if cmd.split() else ""
-        if name in blocked:
+        # Uses the same argv scan as the Popen guard. It was left on the old
+        # `cmd[0]`-only check when that scan was introduced, and the protection
+        # survived only because `subprocess.run` delegates to `Popen` — so the
+        # block fired from the wrong guard and reported a background spawn for a
+        # blocking call. `AntigravityCliClient._run`, the exact call this fixture
+        # exists to stop, uses `run`.
+        name = _blocked_name(cmd)
+        if name:
             raise AssertionError(
                 f"A test tried to run the real {name!r} CLI. That spends the "
                 f"user's own provider account. Patch `subprocess.run` (or the "

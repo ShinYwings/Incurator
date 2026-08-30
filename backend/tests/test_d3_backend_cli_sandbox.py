@@ -88,3 +88,32 @@ def test_the_trust_workspace_env_vars_are_not_set() -> None:
     assert "TRUST_WORKSPACE" not in code, (
         "the backend still asks the CLI to trust the workspace"
     )
+
+
+def test_the_cli_can_write_the_log_file_the_backend_asks_it_for() -> None:
+    """`_run` passes `--log-file` into `llm/agy_logs` and then reads it back to
+    classify capacity errors.
+
+    The first version of the allowlist granted only the temp dir, so the sandbox
+    denied that write — breaking the CLI's own logging and blinding the capacity
+    check that depends on it. A containment that stops the program doing its job
+    is not containment, it is a bug wearing its clothes.
+    """
+    import subprocess
+    import sys
+
+    from curator import llm
+
+    for name in ("agy_logs", "codex_outputs"):
+        target = llm._repo_cache_dir("llm", name) / "sandbox-probe.log"
+        result = subprocess.run(
+            llm.os_sandbox_prefix(["/tmp/somevault"])
+            + [sys.executable, "-c", f"open({str(target)!r}, 'w').write('x')"],
+            capture_output=True,
+            text=True,
+        )
+        target.unlink(missing_ok=True)
+        assert result.returncode == 0, (
+            f"the sandbox denied the CLI its own {name} directory: "
+            f"{result.stderr.strip()[:120]}"
+        )
