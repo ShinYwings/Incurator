@@ -43,6 +43,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The backend refuses to spawn an agentic CLI it cannot contain, and on
+      # Linux containment is bubblewrap. Without it every AntigravityCliClient
+      # test raises SandboxUnavailableError before reaching its own mock, and a
+      # Linux user without it cannot use the provider at all — so CI should have
+      # what production requires rather than mock the requirement away.
+      - name: Install bubblewrap (the Linux sandbox the backend requires)
+        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:

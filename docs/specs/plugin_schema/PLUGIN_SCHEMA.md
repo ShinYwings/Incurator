@@ -2369,6 +2369,21 @@ create files, or traverse the filesystem.
   | Trigger | a chat turn, over content the user may not have read | a `wiki` command the user ran on their own vault |
   | Containment | OS sandbox; agy REFUSED if it cannot be OS-sandboxed | **the same** — `llm.os_sandbox_prefix`, raising `SandboxUnavailableError` rather than spawning uncontained |
   | `*_TRUST_WORKSPACE` | **REMOVED** — see §13.6 | **REMOVED** (v0.76.0) |
+  | `--sandbox` | PASSED — it does not contain agy, it stops `-p` mode halting at a permission prompt | **the same** (v0.76.0) |
+  | Writable CLI state dirs | only the running provider's (`~/.gemini` + `~/.antigravity` for agy) | **the same** (v0.76.0) |
+
+  `--sandbox` and `*_TRUST_WORKSPACE` are not interchangeable and MUST NOT be
+  traded for one another. The first stops agy halting at a permission prompt it
+  cannot display under `--print`; the second asks it to skip its own guardrails
+  outright. The backend historically had the second and not the first, so
+  removing `*_TRUST_WORKSPACE` alone would have put it in a configuration neither
+  surface has ever run — a 900 s stall on every ingest call. Both sites now pass
+  `--sandbox` and neither sets a trust variable.
+
+  Per-provider scoping of the writable state directories is required at both
+  sites, for the reason v0.25.5 gave: a contained CLI granted every provider's
+  directory can overwrite the auth state of CLIs it does not run. An unrecognised
+  provider MUST be granted none of them; defaulting to all of them is the bug.
 
   Both spawn `agy` over material the user has not necessarily read — the backend
   runs it across *ingested source documents* — so the trigger difference never

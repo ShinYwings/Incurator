@@ -981,7 +981,7 @@ class ClaudeCodeClient:
 
 
 
-class SandboxUnavailableError(RuntimeError):
+class SandboxUnavailableError(LLMError):
     """This platform cannot contain the CLI, so it must not be spawned.
 
     Raised rather than returning an empty prefix on purpose. Falling back to an
@@ -989,16 +989,35 @@ class SandboxUnavailableError(RuntimeError):
     quietly is not there. The plugin already refuses on Linux without `bwrap`;
     the backend runs the same binary over the same untrusted material and must
     not be laxer.
+
+    It subclasses `LLMError`, like every other provider failure in this module,
+    so `_FAILOVER_ERRORS` catches it. "This provider cannot run on this machine"
+    is precisely the condition failover exists for, and falling over to Ollama
+    does not spawn the uncontained CLI — refusing to contain it and refusing to
+    let the user's configured fallback take the work are different decisions,
+    and only the first one is a security requirement. As a bare `RuntimeError`
+    it escaped `FailoverClient` and every `except LLMError` site in the
+    pipeline, so a Linux user without `bwrap` got a crash where the guide
+    promises a fallback.
     """
 
 
 # The CLI's OWN state dirs, never the whole `~/.config` or `~/Library/Caches` —
 # granting those would let the agent drop a `~/.config/autostart` script or
 # overwrite another app's settings.
-_CLI_HOME_DIRS = (".gemini", ".antigravity", ".claude", ".codex")
+# Each CLI's own state directory, keyed by provider. Granting all of them to
+# whichever CLI happens to be running is the least-privilege violation PR #53
+# fixed on the plugin side in v0.25.5: a contained `agy` could overwrite the auth
+# state of `claude` and `codex`, two CLIs it has no business touching. The
+# backend must not be laxer than the surface it mirrors.
+_PROVIDER_HOME_DIRS: dict[str, tuple[str, ...]] = {
+    "antigravity": (".gemini", ".antigravity"),
+    "claude": (".claude",),
+    "codex": (".codex",),
+}
 
 
-def _cli_runtime_write_dirs() -> list[str]:
+def _cli_runtime_write_dirs(provider: str) -> list[str]:
     """Where the contained CLI is still allowed to write.
 
     The temp dir is the repo cache one, not the system's. `_repo_temp_env`
@@ -1007,18 +1026,23 @@ def _cli_runtime_write_dirs() -> list[str]:
     system temp path at all, precisely so runtime files cannot escape into it.
     Granting that path here would have re-opened the same door from the other
     side.
+
+    `provider` selects which CLI's state directory is granted. An unknown
+    provider gets none of them rather than all of them — the ternary that
+    defaulted to "all four" is the exact shape the plugin's review caught.
     """
     home = str(Path.home())
     return [
         str(_repo_cache_dir("llm", "tmp")),
         # The CLI's own log and output files. `_run` passes `--log-file` into
         # `llm/agy_logs` and then READS it back to classify capacity errors, and
-        # `CodexCliClient` writes into `llm/codex_outputs` the same way. Granting
-        # only the temp dir denied those writes, which breaks the CLI's logging
-        # and silently blinds the capacity check that reads it.
+        # only the temp dir denied that write, which breaks the CLI's logging and
+        # silently blinds the capacity check that reads it. `llm/codex_outputs` is
+        # granted alongside it for the day `CodexCliClient` is wrapped too; codex
+        # does not go through this prefix today, so nothing was broken there.
         str(_repo_cache_dir("llm", "agy_logs")),
         str(_repo_cache_dir("llm", "codex_outputs")),
-        *(f"{home}/{d}" for d in _CLI_HOME_DIRS),
+        *(f"{home}/{d}" for d in _PROVIDER_HOME_DIRS.get(provider, ())),
     ]
 
 
@@ -1029,6 +1053,7 @@ def _seatbelt_quote(path: str) -> str:
 def os_sandbox_prefix(
     allowed_roots: list[str],
     *,
+    provider: str = "",
     platform: str | None = None,
 ) -> list[str]:
     """Argv to prepend so the agentic CLI runs contained.
@@ -1044,11 +1069,16 @@ def os_sandbox_prefix(
     containment and aligns the two spawn paths. Anything describing it as the fix
     for that grant would be false.
 
+    `provider` names the CLI being contained, so only that CLI's own state
+    directory is writable. Omitting it grants none of them, never all of them.
+
     Raises `SandboxUnavailableError` when the platform cannot be contained.
     """
     plat = platform or sys.platform
     roots = [r for r in dict.fromkeys(allowed_roots) if r]
-    write_dirs = [d for d in dict.fromkeys([*roots, *_cli_runtime_write_dirs()]) if d]
+    write_dirs = [
+        d for d in dict.fromkeys([*roots, *_cli_runtime_write_dirs(provider)]) if d
+    ]
 
     if plat == "darwin":
         rules = "\n".join(
@@ -1129,13 +1159,29 @@ class AntigravityCliClient:
         """Directories the contained CLI may still write to.
 
         The vault is the point — the CLI writes its own logs and scratch there.
-        Everything outside is denied, which is the containment. An empty list is
-        valid and simply means nothing but the CLI's own state dirs is writable.
+        Everything outside is denied, which is the containment.
+
+        The vault is resolved the same way the CLI itself resolves it: `VAULT_ROOT`
+        when set, otherwise an upward search from the working directory. Reading
+        only the environment variable made the containment scope depend on how the
+        process was started — `wiki mcp` sets it, but `wiki add` run from inside a
+        vault does not, so the documented path silently sandboxed the CLI out of
+        the very vault this docstring calls the point. A guarantee whose extent
+        changes with the entry point is the kind that quietly is not there.
+
+        An empty list is still valid: outside a vault entirely, nothing but the
+        CLI's own state dirs is writable.
         """
+        from . import config as _cfg
+
         roots: list[str] = []
         vault = os.environ.get("VAULT_ROOT", "")
         if vault:
             roots.append(str(Path(vault).resolve()))
+        else:
+            found = _cfg.find_wiki_root()
+            if found:
+                roots.append(str(found.resolve()))
         return roots
 
     def _raise_capacity_error(self) -> None:
@@ -1192,6 +1238,14 @@ class AntigravityCliClient:
             log_path = ""
 
         cmd = [self.CLI]
+        # Keep `--sandbox`: in print mode it auto-proceeds instead of stopping at
+        # the permission prompt, which with no stdin to answer it would hang until
+        # the 900 s timeout. It does NOT actually contain agy — v0.23.0 measured
+        # that it ignores its own containment and still creates files — so the OS
+        # sandbox below does the real work. The plugin has passed it for exactly
+        # this reason since v0.23.1; dropping `*_TRUST_WORKSPACE` here without it
+        # would have left the backend in a combination neither surface has run.
+        cmd.append("--sandbox")
         if log_path:
             cmd.extend(["--log-file", log_path])
         if self.model:
@@ -1223,7 +1277,7 @@ class AntigravityCliClient:
         # binary over the same material with a bare `subprocess.run`. That gap
         # was latent only while the read permission was broken; v0.56.1 fixed the
         # permission and left the gap open.
-        cmd = os_sandbox_prefix(self._sandbox_roots()) + cmd
+        cmd = os_sandbox_prefix(self._sandbox_roots(), provider="antigravity") + cmd
         try:
             result = subprocess.run(
                 cmd,
@@ -1343,7 +1397,7 @@ class AntigravityCliClient:
     @property
     def supports_vision(self) -> bool:
         # Gemini (via agy) is vision-capable; the live P0 test confirmed `agy
-        # --print` reads PNG files. (CLI subscription auth, trust-workspace env.)
+        # --print` reads PNG files. (CLI subscription auth; reads are not sandboxed.)
         return True
 
     def describe_image(
@@ -1352,7 +1406,8 @@ class AntigravityCliClient:
     ) -> str:
         from . import vision
 
-        # agy's _run already reads files (trust-workspace) and the path is embedded
+        # agy's _run already reads files — the sandbox restricts writes, not reads —
+        # and the path is embedded
         # in the prompt; no unsafe flags. Reuse it for capacity/error handling.
         return vision.describe_image_via_cli(
             image_data, prompt, lambda fp, _p: self._run(fp)
