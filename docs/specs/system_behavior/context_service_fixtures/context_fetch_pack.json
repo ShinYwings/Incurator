@@ -43,8 +43,29 @@
       "stop_reason": "sufficient"
     },
     "policy": {
-      "applied_filters": [],
-      "excluded": []
+      "workspace_id": "example-workspace",
+      "project": "example",
+      "applied_filters": [
+        {
+          "filter": "source_include",
+          "value": [
+            "03_Notes/**"
+          ]
+        }
+      ],
+      "excluded": [],
+      "declared": {
+        "default_route": "auto",
+        "prompt_profile": "default",
+        "output_language": "same_as_latest_request",
+        "require_source_spans": true,
+        "allow_general_knowledge": false,
+        "contradiction_policy": "surface-and-flag",
+        "backprop_enabled": true,
+        "min_confidence": 0.6,
+        "high_threshold": 0.85,
+        "avoid_merges": []
+      }
     },
     "budget": {
       "limit_tokens": 6000,
@@ -107,6 +128,20 @@
         "estimated_tokens": 350
       }
     ],
-    "warnings": []
+    "warnings": [],
+    "persona": {
+      "area": "STEM",
+      "text": "Scientific and technical research vault.",
+      "knowledge_artifacts": [
+        "equations",
+        "algorithms"
+      ],
+      "verification_philosophy": "mathematical derivability and citation-based evidence",
+      "output_intent": "knowledge-worker",
+      "disambiguation_keywords": [
+        "Architecture",
+        "Optimization"
+      ]
+    }
   }
 }

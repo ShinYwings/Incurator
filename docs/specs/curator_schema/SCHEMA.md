@@ -1670,17 +1670,27 @@ narrowed everything.
 
 The pack MUST carry the `policy` block **in the shape this spec already
 documented** — `applied_filters` and `excluded`, as in the Plan F fixture under
-`docs/specs/system_behavior/context_service_fixtures/` and `PLUGIN_SCHEMA.md`
-§15.1. No code had ever emitted it; inventing a second `policy` shape would put
+`docs/specs/system_behavior/context_service_fixtures/`. (`PLUGIN_SCHEMA.md` §15.1
+said only "applied policy filters" and named no keys until v0.75.0 filled it in.) No code had ever emitted it; inventing a second `policy` shape would put
 two incompatible meanings on one key. An empty `applied_filters` is the signal
 for an inert lens: the lens ran and narrowed nothing, which is a different fact
 from no lens at all.
 
 **A field belongs in `applied_filters` only if it actually narrows retrieval.**
 Traced to their consumers, that is `source_include`, `source_exclude`,
-`allowed_routes`, `exploration_enabled`, and `max_explore_followups`. The rest of
-`CurationPolicy` is compiled and read nowhere on the answering path today, and
-goes under `declared` instead — reporting an inert field as an applied filter
+`allowed_routes`, `exploration_enabled`, and `max_explore_followups`.
+
+**`allowed_routes` MUST be reported as the router honours it, not as
+`curate.yml` states it.** `router.choose_route` unconditionally re-admits
+`source-section` — a precise, always-safe scoped lookup of a named source —
+whatever the workspace's `allowed_modes` says. Reporting it as excluded would
+overstate the narrowing, which is this mechanism's own failure mode pointed the
+other way.
+
+Every
+other field of `CurationPolicy` is compiled and read nowhere on the answering
+path today, and MUST all appear under `declared` — dropping some from the pack
+entirely is the same false visibility by omission — reporting an inert field as an applied filter
 would be the same false visibility pointing the other way: telling the user the
 system acted on a knob they turned when it did not.
 

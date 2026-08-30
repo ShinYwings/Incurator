@@ -142,3 +142,32 @@ def test_the_pack_carries_the_vault_persona(vault: Path) -> None:
         "the pack carries no persona, so the surface that writes the answer "
         "never sees it"
     )
+
+
+def test_a_route_the_router_always_admits_is_not_reported_as_excluded(
+    vault: Path,
+) -> None:
+    """`router.choose_route` re-admits `source-section` regardless of the
+    workspace's `allowed_modes` — "a precise, always-safe scoped lookup".
+
+    So a workspace listing only `local` still gets source-scoped lookups served.
+    Reporting it as excluded would overstate the narrowing: this feature's own
+    failure mode, pointed the other way.
+    """
+    ws = vault / "01_Workspaces" / "narrow"
+    ws.mkdir()
+    (ws / "curate.yml").write_text(
+        "workspace_id: narrow\nproject: narrow\n"
+        "reasoning:\n  allowed_modes: ['local']\n",
+        encoding="utf-8",
+    )
+    policy = _pack(vault, str(ws))["policy"]
+    assert "source-section" not in policy["excluded"], (
+        f"reported as excluded, but the router always admits it: {policy}"
+    )
+    routes = {f["filter"]: f["value"] for f in policy["applied_filters"]}.get(
+        "allowed_routes", []
+    )
+    assert "source-section" in routes, (
+        f"the reported route set omits one that is always served: {routes}"
+    )

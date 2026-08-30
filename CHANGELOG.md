@@ -19,8 +19,9 @@ All notable changes to Incurator are documented here.
   about the policy, so a lens that narrowed nothing was indistinguishable from
   one that narrowed everything, and the reader had to infer which from the
   evidence. The pack now emits `policy.applied_filters` / `policy.excluded` —
-  the shape the Plan F fixture and `PLUGIN_SCHEMA.md` §15.1 had documented since
-  before this work and which no code had ever produced — where an empty filter
+  the shape the Plan F fixture had carried since before this work and which no
+  code had ever produced (`PLUGIN_SCHEMA.md` §15.1 said only "applied policy
+  filters" and named no keys until this release filled it in), where an empty filter
   list is the signal for an inert lens.
 
   **A filter is listed only if it genuinely narrows retrieval.** Every field of

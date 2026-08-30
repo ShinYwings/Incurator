@@ -88,7 +88,7 @@ def fetch_context(
             # seeding warning below (scoped to "unset"), and English-only entity
             # seeding then matched nothing with nothing said.
             status = derived.status
-            return ContextService(paths, client).context_fetch(
+            return ContextService(paths, client, config=config).context_fetch(
                 QueryRequest(
                     question=query_text,
                     english_query=english_query,

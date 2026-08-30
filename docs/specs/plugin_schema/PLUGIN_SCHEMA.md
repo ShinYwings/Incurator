@@ -3147,12 +3147,52 @@ quarantined until a separately reviewed policy applies it (SYSTEM_BEHAVIOR
 - `pack_id`, `trace_id` (`QTR-*`), and `retrieval_execution_id` (`RTR-*`);
 - `snapshot.snapshot_id` plus source/DB/search/dependency/policy/model/tokenizer
   identity fields;
-- selected route, stop reason, applied policy filters, budget accounting,
-  coverage state, warnings, and explicit omissions;
+- selected route, stop reason, budget accounting, coverage state, warnings, and
+  explicit omissions;
+- **`policy` and `persona` (v0.75.0)** — see below;
 - evidence items with record id/hash, kind, layer, summary/claim, support and
   freshness state, `source_span_ids`, structured locator, token cost, expansion
   handle, and verification handle;
 - `next[]` expansion handles for omitted or lower-detail evidence.
+
+**`policy` — the curation lens, and what it actually narrowed.**
+
+```json
+"policy": {
+  "workspace_id": "COLMAP free GS",
+  "project": "COLMAP-free-GS",
+  "applied_filters": [{"filter": "source_include", "value": ["03_Notes/**"]}],
+  "excluded": ["explore"],
+  "declared": {"prompt_profile": "technical-research", "avoid_merges": ["A != B"]}
+}
+```
+
+An **empty `applied_filters` is the signal for an inert lens** — the lens ran and
+narrowed nothing, which is a different fact from no lens at all and must not have
+to be inferred from the evidence.
+
+A field appears in `applied_filters` only if it genuinely narrows retrieval:
+`source_include`, `source_exclude`, `allowed_routes`, `exploration_enabled`,
+`max_explore_followups`. Everything else a workspace declares is reported under
+`declared`, because listing an inert field as applied would tell the user the
+system acted on a knob they turned when it did not.
+
+Earlier prose here said only "applied policy filters", and the concrete shape
+lived solely in `docs/specs/system_behavior/context_service_fixtures/context_fetch_pack.json`,
+which no code emitted. **This section is the plugin-facing contract and must
+name the keys**; a consumer cannot be written against a fixture it is not
+pointed at.
+
+**`persona` — the vault persona**, shape as `config.yml`'s `persona` block
+(`area`, `text`, `knowledge_artifacts`, `verification_philosophy`,
+`output_intent`, `disambiguation_keywords`).
+
+**The plugin MUST render both into the prompt, not merely receive them.**
+`formatCuratorContextPack` is the only thing the answering model sees, so a field
+that reaches `CuratorContextPack` and stops there shapes nothing a user reads.
+v0.75.0 shipped exactly that mistake in its first pass and had to correct it.
+`avoid_merges` is rendered as *requested, not enforced*, because no production
+code path reads it.
 
 Older query result fields remain additive compatibility fields. When sidechat
 uses `wiki plugin context fetch`, it preserves the returned pack on the trace

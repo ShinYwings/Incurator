@@ -530,12 +530,18 @@ def _conflict_response(expected_snapshot_id: str, current_snapshot_id: str) -> d
     }
 
 
+# Routes the router admits whatever the workspace says. Kept beside the summary
+# because a divergence here silently turns the reported lens into a lie —
+# `router.choose_route` owns the real rule and this must follow it.
+_ALWAYS_ADMITTED_ROUTES = frozenset({"source-section"})
+
+
 def _policy_summary(policy: "curate_yml.CurationPolicy") -> dict[str, Any]:
     """The curation lens, in the shape the spec already documented for it.
 
     `policy.applied_filters` / `policy.excluded` is not a shape invented here —
-    it is what `docs/specs/system_behavior/context_service_fixtures/` and
-    `PLUGIN_SCHEMA.md` §15.1 have described since Plan F, and what the roadmap
+    it is what `docs/specs/system_behavior/context_service_fixtures/` has
+    described since Plan F, and what the roadmap
     entry for this work named: *"once it emits `policy.applied_filters`, an inert
     lens becomes visible as an empty filter set rather than something that has to
     be inferred."* No code had ever emitted it. A first attempt here invented a
@@ -545,11 +551,13 @@ def _policy_summary(policy: "curate_yml.CurationPolicy") -> dict[str, Any]:
     **A filter is listed only if it actually narrows retrieval.** Every field of
     `CurationPolicy` was traced to its consumers: `source_include`,
     `source_exclude`, `allowed_routes`, `exploration_enabled`, and
-    `max_explore_followups` reach `retrieval/`; the rest are compiled and read
-    nowhere on the answering path today. Reporting a difference in an inert field
-    as an applied filter would be the same false-visibility problem in reverse —
-    the user told which knob they turned, and the system telling them it did
-    something with it.
+    `max_explore_followups` reach `retrieval/`; the other ten are compiled and
+    read nowhere on the answering path today, and every one of them goes under
+    `declared`. Reporting a difference in an inert field as an applied filter
+    would be the same false-visibility problem in reverse — the user telling the
+    system which knob they turned, and the system telling them it did something
+    with it. Dropping an inert field from the pack entirely is that problem
+    again by omission, which an earlier version of this did to five of them.
     """
     default = curate_yml.resolve_curate_policy("")[0]
     applied: list[dict[str, Any]] = []
@@ -560,9 +568,18 @@ def _policy_summary(policy: "curate_yml.CurationPolicy") -> dict[str, Any]:
     if policy.source_exclude:
         applied.append({"filter": "source_exclude", "value": list(policy.source_exclude)})
         excluded.extend(policy.source_exclude)
-    if policy.allowed_routes != default.allowed_routes:
-        applied.append({"filter": "allowed_routes", "value": sorted(policy.allowed_routes)})
-        excluded.extend(sorted(default.allowed_routes - policy.allowed_routes))
+    # Report what the ROUTER honours, not what `curate.yml` asked for.
+    # `router.choose_route` unconditionally re-admits `source-section` —
+    # "a precise, always-safe scoped lookup of a named source, permitted
+    # regardless of the workspace's reasoning allowed_modes" — so a workspace
+    # that lists only `local` still gets source-scoped lookups served. Reporting
+    # `allowed_routes=local` and `excluded=[source-section]` would overstate the
+    # narrowing, which is this feature's own failure mode pointed the other way.
+    effective_routes = policy.allowed_routes | _ALWAYS_ADMITTED_ROUTES
+    default_routes = default.allowed_routes | _ALWAYS_ADMITTED_ROUTES
+    if effective_routes != default_routes:
+        applied.append({"filter": "allowed_routes", "value": sorted(effective_routes)})
+        excluded.extend(sorted(default_routes - effective_routes))
     if policy.exploration_enabled != default.exploration_enabled:
         applied.append(
             {"filter": "exploration_enabled", "value": policy.exploration_enabled}
@@ -586,10 +603,15 @@ def _policy_summary(policy: "curate_yml.CurationPolicy") -> dict[str, Any]:
         # it. Kept out of `applied_filters` precisely so it cannot be mistaken
         # for something that took effect.
         "declared": {
+            "default_route": policy.default_route,
             "prompt_profile": policy.prompt_profile,
             "output_language": policy.output_language,
             "require_source_spans": policy.require_source_spans,
             "allow_general_knowledge": policy.allow_general_knowledge,
+            "contradiction_policy": policy.contradiction_policy,
+            "backprop_enabled": policy.backprop_enabled,
+            "min_confidence": policy.min_confidence,
+            "high_threshold": policy.high_threshold,
             "avoid_merges": list(policy.avoid_merges),
         },
     }
@@ -604,14 +626,21 @@ class ContextService:
         client: Any | None = None,
         *,
         disabled_routes: Iterable[str] | None = None,
+        config: dict | None = None,
     ) -> None:
         self.paths = paths
         self.client = client
-        # Read once per service, not once per turn. `load_config` parses YAML off
-        # disk and measured 3.7 ms; `context_fetch` had no other reason to touch
-        # the config, so adding the persona would have put that on every chat
-        # turn for a value that cannot change while the process holds this
-        # instance.
+        # Take the config the caller already parsed, when it has one.
+        #
+        # An earlier version memoised this on the instance and claimed it saved a
+        # read "per turn". It saved nothing: every call site builds a fresh
+        # ContextService and calls it once, and the plugin spawns a new process
+        # per turn on top of that, so the cache never once produced a hit. The
+        # real duplication is at the boundary — `plugin_api/context.py` calls
+        # `load_config` to build the LLM client and then hands us paths, so we
+        # parsed the same YAML a second time. Passing it through is what actually
+        # removes the read.
+        self._config = config
         self._persona: dict[str, Any] | None = None
         # P8 rollback seam: a route can be disabled here (tests/programmatic) or via
         # the INCURATOR_DISABLED_ROUTES env var, degrading it to the safe local route.
@@ -622,7 +651,10 @@ class ContextService:
         )
 
     def _vault_persona(self) -> dict[str, Any]:
-        """The vault persona, read once and reused.
+        """The vault persona.
+
+        Uses the config the caller already parsed when one was passed, and reads
+        it only when nobody did.
 
         The surface that writes the answer is handed the context pack and
         nothing else, so a persona that stops at retrieval shapes nothing the
@@ -631,7 +663,10 @@ class ContextService:
         """
         if self._persona is None:
             try:
-                self._persona = cfg.get_curator_persona(cfg.load_config(self.paths))
+                config = self._config
+                if config is None:
+                    config = cfg.load_config(self.paths)
+                self._persona = cfg.get_curator_persona(config)
             except Exception:  # noqa: BLE001 - a malformed config is `wiki lint`'s to report
                 import logging
 
@@ -860,8 +895,8 @@ class ContextService:
             # nothing else, so a persona absent from it shapes nothing a user
             # reads, and a lens that narrowed nothing was indistinguishable from
             # one that narrowed everything — the reader had to infer it from the
-            # evidence. `applied` states it outright rather than leaving the
-            # default policy to be recognised by its shape.
+            # evidence. An empty `applied_filters` states it outright rather
+            # than leaving a default policy to be recognised by its shape.
             "policy": _policy_summary(policy),
             "persona": self._vault_persona(),
             "budget": budget,

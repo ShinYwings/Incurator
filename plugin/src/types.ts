@@ -589,9 +589,11 @@ export interface CuratorContextEvidence {
 
 export interface CuratorContextPack {
   ok: boolean;
-  /** The curation lens this pack was built under (v0.75.0). `applied` is false
-   *  when the lens ran and narrowed nothing, which is a different fact from no
-   *  lens at all. */
+  /** The curation lens this pack was built under (v0.75.0). An EMPTY
+   *  `applied_filters` means the lens ran and narrowed nothing, which is a
+   *  different fact from no lens at all. Only filters that genuinely narrow
+   *  retrieval appear there; everything else the workspace declared is under
+   *  `declared`. */
   policy?: {
     workspace_id?: string;
     project?: string;
