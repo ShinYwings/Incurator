@@ -174,6 +174,54 @@ export function formatCuratorContextPack(pack: CuratorContextPack, query: string
   ].filter(Boolean).join(" ");
 
   const lines: string[] = [`<incurator_evidence_pack ${attrs}>`];
+
+  // The persona and the lens are rendered INTO the prompt, not merely carried on
+  // the response object. v0.75.0 added both to the backend pack and stopped
+  // there, so the claim that "the assistant knows the voice the vault was set up
+  // for" was false: this formatter is the only thing the model ever sees, and it
+  // read neither. Backend tests asserting the dict shape could not catch that.
+  const persona = pack.persona;
+  if (persona && (persona.text || persona.output_intent)) {
+    const bits = [
+      persona.text,
+      persona.verification_philosophy
+        ? `Verification: ${persona.verification_philosophy}.`
+        : "",
+      persona.output_intent ? `Write for a ${persona.output_intent}.` : "",
+    ].filter(Boolean);
+    lines.push(`vault_persona: ${bits.join(" ")}`);
+  }
+
+  const policy = pack.policy;
+  if (policy) {
+    const filters = policy.applied_filters ?? [];
+    if (filters.length === 0) {
+      // Say "nothing narrowed" outright. Saying nothing would leave the model to
+      // infer it from the evidence, which is the ambiguity this release removes.
+      lines.push(
+        `curation_lens: workspace ${policy.workspace_id || "default"} — no filters applied; ` +
+        `the evidence below was not narrowed`
+      );
+    } else {
+      const rendered = filters
+        .map((f) => `${f.filter}=${Array.isArray(f.value) ? f.value.join(", ") : String(f.value)}`)
+        .join("; ");
+      lines.push(
+        `curation_lens: workspace ${policy.workspace_id || "default"} — ${rendered}`
+      );
+      if (policy.excluded?.length) {
+        lines.push(`lens_excluded: ${policy.excluded.join(", ")}`);
+      }
+    }
+    // Distinctions the user recorded as ones the vault must not collapse. They
+    // sit under `declared` because the answering path does not enforce them, so
+    // the model is told what was asked for without being told it was applied.
+    const avoid = (policy.declared as { avoid_merges?: string[] } | undefined)?.avoid_merges;
+    if (avoid?.length) {
+      lines.push(`keep_distinct (requested, not enforced): ${avoid.join(" | ")}`);
+    }
+  }
+
   const items = pack.items ?? [];
   for (const item of items.slice(0, 12)) {
     const label = [item.kind, item.record_id].filter(Boolean).join(" ");

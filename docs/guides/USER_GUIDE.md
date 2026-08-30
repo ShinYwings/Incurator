@@ -567,6 +567,23 @@ budget accounting, source locators, omission reasons, and expansion/verification
 handles. Future `wiki query` synthesis uses the exact same pack rather than
 running a separate retrieval path.
 
+
+**The pack says which curation lens built it, and carries the vault persona**
+(v0.75.0). When you ask from inside a workspace, that workspace's `curate.yml`
+narrows what the answer may draw on — which folders, which retrieval routes. The
+pack reports those as `policy.applied_filters`, and **an empty list means the
+lens ran and narrowed nothing**, so a configured-but-inert lens reads as inert
+rather than having to be inferred from the evidence.
+
+Only settings that genuinely narrow retrieval are listed as filters. Everything
+else the workspace declares appears under `policy.declared` — telling you what
+was asked for without claiming the system acted on it. Routes the retriever
+always admits are reported as admitted even when the workspace excluded them,
+because saying otherwise would overstate the narrowing.
+
+`persona` travels with it, so the assistant writing the answer knows the voice
+the vault was set up for.
+
 ### Promoting an answer to durable knowledge
 A query answer is not stored. To keep one, promote it into `02_Wiki/` (the
 human-curated space) — via the plugin's promote action or the MCP

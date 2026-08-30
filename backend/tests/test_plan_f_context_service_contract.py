@@ -1383,3 +1383,51 @@ def test_context_expand_admits_a_next_handle_at_the_budget_that_produced_it(
     # reserve, it does not grant a fresh full budget.
     assert expanded["budget"]["used_tokens"] <= limit
     assert expanded["budget"]["reserved_tokens"] == 0
+
+
+def test_the_fixture_matches_what_context_fetch_actually_returns(tmp_path) -> None:
+    """The fixture is only a contract if something compares it to the code.
+
+    `test_context_fetch_fixture_pins_pack_contract` above asserts the fixture
+    against itself and never calls `ContextService.context_fetch`, so the two
+    drifted: the fixture carried `policy: {applied_filters, excluded}` that no
+    code emitted for months, and when code finally did emit a `policy` block it
+    was free to invent a different shape. That is the same "a check that never
+    reached its target" failure this project keeps naming.
+
+    This does not pin values — those depend on the vault. It pins the KEY SET, at
+    the top level and inside `policy`, which is what a consumer is written
+    against.
+    """
+    from curator import config as cfg
+    from curator import db
+    from curator.context_service import ContextService
+    from curator.retrieval import QueryRequest
+
+    root = tmp_path / "vault"
+    (root / "01_Workspaces" / "proj").mkdir(parents=True)
+    (root / "01_Workspaces" / "proj" / "curate.yml").write_text(
+        "workspace_id: proj\nproject: proj\nsources:\n  include: ['03_Notes/**']\n",
+        encoding="utf-8",
+    )
+    paths = cfg.paths_from_config(root)
+    cfg.save_config(paths, cfg.DEFAULT_CONFIG)
+    db.init_db(paths.state_db)
+
+    live = ContextService(paths, None).context_fetch(
+        QueryRequest(question="q", workspace_path=str(root / "01_Workspaces" / "proj"),
+                     mode="local")
+    )
+    documented = _load_fixture("context_fetch_pack.json")["response"]
+
+    for key in ("policy", "persona"):
+        assert key in live, f"the fixture documents {key!r} but context_fetch omits it"
+        assert key in documented, f"context_fetch returns {key!r} but the fixture omits it"
+
+    assert set(live["policy"]) == set(documented["policy"]), (
+        f"policy keys drifted from the documented shape: "
+        f"live={sorted(live['policy'])} documented={sorted(documented['policy'])}"
+    )
+    assert set(live["policy"]["declared"]) == set(documented["policy"]["declared"]), (
+        "the `declared` block drifted from the documented shape"
+    )

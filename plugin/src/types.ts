@@ -589,6 +589,33 @@ export interface CuratorContextEvidence {
 
 export interface CuratorContextPack {
   ok: boolean;
+  /** The curation lens this pack was built under (v0.75.0). An EMPTY
+   *  `applied_filters` means the lens ran and narrowed nothing, which is a
+   *  different fact from no lens at all. Only filters that genuinely narrow
+   *  retrieval appear there; everything else the workspace declared is under
+   *  `declared`. */
+  policy?: {
+    workspace_id?: string;
+    project?: string;
+    /** Empty means the lens ran and narrowed nothing — a different fact from no
+     *  lens. Only filters that genuinely narrow retrieval appear here. */
+    applied_filters?: { filter: string; value: unknown }[];
+    excluded?: string[];
+    /** What the workspace asked for in fields the answering path does not act on
+     *  yet. Deliberately outside `applied_filters` so it cannot be read as
+     *  something that took effect. */
+    declared?: Record<string, unknown>;
+  };
+  /** The vault persona. The model writing the answer is handed this pack and
+   *  nothing else, so a persona that stops at the backend shapes nothing. */
+  persona?: {
+    area?: string;
+    text?: string;
+    knowledge_artifacts?: string[];
+    verification_philosophy?: string;
+    output_intent?: string;
+    disambiguation_keywords?: string[];
+  };
   operation?: "context_fetch" | "context_expand" | "context_verify" | string;
   contract_version?: string;
   pack_id?: string;

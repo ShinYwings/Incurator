@@ -2,6 +2,53 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.75.0] - 2026-08-30
+
+### Added
+- **The context pack now says which curation lens it applied, and carries the
+  vault persona.** Re-verifying the roadmap's D2 finding before planning it — as
+  that entry asked — showed half of it was stale and half was real.
+
+  Stale: the lens *does* reach chat. `ChatSidebarView` resolves the real
+  workspace from the note in focus and passes it, `context_fetch` resolves the
+  policy from that, and on the reference vault the resulting policy differs from
+  the default in six fields — `source_include`, `allowed_routes`,
+  `prompt_profile`, `avoid_merges`, and the two ids.
+
+  Real: **the pack never said so.** It carried `workspace_id` and nothing else
+  about the policy, so a lens that narrowed nothing was indistinguishable from
+  one that narrowed everything, and the reader had to infer which from the
+  evidence. The pack now emits `policy.applied_filters` / `policy.excluded` —
+  the shape the Plan F fixture had carried since before this work and which no
+  code had ever produced (`PLUGIN_SCHEMA.md` §15.1 said only "applied policy
+  filters" and named no keys until this release filled it in), where an empty filter
+  list is the signal for an inert lens.
+
+  **A filter is listed only if it genuinely narrows retrieval.** Every field of
+  `CurationPolicy` was traced to its consumers: `source_include`,
+  `source_exclude`, `allowed_routes`, `exploration_enabled`, and
+  `max_explore_followups` reach `retrieval/`; the rest are compiled and read
+  nowhere on the answering path, so they are reported under `declared` instead.
+  Listing an inert field as applied would be the same false visibility pointing
+  the other way — telling the user the system acted on a knob they turned when it
+  did not.
+
+  Also real: the vault persona reached retrieval and stopped there. The plugin's
+  chat model is handed this pack and nothing else, so a persona absent from it
+  shaped nothing a user read.
+
+  **And putting it in the pack was not enough.** The first pass added both to the
+  backend response and stopped, while claiming the assistant now knew the voice
+  the vault was set up for. It did not: `formatCuratorContextPack` is the only
+  thing the model ever sees, and it read neither. Backend tests asserting the
+  dict shape could not catch that, because the gap was one layer up. Both are
+  rendered into the prompt now, with the inert case stated outright and
+  `avoid_merges` marked as requested-but-not-enforced, since nothing in
+  production reads it.
+
+  This is the failure this project keeps naming — not a wrong result, an
+  unverifiable one.
+
 ## [0.74.0] - 2026-08-30
 
 ### Added
