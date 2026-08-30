@@ -2,6 +2,111 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.76.0] - 2026-08-30
+
+### Added
+- **The backend now runs the Antigravity CLI inside an OS sandbox, like the
+  plugin already did.** `AntigravityCliClient._run` spawned `agy` with a bare
+  `subprocess.run` and set `ANTIGRAVITY_TRUST_WORKSPACE` — asking the CLI to skip
+  its own guardrails — on the one code path that feeds it ingested, untrusted
+  source material. The plugin has refused to run an agentic CLI uncontained since
+  v0.23.0, after measuring that `agy` ignores its own `--sandbox` and creates
+  files anyway. The backend never got the same treatment; the gap was latent only
+  while the read permission was broken, and v0.56.1 fixed the permission.
+
+  Verified by running the real generated profile, not by reading it: a write
+  inside the vault succeeds, a write to `$HOME` or `/tmp` is refused, a read of
+  `/etc/hosts` still works, the refusal survives three levels of nested shells
+  (which is how `agy` runs), and the CLI's own `~/.gemini` stays writable so it
+  does not crash. An unsupported platform raises rather than silently running
+  uncontained.
+
+  **This is a write sandbox, and it does not close the v0.56.1 read grant.**
+  Reads were never restricted on either path — denying them breaks the CLI's
+  ability to read its own binaries. What this buys is write and process
+  containment and one behaviour across both spawn paths. Closing the read
+  exposure would need a read-restricted profile allowlisting everything `agy`
+  needs, which breaks on every CLI release; the standing recommendation remains a
+  vision model reached over an API, which needs no filesystem grant at all.
+
+### Fixed
+- **The test guard that stops the suite spending the user's provider account was
+  defeated by this release's own change.** Wrapping the spawn moved the CLI's
+  name off `argv[0]`, and the guard only looked there — so tests began running
+  real `agy` again. The user noticed before the suite did, for the second time.
+  The full backend run went from 70 s to over 10 minutes, which is what that
+  costs.
+
+  The guard now scans every argument, skipping known wrappers, because a guard
+  that inspects one position is defeated by anything that shifts it. It is also a
+  `Popen` **subclass** rather than a replacement function: substituting a
+  function broke every library annotating `subprocess.Popen[bytes]` at runtime,
+  including the installed `mcp` package, which turned an unrelated test into a
+  `TypeError`.
+
+  Code review caught that the scan was added to the `Popen` guard and not to the
+  `subprocess.run` one beside it — which is the call `AntigravityCliClient._run`
+  actually uses. The account stayed protected only because `run` delegates to
+  `Popen`, so the block fired from the wrong guard and reported a background
+  spawn for a blocking call. Both now share one argv scan.
+
+- **The sandbox denied the CLI its own log file.** `_run` passes `--log-file`
+  into `.cache/llm/agy_logs` and then reads it back to classify capacity errors,
+  but the write allowlist granted only the temp dir, so the write was denied and
+  the capacity check was reading a file that could never exist. `agy_logs` and
+  `codex_outputs` are now writable, with a test that performs the write under a
+  real sandbox rather than asserting on the list.
+
+- **`--sandbox` is back on the backend spawn, and dropping the trust variable
+  without it would have stalled every ingest call.** v0.23.0 measured that agy in
+  print mode without `--sandbox` reverts to a permission prompt and hangs; the
+  plugin has passed the flag ever since. The backend never passed it and relied on
+  `*_TRUST_WORKSPACE` instead, so removing that alone left it in a combination
+  neither surface has run — a 900 s timeout per call. The two flags are not
+  interchangeable: one prevents a prompt, the other waives guardrails. Code review
+  caught this; the argument that the plugin was a working control was wrong,
+  because the plugin also passes `--sandbox`.
+
+- **A contained `agy` no longer gets write access to the other CLIs' credentials.**
+  The write allowlist granted all four provider state directories regardless of
+  which CLI was running, so `agy` — running over ingested, untrusted material —
+  could overwrite `~/.claude` and `~/.codex` auth state. This is the least-privilege
+  defect v0.25.5 fixed on the plugin side; the backend shipped it again. Directories
+  are now scoped per provider, and an unnamed provider gets none rather than all.
+
+- **The containment no longer changed size depending on how you started the
+  process.** `_sandbox_roots` read only `VAULT_ROOT`, which `wiki mcp` sets and
+  `wiki add` does not — so on the documented path the sandbox locked the CLI out
+  of the very vault it is meant to work in. It now resolves the vault the same
+  way the CLI does. The claims about what the profile allows and refuses are
+  assertions in the suite now, run against the real profile, rather than prose:
+  vault write allowed, `$HOME` and the system temp dir refused, reads still
+  working, and the refusal surviving nested shells.
+
+- **An uncontainable machine now fails over instead of crashing.**
+  `SandboxUnavailableError` started as a bare `RuntimeError`, so it slipped past
+  `FailoverClient` and every `except LLMError` site in the pipeline — a Linux
+  user without `bubblewrap` got a traceback where USER_GUIDE promises the
+  configured fallback picks up the work. Refusing to run the CLI uncontained and
+  refusing to let the fallback serve are two different decisions, and only the
+  first is the security requirement. It subclasses `LLMError` now, like every
+  other provider failure in that module.
+
+- **The CLI's new platform requirement is documented.** `wiki add` / `build` /
+  `update` with `antigravity-cli` now need an OS sandbox — built in on macOS,
+  `bubblewrap` on Linux, unsupported on Windows. PLUGIN_GUIDE has said this for
+  the plugin since v0.23.0; USER_GUIDE said nothing about the CLI path, which
+  this release changes. CI installs `bubblewrap` rather than mocking the
+  requirement away, so the Linux job exercises what Linux users actually run.
+
+- **`*_TRUST_WORKSPACE` is gone from the backend spawn, and its rationale was
+  wrong.** v0.54.1 set it on the theory that agy would otherwise stall at a
+  workspace-trust prompt it cannot show under `--print`. That was never measured,
+  and the plugin disproves it — it has spawned agy with `-p` and no trust flag
+  for many releases without stalling. The live permission test was setting the
+  flags too, so the one live check of agy's permission behaviour ran in an
+  environment the product never creates; it now runs production's.
+
 ## [0.75.0] - 2026-08-30
 
 ### Added

@@ -1307,6 +1307,19 @@ lock, so an unrelated peer or process key is not lost by a stale full save.
 Existing ordinary config permissions are preserved, while new ordinary config
 files follow the process's normal umask.
 
+**`antigravity-cli` needs an OS sandbox, on the CLI too.** `wiki add`, `wiki
+build`, and `wiki update` feed the Antigravity CLI the source material you
+ingested, and `agy`'s own `--sandbox` flag does not actually contain it — so the
+backend wraps the spawn the same way the Obsidian plugin has since v0.23.0.
+macOS has what it needs built in. **Linux requires `bubblewrap`**: install it
+with `sudo apt install bubblewrap` or `sudo dnf install bubblewrap`. If no OS
+sandbox is available — Linux without `bubblewrap`, or Windows, where CLI
+sandboxing is not supported yet — Incurator refuses to run `antigravity-cli`
+rather than run it uncontained, and fails over to your configured Fallback
+backend. Set one (`wiki config provider --fallback ollama`) if you are on such a
+machine. `claude-code` and `codex-cli` are unaffected; they run under their own
+built-in limits.
+
 CLI-backed providers (`antigravity-cli`, `claude-code`, `codex-cli`) use the
 account currently logged into that CLI on the machine running the backend.
 If you need a different account, switch it in the provider CLI itself

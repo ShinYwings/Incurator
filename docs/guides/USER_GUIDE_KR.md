@@ -1237,6 +1237,19 @@ Config update는 target lock 안에서 새로 읽은 mapping에 merge하므로 s
 관계없는 peer/process key를 지우지 않습니다. 기존 일반 config 권한은 보존되고,
 새 일반 config file은 process의 정상 umask를 따릅니다.
 
+**`antigravity-cli`는 CLI에서도 OS 샌드박스가 필요합니다.** `wiki add`,
+`wiki build`, `wiki update`는 여러분이 수집한 원본 자료를 Antigravity CLI에
+넘기는데, `agy` 자체의 `--sandbox` 플래그는 실제로 격리해 주지 않습니다. 그래서
+backend는 Obsidian 플러그인이 v0.23.0부터 해 온 것과 동일한 방식으로 spawn을
+감쌉니다. macOS는 필요한 기능을 기본 제공합니다. **Linux는 `bubblewrap`이
+필요합니다**: `sudo apt install bubblewrap` 또는 `sudo dnf install bubblewrap`으로
+설치하세요. OS 샌드박스를 쓸 수 없으면 — `bubblewrap`이 없는 Linux, 또는 아직 CLI
+샌드박싱을 지원하지 않는 Windows — Incurator는 `antigravity-cli`를 격리 없이
+실행하는 대신 실행을 거부하고, 설정된 Fallback backend로 failover합니다. 그런
+머신이라면 fallback을 지정해 두세요(`wiki config provider --fallback ollama`).
+`claude-code`와 `codex-cli`는 영향받지 않으며, 각자의 내장 제한 아래에서
+동작합니다.
+
 CLI 기반 provider(`antigravity-cli`, `claude-code`, `codex-cli`)는 backend가 실행되는 머신에서 해당 CLI에 현재 로그인된 계정을 사용합니다. 다른 계정을 쓰려면 provider CLI 자체(`agy`, `claude`, `codex login`)에서 계정을 전환하세요. DeepSeek는 다릅니다. `DEEPSEEK_API_KEY`, 암호화된 로컬 `llm.deepseek-api.api_key_secret`, 또는 legacy plaintext `llm.deepseek-api.api_key`의 API 키를 사용하므로 계정 선택은 브라우저 로그인 세션이 아니라 키로 결정됩니다. 새로 저장하는 키는 vault sync로 유출되지 않도록 encrypted local secret path를 사용해야 합니다.
 
 ### 2. 모델 관리 (`wiki config models`)

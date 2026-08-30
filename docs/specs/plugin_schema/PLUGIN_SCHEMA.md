@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.75.0)
+# Incurator Plugin Schema & API Contract (v0.76.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -2355,25 +2355,43 @@ create files, or traverse the filesystem.
 
   The scrub MUST run **before** caller-supplied overrides are applied, never
   after, so that a caller which deliberately sets an `ANTIGRAVITY_*` value still
-  gets it. The backend's `AntigravityCliClient` is such a caller: it sets
-  `ANTIGRAVITY_TRUST_WORKSPACE`, and deleting that would stop `agy` at a
-  workspace-trust prompt it cannot display in `--print` mode.
+  gets it. **No caller sets a `*_TRUST_WORKSPACE` any more** — the backend's
+  `AntigravityCliClient` did until v0.76.0, which is the case this ordering rule
+  was originally written for. The ordering still holds for any other deliberate
+  `ANTIGRAVITY_*` override.
 
-  **This does not amend §13.6.** The two are different spawn sites with
-  different trust boundaries, and the prohibition below is not being relaxed:
+  **The two spawn sites now have the same containment (v0.76.0).** They still
+  have different triggers, and the table records that:
 
   | | §13.6 (plugin) | here (backend) |
   |---|---|---|
   | Spawner | `LLMClient.buildCliCommand`, for the popover/sidechat surfaces | `curator/llm.py` CLI clients, for the ingest/synthesis pipeline |
   | Trigger | a chat turn, over content the user may not have read | a `wiki` command the user ran on their own vault |
-  | Containment | OS sandbox; agy REFUSED if it cannot be OS-sandboxed | the invoking command's own scope |
-  | `*_TRUST_WORKSPACE` | **REMOVED** — see §13.6 | set by the caller, and predates the v0.23.0 hardening |
+  | Containment | OS sandbox; agy REFUSED if it cannot be OS-sandboxed | **the same** — `llm.os_sandbox_prefix`, raising `SandboxUnavailableError` rather than spawning uncontained |
+  | `*_TRUST_WORKSPACE` | **REMOVED** — see §13.6 | **REMOVED** (v0.76.0) |
+  | `--sandbox` | PASSED — it does not contain agy, it stops `-p` mode halting at a permission prompt | **the same** (v0.76.0) |
+  | Writable CLI state dirs | only the running provider's (`~/.gemini` + `~/.antigravity` for agy) | **the same** (v0.76.0) |
 
-  §13.6's removal governs the plugin's spawn only, and MUST NOT be read as
-  permission to reintroduce `*_TRUST_WORKSPACE` there. Conversely, the backend's
-  use of it is not blessed by this section — it is recorded here only because
-  the scrub ordering depends on it. The backend's own trust model belongs in
-  `SYSTEM_BEHAVIOR.md`; see §26.8 there.
+  `--sandbox` and `*_TRUST_WORKSPACE` are not interchangeable and MUST NOT be
+  traded for one another. The first stops agy halting at a permission prompt it
+  cannot display under `--print`; the second asks it to skip its own guardrails
+  outright. The backend historically had the second and not the first, so
+  removing `*_TRUST_WORKSPACE` alone would have put it in a configuration neither
+  surface has ever run — a 900 s stall on every ingest call. Both sites now pass
+  `--sandbox` and neither sets a trust variable.
+
+  Per-provider scoping of the writable state directories is required at both
+  sites, for the reason v0.25.5 gave: a contained CLI granted every provider's
+  directory can overwrite the auth state of CLIs it does not run. An unrecognised
+  provider MUST be granted none of them; defaulting to all of them is the bug.
+
+  Both spawn `agy` over material the user has not necessarily read — the backend
+  runs it across *ingested source documents* — so the trigger difference never
+  justified the containment difference. It survived only because the read
+  permission was broken and the exposure was therefore latent; v0.56.1 fixed the
+  permission and left the gap. The removal in §13.6 MUST NOT be read as
+  permission to reintroduce `*_TRUST_WORKSPACE` at either site. The backend's
+  own trust model is in `SYSTEM_BEHAVIOR.md` §26.8.
   - `buildRecencyAnchor(profile, { hasPrimarySelection })` — a `<critical_invariants>`
     block appended LAST in the payload (recency-effect position) that re-asserts:
     answer only about `<primary_focus_selection>` (deferring to the existing
@@ -2496,12 +2514,17 @@ the `find_mvg_text.py`-style exploit). This section governs the CLI path.
     1. The grant is **global and standing** — one file under `~/.gemini`, shared
        by every later `agy` invocation on that account, not scoped to the plugin
        or to one call.
-    2. The **backend** `AntigravityCliClient` has no OS sandbox at all (unlike
-       `CodexCliClient`, which passes `--sandbox read-only`) and sets
-       `*_TRUST_WORKSPACE`. It is also the client that processes ingested
-       source material, which is untrusted by definition. A standing read grant
-       on that path is a prompt-injection surface: content in an ingested PDF
-       can ask the model to read an unrelated file.
+    2. The **backend** `AntigravityCliClient` is the client that processes
+       ingested source material, which is untrusted by definition. A standing
+       read grant on that path is a prompt-injection surface: content in an
+       ingested PDF can ask the model to read an unrelated file.
+
+       Until v0.76.0 that client also had no OS sandbox at all and set
+       `*_TRUST_WORKSPACE`. Both are fixed — it now goes through the same
+       containment as the plugin's spawn and sets neither variable. **That
+       narrows the blast radius; it does not remove this consequence.** The
+       sandbox denies writes, not reads, so a standing read grant is still a
+       standing read grant on the path that handles untrusted material.
 
     A vision provider reached over an API takes image bytes directly and needs
     no filesystem grant at all. Configuring one for

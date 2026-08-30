@@ -84,11 +84,12 @@ function canReadWith(rule: string): boolean {
       ],
       {
         encoding: "utf-8",
-        env: {
-          ...process.env,
-          ANTIGRAVITY_TRUST_WORKSPACE: "true",
-          AGY_TRUST_WORKSPACE: "true",
-        },
+        // Production sets no `*_TRUST_WORKSPACE` on either spawn site. This test
+        // used to set them, so the one live check of agy's permission behaviour
+        // ran in an environment the product never creates — the exact
+        // "verification that does not touch the real thing" this repo keeps
+        // paying for.
+        env: { ...process.env },
       },
     );
     // The token can only appear if the model actually read the file — it is not

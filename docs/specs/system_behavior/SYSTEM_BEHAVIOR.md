@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.75.0)
+# Incurator - System Behavior (v0.76.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -3422,16 +3422,40 @@ left inheriting them until v0.54.1, so the hijack stayed live on every
 `wiki`-driven ingest and synthesis run in that window.
 
 **Ordering is load-bearing.** The scrub runs before the `extra` mapping is
-merged, never after. `AntigravityCliClient` sets `ANTIGRAVITY_TRUST_WORKSPACE`
-for its own non-interactive spawn; a scrub applied last would delete it and stop
-`agy` at a workspace-trust prompt it cannot display under `--print`, converting
-a hijack fix into a silent empty response. `test_llm_env_scrub.py` pins both the
-deletion and the ordering.
+merged, never after, so a caller that deliberately sets an `ANTIGRAVITY_*` value
+still gets it. The case this rule was written for was
+`AntigravityCliClient` setting `ANTIGRAVITY_TRUST_WORKSPACE` for its own
+non-interactive spawn — **removed in v0.76.0**, so no caller sets one today. The
+ordering still governs any other deliberate override.
+`test_llm_env_scrub.py` pins both the deletion and the ordering.
 
-**Scope.** This is the backend's trust boundary: a CLI invoked by a `wiki`
-command the user ran against their own vault. It is distinct from the plugin's
-chat-turn spawn, which PLUGIN_SCHEMA §13.6 contains with an OS sandbox and where
-`*_TRUST_WORKSPACE` is removed outright. Neither section licenses the other.
+**The backend spawn is OS-sandboxed too, since v0.76.0.** It was not before,
+which is what made this a separate trust boundary from the plugin's. It is not
+separate any more: `llm.os_sandbox_prefix` applies the same containment and
+raises `SandboxUnavailableError` rather than spawning uncontained, and
+`*_TRUST_WORKSPACE` is gone from both sites.
+
+`SandboxUnavailableError` is an `LLMError`, so a machine that cannot contain the
+CLI fails over to the configured fallback backend instead of raising through the
+pipeline. Refusing to run the CLI uncontained and refusing to let the fallback
+serve are separate decisions; only the first is the security requirement.
+
+The backend passes `--sandbox` for the same reason the plugin does, and it is
+NOT a substitute for the trust variable it replaced: `--sandbox` stops agy
+halting at a permission prompt it cannot display under `--print`, while
+`*_TRUST_WORKSPACE` asked it to skip its guardrails. Containment comes from the
+OS sandbox in both cases. Each CLI is granted only its own state directory —
+`~/.gemini` and `~/.antigravity` for agy, never `~/.claude` or `~/.codex` — so a
+contained CLI cannot overwrite another's auth state.
+
+**What that does and does not buy.** It is a *write* sandbox on both paths —
+writes outside the vault and the CLI's own state dirs are denied, and the
+refusal survives the nested shells `agy` spawns. Reads are not restricted on
+either path, because denying them breaks the CLI's ability to read its own
+binaries. So this **does not** close the standing `read_file(*)` grant that
+PLUGIN_SCHEMA §13.6 records, on the path that handles ingested, untrusted
+material. Eliminating that remains a configuration choice: a vision model
+reached over an API needs no filesystem grant at all.
 
 ## 27. Graph Quality: Resolution, Support, Hierarchy, And Grounded Reports (Plan C, v0.9.0)
 

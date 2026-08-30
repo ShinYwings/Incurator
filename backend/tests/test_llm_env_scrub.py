@@ -44,10 +44,18 @@ def test_unrelated_environment_survives() -> None:
 def test_caller_supplied_trust_flag_outlives_the_scrub() -> None:
     """Order matters: ``extra`` is applied AFTER the scrub, never before.
 
-    ``AntigravityCliClient`` deliberately sets ``ANTIGRAVITY_TRUST_WORKSPACE``.
-    If the scrub ran last it would delete that too, and agy would stop at a
-    workspace-trust prompt it cannot show in ``--print`` mode — turning the
-    hijack fix into the "no output produced" failure it sits next to.
+    The original caller was ``AntigravityCliClient``, which set
+    ``ANTIGRAVITY_TRUST_WORKSPACE`` on the theory that without it agy would stop
+    at a workspace-trust prompt it cannot show in ``--print`` mode. That theory
+    was never measured, and the plugin disproves it: it has spawned agy with
+    ``-p`` and no trust flag for many releases and never stalls. The backend no
+    longer sets it either — asking a CLI to skip its own guardrails on the one
+    path that feeds it ingested, untrusted source material is not a tradeoff
+    worth making for a prompt that does not appear.
+
+    The ordering this pins is still load-bearing for every other caller-supplied
+    variable, so the test keeps the trust flags as its example payload rather
+    than pretending the scrub has no ``extra`` to protect.
     """
     with mock.patch.dict(os.environ, {"ANTIGRAVITY_IDE_PORT": "51234"}):
         env = llm._repo_temp_env({

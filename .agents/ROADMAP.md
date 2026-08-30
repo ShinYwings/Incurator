@@ -530,41 +530,27 @@ Adjacent to the context pack's `policy` block: once it emits
 `policy.applied_filters`, an inert lens becomes *visible* as an empty filter set
 rather than something that has to be inferred.
 
-### D3. Backend `agy` spawn has no OS sandbox (opened by v0.56.1)
+### D3. Backend `agy` spawn is contained — **SHIPPED v0.76.0**
 
-`AntigravityCliClient._run` (`backend/src/curator/llm.py`, the Antigravity
-client) spawns `agy` with plain `subprocess.run` — no sandbox wrapper, unlike
-`CodexCliClient`, which passes `--sandbox read-only`. It also sets
-`ANTIGRAVITY_TRUST_WORKSPACE` / `AGY_TRUST_WORKSPACE`.
+The backend now wraps the spawn in the same OS sandbox the plugin has used since
+v0.23.0, and no longer sets `*_TRUST_WORKSPACE`. Verified by running the real
+profile: writes inside the vault succeed, writes to `$HOME` and `/tmp` are
+refused, reads still work, the refusal survives three levels of nested shells,
+and the CLI's own `~/.gemini` stays writable. An unsupported platform raises
+rather than running uncontained.
 
-This was latent while the read permission was broken. v0.56.1 fixed that
-permission (it had to — the vision path was dead without it), so the backend
-now spawns an unsandboxed CLI that can read any file the user can, on the code
-path that processes **ingested, untrusted source material**. The trade was
-taken deliberately and is recorded in PLUGIN_SCHEMA §13.5 and in both plugin
-guides.
+**It is a write sandbox and does NOT close the v0.56.1 read grant** — that was
+the entry's own warning and it still stands. Reads were never restricted on
+either path.
 
-**Be clear about what fixing this buys.** The existing sandbox
-(`sandboxWrapper.ts`) is a *write* sandbox: macOS Seatbelt is `(allow default)`
-+ `(deny file-write*)`, and Linux bwrap read-only-binds the whole filesystem.
-Applying it to the backend aligns the two spawn paths and adds write and
-process containment — it does **not** close the read exposure, because reads
-were never restricted on either path (`sandboxWrapper.ts:19`: "Reads are
-intentionally still allowed (denying reads breaks the CLI's…)").
+One correction to the entry below: it described the exposure as bounded by
+"exactly `read_file(*)` and `command(wiki)`". v0.71.0 added `mcp(*)`, because
+scoped `mcp(...)` rules grant nothing and every MCP tool was otherwise
+auto-denied. The bound is now those three.
 
-So this item is worth doing as hardening, and MUST NOT be filed as "the fix for
-the v0.56.1 read grant". Closing that would need a read-restricted profile with
-an allowlist of everything agy needs — designable, but it breaks on every agy
-release, which is why it was not attempted here.
-
-The exposure is bounded by what else is granted: exactly `read_file(*)` and
-`command(wiki)`, with unapproved tools auto-denied in headless mode. No write
-tool, no arbitrary shell, no network tool. Realistic worst case is a secret
-read into the user's own vault, not remote exfiltration.
-
-Eliminating it entirely is a configuration choice, not a code change: a vision
-model reached over an API takes image bytes directly and needs no filesystem
-grant. Recommended in both guides.
+Scoping this also broke the guard that keeps the test suite off the user's
+provider account — wrapping the spawn moved `agy` off `argv[0]`, where the guard
+was looking. Fixed in the same release; the guard scans the whole argv now.
 
 ## Phase E — Result quality, once the pipeline is real
 
