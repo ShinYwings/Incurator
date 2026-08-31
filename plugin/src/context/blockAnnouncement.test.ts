@@ -41,7 +41,7 @@ describe("every emitted context block is announced to the model", () => {
   it("the recency anchor names all of them", () => {
     // Emitted LAST, at the recency position. If a block is missing here, a long
     // session steers back to the blocks that are named and ignores the rest.
-    const anchor = buildRecencyAnchor(POPOVER_PROFILE, { hasPrimarySelection: true });
+    const anchor = buildRecencyAnchor(POPOVER_PROFILE, { hasPrimarySelection: true , reality: "plugin-injected"});
     for (const block of EMITTED_BLOCKS) {
       expect(names(anchor, block), `recency anchor does not name ${block}`).toBe(true);
     }
@@ -57,7 +57,7 @@ describe("every emitted context block is announced to the model", () => {
   });
 
   it("holds for the sidechat profile too, not just the popover", () => {
-    const anchor = buildRecencyAnchor(SIDECHAT_PROFILE, { hasPrimarySelection: true });
+    const anchor = buildRecencyAnchor(SIDECHAT_PROFILE, { hasPrimarySelection: true , reality: "plugin-injected"});
     for (const block of EMITTED_BLOCKS) {
       expect(names(anchor, block), `sidechat anchor does not name ${block}`).toBe(true);
     }
@@ -67,7 +67,7 @@ describe("every emitted context block is announced to the model", () => {
     // Naming a block without a verb leaves the model to guess. The page-image
     // regression was exactly this shape: the tool was reachable in principle
     // and the prompt gave no instruction to reach for it.
-    const anchor = buildRecencyAnchor(POPOVER_PROFILE, { hasPrimarySelection: true });
+    const anchor = buildRecencyAnchor(POPOVER_PROFILE, { hasPrimarySelection: true , reality: "plugin-injected"});
     expect(anchor).toMatch(/answer about the cited work|from its entry/i);
   });
 });

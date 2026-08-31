@@ -6,7 +6,12 @@ import {
 } from "./providerContextFormat";
 import { contextPriorityInstruction } from "./chatContextPriority";
 import { resolveSelectionReferencesBlock } from "./pdfReferenceContext";
-import { boundaryConstraints, buildRecencyAnchor, POPOVER_PROFILE } from "./promptRegistry";
+import {
+  boundaryConstraints,
+  buildRecencyAnchor,
+  POPOVER_PROFILE,
+  surfaceToolReality,
+} from "./promptRegistry";
 import type { ActiveContext, ContextRef, LLMMessage } from "../types";
 
 export interface QuickQueryTurn {
@@ -17,6 +22,15 @@ export interface QuickQueryTurn {
 export interface QuickQueryMessageArgs {
   selectedText: string;
   question: string;
+  /**
+   * The provider this turn will actually run on.
+   *
+   * Decides whether the prompt may promise the local page reader, because that
+   * reader is only injected on the API path. Omitted means CLI — the restrictive
+   * wording — so a caller that forgets cannot resurrect the promise of a tool
+   * that is not actually there.
+   */
+  provider?: string;
   activeContext?: ActiveContext;
   previousTurns?: QuickQueryTurn[];
   maxBackgroundLength?: number;
@@ -171,6 +185,10 @@ export function buildQuickQueryRetrievalQuery(
 }
 
 export function buildQuickQueryMessages(args: QuickQueryMessageArgs): LLMMessage[] {
+  // Fail closed: no provider named means the restrictive wording. Promising a
+  // page reader that is not injected is what sent the model looking for a URL
+  // tool it was not allowed to use.
+  const reality = surfaceToolReality(args.provider ?? "");
   const background = buildActiveBackgroundContext(args.activeContext, {
     selectedText: args.selectedText,
     maxBackgroundLength: args.maxBackgroundLength,
@@ -205,7 +223,7 @@ export function buildQuickQueryMessages(args: QuickQueryMessageArgs): LLMMessage
     "\"start\", \"end\", \"below\", \"later in the document\") refer to positions " +
     "WITHIN the current document's content and outline, NOT to the file system " +
     "or surrounding folders. " +
-    boundaryConstraints(POPOVER_PROFILE) +
+    boundaryConstraints(POPOVER_PROFILE, reality) +
     " When asked about a region of the document, summarize or quote that " +
     "region's actual content. Do not add " +
     "preamble, sign-off, or restate the question.\n\n<context_priority>\n" +
@@ -222,7 +240,10 @@ export function buildQuickQueryMessages(args: QuickQueryMessageArgs): LLMMessage
     `Question: ${args.question}`,
     // Recency anchor emitted LAST so the read-only / selection-focus invariants
     // sit at the position of strongest LLM attention.
-    buildRecencyAnchor(POPOVER_PROFILE, { hasPrimarySelection: true }),
+    buildRecencyAnchor(POPOVER_PROFILE, {
+      hasPrimarySelection: true,
+      reality,
+    }),
   ]
     .filter(Boolean)
     .join("\n\n");

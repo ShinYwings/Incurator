@@ -49,7 +49,11 @@ import {
   formatRagHits,
 } from "../../context/providerContextFormat";
 import { buildBaseSystemPrompt, editableSelectionInstruction, getEditLoopContract, wrapLatestUserMessageForLanguageBridge } from "../../context/systemPrompt";
-import { buildRecencyAnchor, SIDECHAT_PROFILE } from "../../context/promptRegistry";
+import {
+  buildRecencyAnchor,
+  SIDECHAT_PROFILE,
+  surfaceToolReality,
+} from "../../context/promptRegistry";
 import { parseEditLoopPhases, validateEditLoop, type EditLoopParse } from "../../context/editLoopContract";
 import { detectLanguage } from "../../context/languageBridge";
 import {
@@ -1618,6 +1622,7 @@ export class ChatSidebarView extends ItemView {
           "\n\n" +
           buildRecencyAnchor(SIDECHAT_PROFILE, {
             hasPrimarySelection: lastUserHasPrimaryContext,
+            reality: surfaceToolReality(this.plugin.settings.provider),
           });
       }
       contentParts.push({ type: "text", text: textContent });

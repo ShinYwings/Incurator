@@ -583,6 +583,10 @@ export class QuickQueryPopover {
     const vaultEvidenceBlock = await this.vaultEvidenceFor(question);
 
     const messages = buildQuickQueryContextMessages({
+      // The provider decides what the prompt may honestly promise: the local page
+      // reader is injected on the API path only, and offering it on the CLI path
+      // sends the model hunting for a substitute it is not allowed to use.
+      provider: this.plugin.settings.provider,
       selectedText: this.capturedSelection,
       question,
       activeContext,

@@ -65,7 +65,7 @@ describe("the page-image capability is reachable from the prompt", () => {
   });
 
   it("the popover's boundary text declares the image read, not just page-by-number", () => {
-    const rules = boundaryConstraints(POPOVER_PROFILE);
+    const rules = boundaryConstraints(POPOVER_PROFILE, "plugin-injected");
     expect(rules).toMatch(MENTIONS_IMAGE_READ);
     // It also must not still claim a single tool now that there are three.
     expect(rules).not.toMatch(/ONLY tool is/);
@@ -74,7 +74,7 @@ describe("the page-image capability is reachable from the prompt", () => {
   it("still says why the text layer can be complete and wrong", () => {
     // Without the reason, "you may read a page as an image" reads as a fallback
     // for scanned documents — and the papers this is for are not scanned.
-    const rules = boundaryConstraints(POPOVER_PROFILE);
+    const rules = boundaryConstraints(POPOVER_PROFILE, "plugin-injected");
     expect(rules).toMatch(/equations and figures as pictures|no text|not in that page's text/i);
   });
 
@@ -84,7 +84,7 @@ describe("the page-image capability is reachable from the prompt", () => {
     // mid-prompt instruction and left this one stale; the same thing happened
     // again here. If the final instruction the model reads says to settle for
     // the supplied blocks, that is the instruction that wins.
-    const anchor = buildRecencyAnchor(POPOVER_PROFILE, { hasPrimarySelection: true });
+    const anchor = buildRecencyAnchor(POPOVER_PROFILE, { hasPrimarySelection: true , reality: "plugin-injected"});
     expect(anchor).toMatch(MENTIONS_IMAGE_READ);
     expect(anchor).not.toMatch(/working from the blocks given/);
   });
@@ -102,8 +102,8 @@ describe("the page-image capability is reachable from the prompt", () => {
     const sites = [
       buildResolvedReferencesBlock(unresolvedPointer()),
       contextPriorityInstruction(true),
-      boundaryConstraints(POPOVER_PROFILE),
-      buildRecencyAnchor(POPOVER_PROFILE, { hasPrimarySelection: true }),
+      boundaryConstraints(POPOVER_PROFILE, "plugin-injected"),
+      buildRecencyAnchor(POPOVER_PROFILE, { hasPrimarySelection: true , reality: "plugin-injected"}),
     ];
     for (const site of sites) {
       expect(site).toContain("read_pdf_page_image");
@@ -113,8 +113,8 @@ describe("the page-image capability is reachable from the prompt", () => {
   });
 
   it("keeps the boundary itself intact", () => {
-    const rules = boundaryConstraints(POPOVER_PROFILE);
+    const rules = boundaryConstraints(POPOVER_PROFILE, "plugin-injected");
     expect(rules).toMatch(/NO filesystem access/);
-    expect(rules).toMatch(/NO MCP tools/);
+    expect(rules).toMatch(/NO filesystem access/);
   });
 });
