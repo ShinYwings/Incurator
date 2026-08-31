@@ -26,6 +26,27 @@ import {
 
 /** Pages to scan backward from the end looking for the heading. */
 const TAIL_SCAN_PAGES = 6;
+/**
+ * How deep to scan back from the end, for a document of `pageCount` pages.
+ *
+ * Six pages is right for a paper, whose references sit at the very end. A book
+ * puts an index — often twenty pages or more — AFTER its bibliography, so a
+ * fixed six never reaches the heading and the reader gets nothing, on the
+ * document kind where looking a reference up by hand is most tedious.
+ *
+ * Proportional with a floor and a ceiling: the floor keeps papers cheap, the
+ * ceiling keeps a 900-page book from scanning half of itself. Ten percent
+ * clears the twenty-to-thirty page index a technical book puts after its
+ * references. The scan stops at the first heading-anchored parse, and the result
+ * is cached per document, so the ceiling is a worst case paid once — not a cost
+ * per question.
+ * Scanning stops at the first heading-anchored parse either way, so the depth is
+ * a bound, not a cost.
+ */
+function tailScanDepth(pageCount: number | undefined): number {
+  if (!pageCount || pageCount <= 0) return TAIL_SCAN_PAGES;
+  return Math.min(40, Math.max(TAIL_SCAN_PAGES, Math.ceil(pageCount * 0.1)));
+}
 /** Pages to follow forward once the heading is found. */
 const CONTINUATION_PAGES = 5;
 
@@ -141,7 +162,7 @@ async function scanForBibliography(
     return text;
   };
 
-  const firstToScan = Math.max(1, lastPage - TAIL_SCAN_PAGES + 1);
+  const firstToScan = Math.max(1, lastPage - tailScanDepth(lastPage) + 1);
   for (let start = firstToScan; start <= lastPage; start += 1) {
     const window: string[] = [await textOf(start)];
     // Cheap pre-check: only pay for continuation pages once this page alone
