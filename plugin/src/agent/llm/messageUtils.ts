@@ -293,12 +293,42 @@ export function isAntigravityStatusLine(line: string): boolean {
   return false;
 }
 
+/**
+ * The CLI's own permission-denial diagnostic, in any of its wordings.
+ *
+ * `agy` prints this when a tool it wanted needed a permission that headless mode
+ * cannot prompt for. It is a failure report, not a reply — but stderr is only
+ * consulted when stdout came back empty, which is precisely when a denial
+ * happened. So without this filter the diagnostic was promoted to "the answer"
+ * and rendered to the user as though the model had said it, and the empty-answer
+ * check downstream never fired because the recovered string was not empty.
+ *
+ * Reported 2026-08-31, where it displaced an answer that was sitting in the open
+ * PDF the whole time. It also carries advice to re-run with a blanket permission
+ * skip, which this repo refuses on both spawn paths — showing that to the user as
+ * an answer is telling them to disable the containment.
+ */
+export function isAntigravityPermissionDenial(line: string): boolean {
+  const l = line.toLowerCase();
+  return (
+    (l.includes("no output produced") && l.includes("permission")) ||
+    l.includes("was auto-denied") ||
+    (l.includes("permissions.allow") && l.includes("settings.json")) ||
+    l.includes("auto-approve all tools")
+  );
+}
+
 export function extractAntigravityAnswerFromStderr(stderr: string): string {
   return stderr
     .replace(/\r/g, "\n")
     .split("\n")
     .map((line) => stripAnsi(line).trim())
-    .filter((line) => line && !isAntigravityStatusLine(line))
+    .filter(
+      (line) =>
+        line &&
+        !isAntigravityStatusLine(line) &&
+        !isAntigravityPermissionDenial(line)
+    )
     .join("\n")
     .trim();
 }

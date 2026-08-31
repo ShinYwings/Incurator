@@ -49,7 +49,17 @@ import {
   formatRagHits,
 } from "../../context/providerContextFormat";
 import { buildBaseSystemPrompt, editableSelectionInstruction, getEditLoopContract, wrapLatestUserMessageForLanguageBridge } from "../../context/systemPrompt";
-import { buildRecencyAnchor, SIDECHAT_PROFILE } from "../../context/promptRegistry";
+import {
+  buildRecencyAnchor,
+  SIDECHAT_PROFILE,
+  surfaceToolReality,
+} from "../../context/promptRegistry";
+import {
+  buildWikilinksBlock,
+  resolveWikilinks,
+} from "../../context/wikilinkResolver";
+import { truncateSystemPrompt } from "../../utils/promptTruncation";
+import { selectNoteWindow } from "../../context/noteWindow";
 import { parseEditLoopPhases, validateEditLoop, type EditLoopParse } from "../../context/editLoopContract";
 import { detectLanguage } from "../../context/languageBridge";
 import {
@@ -72,7 +82,6 @@ import {
 } from "../../context/openTabContext";
 import { parseAnswerLinkTarget, type AnswerLinkTarget } from "../../context/answerLinkNavigation";
 import {
-  resolveSelectionReferencesBlock,
   resolveSelectionReferencesBlockAsync,
 } from "../../context/pdfReferenceContext";
 import {
@@ -1419,7 +1428,14 @@ export class ChatSidebarView extends ItemView {
     }
 
     const lastUserHasPrimaryContext = hasPrimaryUserContext(lastUserMessage?.contextRefs);
-    systemText += `\n\n<context_priority>\n${contextPriorityInstruction(lastUserHasPrimaryContext)}\n</context_priority>`;
+    systemText += `\n\n<context_priority>\n${contextPriorityInstruction(
+      lastUserHasPrimaryContext,
+      activeCtx?.pdfPage
+        ? "pdf"
+        : activeCtx?.viewType === "markdown"
+          ? "markdown"
+          : "none"
+    )}\n</context_priority>`;
     const editableRefs = includedContextRefs(lastUserMessage?.contextRefs).filter(
       (ref) =>
         ref.type === "line-range" &&
@@ -1505,6 +1521,32 @@ export class ChatSidebarView extends ItemView {
       }
     }
 
+    // Follow the links the reader's own notes make, the same way the popover does
+    // and the same way a paper's citations are followed. A note's `[[link]]` is a
+    // paper's `[12]`, and until v0.77.0 neither surface read one: the plugin only
+    // ever WROTE wikilinks, as output locators. Resolved before the turn because
+    // the CLI path injects no tools and cannot fetch one mid-answer.
+    const wikilinkSource = [
+      lastUserMessage?.content || "",
+      activeCtx?.viewType === "markdown" ? activeCtx.fileContent ?? "" : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    if (wikilinkSource) {
+      const wikilinksBlock = buildWikilinksBlock(
+        await resolveWikilinks(wikilinkSource, (target) =>
+          this.plugin.readVaultNote(target, activeCtx?.filePath),
+          // `[[#Heading]]` points into the note being read; there is no other
+          // note to ask for. Everyday Obsidian, and the resolver matched none of
+          // them until the vault was actually opened.
+          activeCtx?.filePath && activeCtx?.fileContent
+            ? { selfPath: activeCtx.filePath, selfText: activeCtx.fileContent }
+            : undefined
+        )
+      );
+      if (wikilinksBlock) systemText += `\n\n${wikilinksBlock}`;
+    }
+
     const activeTabIncluded = promptTabs.some((tab) => tab.isActive);
     if (activeCtx?.filePath && activeTabIncluded) {
       const displayPath = activeCtx.absolutePath || activeCtx.filePath;
@@ -1535,7 +1577,16 @@ export class ChatSidebarView extends ItemView {
       systemText += `\n\n<edit_review_loop>\n${getEditLoopContract()}\n</edit_review_loop>`;
     }
 
-    llmMessages.push({ role: "system", content: this.truncateContext(systemText) });
+    // Cut from the MIDDLE, not the end. This prompt puts its most
+    // attention-critical material last on purpose — the recency anchor exists for
+    // that reason, and the resolved-wikilinks block and the edit-loop contract sit
+    // beside it — so a head-keeping slice removed exactly what was placed there to
+    // survive attention decay. Individual file contexts still cut from the head,
+    // where losing the tail of one document is the lesser harm.
+    llmMessages.push({
+      role: "system",
+      content: truncateSystemPrompt(systemText, this.contextLimit()),
+    });
 
     const activeContextParts = this.buildActiveContextParts(activeCtx);
 
@@ -1564,12 +1615,29 @@ export class ChatSidebarView extends ItemView {
                 // Follow any cross-reference (crop caption or dragged "see §X")
                 // to the target page/section so the model explains the referent,
                 // not the visible page. (report items 3/4/6/7)
-                const resolvedBlock = resolveSelectionReferencesBlock(ref.content, {
-                  outline: ref.outline,
-                  windowPages: ref.windowPages,
-                  pageNum: ref.pageNum,
-                  pageLabels: ref.pageLabels,
-                });
+                // The SAME resolution the message box gets, not the sync one.
+                //
+                // A pointer typed into chat got the async path and could fetch a
+                // page the window does not hold; a pointer inside a PINNED passage
+                // got the sync path and could only match pages already present.
+                // Same reader action — follow this reference — resolved two ways
+                // depending on where the text happened to live, so pinning a
+                // passage quietly cost the reader the ability to follow a distant
+                // pointer inside it.
+                const resolvedBlock = await resolveSelectionReferencesBlockAsync(
+                  ref.content,
+                  {
+                    outline: ref.outline,
+                    windowPages: ref.windowPages,
+                    pageNum: ref.pageNum,
+                    pageLabels: ref.pageLabels,
+                    documentKey: ref.fileHash || ref.filePath || undefined,
+                  },
+                  async (pageNum) =>
+                    (await this.plugin.fetchActivePdfPage(pageNum)) ?? undefined,
+                  undefined,
+                  lastUserMessage?.content || ""
+                );
                 if (resolvedBlock) textToPush += `\n${resolvedBlock}`;
               } else {
                 textToPush += ref.content;
@@ -1618,6 +1686,7 @@ export class ChatSidebarView extends ItemView {
           "\n\n" +
           buildRecencyAnchor(SIDECHAT_PROFILE, {
             hasPrimarySelection: lastUserHasPrimaryContext,
+            reality: surfaceToolReality(this.plugin.settings.provider),
           });
       }
       contentParts.push({ type: "text", text: textContent });
@@ -1908,7 +1977,11 @@ export class ChatSidebarView extends ItemView {
             return hits
               .map((hit) => hit.pageNum)
               .filter((pageNum): pageNum is number => typeof pageNum === "number" && pageNum > 0);
-          }
+          },
+          // The typed question, same as the popover. Without it the sidebar never
+          // fired the bibliography fallback for a question that names no bracket —
+          // one surface fixed and the other silently not.
+          query
         );
       }
       if (resolvedReferencesBlock) sections.push(resolvedReferencesBlock);
@@ -1934,7 +2007,7 @@ export class ChatSidebarView extends ItemView {
       if (this.plugin.settings.pdfOutlineEnabled) {
         if (outline.length > 0) {
           sections.push(
-            `<document_outline document="${escapeAttribute(tab.label)}">\n${formatOutline(outline)}\n</document_outline>`
+            `<document_outline document="${escapeAttribute(tab.label)}">\n${formatOutline(outline, pdf.pageNum)}\n</document_outline>`
           );
         }
       }
@@ -2122,6 +2195,16 @@ export class ChatSidebarView extends ItemView {
       .replace(/<details class="ai-agent-thought-block"[\s\S]*?<\/details>/gi, "");
   }
 
+  /** The character budget one message may occupy. */
+  private contextLimit(): number {
+    const modelOption = getModelOption(
+      this.plugin.getAvailableModels(),
+      this.plugin.settings.provider,
+      this.plugin.settings.model
+    );
+    return modelOption?.contextWindow ?? this.plugin.settings.maxContextLength;
+  }
+
   private truncateContext(content: string): string {
     const modelOption = getModelOption(
       this.plugin.getAvailableModels(),
@@ -2194,7 +2277,16 @@ export class ChatSidebarView extends ItemView {
       const openTabKey = this.getOpenTabKey(tab);
       const autoContextReady = this.isOpenTabReady(tab);
       if (tab.viewType === "markdown" && tab.filePath) {
-        let finalContent = tab.content ? this.truncateContext(tab.content) : "";
+        // Windowed on the selection, not cut at the head — the same fix the
+        // popover got. Head truncation on a long note can remove the selected
+        // passage outright, and the `includes(sel)` check below then fails, so the
+        // reader's own highlight arrived detached from the text around it.
+        let finalContent = tab.content
+          ? selectNoteWindow(tab.content, {
+              budget: this.contextLimit(),
+              selection: tab.selectedText,
+            })
+          : "";
         if (tab.selectedText && tab.selectedText.trim()) {
           const sel = tab.selectedText;
           if (finalContent.includes(sel)) {

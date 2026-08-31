@@ -33,7 +33,12 @@ describe("chat sidebar context chip source contract", () => {
     // The anchor is built from the shared registry with the sidechat profile and
     // gated on the latest turn's primary-selection state. Appended to the last
     // user message so it sits at the strongest-attention recency position.
-    expect(source).toContain('import { buildRecencyAnchor, SIDECHAT_PROFILE } from "../../context/promptRegistry"');
+    // Import list is matched by content, not by formatting: it went multi-line in
+    // v0.77.0 when `surfaceToolReality` joined it, and a byte-exact single-line
+    // assertion turned a formatting change into a failure about the wrong thing.
+    expect(source).toContain("buildRecencyAnchor");
+    expect(source).toContain("SIDECHAT_PROFILE");
+    expect(source).toContain('from "../../context/promptRegistry"');
     expect(source).toContain("buildRecencyAnchor(SIDECHAT_PROFILE, {");
     expect(source).toContain("hasPrimarySelection: lastUserHasPrimaryContext");
   });

@@ -6,7 +6,14 @@ import {
 } from "./providerContextFormat";
 import { contextPriorityInstruction } from "./chatContextPriority";
 import { resolveSelectionReferencesBlock } from "./pdfReferenceContext";
-import { boundaryConstraints, buildRecencyAnchor, POPOVER_PROFILE } from "./promptRegistry";
+import { selectNoteWindow } from "./noteWindow";
+import { fitTurnBudget } from "./turnBudget";
+import {
+  boundaryConstraints,
+  buildRecencyAnchor,
+  POPOVER_PROFILE,
+  surfaceToolReality,
+} from "./promptRegistry";
 import type { ActiveContext, ContextRef, LLMMessage } from "../types";
 
 export interface QuickQueryTurn {
@@ -17,12 +24,30 @@ export interface QuickQueryTurn {
 export interface QuickQueryMessageArgs {
   selectedText: string;
   question: string;
+  /**
+   * The provider this turn will actually run on.
+   *
+   * Decides whether the prompt may promise the local page reader, because that
+   * reader is only injected on the API path. Omitted means CLI — the restrictive
+   * wording — so a caller that forgets cannot resurrect the promise of a tool
+   * that is not actually there.
+   */
+  provider?: string;
   activeContext?: ActiveContext;
   previousTurns?: QuickQueryTurn[];
   maxBackgroundLength?: number;
   /** Pre-resolved cross-references block (from async resolution with page fetch).
    *  When provided, skips the synchronous inline resolution so the async result is used. */
   resolvedReferencesBlock?: string;
+  /**
+   * Notes the reader's own text links to, already followed and read.
+   *
+   * A note's `[[link]]` is a paper's `[12]`. Papers have had a citation resolver
+   * since v0.56.0; notes had none, so a question about a linked note was answered
+   * from its title. Resolved BEFORE the turn like every other pointer, because
+   * the CLI path injects no tools and cannot go and get it mid-answer.
+   */
+  resolvedWikilinksBlock?: string;
   /** Pinned context refs from the sidechat (purple pins). Injected as read-only
    *  background so the popover can search/use them without changing tool policy. */
   pinnedContextRefs?: ContextRef[];
@@ -41,6 +66,14 @@ export interface QuickQueryMessageArgs {
 }
 
 const DEFAULT_BACKGROUND_LIMIT = 12000;
+/**
+ * Characters one popover turn may spend on everything the reader did not type.
+ *
+ * Generous on purpose — the point is not frugality, it is that a ceiling exists
+ * at all. Without one the per-block caps were additive and the selection had no
+ * share of the result.
+ */
+const DEFAULT_TURN_BUDGET = 36000;
 const FOLLOWUP_TURN_LIMIT = 3;
 const FOLLOWUP_TEXT_LIMIT = 4000;
 
@@ -66,7 +99,11 @@ export function buildMarkdownOutline(markdown: string): string {
 
 export function buildActiveBackgroundContext(
   activeCtx: ActiveContext | undefined,
-  options: { selectedText?: string; maxBackgroundLength?: number } = {}
+  options: {
+    selectedText?: string;
+    question?: string;
+    maxBackgroundLength?: number;
+  } = {}
 ): string {
   if (!activeCtx) return "";
   const maxLength = options.maxBackgroundLength ?? DEFAULT_BACKGROUND_LIMIT;
@@ -85,7 +122,14 @@ export function buildActiveBackgroundContext(
     sections.push(
       `<active_markdown document="${escapeAttribute(label)}"${path}>\n` +
         `<background_reference_only>\n` +
-        `${truncateForProviderContext(activeCtx.fileContent, Math.floor(maxLength / 2))}\n` +
+        // Windowed on the reader, not cut at the head. A note they have been
+        // adding to for a year loses everything after its opening otherwise, and
+        // a question about the middle is answered from the top or not at all.
+        `${selectNoteWindow(activeCtx.fileContent, {
+          budget: Math.floor(maxLength / 2),
+          question: options.question,
+          selection: options.selectedText,
+        })}\n` +
         `</background_reference_only>\n` +
         `</active_markdown>`
     );
@@ -111,7 +155,7 @@ export function buildActiveBackgroundContext(
     }
     if (pdf.outline?.length) {
       sections.push(
-        `<document_outline document="${escapeAttribute(doc)}">\n${formatOutline(pdf.outline)}\n</document_outline>`
+        `<document_outline document="${escapeAttribute(doc)}">\n${formatOutline(pdf.outline, pdf.pageNum)}\n</document_outline>`
       );
     }
   }
@@ -171,8 +215,13 @@ export function buildQuickQueryRetrievalQuery(
 }
 
 export function buildQuickQueryMessages(args: QuickQueryMessageArgs): LLMMessage[] {
+  // Fail closed: no provider named means the restrictive wording. Promising a
+  // page reader that is not injected is what sent the model looking for a URL
+  // tool it was not allowed to use.
+  const reality = surfaceToolReality(args.provider ?? "");
   const background = buildActiveBackgroundContext(args.activeContext, {
     selectedText: args.selectedText,
+    question: args.question,
     maxBackgroundLength: args.maxBackgroundLength,
   });
   const followups = buildEphemeralFollowupContext(args.previousTurns);
@@ -205,27 +254,71 @@ export function buildQuickQueryMessages(args: QuickQueryMessageArgs): LLMMessage
     "\"start\", \"end\", \"below\", \"later in the document\") refer to positions " +
     "WITHIN the current document's content and outline, NOT to the file system " +
     "or surrounding folders. " +
-    boundaryConstraints(POPOVER_PROFILE) +
+    boundaryConstraints(POPOVER_PROFILE, reality) +
     " When asked about a region of the document, summarize or quote that " +
     "region's actual content. Do not add " +
     "preamble, sign-off, or restate the question.\n\n<context_priority>\n" +
-    contextPriorityInstruction(true) +
+    contextPriorityInstruction(
+      true,
+      args.activeContext?.pdfPage
+        ? "pdf"
+        : args.activeContext?.viewType === "markdown"
+          ? "markdown"
+          : "none"
+    ) +
     "\n</context_priority>";
 
-  const content = [
-    buildPrimarySelectionBlock(args.selectedText),
-    resolvedReferencesBlock,
-    background ? `<quick_query_background>\n${background}\n</quick_query_background>` : "",
-    args.vaultEvidenceBlock ?? "",
-    pinnedBlock,
-    followups,
-    `Question: ${args.question}`,
-    // Recency anchor emitted LAST so the read-only / selection-focus invariants
-    // sit at the position of strongest LLM attention.
-    buildRecencyAnchor(POPOVER_PROFILE, { hasPrimarySelection: true }),
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+  // Fitted against ONE budget, in priority order. Every block used to carry its
+  // own independent cap and know about no other, so stacking them near their
+  // limits put a measured 102-character selection inside a 53,000-character turn
+  // — 0.19%, outweighed by the vault evidence alone by about 206x. A popover
+  // question is usually deictic, so the selection IS the subject and is short by
+  // construction; nothing shrank the supporting material to match.
+  //
+  // Priority is by how directly the reader asked for the thing: what they
+  // highlighted, then what they pointed at, then the document around it, then
+  // what the vault volunteered without being asked.
+  const content = fitTurnBudget(
+    [
+      {
+        text: buildPrimarySelectionBlock(args.selectedText),
+        priority: 0,
+        pinned: true,
+        label: "selection",
+      },
+      { text: resolvedReferencesBlock, priority: 1, label: "resolved references" },
+      { text: args.resolvedWikilinksBlock ?? "", priority: 1, label: "linked notes" },
+      {
+        text: background
+          ? `<quick_query_background>\n${background}\n</quick_query_background>`
+          : "",
+        priority: 2,
+        label: "the open document",
+      },
+      { text: pinnedBlock, priority: 3, label: "pinned sources" },
+      { text: args.vaultEvidenceBlock ?? "", priority: 4, label: "vault evidence" },
+      { text: followups, priority: 5, label: "earlier turns" },
+      {
+        text: `Question: ${args.question}`,
+        priority: 0,
+        pinned: true,
+        label: "question",
+      },
+      {
+        // Emitted LAST so the read-only / selection-focus invariants sit at the
+        // position of strongest attention, and pinned so a tight budget can never
+        // be the thing that removes them.
+        text: buildRecencyAnchor(POPOVER_PROFILE, {
+          hasPrimarySelection: true,
+          reality,
+        }),
+        priority: 0,
+        pinned: true,
+        label: "invariants",
+      },
+    ],
+    DEFAULT_TURN_BUDGET
+  ).join("\n\n");
 
   return [
     { role: "system", content: systemText },

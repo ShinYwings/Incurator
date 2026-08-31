@@ -57,7 +57,54 @@ export const POPOVER_PROFILE: SurfaceProfile = {
  * The single canonical filesystem / tool boundary rule. Both surfaces source
  * their boundary wording here, so a fix lands on both by construction.
  */
-export function boundaryConstraints(profile: SurfaceProfile): string {
+/**
+ * What the surface can actually reach, for the provider in hand.
+ *
+ * `ToolPolicy` says what the plugin INTENDS to hand out. That is not the same as
+ * what the model ends up holding, and until v0.77.0 the popover's prompt stated
+ * the intent as though it were the fact — with two errors pointing the same way:
+ *
+ *  - It promised "you may fetch a page of that document by number". But
+ *    `shouldInjectLocalTools` returns false whenever `useCli` is true, for every
+ *    policy, and every provider except ollama/deepseek routes through a CLI. On
+ *    the surface the bug was reported from, that tool was never there.
+ *  - It claimed "NO MCP tools". True for API providers, where the plugin decides
+ *    injection. False for `agy`, which reads its own registry — `syncAgyMcpConfig`
+ *    runs unconditionally and the ephemeral flag only empties `--add-dir`.
+ *
+ * A model promised a page reader that is absent reaches for the nearest
+ * substitute, and the nearest substitute is a URL tool that is not in the
+ * allow-list. The request was auto-denied and the turn produced nothing, while
+ * the answer sat in the paper's own last pages. Reported 2026-08-31.
+ *
+ * Required, not defaulted: a missed call site should be a compile error rather
+ * than a prompt that quietly lies again.
+ */
+/**
+ * The one place that decides which reality a provider is in.
+ *
+ * Mirrors `LLMClient.shouldUseCli`: everything except ollama and deepseek routes
+ * through a CLI subprocess, and a CLI subprocess gets no injected tools and
+ * loads its own MCP registry. Kept here, beside the wording it governs, so the
+ * prompt and the routing cannot drift apart silently — which is exactly what
+ * happened before v0.77.0.
+ */
+export function surfaceToolReality(provider: string): SurfaceToolReality {
+  return provider === "ollama" || provider === "deepseek"
+    ? "plugin-injected"
+    : "cli-registry";
+}
+
+export type SurfaceToolReality =
+  /** API providers: the plugin injects its own readers, and no MCP tools exist. */
+  | "plugin-injected"
+  /** CLI providers: nothing is injected; the CLI's own MCP registry is what it has. */
+  | "cli-registry";
+
+export function boundaryConstraints(
+  profile: SurfaceProfile,
+  reality: SurfaceToolReality
+): string {
   let rules = "";
   switch (profile.toolPolicy) {
     case "none":
@@ -67,23 +114,35 @@ export function boundaryConstraints(profile: SurfaceProfile): string {
         "file, or directory names. Answer only from the context provided in this " +
         "request.";
       break;
-    case "local-only":
+    case "local-only": {
+      // The two variants differ in ONE clause — whether a page reader exists —
+      // so only that clause is written twice. Duplicating the shared prose
+      // would grow the prompt budget for text the model never sees twice.
+      const reach =
+        reality === "plugin-injected"
+          ? "Your only tools read the PDF the user already has open, and nothing " +
+            "else: you may fetch a page of that document by number to follow a " +
+            "reference instead of telling the user to navigate there, and — where " +
+            "`read_pdf_page_image` is among the tools you were given — you may read " +
+            "a page as an image when what you were asked about is not in that " +
+            "page's text; a typeset paper draws many of its equations and figures " +
+            "as pictures, so the text can read as complete prose while the formula " +
+            "itself is simply absent."
+          : "You cannot open this document yourself; its pages, cited entries and " +
+            "referenced targets are already in the context above. A tool outside " +
+            "your permitted set is refused silently and the turn then returns " +
+            "nothing, so reaching for one costs the reader their answer.";
       rules =
-        "You have NO filesystem access and NO MCP tools. Never list, browse, " +
-        "create, or execute files, scripts, or shell commands, and never invent " +
-        "folder, file, or directory names. Your only tools read the PDF the user " +
-        "already has open, and nothing else: you may fetch a page of that " +
-        "document by number to follow a reference instead of telling the user to " +
-        "navigate there, and — where `read_pdf_page_image` is among the tools you " +
-        "were given — you may read a page as an image when what you were " +
-        "asked about is not in that page's text; a typeset paper draws many of " +
-        "its equations and figures as pictures, so the text can read as complete " +
-        "prose while the formula itself is simply absent. Answer from the " +
-        "provided context and any page you fetch or read " +
-        "first; where those do not cover the question, answer it from your general " +
-        "knowledge of the field rather than stopping. Explain the subject — the " +
-        "reader wants the answer, not an account of which sentence came from where.";
+        "You have NO filesystem access. Never list, browse, create, or execute " +
+        "files, scripts, or shell commands, and never invent folder, file, or " +
+        "directory names. " +
+        reach +
+        " Answer from the provided context first; where it does not cover the " +
+        "question, answer from your general knowledge of the field rather than " +
+        "stopping. Explain the subject — the reader wants the answer, not an " +
+        "account of which sentence came from where.";
       break;
+    }
     case "auto":
       // The sidechat is the only surface that states the active file and page
       // (ChatSidebarView emits "Currently active file: ..." and "The user is
@@ -125,6 +184,15 @@ export function boundaryConstraints(profile: SurfaceProfile): string {
 export interface RecencyAnchorOptions {
   /** True when the latest request carries a `<primary_focus_selection>`. */
   hasPrimarySelection: boolean;
+  /**
+   * What the surface can actually reach, for the provider in hand.
+   *
+   * This anchor re-emits `boundaryConstraints` at the END of the payload, the
+   * position of strongest attention. Fixing the direct call site and not this one
+   * would leave the stale claim as the last thing the model reads, which is worse
+   * than not fixing it at all.
+   */
+  reality: SurfaceToolReality;
 }
 
 /**
@@ -148,12 +216,20 @@ export function buildRecencyAnchor(
         "target in <resolved_cross_references>. Do NOT explain, summarize, or " +
         "modify the whole document unless the latest request explicitly asks for " +
         "it, regardless of earlier turns in this conversation. " +
-        "A <resolved_citations> block, when present, holds the papers the " +
-        "selection cites; answer about the cited work from its entry there. " +
-        "A <workspace_notes> block holds notes the reader wrote themselves in " +
-        "this project; when they bear on the question, say what the reader " +
-        "already concluded and attribute it to them. " +
-        "If the pointer's " +
+        // Named, not re-explained. `blockAnnouncement.test.ts` requires every
+        // emitted block to appear in this last instruction — a block the
+        // instructions never name is one the model ignores, and that was missed
+        // three times at this exact site. But NAMING is what the contract needs.
+        // The full explanation was also written in contextPriorityInstruction and
+        // again in each block's own `note=`: a fourfold telling of one fact, 711
+        // measured chars in the two always-on copies alone. Each block explains
+        // itself where the model meets it, and `contextPriorityInstruction` no longer
+        // repeats it either — one telling, at the position of strongest attention.
+        "A <resolved_citations> block holds the papers the selection cites — " +
+          "answer about a cited work from its entry there. A <workspace_notes> " +
+          "block holds the reader's own notes — say what they concluded and " +
+          "attribute it to them. " +
+          "If the pointer's " +
         "target appears in <unresolved_cross_references> instead, call " +
         "`read_pdf_page_image` on the page it names where you were given that " +
         "tool — a rasterized equation has no text to find — and otherwise " +
@@ -166,7 +242,7 @@ export function buildRecencyAnchor(
   if (!profile.allowEdits) {
     lines.push("This surface is read-only: do NOT output any ai-agent-edit blocks.");
   }
-  lines.push(boundaryConstraints(profile));
+  lines.push(boundaryConstraints(profile, opts.reality));
   lines.push("</critical_invariants>");
   return lines.join("\n");
 }

@@ -8,7 +8,7 @@ import {
 } from "../context/quickQueryContext";
 import { formatCuratorContextPack } from "../context/providerContextFormat";
 import { resolveWorkspacePath } from "../context/workspaceScope";
-import { isEditRequest } from "../context/providerContextPolicy";
+import { shouldRunCuratorDomainQuery } from "../context/providerContextPolicy";
 import { logger } from "../utils/logger";
 import {
   attachLatexCopyHandler,
@@ -17,6 +17,10 @@ import {
   stampMathSourceData,
 } from "../utils/textUtils";
 import { resolveSelectionContextAsync } from "../context/pdfReferenceContext";
+import {
+  buildWikilinksBlock,
+  resolveWikilinks,
+} from "../context/wikilinkResolver";
 import { summarizeProvenance, type ProvenanceRecord } from "../context/provenance";
 import { POPOVER_PROFILE } from "../context/promptRegistry";
 
@@ -529,6 +533,35 @@ export class QuickQueryPopover {
     // §13.9: provenance is built from the resolution record, here, and shown as
     // UI state. It is never recovered by scanning the model's answer.
     let provenance: ProvenanceRecord | undefined;
+
+    // A note's `[[link]]` is a paper's `[12]`: the reader points at something and
+    // answering means going and getting it. Papers have had that since v0.56.0;
+    // notes had nothing, so a question about a linked note was answered from its
+    // title. Resolved BEFORE the turn like every other pointer, because the CLI
+    // path injects no tools and cannot fetch it mid-answer. Never fatal — an
+    // unresolvable link is dropped, not raised.
+    let resolvedWikilinksBlock = "";
+    if (activeContext?.viewType === "markdown") {
+      const linkSource = [
+        this.capturedSelection,
+        question,
+        activeContext.fileContent ?? "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+      resolvedWikilinksBlock = buildWikilinksBlock(
+        await resolveWikilinks(linkSource, (target) =>
+          this.plugin.readVaultNote(target, activeContext.filePath),
+          // `[[#Heading]]` points into the note being read; there is no other
+          // note to ask for. Everyday Obsidian, and the resolver matched none of
+          // them until the vault was actually opened.
+          activeContext?.filePath && activeContext?.fileContent
+            ? { selfPath: activeContext.filePath, selfText: activeContext.fileContent }
+            : undefined
+        )
+      );
+    }
+
     if (activeContext?.pdfPage) {
       // Read the identity ONCE, before the first await, and use the same value
       // for the index we write into and for every page fetch below.
@@ -560,7 +593,12 @@ export class QuickQueryPopover {
           // an expected id is supplied), exactly as the local PDF tool runner
           // opts in (main.ts). Omitting it here was the bug.
           (pageNum) =>
-            this.plugin.fetchActivePdfPage(pageNum, pinnedDocumentId)
+            this.plugin.fetchActivePdfPage(pageNum, pinnedDocumentId),
+          undefined,
+          // The typed question, not just the highlight. Asking "reference 12의
+          // 제목이 뭐야?" without re-selecting the bracket used to resolve
+          // nothing, and the answer was in this document's own last pages.
+          question
         );
         resolvedReferencesBlock = resolution.block;
         provenance = resolution.provenance;
@@ -578,6 +616,11 @@ export class QuickQueryPopover {
     const vaultEvidenceBlock = await this.vaultEvidenceFor(question);
 
     const messages = buildQuickQueryContextMessages({
+      // The provider decides what the prompt may honestly promise: the local page
+      // reader is injected on the API path only, and offering it on the CLI path
+      // sends the model hunting for a substitute it is not allowed to use.
+      provider: this.plugin.settings.provider,
+      resolvedWikilinksBlock,
       selectedText: this.capturedSelection,
       question,
       activeContext,
@@ -700,7 +743,12 @@ export class QuickQueryPopover {
    *  - **Edit requests paid too.** "rewrite this" does not use vault evidence;
    *    the sidechat already skips retrieval for those and this did not. */
   private async vaultEvidenceFor(question: string): Promise<string | undefined> {
-    if (isEditRequest(question)) return undefined;
+    // The SAME gate the sidebar uses, not a narrower one. Both surfaces are
+    // answering "should I even go to the vault for this", and the popover's copy
+    // knew only about edit requests — so a bare "again" / "다시 해줘" still paid
+    // the vault round-trip the sidebar skips outright. One decision, one
+    // implementation; a second copy of a policy drifts by construction.
+    if (!shouldRunCuratorDomainQuery({ query: question })) return undefined;
     if (this.vaultEvidenceCache !== undefined) return this.vaultEvidenceCache || undefined;
 
     const client = this.plugin.incuratorClient;

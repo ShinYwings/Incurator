@@ -150,6 +150,33 @@ about that passage. This works like a lightweight `wiki query` aimed at quick
 lookups while reading, e.g. resolving "참조: [섹션 4.2]" or interpreting
 "Eq. (3)에 의해…".
 
+**What the popover goes and gets for you, before it answers.** A question about
+something the document points at is answered from that thing, not from its name.
+The popover resolves pointers ahead of the turn, because the CLI providers cannot
+fetch anything mid-answer:
+
+- **Citations.** `[12]` in the passage — or "reference 12의 제목이 뭐야?" typed
+  with nothing selected — is matched against the document's own bibliography. Ask
+  about the reference list without naming a number and you get the list itself.
+  The heading is recognised in English, Korean, Japanese and Chinese, and in a
+  book the scan reaches past the index that follows it.
+- **Cross-references.** "see Fig. 4", "Section 3.2", "Eq. (7)", "p. 214" —
+  resolved whether you selected them or typed them.
+- **Wikilinks, in your own notes.** `[[Another note]]`, `[[Note#Section]]`,
+  `[[#A heading in this note]]` and `![[embeds]]` are followed and read, so
+  "what did I conclude in [[X]]?" is answered from X, not from its title.
+  Attachments are skipped — an image is not prose.
+
+Nothing here goes to the network. If a pointer cannot be resolved it is named
+rather than dropped, so the answer says what it could not reach instead of
+inventing it.
+
+**Reading a long document.** The popover carries the part of the document you are
+in, not the part it happens to start with: a book's outline is windowed on your
+current page, and a long note is windowed on your selection and your question.
+Where material is left out, the prompt says so.
+
+
 - **Mouse or keyboard selection**: Both a mouse drag and a keyboard selection
   (Shift+Arrow / Shift+Home/End, or Ctrl/Cmd+A) surface the button; collapsing
   the selection back to a caret hides it.

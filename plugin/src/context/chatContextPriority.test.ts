@@ -44,8 +44,8 @@ describe("chat context priority", () => {
     expect(contextPromptLabel(auto)).toBe(
       "Visible background context: curate.yml (file path: Research/config/curate.yml)"
     );
-    expect(contextPriorityInstruction(true)).toContain("Primary user-selected context is the MAIN FOCUS");
-    expect(contextPriorityInstruction(false)).toContain("Pinned and visible Obsidian contexts");
+    expect(contextPriorityInstruction(true, "pdf")).toContain("Primary user-selected context is the MAIN FOCUS");
+    expect(contextPriorityInstruction(false, "pdf")).toContain("Pinned and visible Obsidian contexts");
   });
 
   it("preserves exact vault paths for every prompt-included context priority", () => {

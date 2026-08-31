@@ -18,6 +18,7 @@
  * pages before the model sees anything.
  */
 import {
+  asksAboutBibliography,
   collectBibliography,
   resolveCitations,
   type ResolvedCitation,
@@ -25,8 +26,42 @@ import {
 
 /** Pages to scan backward from the end looking for the heading. */
 const TAIL_SCAN_PAGES = 6;
-/** Pages to follow forward once the heading is found. */
+/**
+ * How deep to scan back from the end, for a document of `pageCount` pages.
+ *
+ * Six pages is right for a paper, whose references sit at the very end. A book
+ * puts an index — often twenty pages or more — AFTER its bibliography, so a
+ * fixed six never reaches the heading and the reader gets nothing, on the
+ * document kind where looking a reference up by hand is most tedious.
+ *
+ * Proportional with a floor and a ceiling: the floor keeps papers cheap, the
+ * ceiling keeps a 900-page book from scanning half of itself. Ten percent
+ * clears the twenty-to-thirty page index a technical book puts after its
+ * references. The scan stops at the first heading-anchored parse, and the result
+ * is cached per document, so the ceiling is a worst case paid once — not a cost
+ * per question.
+ * Scanning stops at the first heading-anchored parse either way, so the depth is
+ * a bound, not a cost.
+ */
+function tailScanDepth(pageCount: number | undefined): number {
+  if (!pageCount || pageCount <= 0) return TAIL_SCAN_PAGES;
+  return Math.min(40, Math.max(TAIL_SCAN_PAGES, Math.ceil(pageCount * 0.1)));
+}
+/**
+ * Pages to follow forward once the heading is found.
+ *
+ * Five covers a paper, whose reference list is a page or two. A book's runs for
+ * ten or more, so a fixed five found the heading and then stopped inside the
+ * A's — the reader asking about entry 90 got nothing, having paid for the scan
+ * that located the section. Scaled the same way the tail scan is, and for the
+ * same reason.
+ */
 const CONTINUATION_PAGES = 5;
+
+function continuationDepth(pageCount: number | undefined): number {
+  if (!pageCount || pageCount <= 0) return CONTINUATION_PAGES;
+  return Math.min(20, Math.max(CONTINUATION_PAGES, Math.ceil(pageCount * 0.03)));
+}
 
 interface CacheEntry {
   bibliography: Map<number, string>;
@@ -56,21 +91,47 @@ export interface CitationSource {
  * citations — and does so WITHOUT fetching anything, because the cheap check
  * (does the selection contain a resolvable bracket at all?) runs first.
  */
+/** Entries returned when the question asks for the reference list wholesale. */
+const MAX_WHOLE_BIBLIOGRAPHY_ENTRIES = 40;
+
 export async function resolveSelectionCitations(
   selectedText: string,
   source: CitationSource | undefined,
-  fetchPageText: (pageNum: number) => Promise<string | undefined>
+  fetchPageText: (pageNum: number) => Promise<string | undefined>,
+  question?: string
 ): Promise<ResolvedCitation[]> {
-  if (!selectedText || !source?.documentId) return [];
+  if (!source?.documentId) return [];
 
-  // Cheapest possible early-out: if nothing in the selection could ever be a
-  // citation, never touch the document. Probing with a sentinel bibliography
-  // reuses the real collision rules instead of duplicating them here.
-  if (resolveCitations(selectedText, PROBE).length === 0) return [];
+  // The question counts, not just the selection.
+  //
+  // Until v0.77.0 only `selectedText` was read here, so someone who typed
+  // "reference 12의 제목이 뭐야?" without re-selecting the bracket resolved
+  // nothing — and the answer was in the paper's own last pages. The chat sidebar
+  // had always passed its typed message; the popover passed only the highlight.
+  const asksForList = asksAboutBibliography(question ?? "");
+  const searchText = [selectedText || "", question || ""].filter(Boolean).join("\n");
+  if (!searchText && !asksForList) return [];
+
+  // Cheapest possible early-out: if nothing here could ever be a citation, never
+  // touch the document. Probing with a sentinel bibliography reuses the real
+  // collision rules instead of duplicating them. Skipped when the question asks
+  // for the list itself, which names no bracket by definition.
+  if (!asksForList && resolveCitations(searchText, PROBE).length === 0) return [];
 
   const bibliography = await loadBibliography(source, fetchPageText);
   if (bibliography.size === 0) return [];
-  return resolveCitations(selectedText, bibliography);
+
+  const matched = resolveCitations(searchText, bibliography);
+  if (matched.length > 0 || !asksForList) return matched;
+
+  // Asked about the reference list, named no bracket. Hand over the list itself
+  // rather than nothing: "what is reference 12" is answerable from it, and so is
+  // every other phrasing of the same request. Bounded, because a bibliography can
+  // run to hundreds of entries and this rides in a popover prompt.
+  return Array.from(bibliography.entries())
+    .sort((a, b) => a[0] - b[0])
+    .slice(0, MAX_WHOLE_BIBLIOGRAPHY_ENTRIES)
+    .map(([num, entry]) => ({ num, label: `[${num}]`, entry }));
 }
 
 /**
@@ -114,14 +175,14 @@ async function scanForBibliography(
     return text;
   };
 
-  const firstToScan = Math.max(1, lastPage - TAIL_SCAN_PAGES + 1);
+  const firstToScan = Math.max(1, lastPage - tailScanDepth(lastPage) + 1);
   for (let start = firstToScan; start <= lastPage; start += 1) {
     const window: string[] = [await textOf(start)];
     // Cheap pre-check: only pay for continuation pages once this page alone
     // yields a heading-anchored parse.
     if (collectBibliography(window).size === 0) continue;
 
-    for (let next = start + 1; next <= Math.min(lastPage, start + CONTINUATION_PAGES); next += 1) {
+    for (let next = start + 1; next <= Math.min(lastPage, start + continuationDepth(lastPage)); next += 1) {
       window.push(await textOf(next));
     }
     return collectBibliography(window);

@@ -157,7 +157,17 @@ describe("quick query context builder", () => {
     const system = String(messages[0].content);
     // The exact boundary string must match promptRegistry.boundaryConstraints
     // for the popover profile, proving both surfaces share one source of truth.
-    expect(system).toContain(boundaryConstraints(POPOVER_PROFILE));
+    // No provider was named, so this is the fail-closed variant. That matters: the
+      // permissive variant promises a page reader that exists only on the API path,
+      // and promising it on the CLI path is what sent the model looking for a URL
+      // tool it was not allowed to use (v0.77.0).
+      expect(system).toContain(boundaryConstraints(POPOVER_PROFILE, "cli-registry"));
+      // The boundary itself must not offer the page reader. `chatContextPriority`
+      // mentions it elsewhere, but conditionally ("where it is among the tools you
+      // were given"), which stays true on both paths.
+      expect(
+        boundaryConstraints(POPOVER_PROFILE, "cli-registry")
+      ).not.toContain("read_pdf_page_image");
   });
 
   it("appends a read-only recency anchor LAST so its invariants get strongest attention (v0.19.0)", () => {

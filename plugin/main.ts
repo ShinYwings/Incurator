@@ -1845,6 +1845,34 @@ export default class ObsidianAIAgent extends Plugin {
     return this.activeContext;
   }
 
+  /**
+   * Read the note a `[[wikilink]]` points at, resolved the way Obsidian resolves it.
+   *
+   * `getFirstLinkpathDest` applies the vault's real link rules — shortest-path
+   * matching, folder-relative resolution — so a link the reader can click resolves
+   * here too. `sourcePath` is the note doing the linking, which is what makes
+   * relative resolution correct.
+   *
+   * Returns undefined rather than throwing: a link into a deleted note must cost
+   * that one link, never the turn.
+   */
+  async readVaultNote(
+    target: string,
+    sourcePath?: string
+  ): Promise<{ path: string; text: string } | undefined> {
+    try {
+      const file = this.app.metadataCache.getFirstLinkpathDest(
+        target,
+        sourcePath ?? ""
+      );
+      if (!file) return undefined;
+      const text = await this.app.vault.cachedRead(file as any);
+      return { path: (file as any).path, text };
+    } catch {
+      return undefined;
+    }
+  }
+
   refreshActiveContext(): ActiveContext {
     // Always re-capture from the last non-chat leaf so the PDF/markdown context
     // is fresh even when the chat input is currently focused.

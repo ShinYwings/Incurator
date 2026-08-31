@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.76.0)
+# Incurator Plugin Schema & API Contract (v0.77.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -2314,7 +2314,9 @@ create files, or traverse the filesystem.
   **v0.41.0 amendment**: the policy union is now
   `"auto" | "none" | "local-only"`, and the popover moved from `"none"` to
   `"local-only"`. `shouldInjectMcpTools` returns `false` for both `"none"` and
-  `"local-only"`, so the popover's zero-MCP guarantee is unchanged; the new
+  `"local-only"`, so the popover's zero-MCP guarantee is unchanged **for the
+  providers whose tools the plugin injects** (see the v0.77.0 amendment below —
+  it does NOT hold for a CLI provider, which loads its own registry); the new
   value additionally admits the plugin-executed local PDF reader defined in
   §13.7. Every consumer of `ToolPolicy` MUST handle the union exhaustively
   (a `never`-typed default), so adding a future value is a compile error
@@ -2325,7 +2327,70 @@ create files, or traverse the filesystem.
   - `SurfaceProfile` = `{ surface: "sidechat" | "popover", toolPolicy, allowEdits }`,
     with exported `SIDECHAT_PROFILE` (`auto` / edits-on) and `POPOVER_PROFILE`
     (`local-only` since v0.41.0, previously `none` / edits-off).
-  - `boundaryConstraints(profile)` — the canonical filesystem/tool boundary text.
+  - **v0.77.0 amendment — the prompt states what the PROVIDER gives, not what the
+    policy intends.** `ToolPolicy` says what the plugin means to hand out; that is
+    not the same as what the model ends up holding, and until v0.77.0 the popover
+    prompt stated the intent as fact, wrongly in two directions at once:
+    - It promised a page reader. `shouldInjectLocalTools` returns `false`
+      whenever `useCli` is true — for EVERY policy — and every provider except
+      ollama and deepseek routes through a CLI. On those surfaces the tool was
+      never there.
+    - It declared "NO MCP tools". True for API providers, where the plugin
+      decides injection. FALSE for `agy`, which loads its own registry:
+      `syncAgyMcpConfig()` runs unconditionally in the antigravity branch and the
+      ephemeral flag only empties `--add-dir`.
+
+    A model promised an absent tool reaches for the nearest substitute, and the
+    nearest substitute was a URL reader outside the allow-list — auto-denied,
+    turn empty, while the answer sat in the open document. Reported 2026-08-31.
+
+    `SurfaceToolReality` = `"plugin-injected" | "cli-registry"` now selects the
+    wording, resolved by one function that mirrors `shouldUseCli` and lives beside
+    the text it governs. It is a REQUIRED parameter on both `boundaryConstraints`
+    and `RecencyAnchorOptions`, so a missed call site is a compile error rather
+    than a prompt that quietly lies. Both emission sites MUST carry it — the
+    anchor re-emits the boundary at the end of the payload, so fixing only the
+    direct call leaves the stale claim as the last thing the model reads.
+
+    The popover's zero-MCP guarantee therefore holds for API providers and does
+    NOT hold for CLI providers. Documenting that is the contract; there is no
+    per-invocation way to scope an agy spawn's MCP registry (verified by static
+    inspection: no `--mcp-config` flag exists, and the registry is one global file
+    every invocation reads at startup).
+
+  - **v0.77.0 — pointer instruction is chosen by document kind.**
+    `contextPriorityInstruction(hasPrimaryContext, pointers)` takes a required
+    `PointerKind` = `"pdf" | "markdown" | "none"`. The POINTER SELECTIONS
+    paragraph names `<resolved_cross_references>`, `<resolved_citations>` and
+    `read_pdf_page_image`; on a markdown turn none of those can exist, so ~1,700
+    characters described blocks the model would never see. That is the shape
+    v0.54.1 removed a universal rule for, and it is not merely wasteful — naming
+    a tool primes the model to reach for it, which is the failure above.
+
+  - **v0.77.0 — a note's `[[link]]` is a pointer, and is resolved before the
+    turn.** `wikilinkResolver.ts` follows plain, aliased, sectioned, same-note
+    (`[[#Heading]]`) and embedded forms, skips non-prose targets (an image read as
+    text puts its bytes in the prompt), delivers the named section rather than the
+    whole note, and is bounded at 4 links x 2,400 chars. Both surfaces MUST call
+    it: a resolver nobody calls fixes nothing, and this repo shipped that shape in
+    v0.75.0. An unresolvable link is dropped, never raised — a failed pointer must
+    not cost the turn.
+
+  - **v0.77.0 — one turn budget, and the selection is pinned.** Optional blocks
+    used to carry independent caps that nothing summed, which measured a
+    102-character selection inside a 53,032-character turn. `fitTurnBudget` fits
+    them against one ceiling in priority order — what the reader highlighted, what
+    they pointed at, the document around it, what the vault volunteered — with the
+    selection, the question and the invariants pinned. Dropped blocks MUST be
+    named in the prompt; a silent gap is filled by assumption.
+
+  - **v0.77.0 — truncation cuts from the middle, not the end.** The assembled
+    system prompt is built with its attention-critical material last, so a
+    head-keeping slice removed exactly what was placed there to survive attention
+    decay. `truncateSystemPrompt` keeps both ends. Individual file contexts still
+    cut from the head, where losing one document's tail is the lesser harm.
+
+  - `boundaryConstraints(profile, reality)` — the canonical filesystem/tool boundary text.
     For `toolPolicy: "none"` it declares zero tools and zero filesystem access;
     for `"local-only"` it declares zero MCP tools, no model-reachable
     filesystem or shell surface, and the read-only PDF page reader of §13.7
@@ -2767,6 +2832,15 @@ boundary closed by §13.5/§13.6.
   routing, and that a popover tool array contains only the three local names
   above. Prompt wording (§13.5 `boundaryConstraints`) documents the boundary;
   it does not enforce it.
+
+  **v0.77.0 scope correction.** Those tests assert what the PLUGIN injects, which
+  is a narrower claim than the one this bullet used to make. A CLI provider reads
+  its own MCP registry, so "the popover has no MCP tools" was never true on that
+  path however green the injection tests were — the guarantee is real for API
+  providers and is documentation, not enforcement, for CLI ones. There is no
+  per-invocation way to scope an agy spawn's registry (no `--mcp-config` flag
+  exists, and the registry is one global file read at startup), so the honest
+  contract is the scoped one, not a broader claim the tests cannot reach.
 
 - **One policy source per surface.** A surface MUST pass its `SurfaceProfile`'s
   `toolPolicy` to `streamChat`/`complete` rather than repeating a literal, and
