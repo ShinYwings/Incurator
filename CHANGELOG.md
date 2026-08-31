@@ -2,6 +2,78 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.78.0] - 2026-09-01
+
+ROADMAP E6. One file could register twice, its knowledge split across two source
+ids, because macOS hands back a different Unicode form of the same path than
+everything else produces.
+
+### Fixed
+
+- **A path in the macOS form is the same source as the typed one.** `relpath` is
+  the UNIQUE key, so identity was string equality on a path — and `readdir`
+  returns NFD while nearly all tooling and every typed path produces NFC.
+  Measured on a live vault: 18 of 50 rows held NFD paths and one pair had already
+  split into two `curated` sources sharing one `content_hash`. The existing dedup
+  could not catch it; registration looks up `WHERE relpath = ?` and compares
+  hashes only to decide whether the file at THAT path changed, so hash equality
+  is change-detection on a known path and never cross-path identity.
+
+- **It was a cross-device duplication mechanism, not a local annoyance.**
+  `db_sync` resolves a peer's duplicate by looking the source up BY RELPATH to
+  attach the peer's child rows to the local id. Two devices holding one file in
+  different forms never collide at all, so the peer's rows attach to a fresh
+  duplicate. Normalising is what makes two devices agree on what one file is.
+
+- **Every comparison and every write normalises, and a test says so.** Eight
+  comparison sites, thirty-three places deriving a relpath from a `Path`, no
+  chokepoint. v0.77.0 shipped four separate cases of a fix landing at one call
+  site and missing its sibling, so a guard enumerates the sites and fails on one
+  that binds an unnormalised value. One site is exempt and recorded rather than
+  waved through: `db/sources.py` is pinned by content hash in the D2 holdout
+  record, and its lookup is read-only with a `content_hash` fallback, so a form
+  mismatch degrades instead of duplicating.
+
+### Added
+
+- **`wiki source dedupe-paths`.** Merges sources whose paths differ only by
+  normalisation form. Reports by default; writes only under `--apply`, because
+  merging two sources rewrites the user's data and that does not happen as a side
+  effect. Child tables are read from the schema rather than listed. The merge
+  keeps the lowest id and **refuses** any group whose rows disagree on
+  `content_hash` — paths that normalise together but hold different bytes are not
+  one file.
+
+### Verified
+
+Rehearsed against a copy of the live database before anything touched real data,
+and it earned its keep twice.
+
+The first run failed outright on `source_pdf_pages`' `UNIQUE(source_id,
+page_number)`: both sources hold the same pages, so a plain repoint collides. A
+migration that had gone straight at the real database would have half-applied and
+stopped. It now moves what fits and drops what the survivor already holds,
+counting the two separately.
+
+The apply then found what no rehearsal could. Seventeen paths were still stored
+NFD afterwards: canonicalisation had been paired with `db.init_db`, and `wiki
+add` — the command that actually registers sources — never calls it. On any vault
+with prior history the next add would have normalised its lookup, missed the
+stored row, and written a second one. The change would have manufactured the
+duplicates it exists to remove, and no test would have caught it, because every
+test builds its database fresh in the new form. Moved to the one gate every
+vault-opening command passes through.
+
+Applied to the live vault with the user's approval, after a full backup: sources
+50 → 49, NFD 18 → 0, collisions 1 → 0, 101 knowledge units on the surviving
+source, `integrity_check ok`, no orphans created. The 64 orphaned child rows
+found during the rehearsal are pre-existing — they point at `source_id` 32 and 0,
+not at the row removed, and the untouched database has the same 64. Recorded, not
+folded in.
+
+Case folding is deliberately not part of identity: zero colliding pairs measured,
+and two files differing only in case are legitimately distinct on Linux.
+
 ## [0.77.0] - 2026-08-31
 
 Reported: asking the Quick Query popover for a reference's title returned nothing

@@ -858,6 +858,7 @@ Summary of major commands following the user workflow.
 | `wiki source rm <id>` | Atomically retires/removes the source's complete generated dependency closure and refreshes projections/search while keeping the original file. Shared graph knowledge survives only when another registered source still supports it. If the post-commit projection refresh fails, removal still reports success with an explicit `wiki sync --reemit` repair instruction. Add `--delete-file` only when you also want to delete a vault source file. | Removing an incorrect source |
 | `wiki source retry <id>` | Reprocesses a failed source, including layer-scoped L1/L2/L3/L4 errors. | Retrying after a processing failure |
 | `wiki source clear-graph-cache <id>` | Drops the source's staged graph-extraction batches so the next compile extracts them again. Graph extraction caches each validated batch so an interrupted run resumes instead of re-paying; this clears that cache. Re-ingesting does **not** — `wiki add --force` re-adopts the same unit rows, so the batch keys are unchanged. Costs a full re-extraction of the source's graph. | The graph for one source looks wrong and you want it rebuilt |
+| `wiki source dedupe-paths` | Merges sources whose paths differ only by Unicode normalisation form. Reports by default; writes only with `--apply`. | One file registered twice after syncing between macOS and another OS |
 
 ### 2-1. Settings & LLM Backend Management
 
