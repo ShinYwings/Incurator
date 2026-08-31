@@ -6,6 +6,7 @@ import {
 } from "./providerContextFormat";
 import { contextPriorityInstruction } from "./chatContextPriority";
 import { resolveSelectionReferencesBlock } from "./pdfReferenceContext";
+import { selectNoteWindow } from "./noteWindow";
 import {
   boundaryConstraints,
   buildRecencyAnchor,
@@ -89,7 +90,11 @@ export function buildMarkdownOutline(markdown: string): string {
 
 export function buildActiveBackgroundContext(
   activeCtx: ActiveContext | undefined,
-  options: { selectedText?: string; maxBackgroundLength?: number } = {}
+  options: {
+    selectedText?: string;
+    question?: string;
+    maxBackgroundLength?: number;
+  } = {}
 ): string {
   if (!activeCtx) return "";
   const maxLength = options.maxBackgroundLength ?? DEFAULT_BACKGROUND_LIMIT;
@@ -108,7 +113,14 @@ export function buildActiveBackgroundContext(
     sections.push(
       `<active_markdown document="${escapeAttribute(label)}"${path}>\n` +
         `<background_reference_only>\n` +
-        `${truncateForProviderContext(activeCtx.fileContent, Math.floor(maxLength / 2))}\n` +
+        // Windowed on the reader, not cut at the head. A note they have been
+        // adding to for a year loses everything after its opening otherwise, and
+        // a question about the middle is answered from the top or not at all.
+        `${selectNoteWindow(activeCtx.fileContent, {
+          budget: Math.floor(maxLength / 2),
+          question: options.question,
+          selection: options.selectedText,
+        })}\n` +
         `</background_reference_only>\n` +
         `</active_markdown>`
     );
@@ -200,6 +212,7 @@ export function buildQuickQueryMessages(args: QuickQueryMessageArgs): LLMMessage
   const reality = surfaceToolReality(args.provider ?? "");
   const background = buildActiveBackgroundContext(args.activeContext, {
     selectedText: args.selectedText,
+    question: args.question,
     maxBackgroundLength: args.maxBackgroundLength,
   });
   const followups = buildEphemeralFollowupContext(args.previousTurns);
