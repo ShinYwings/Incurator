@@ -8,7 +8,7 @@ import {
 } from "../context/quickQueryContext";
 import { formatCuratorContextPack } from "../context/providerContextFormat";
 import { resolveWorkspacePath } from "../context/workspaceScope";
-import { isEditRequest } from "../context/providerContextPolicy";
+import { shouldRunCuratorDomainQuery } from "../context/providerContextPolicy";
 import { logger } from "../utils/logger";
 import {
   attachLatexCopyHandler,
@@ -743,7 +743,12 @@ export class QuickQueryPopover {
    *  - **Edit requests paid too.** "rewrite this" does not use vault evidence;
    *    the sidechat already skips retrieval for those and this did not. */
   private async vaultEvidenceFor(question: string): Promise<string | undefined> {
-    if (isEditRequest(question)) return undefined;
+    // The SAME gate the sidebar uses, not a narrower one. Both surfaces are
+    // answering "should I even go to the vault for this", and the popover's copy
+    // knew only about edit requests — so a bare "again" / "다시 해줘" still paid
+    // the vault round-trip the sidebar skips outright. One decision, one
+    // implementation; a second copy of a policy drifts by construction.
+    if (!shouldRunCuratorDomainQuery({ query: question })) return undefined;
     if (this.vaultEvidenceCache !== undefined) return this.vaultEvidenceCache || undefined;
 
     const client = this.plugin.incuratorClient;

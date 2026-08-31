@@ -82,7 +82,6 @@ import {
 } from "../../context/openTabContext";
 import { parseAnswerLinkTarget, type AnswerLinkTarget } from "../../context/answerLinkNavigation";
 import {
-  resolveSelectionReferencesBlock,
   resolveSelectionReferencesBlockAsync,
 } from "../../context/pdfReferenceContext";
 import {
@@ -1616,12 +1615,29 @@ export class ChatSidebarView extends ItemView {
                 // Follow any cross-reference (crop caption or dragged "see §X")
                 // to the target page/section so the model explains the referent,
                 // not the visible page. (report items 3/4/6/7)
-                const resolvedBlock = resolveSelectionReferencesBlock(ref.content, {
-                  outline: ref.outline,
-                  windowPages: ref.windowPages,
-                  pageNum: ref.pageNum,
-                  pageLabels: ref.pageLabels,
-                });
+                // The SAME resolution the message box gets, not the sync one.
+                //
+                // A pointer typed into chat got the async path and could fetch a
+                // page the window does not hold; a pointer inside a PINNED passage
+                // got the sync path and could only match pages already present.
+                // Same reader action — follow this reference — resolved two ways
+                // depending on where the text happened to live, so pinning a
+                // passage quietly cost the reader the ability to follow a distant
+                // pointer inside it.
+                const resolvedBlock = await resolveSelectionReferencesBlockAsync(
+                  ref.content,
+                  {
+                    outline: ref.outline,
+                    windowPages: ref.windowPages,
+                    pageNum: ref.pageNum,
+                    pageLabels: ref.pageLabels,
+                    documentKey: ref.fileHash || ref.filePath || undefined,
+                  },
+                  async (pageNum) =>
+                    (await this.plugin.fetchActivePdfPage(pageNum)) ?? undefined,
+                  undefined,
+                  lastUserMessage?.content || ""
+                );
                 if (resolvedBlock) textToPush += `\n${resolvedBlock}`;
               } else {
                 textToPush += ref.content;

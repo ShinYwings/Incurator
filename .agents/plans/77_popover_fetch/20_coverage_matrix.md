@@ -98,3 +98,43 @@ generalisation the action-axis produces and the needs-list did not.
 - Action 6 (compare two documents) is served only by whatever the reader has open
   as tabs. Not measured in this pass.
 - Author-year and parenthetical citation styles remain unmatched.
+
+
+## Round two — the two Arena audits, and how each finding was resolved
+
+Both audits were re-run after the first round (the originals died on a session
+limit). Between them they raised sixteen items.
+
+### Fixed
+
+| # | Finding | Where |
+|---|---|---|
+| R1 | System-prompt truncation cut from the tail, discarding the material placed last for attention | `promptTruncation.ts` |
+| R2 | Sidebar never got the bibliography-without-a-bracket fallback | `pdfReferenceContext.ts` |
+| R3 | Popover resolved cross-references from the selection only, never the question | `pdfReferenceContext.ts` |
+| R4 | A book's reference list was followed for only 5 pages past its heading | `citationContext.ts` |
+| R5 | Long-note windowing was wired into the popover only | `ChatSidebarView.ts` |
+| R6 | `[[#Heading]]` and `![[image]]` — found by opening the vault | `wikilinkResolver.ts` |
+| R7 | Pinned passages resolved pointers by a sync path that cannot fetch | `ChatSidebarView.ts` |
+| R8 | Popover's vault-evidence gate was a narrower copy of the sidebar's | `quickQueryPopover.ts` |
+| B2 | The prose ceiling was measuring comments, and the trims it forced were wrong | `promptRoleBudget.test.ts` |
+| B3 | PDF-only instruction on every markdown turn | `chatContextPriority.ts` |
+| B4 | One fact told four times, in the invariants section | `promptRegistry.ts` |
+| B5 | The reader's selection measured 0.19% of its own turn | `turnBudget.ts` |
+| B6 | The budget policy existed only as prose | `turnBudgetPolicy.test.ts` |
+
+### Judged, not changed
+
+**R9 — vault-evidence budget: flat cap on the popover, proportional on the
+sidebar.** The audit found it documented as intentional and found no evidence
+against it. Left alone.
+
+**R10 — `items.slice(0, 12)` on the evidence pack, and the 40-entry bibliography
+cap.** The audit flagged these "for judgment, not asserting a defect", and said
+plainly it could not establish from the code whether 12 was a token-budget
+decision or a readability one. Two facts settle it: the backend already applies
+its own token budget before these items are returned, and `fitTurnBudget` now
+bounds the rendered block a second time. A third bound would be redundancy, not
+correctness. **Not a defect.**
+
+That is the whole list. Nothing was deferred silently.
