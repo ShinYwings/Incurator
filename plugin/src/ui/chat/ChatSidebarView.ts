@@ -54,6 +54,10 @@ import {
   SIDECHAT_PROFILE,
   surfaceToolReality,
 } from "../../context/promptRegistry";
+import {
+  buildWikilinksBlock,
+  resolveWikilinks,
+} from "../../context/wikilinkResolver";
 import { parseEditLoopPhases, validateEditLoop, type EditLoopParse } from "../../context/editLoopContract";
 import { detectLanguage } from "../../context/languageBridge";
 import {
@@ -1507,6 +1511,26 @@ export class ChatSidebarView extends ItemView {
       if (markdownOutlines) {
         systemText += `\n\n<markdown_outlines>\n${markdownOutlines}\n</markdown_outlines>`;
       }
+    }
+
+    // Follow the links the reader's own notes make, the same way the popover does
+    // and the same way a paper's citations are followed. A note's `[[link]]` is a
+    // paper's `[12]`, and until v0.77.0 neither surface read one: the plugin only
+    // ever WROTE wikilinks, as output locators. Resolved before the turn because
+    // the CLI path injects no tools and cannot fetch one mid-answer.
+    const wikilinkSource = [
+      lastUserMessage?.content || "",
+      activeCtx?.viewType === "markdown" ? activeCtx.fileContent ?? "" : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    if (wikilinkSource) {
+      const wikilinksBlock = buildWikilinksBlock(
+        await resolveWikilinks(wikilinkSource, (target) =>
+          this.plugin.readVaultNote(target, activeCtx?.filePath)
+        )
+      );
+      if (wikilinksBlock) systemText += `\n\n${wikilinksBlock}`;
     }
 
     const activeTabIncluded = promptTabs.some((tab) => tab.isActive);

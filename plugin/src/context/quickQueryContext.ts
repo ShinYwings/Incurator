@@ -37,6 +37,15 @@ export interface QuickQueryMessageArgs {
   /** Pre-resolved cross-references block (from async resolution with page fetch).
    *  When provided, skips the synchronous inline resolution so the async result is used. */
   resolvedReferencesBlock?: string;
+  /**
+   * Notes the reader's own text links to, already followed and read.
+   *
+   * A note's `[[link]]` is a paper's `[12]`. Papers have had a citation resolver
+   * since v0.56.0; notes had none, so a question about a linked note was answered
+   * from its title. Resolved BEFORE the turn like every other pointer, because
+   * the CLI path injects no tools and cannot go and get it mid-answer.
+   */
+  resolvedWikilinksBlock?: string;
   /** Pinned context refs from the sidechat (purple pins). Injected as read-only
    *  background so the popover can search/use them without changing tool policy. */
   pinnedContextRefs?: ContextRef[];
@@ -233,6 +242,7 @@ export function buildQuickQueryMessages(args: QuickQueryMessageArgs): LLMMessage
   const content = [
     buildPrimarySelectionBlock(args.selectedText),
     resolvedReferencesBlock,
+    args.resolvedWikilinksBlock ?? "",
     background ? `<quick_query_background>\n${background}\n</quick_query_background>` : "",
     args.vaultEvidenceBlock ?? "",
     pinnedBlock,

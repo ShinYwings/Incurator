@@ -17,6 +17,10 @@ import {
   stampMathSourceData,
 } from "../utils/textUtils";
 import { resolveSelectionContextAsync } from "../context/pdfReferenceContext";
+import {
+  buildWikilinksBlock,
+  resolveWikilinks,
+} from "../context/wikilinkResolver";
 import { summarizeProvenance, type ProvenanceRecord } from "../context/provenance";
 import { POPOVER_PROFILE } from "../context/promptRegistry";
 
@@ -529,6 +533,29 @@ export class QuickQueryPopover {
     // §13.9: provenance is built from the resolution record, here, and shown as
     // UI state. It is never recovered by scanning the model's answer.
     let provenance: ProvenanceRecord | undefined;
+
+    // A note's `[[link]]` is a paper's `[12]`: the reader points at something and
+    // answering means going and getting it. Papers have had that since v0.56.0;
+    // notes had nothing, so a question about a linked note was answered from its
+    // title. Resolved BEFORE the turn like every other pointer, because the CLI
+    // path injects no tools and cannot fetch it mid-answer. Never fatal — an
+    // unresolvable link is dropped, not raised.
+    let resolvedWikilinksBlock = "";
+    if (activeContext?.viewType === "markdown") {
+      const linkSource = [
+        this.capturedSelection,
+        question,
+        activeContext.fileContent ?? "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+      resolvedWikilinksBlock = buildWikilinksBlock(
+        await resolveWikilinks(linkSource, (target) =>
+          this.plugin.readVaultNote(target, activeContext.filePath)
+        )
+      );
+    }
+
     if (activeContext?.pdfPage) {
       // Read the identity ONCE, before the first await, and use the same value
       // for the index we write into and for every page fetch below.
@@ -587,6 +614,7 @@ export class QuickQueryPopover {
       // reader is injected on the API path only, and offering it on the CLI path
       // sends the model hunting for a substitute it is not allowed to use.
       provider: this.plugin.settings.provider,
+      resolvedWikilinksBlock,
       selectedText: this.capturedSelection,
       question,
       activeContext,
