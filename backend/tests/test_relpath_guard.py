@@ -128,3 +128,24 @@ def test_every_init_db_is_followed_by_canonicalisation() -> None:
         "so a pre-existing row in the other Unicode form stays unreachable by "
         "path and the next ingest registers a duplicate: " + ", ".join(offenders)
     )
+
+
+def test_the_cli_gate_canonicalises_before_any_command_touches_sources() -> None:
+    """`_resolve_root_or_die` is the one gate every vault-opening command passes.
+
+    Pairing canonicalisation with `db.init_db` alone was not enough, and that was
+    found by applying the migration to a real vault and then checking: `wiki add`
+    — the command that actually registers sources — never calls `init_db`. So the
+    ingest path kept reading stale forms, a lookup normalised past the stored NFD
+    row, and the next add would have written a SECOND row. The change would have
+    manufactured the duplicates it exists to remove.
+    """
+    text = (SRC / "commands" / "common.py").read_text(encoding="utf-8")
+    gate = text.find("def _resolve_root_or_die(")
+    assert gate != -1, "the CLI root gate moved; this guard needs updating"
+    body = text[gate : gate + 700]
+    assert "_canonicalise_once" in body, (
+        "the CLI root gate no longer canonicalises stored source paths, so a "
+        "vault holding pre-v0.78.0 NFD paths will register duplicates on its "
+        "next ingest"
+    )

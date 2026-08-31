@@ -71,4 +71,31 @@ stops being reviewable. → ROADMAP.
 
 ## Post-apply results
 
-_(filled in after the approved apply)_
+Applied to the live vault 2026-09-01, after a full backup
+(`state.sqlite.bak-20260901-044359`, 310M, `integrity_check ok`).
+
+```
+sources:            50 -> 49   (id 46 removed, id 35 kept)
+still NFD:          18 -> 0
+collision groups:    1 -> 0
+knowledge units on the surviving source: 101
+orphaned child rows: 64 -> 64  (all pre-existing, none created)
+integrity_check:    ok
+```
+
+## The apply found a defect the rehearsal could not
+
+After the merge succeeded, 17 paths were STILL stored NFD. The canonicalisation
+had been paired with `db.init_db`, and `wiki add` — the command that actually
+registers sources — never calls it. Only `init` and `sync` do.
+
+So on any vault holding pre-v0.78.0 paths, the next `wiki add` would have
+normalised its lookup, missed the stored NFD row, and written a SECOND one. The
+change would have manufactured the duplicates it exists to remove, and no test
+would have said so: every test builds its database fresh, in the new form.
+
+Only running it against a real vault with real history surfaced it.
+
+Moved to `_resolve_root_or_die`, the one gate every vault-opening CLI command
+passes through, memoised per database. Verified by running a plain `wiki status`
+against the live vault: 17 NFD paths became 0.
