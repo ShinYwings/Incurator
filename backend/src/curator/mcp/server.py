@@ -22,6 +22,7 @@ Vault resolution:
 """
 
 from __future__ import annotations
+from ..source_identity import normalize_relpath
 from .. import constants as consts
 
 import json
@@ -1849,11 +1850,17 @@ def build_server() -> FastMCP:
             with db.connect(paths.state_db) as conn:
                 row = conn.execute(
                     "SELECT * FROM sources WHERE relpath = ? OR relpath = ?",
-                    (source_relpath, f"{source_relpath}.md"),
+                    (
+                            normalize_relpath(source_relpath),
+                            normalize_relpath(f"{source_relpath}.md"),
+                        ),
                 ).fetchone()
         elif source_relpath:
             with db.connect(paths.state_db) as conn:
-                row = conn.execute("SELECT * FROM sources WHERE relpath = ?", (source_relpath,)).fetchone()
+                row = conn.execute(
+                        "SELECT * FROM sources WHERE relpath = ?",
+                        (normalize_relpath(source_relpath),),
+                    ).fetchone()
         else:
             row = None
 

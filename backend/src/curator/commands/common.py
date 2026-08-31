@@ -2,6 +2,7 @@
 """Shared helpers for the `wiki` CLI command modules."""
 
 from __future__ import annotations
+from ..source_identity import normalize_relpath
 from .. import constants as consts
 import json
 import logging
@@ -1936,7 +1937,8 @@ def _requeue_stale_sources(paths: cfg.WikiPaths, stale_files: list) -> None:
                 # Strip wikilink brackets if present: [[path]] → path
                 relpath = relpath.strip().strip("[]")
                 row = conn.execute(
-                    "SELECT id FROM sources WHERE relpath = ?", (relpath,)
+                    "SELECT id FROM sources WHERE relpath = ?",
+                        (normalize_relpath(relpath),),
                 ).fetchone()
                 if row:
                     conn.execute(

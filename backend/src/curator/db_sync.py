@@ -23,6 +23,7 @@ from typing import IO, Any, Callable as _Callable, Mapping
 
 from typing import TYPE_CHECKING
 
+from .source_identity import normalize_relpath
 from . import db, durable_io
 
 if TYPE_CHECKING:  # import cycle at runtime; only the annotation needs the name
@@ -1684,7 +1685,7 @@ def _lw_upsert_source(
             # instead of being orphaned.
             local = conn.execute(
                 "SELECT id FROM sources WHERE relpath = ?",
-                (row.get("relpath"),),
+                (normalize_relpath(str(row.get("relpath") or "")),),
             ).fetchone()
             if local is not None:
                 return "skipped", int(local[0])

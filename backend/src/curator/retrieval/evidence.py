@@ -13,6 +13,7 @@ import re
 import uuid
 from pathlib import Path
 
+from ..source_identity import normalize_relpath
 from .. import config as cfg
 from .. import curate_yml, db
 from ..pipeline import memory_paths as mp
@@ -406,7 +407,10 @@ def _resolve_source_id(db_path: Path, source_key: str) -> int | None:
     if source_key.isdigit():
         return int(source_key)
     with db.connect(db_path) as conn:
-        row = conn.execute("SELECT id FROM sources WHERE relpath = ?", (source_key,)).fetchone()
+        row = conn.execute(
+                "SELECT id FROM sources WHERE relpath = ?",
+                (normalize_relpath(source_key),),
+            ).fetchone()
     return int(row["id"]) if row else None
 
 

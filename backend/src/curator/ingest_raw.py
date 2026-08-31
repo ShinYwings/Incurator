@@ -12,6 +12,7 @@ per-workspace Exhibition generation; curation is a dynamic query-time lens.
 
 from __future__ import annotations
 
+from .source_identity import normalize_relpath
 from . import constants as consts
 
 import json
@@ -2096,7 +2097,7 @@ def add_file(
     with db.connect(paths.state_db) as conn:
         existing = conn.execute(
             "SELECT id, relpath, content_hash, context_id FROM sources WHERE relpath = ?",
-            (relpath,),
+            (normalize_relpath(relpath),),
         ).fetchone()
 
         if existing is not None:
@@ -2159,7 +2160,10 @@ def add_file(
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                relpath,
+                # NFC, so the macOS `readdir` form and the typed form are one
+                # source. Stored unnormalised, they were two — measured on the
+                # live vault as 18 of 50 paths in NFD and one pair already split.
+                normalize_relpath(relpath),
                 parsed.content_hash,
                 parsed.file_type,
                 parsed.bytes,
