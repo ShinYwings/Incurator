@@ -134,7 +134,7 @@ export function buildActiveBackgroundContext(
     }
     if (pdf.outline?.length) {
       sections.push(
-        `<document_outline document="${escapeAttribute(doc)}">\n${formatOutline(pdf.outline)}\n</document_outline>`
+        `<document_outline document="${escapeAttribute(doc)}">\n${formatOutline(pdf.outline, pdf.pageNum)}\n</document_outline>`
       );
     }
   }

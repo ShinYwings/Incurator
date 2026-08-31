@@ -1963,7 +1963,7 @@ export class ChatSidebarView extends ItemView {
       if (this.plugin.settings.pdfOutlineEnabled) {
         if (outline.length > 0) {
           sections.push(
-            `<document_outline document="${escapeAttribute(tab.label)}">\n${formatOutline(outline)}\n</document_outline>`
+            `<document_outline document="${escapeAttribute(tab.label)}">\n${formatOutline(outline, pdf.pageNum)}\n</document_outline>`
           );
         }
       }

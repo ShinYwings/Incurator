@@ -32,9 +32,41 @@ export function formatPdfWindow(pages: PdfWindowPage[]): string {
     .join("\n\n");
 }
 
-export function formatOutline(outline: PdfOutlineItem[]): string {
-  return outline
-    .slice(0, 80)
+/** Outline entries one prompt can carry. */
+const OUTLINE_LIMIT = 80;
+
+/**
+ * Render a document outline, windowed around where the reader actually is.
+ *
+ * Taking the first 80 entries is invisible on a paper, which never has 80. On a
+ * 600-page book it hands a reader sitting on page 400 the table of contents for
+ * pages 1-100 — the part of the book they are not in — so every structural
+ * question they ask is answered from front matter.
+ *
+ * When the outline overflows and the current page is known, the top-level
+ * entries are kept in full (they are the book's shape, and there are few of
+ * them) and the remaining budget is spent on the entries nearest the reader.
+ * Order is preserved throughout, because an outline read out of order is worse
+ * than a short one.
+ */
+export function formatOutline(
+  outline: PdfOutlineItem[],
+  currentPage?: number
+): string {
+  let shown = outline;
+  if (outline.length > OUTLINE_LIMIT && currentPage && currentPage > 0) {
+    const topLevel = outline.filter((i) => (i.level ?? 0) <= 0);
+    const keep = new Set<PdfOutlineItem>(topLevel.slice(0, OUTLINE_LIMIT));
+    const rest = outline
+      .filter((i) => !keep.has(i))
+      .map((i, idx) => ({ i, idx, d: Math.abs((i.pageNum ?? 0) - currentPage) }))
+      .sort((a, b) => a.d - b.d)
+      .slice(0, OUTLINE_LIMIT - keep.size);
+    for (const r of rest) keep.add(r.i);
+    shown = outline.filter((i) => keep.has(i));
+  }
+  return shown
+    .slice(0, OUTLINE_LIMIT)
     .map((item) => {
       const indent = "  ".repeat(Math.max(0, item.level));
       const page = item.pageNum ? ` p.${item.pageNum}` : "";
