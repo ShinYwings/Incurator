@@ -125,3 +125,66 @@ describe("the context block", () => {
     expect(block).toContain("covariance");
   });
 });
+
+/**
+ * Found by opening the actual vault, not by writing fixtures.
+ *
+ * The note under test linked `[[#Interpretation plane of Plucker Coordinates]]`
+ * — a link to a heading in the SAME note, with no target before the `#`. That is
+ * an everyday Obsidian form and the first regex did not match it at all, because
+ * it required at least one character before the hash.
+ *
+ * The same note embedded an image with `![[...JAXXWEEC.png]]`. Embeds are matched
+ * deliberately, so the resolver would have handed a PNG to a text read and piped
+ * its bytes into the prompt.
+ *
+ * Both are cases my own fixtures could never have produced. I wrote the fixtures.
+ */
+describe("the forms a real vault actually contains", () => {
+  it("matches a link to a heading in the same note", () => {
+    const links = extractWikilinks(
+      "Line jeongui: [[#Interpretation plane of Plucker Coordinates]]"
+    );
+    expect(links).toHaveLength(1);
+    expect(links[0].target).toBe("");
+    expect(links[0].heading).toBe("Interpretation plane of Plucker Coordinates");
+  });
+
+  it("resolves a same-note heading against the note being read", async () => {
+    const currentNote = [
+      "# Camera Pose Estimation",
+      "Line: [[#Interpretation plane of Plucker Coordinates]]",
+      "",
+      "## Interpretation plane of Plucker Coordinates",
+      "A 3D plane through the origin needs only its normal, so 2 DoF.",
+    ].join("\n");
+
+    const resolved = await resolveWikilinks(
+      "[[#Interpretation plane of Plucker Coordinates]]",
+      async () => undefined,
+      { selfPath: "03_Notes/Camera.md", selfText: currentNote }
+    );
+
+    expect(resolved).toHaveLength(1);
+    expect(resolved[0].text).toContain("2 DoF");
+    expect(resolved[0].path).toBe("03_Notes/Camera.md");
+  });
+
+  it("does not read an embedded image as if it were prose", async () => {
+    const read = vi.fn(async (t: string) => ({ path: t, text: "binary bytes" }));
+    const resolved = await resolveWikilinks(
+      "![[05_Assets/Zotero Assets/Papers/pribyl2015camera/JAXXWEEC.png]]",
+      read
+    );
+    expect(resolved).toEqual([]);
+    expect(read).not.toHaveBeenCalled();
+  });
+
+  it("skips every attachment kind, not just png", async () => {
+    const read = vi.fn(async (t: string) => ({ path: t, text: "binary" }));
+    for (const f of ["a.pdf", "b.jpg", "c.svg", "d.mp4", "e.canvas", "f.excalidraw"]) {
+      expect(await resolveWikilinks(`![[${f}]]`, read)).toEqual([]);
+    }
+    expect(read).not.toHaveBeenCalled();
+  });
+});

@@ -57,3 +57,27 @@ describe("finding a bibliography in a long book", () => {
     expect(fetch.mock.calls.length).toBeLessThanOrEqual(8);
   });
 });
+
+describe("following a book's reference list past its first page", () => {
+  it("reaches an entry deep in a multi-page bibliography", async () => {
+    const { resolveSelectionCitations } = await import("./citationContext");
+    const { vi } = await import("vitest");
+    const PAGES = 300;
+    const BIB_START = 280;
+    const fetch = vi.fn(async (pageNum: number) => {
+      if (pageNum === BIB_START) return "References\n[1] First entry.";
+      if (pageNum > BIB_START && pageNum <= BIB_START + 9) {
+        const n = (pageNum - BIB_START) * 10;
+        return `[${n}] Entry number ${n} about splatting.`;
+      }
+      return `Chapter text ${pageNum}.`;
+    });
+    const citations = await resolveSelectionCitations(
+      "",
+      { documentId: "long-bib", pageCount: PAGES },
+      fetch,
+      "what is reference 90?"
+    );
+    expect(citations.map((c) => c.entry).join("\n")).toContain("Entry number 90");
+  });
+});

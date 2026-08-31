@@ -499,10 +499,24 @@ export async function resolveSelectionReferencesBlockAsync(
   selectedText: string,
   source: PdfReferenceSource | undefined,
   fetchPageText: (pageNum: number) => Promise<string | undefined>,
-  locatePages?: (label: string) => Promise<number[]>
+  locatePages?: (label: string) => Promise<number[]>,
+  /**
+   * The question the reader typed. Forwarded, because omitting it here is how the
+   * popover got the "ask about the bibliography with no bracket" fallback and the
+   * chat sidebar did not — the same feature working on one surface and silently
+   * absent on the other, which is the shape this whole release keeps finding.
+   */
+  question?: string
 ): Promise<string> {
-  return (await resolveSelectionContextAsync(selectedText, source, fetchPageText, locatePages))
-    .block;
+  return (
+    await resolveSelectionContextAsync(
+      selectedText,
+      source,
+      fetchPageText,
+      locatePages,
+      question
+    )
+  ).block;
 }
 
 /**
@@ -538,7 +552,16 @@ export async function resolveSelectionContextAsync(
   // Citations were therefore skipped in silence for the chat sidebar and for
   // Obsidian's native PDF viewer. `documentKey` is the fallback identity.
   const [resolved, citations] = await Promise.all([
-    resolveSelectionReferencesAsync(selectedText, source, fetchPageText, locatePages),
+    // The question counts here too, not just the selection. Asking "Fig. 4가
+    // 뭐야?" without highlighting the pointer resolved nothing, while the same
+    // words highlighted resolved fine. The citation path had exactly this gap and
+    // it was the reported bug; this is the same gap in the sibling resolver.
+    resolveSelectionReferencesAsync(
+      [selectedText || "", question || ""].filter(Boolean).join("\n"),
+      source,
+      fetchPageText,
+      locatePages
+    ),
     resolveSelectionCitations(
       selectedText,
       source?.searchDocumentId || source?.documentKey

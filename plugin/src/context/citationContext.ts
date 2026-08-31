@@ -47,8 +47,21 @@ function tailScanDepth(pageCount: number | undefined): number {
   if (!pageCount || pageCount <= 0) return TAIL_SCAN_PAGES;
   return Math.min(40, Math.max(TAIL_SCAN_PAGES, Math.ceil(pageCount * 0.1)));
 }
-/** Pages to follow forward once the heading is found. */
+/**
+ * Pages to follow forward once the heading is found.
+ *
+ * Five covers a paper, whose reference list is a page or two. A book's runs for
+ * ten or more, so a fixed five found the heading and then stopped inside the
+ * A's — the reader asking about entry 90 got nothing, having paid for the scan
+ * that located the section. Scaled the same way the tail scan is, and for the
+ * same reason.
+ */
 const CONTINUATION_PAGES = 5;
+
+function continuationDepth(pageCount: number | undefined): number {
+  if (!pageCount || pageCount <= 0) return CONTINUATION_PAGES;
+  return Math.min(20, Math.max(CONTINUATION_PAGES, Math.ceil(pageCount * 0.03)));
+}
 
 interface CacheEntry {
   bibliography: Map<number, string>;
@@ -169,7 +182,7 @@ async function scanForBibliography(
     // yields a heading-anchored parse.
     if (collectBibliography(window).size === 0) continue;
 
-    for (let next = start + 1; next <= Math.min(lastPage, start + CONTINUATION_PAGES); next += 1) {
+    for (let next = start + 1; next <= Math.min(lastPage, start + continuationDepth(lastPage)); next += 1) {
       window.push(await textOf(next));
     }
     return collectBibliography(window);

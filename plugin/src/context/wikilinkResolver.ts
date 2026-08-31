@@ -38,7 +38,21 @@ const MAX_LINK_CHARS = 2400;
 /** Links followed per turn. Notes routinely link a dozen ways; the prompt cannot. */
 const MAX_LINKS = 4;
 
-const WIKILINK = /\[\[([^\]\[|#]+)(?:#([^\]\[|]+))?(?:\|[^\]\[]*)?\]\]/g;
+/**
+ * `[[Note]]`, `[[Note#Heading]]`, `[[Note|alias]]`, and `[[#Heading]]`.
+ *
+ * The target may be EMPTY. `[[#Heading]]` points at a section of the note being
+ * read, and it is an everyday Obsidian form — the first version of this regex
+ * required a character before the hash and so matched none of them. Found by
+ * opening the vault rather than by writing another fixture.
+ */
+const WIKILINK = /\[\[([^\]\[|#]*)(?:#([^\]\[|]+))?(?:\|[^\]\[]*)?\]\]/g;
+
+/**
+ * Targets that are not prose. A wikilink can point at anything in the vault, and
+ * an embedded image or PDF read as text puts its bytes straight into the prompt.
+ */
+const NON_PROSE = /\.(png|jpe?g|gif|webp|svg|bmp|pdf|mp[34]|mov|webm|wav|ogg|zip|canvas|excalidraw)$/i;
 
 /**
  * Wikilinks in a piece of text, de-duplicated, in the order they appear.
@@ -54,8 +68,10 @@ export function extractWikilinks(text: string): WikilinkMatch[] {
   let m: RegExpExecArray | null;
   while ((m = WIKILINK.exec(text)) !== null) {
     const target = m[1].trim();
-    if (!target) continue;
     const heading = m[2]?.trim() || undefined;
+    // An empty target means "this note", which is only meaningful with a heading.
+    if (!target && !heading) continue;
+    if (target && NON_PROSE.test(target)) continue;
     const key = `${target}#${heading ?? ""}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -109,12 +125,21 @@ export type WikilinkReader = (
  */
 export async function resolveWikilinks(
   text: string,
-  read: WikilinkReader
+  read: WikilinkReader,
+  /**
+   * The note being read, when there is one. A `[[#Heading]]` link resolves
+   * against it — there is no other note to ask for.
+   */
+  self?: { selfPath: string; selfText: string }
 ): Promise<ResolvedWikilink[]> {
   const links = extractWikilinks(text).slice(0, MAX_LINKS);
   const out: ResolvedWikilink[] = [];
   for (const link of links) {
-    const found = await read(link.target).catch(() => undefined);
+    const found = link.target
+      ? await read(link.target).catch(() => undefined)
+      : self
+        ? { path: self.selfPath, text: self.selfText }
+        : undefined;
     if (!found?.text?.trim()) continue;
     const body = link.heading
       ? sectionUnderHeading(found.text, link.heading) || found.text

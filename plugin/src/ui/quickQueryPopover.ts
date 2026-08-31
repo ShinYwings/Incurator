@@ -551,7 +551,13 @@ export class QuickQueryPopover {
         .join("\n");
       resolvedWikilinksBlock = buildWikilinksBlock(
         await resolveWikilinks(linkSource, (target) =>
-          this.plugin.readVaultNote(target, activeContext.filePath)
+          this.plugin.readVaultNote(target, activeContext.filePath),
+          // `[[#Heading]]` points into the note being read; there is no other
+          // note to ask for. Everyday Obsidian, and the resolver matched none of
+          // them until the vault was actually opened.
+          activeContext?.filePath && activeContext?.fileContent
+            ? { selfPath: activeContext.filePath, selfText: activeContext.fileContent }
+            : undefined
         )
       );
     }
