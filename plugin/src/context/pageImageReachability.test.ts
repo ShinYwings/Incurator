@@ -57,7 +57,7 @@ describe("the page-image capability is reachable from the prompt", () => {
   });
 
   it("the pointer instruction does not send the model back to the blocks", () => {
-    const instruction = contextPriorityInstruction(true);
+    const instruction = contextPriorityInstruction(true, "pdf");
     expect(instruction).toMatch(MENTIONS_IMAGE_READ);
     expect(instruction).not.toMatch(
       /keep working from the supplied blocks rather than reading the source file/,
@@ -101,7 +101,7 @@ describe("the page-image capability is reachable from the prompt", () => {
     // means a model without it has nothing to match.
     const sites = [
       buildResolvedReferencesBlock(unresolvedPointer()),
-      contextPriorityInstruction(true),
+      contextPriorityInstruction(true, "pdf"),
       boundaryConstraints(POPOVER_PROFILE, "plugin-injected"),
       buildRecencyAnchor(POPOVER_PROFILE, { hasPrimarySelection: true , reality: "plugin-injected"}),
     ];

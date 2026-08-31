@@ -1429,7 +1429,14 @@ export class ChatSidebarView extends ItemView {
     }
 
     const lastUserHasPrimaryContext = hasPrimaryUserContext(lastUserMessage?.contextRefs);
-    systemText += `\n\n<context_priority>\n${contextPriorityInstruction(lastUserHasPrimaryContext)}\n</context_priority>`;
+    systemText += `\n\n<context_priority>\n${contextPriorityInstruction(
+      lastUserHasPrimaryContext,
+      activeCtx?.pdfPage
+        ? "pdf"
+        : activeCtx?.viewType === "markdown"
+          ? "markdown"
+          : "none"
+    )}\n</context_priority>`;
     const editableRefs = includedContextRefs(lastUserMessage?.contextRefs).filter(
       (ref) =>
         ref.type === "line-range" &&

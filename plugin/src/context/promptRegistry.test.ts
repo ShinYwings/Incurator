@@ -13,7 +13,7 @@ describe("boundaryConstraints", () => {
     expect(text).toContain("NO filesystem access");
     expect(text).toContain("Never list, browse, create, or execute files");
     expect(text).toContain("scripts, or shell commands");
-    expect(text).toContain("never invent folder or file names");
+    expect(text).toContain("never invent folder, file, or directory names");
     // v0.41.0: the popover may fetch pages of the already-open PDF.
     expect(text).toContain("PDF the user already has open");
   });

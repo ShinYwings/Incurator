@@ -249,7 +249,14 @@ export function buildQuickQueryMessages(args: QuickQueryMessageArgs): LLMMessage
     " When asked about a region of the document, summarize or quote that " +
     "region's actual content. Do not add " +
     "preamble, sign-off, or restate the question.\n\n<context_priority>\n" +
-    contextPriorityInstruction(true) +
+    contextPriorityInstruction(
+      true,
+      args.activeContext?.pdfPage
+        ? "pdf"
+        : args.activeContext?.viewType === "markdown"
+          ? "markdown"
+          : "none"
+    ) +
     "\n</context_priority>";
 
   const content = [

@@ -48,7 +48,7 @@ describe("every emitted context block is announced to the model", () => {
   });
 
   it("the pointer instruction names all of them", () => {
-    const instruction = contextPriorityInstruction(true);
+    const instruction = contextPriorityInstruction(true, "pdf");
     for (const block of EMITTED_BLOCKS) {
       expect(names(instruction, block), `pointer instruction does not name ${block}`).toBe(
         true

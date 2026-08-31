@@ -146,7 +146,7 @@ describe("quick query context builder", () => {
     // (v0.19.0: boundary text now sourced from the shared prompt registry.)
     expect(system).toContain("NO filesystem access");
     expect(system).toContain("Never list, browse, create, or execute files");
-    expect(system).toContain("never invent folder or file names");
+    expect(system).toContain("never invent folder, file, or directory names");
   });
 
   it("sources the popover boundary from the shared registry, not a hardcoded duplicate (v0.19.0)", () => {

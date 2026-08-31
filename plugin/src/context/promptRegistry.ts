@@ -120,9 +120,9 @@ export function boundaryConstraints(
         // would grow the prompt budget for text the model never sees twice.
         const reach =
           reality === "plugin-injected"
-            ? "Your only tools read the PDF the user already has open: you may " +
-              "fetch a page of it by number to follow a reference instead of " +
-              "telling the user to navigate there, and — where " +
+            ? "Your only tools read the PDF the user already has open, and nothing " +
+              "else: you may fetch a page of that document by number to follow a " +
+              "reference instead of telling the user to navigate there, and — where " +
               "`read_pdf_page_image` is among the tools you were given — you may read " +
               "a page as an image when what you were asked about is not in that " +
               "page's text; a typeset paper draws many of its equations and figures " +
@@ -134,8 +134,8 @@ export function boundaryConstraints(
               "nothing, so reaching for one costs the reader their answer.";
         rules =
           "You have NO filesystem access. Never list, browse, create, or execute " +
-          "files, scripts, or shell commands, and never invent folder or file " +
-          "names. " +
+          "files, scripts, or shell commands, and never invent folder, file, or " +
+          "directory names. " +
           reach +
           " Answer from the provided context first; where it does not cover the " +
           "question, answer from your general knowledge of the field rather than " +

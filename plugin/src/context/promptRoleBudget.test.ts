@@ -40,9 +40,25 @@ const PROMPT_FILES = [
 ] as const;
 
 /** Prompt prose only: long string literals, not identifiers or short fragments. */
+/**
+ * Strip comments before scanning for string literals.
+ *
+ * Without this the gate measured the wrong thing in both directions. A quoted
+ * phrase inside a JSDoc comment desynced quote-parity for the rest of the file,
+ * so `crossReferenceResolver`'s 630-char UNRESOLVED_NOTE — the one load-bearing
+ * prohibition in it — vanished from the count entirely, while ~2,600 chars of
+ * commentary were attributed to prompt prose in its place. The ceiling then read
+ * as 46 chars of headroom when the real figure was nearer 2,000, and a release
+ * spent that budget trimming wording to satisfy a number that was measuring
+ * comments.
+ */
+function stripComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+}
+
 function promptProse(): string {
   return PROMPT_FILES.map((f) => {
-    const src = readFileSync(join(CONTEXT_DIR, f), "utf-8");
+    const src = stripComments(readFileSync(join(CONTEXT_DIR, f), "utf-8"));
     const lits = src.match(/"(?:[^"\\]|\\.)*"/g) ?? [];
     return lits.filter((l) => l.length > 60).map((l) => l.slice(1, -1)).join("");
   }).join("\n");
