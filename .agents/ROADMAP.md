@@ -723,6 +723,41 @@ The original entry follows.
 where most tooling produces NFC, so one file becomes two `sources` rows and its
 knowledge is split across both.
 
+### E7. The provider key travels as a CLI argument
+
+**Triaged from `USER_REPORT.md` 2026-09-01; raised by code review 2026-08-29.**
+Confirmed still open: `incuratorClient.ts:917` calls
+`["plugin","secret","set","--name",name,"--value",value]`, and argv is visible in
+`ps`. macOS restricts `kern.procargs2` to the same uid, which is why the v0.71.0
+review scored it LOW, but "only every process you run" is not nothing.
+
+The fix needs the value on stdin, and that path —
+`main.ts runBackendJsonCommand` → `runBackendCommand` — is the spawn EVERY
+backend call shares. Changing a shared signature mid-release for a LOW is what
+the stability tiebreaker exists to prevent, which is why it is its own item.
+
+To do: add an optional stdin channel to `runBackendCommand`, teach
+`wiki plugin secret set` to read `--value -`, and move only `setSecret` across.
+The existing `--value` path stays for the backend's own use.
+
+### E8. `is_knowledge_question` gates nothing in the funnel
+
+**Triaged from `USER_REPORT.md` 2026-09-01; raised by code review 2026-08-29.**
+Confirmed still open: `context_service` derives the value and carries it into the
+request and the query trace, but the `build_evidence` call at line 777 is
+unconditional. So a non-English "이 문단 번역해줘: <본문>" leaves `search_query`
+empty, `working_query` falls back to the pasted body, and **BM25 runs over the
+text the user asked to have translated.**
+
+`plugin_api/context.py:64` already returns an empty pack on the same judgement,
+so the two paths disagree about what the flag means. v0.71.0 only made the
+docstring honest about it.
+
+Gating the funnel skips retrieval outright — a control-flow change, so not a
+trivial nit. Check what `QueryOrchestrator` answers with an empty pack before
+committing to it: replying "정보가 없습니다" to a translation request is the wrong
+answer, not a safe one.
+
 ## Phase F — Features
 
 Everything here adds capability rather than repairing it. None of it is
@@ -889,6 +924,19 @@ their evidence ledgers; `git log -- .agents/plans/` has them in full.
 | `agy_shell_out_arena/` | E4 |
 | `04_pdf_background_index.md` + arena | I2 — planned, awaiting approval, never implemented |
 | `05_pdf_reading_assistant.md` + arena | F1 — phase P5 is still open |
+
+**Walked again 2026-09-01.** `route_intent_arena/` and `07_route_empty_derivation.md`
+were deleted: both shipped (v0.47.0, v0.65.0) and nothing in this file pointed at
+them any more. The four rows above were re-checked against their live items —
+E3, E4, I2 and F1 P5 are all still open — so all four stay. `git log --
+.agents/plans/` has the deleted pair in full.
+
+`.agents/drafts/headless_permission_automation.md` went too. It was marked
+"IMPLEMENTED — needs Executor review", and that review happened: the fetch MCP
+auto-injection it describes is in `LLMClient.ts`, and its permission half is
+recorded in the v0.71.0 CHANGELOG entry — `mcp(incurator_fetch)` and
+`mcp(fetch_url)` were both auto-denied, and only the `mcp(*)` wildcard let the
+call through. A draft whose review is done is not a briefing.
 
 The ordering matters and is the thing that went wrong before: the folders were
 once deleted as "finished" and had to be restored, because nobody had walked them

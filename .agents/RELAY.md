@@ -1,47 +1,29 @@
 # RELAY
 
-**Branch:** `release/v0.78.0` — pushed, PR open, awaiting review + CI.
+**IDLE.** No active goal. `master` is at v0.78.0, working tree clean.
 
-## What shipped
+Git log is the history; this file is live state only. It is a stub on purpose —
+accumulating session notes here is what buries the one thing the next agent
+actually needs.
 
-ROADMAP E6. One file could register twice because macOS `readdir` returns a
-different Unicode form of the same path than everything else produces. Measured:
-18 of 50 relpaths NFD, one pair already split into two `curated` sources sharing
-one `content_hash`.
+## Where to pick up
 
-Bigger than the ROADMAP entry said: `db_sync` reconciles peers BY RELPATH, so two
-devices in different forms never collide and the peer's rows attach to a fresh
-duplicate. It is a cross-device duplication mechanism.
+`.agents/ROADMAP.md`. The queue is Phase E and Phase F.
 
-Prevention shipped, and the existing pair was merged with the user's approval
-after a full backup. Live vault: 50 → 49 sources, NFD 18 → 0, collisions 1 → 0.
+Two items are already approved by the user and waiting:
 
-## Two things worth carrying forward
+- **E2** — retrieval chunks are too small (median 181 chars; 56% under 200).
+  Shipping it re-embeds the corpus, which is a reindex of the user's vault. The
+  user approved that on 2026-08-31.
+- **E6's sibling work is done** — shipped v0.78.0.
 
-- **The rehearsal caught a UNIQUE collision** the code would have half-applied
-  against real data. Rehearse migrations on a copy, always.
-- **The apply caught what the rehearsal could not**: `wiki add` never calls
-  `init_db`, so pairing canonicalisation there left the ingest path reading stale
-  forms — the change would have manufactured the duplicates it removes. Every
-  test builds its database fresh, so no test could have said so.
+## Two things this repo keeps re-learning
 
-## Status
+Both cost a release each in v0.77.0 and v0.78.0, and both were caught by review
+rather than by the author:
 
-- [x] Implementation, guards, docs (EN then KR), SCHEMA §6.1, version, CHANGELOG
-- [x] Local gates: pytest 1903, vitest 1234, ruff, mypy
-- [x] Rehearsed, then applied to the live vault with approval
-- [ ] `/code-review:code-review <PR#>` — MANDATORY before merge
-- [ ] CI green, then merge
-
-## Next
-
-E2 — chunk size and reindex, already approved by the user. Note it re-embeds the
-corpus, so it comes after this.
-
-## Known gaps recorded, not fixed
-
-- 64 pre-existing orphaned child rows (`source_id` 32 and 0). Not created by this
-  release; folding an unrelated repair into a data migration makes the migration
-  unreviewable. → ROADMAP.
-- `db/sources.py`'s one unnormalised lookup, frozen by the D2 holdout record.
-  Read-only with a `content_hash` fallback. Close it when the freeze lifts.
+- **Cutting from the wrong end.** A constant correct for a paper is wrong for a
+  book; head truncation is wrong whenever the reader is not at the head.
+- **Half-wiring.** A fix lands on one surface, one call site, one code path — and
+  its sibling ships unchanged behind a green test. If a guard cannot see the
+  sibling, widen the guard, not the exemption.
