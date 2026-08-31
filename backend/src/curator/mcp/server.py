@@ -22,6 +22,8 @@ Vault resolution:
 """
 
 from __future__ import annotations
+from .. import source_identity
+from ..source_identity import normalize_relpath
 from .. import constants as consts
 
 import json
@@ -725,6 +727,7 @@ def build_server() -> FastMCP:
 
             worker_paths = _resolve_paths()
             db.init_db(worker_paths.state_db)
+            source_identity.ensure_canonical_relpaths(worker_paths.state_db)
             worker = IngestWorker(
                 worker_paths,
                 lambda: cfg.load_config(worker_paths),
@@ -1849,11 +1852,17 @@ def build_server() -> FastMCP:
             with db.connect(paths.state_db) as conn:
                 row = conn.execute(
                     "SELECT * FROM sources WHERE relpath = ? OR relpath = ?",
-                    (source_relpath, f"{source_relpath}.md"),
+                    (
+                            normalize_relpath(source_relpath),
+                            normalize_relpath(f"{source_relpath}.md"),
+                        ),
                 ).fetchone()
         elif source_relpath:
             with db.connect(paths.state_db) as conn:
-                row = conn.execute("SELECT * FROM sources WHERE relpath = ?", (source_relpath,)).fetchone()
+                row = conn.execute(
+                        "SELECT * FROM sources WHERE relpath = ?",
+                        (normalize_relpath(source_relpath),),
+                    ).fetchone()
         else:
             row = None
 

@@ -12,6 +12,7 @@ from typing import Any
 
 from . import config as cfg
 from . import db, parsers, path_refs
+from .source_identity import normalize_relpath
 
 
 @dataclass(frozen=True)
@@ -390,7 +391,9 @@ def rebind_source(
             WHERE id = ?
             """,
             (
-                relpath,
+                # Reference Mode writes a path the OS handed us; canonical or
+                # the same file splits in two. Guarded by test_relpath_guard.
+                normalize_relpath(relpath),
                 external_ref,
                 external_ref,
                 content_hash,

@@ -12,6 +12,7 @@ per-workspace Exhibition generation; curation is a dynamic query-time lens.
 
 from __future__ import annotations
 
+from .source_identity import normalize_relpath
 from . import constants as consts
 
 import json
@@ -492,7 +493,9 @@ def _record_pdf_pages_conn(conn, source_id: int | None, relpath: str, parsed) ->
             """,
             (
                 source_id,
-                relpath,
+                # Reference Mode writes a path the OS handed us; canonical or the
+                # same file splits in two. Guarded by test_relpath_guard.
+                normalize_relpath(relpath),
                 page_number,
                 str(page.get("content_hash") or ""),
                 int(page.get("char_count") or 0),
@@ -1748,7 +1751,9 @@ def register_and_generate_l1(
     return generate_l1_structural_context(
         paths,
         source_id,
-        relpath,
+        # Reference Mode writes a path the OS handed us; canonical or the
+        # same file splits in two. Guarded by test_relpath_guard.
+        normalize_relpath(relpath),
         content_hash,
         existing_context_id=existing_context_id,
     )
@@ -1775,7 +1780,9 @@ def generate_l1_summary(
         return register_and_generate_l1(
             paths,
             source_id,
-            relpath,
+            # Reference Mode writes a path the OS handed us; canonical or the
+            # same file splits in two. Guarded by test_relpath_guard.
+            normalize_relpath(relpath),
             content_hash,
             existing_context_id=existing_context_id,
         )
@@ -2096,7 +2103,7 @@ def add_file(
     with db.connect(paths.state_db) as conn:
         existing = conn.execute(
             "SELECT id, relpath, content_hash, context_id FROM sources WHERE relpath = ?",
-            (relpath,),
+            (normalize_relpath(relpath),),
         ).fetchone()
 
         if existing is not None:
@@ -2159,7 +2166,10 @@ def add_file(
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                relpath,
+                # NFC, so the macOS `readdir` form and the typed form are one
+                # source. Stored unnormalised, they were two — measured on the
+                # live vault as 18 of 50 paths in NFD and one pair already split.
+                normalize_relpath(relpath),
                 parsed.content_hash,
                 parsed.file_type,
                 parsed.bytes,
@@ -2378,7 +2388,9 @@ def import_source_file(
                     WHERE id = ?
                     """,
                     (
-                        relpath,
+                        # Reference Mode writes a path the OS handed us; canonical or the
+                        # same file splits in two. Guarded by test_relpath_guard.
+                        normalize_relpath(relpath),
                         parsed.content_hash,
                         parsed.file_type,
                         parsed.bytes,
@@ -2404,7 +2416,9 @@ def import_source_file(
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
                     """,
                     (
-                        relpath,
+                        # Reference Mode writes a path the OS handed us; canonical or the
+                        # same file splits in two. Guarded by test_relpath_guard.
+                        normalize_relpath(relpath),
                         parsed.content_hash,
                         parsed.file_type,
                         parsed.bytes,

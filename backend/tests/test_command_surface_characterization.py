@@ -98,7 +98,10 @@ def test_cli_root_command_tree_is_stable() -> None:
     assert hidden_groups == {"devices", "jobs", "mcp", "models", "plugin", "testbed"}
 
     assert _command_names(root.commands["source"]) == [
-        "clear-graph-cache", "list", "ls", "retry", "rm", "show",
+        # `dedupe-paths` (v0.78.0) merges sources whose paths differ only by
+        # Unicode normalisation form. It reports by default and writes only under
+        # `--apply`, because merging two sources rewrites the user's data.
+        "clear-graph-cache", "dedupe-paths", "list", "ls", "retry", "rm", "show",
     ]
     assert _command_names(root.commands["db"]) == ["autosync", "export", "import"]
     assert _command_names(root.commands["mcp"]) == ["connect", "install"]

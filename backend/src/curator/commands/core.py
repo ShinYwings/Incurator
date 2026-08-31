@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+from .. import source_identity
 from .common import *
 
 def reset(
@@ -257,6 +258,7 @@ def init(
     # 4. Init the state database
     cfg.prepare_machine_state(paths)
     db.init_db(paths.state_db)
+    source_identity.ensure_canonical_relpaths(paths.state_db)
     _ok(f"Database:  {paths.state_db}")
 
     # 5. Copy template files
@@ -1208,6 +1210,7 @@ def sync(
 
     paths = _resolve_root_or_die()
     db.init_db(paths.state_db)
+    source_identity.ensure_canonical_relpaths(paths.state_db)
     config = cfg.load_config(paths)
     console.print()
     console.rule("[bold cyan]Sync — Deductive Verification[/bold cyan]")

@@ -23,6 +23,7 @@ from typing import IO, Any, Callable as _Callable, Mapping
 
 from typing import TYPE_CHECKING
 
+from .source_identity import normalize_relpath
 from . import db, durable_io
 
 if TYPE_CHECKING:  # import cycle at runtime; only the annotation needs the name
@@ -1676,6 +1677,14 @@ def _lw_upsert_source(
         if dry_run:
             return "inserted", int(remote_id or 0)
         insert_row = {key: value for key, value in row.items() if key != "id"}
+        # Normalise the peer's path BEFORE writing it, not only in the duplicate
+        # lookup below. SQLite's UNIQUE is a byte comparison, so an NFD path from
+        # a peer and the NFC path we hold are different strings and the insert
+        # SUCCEEDS — the "duplicate" branch is never reached for a form mismatch,
+        # which made the normalisation added there dead code for the exact case it
+        # was meant to fix. Two devices would split one file on their first sync.
+        if "relpath" in insert_row:
+            insert_row["relpath"] = normalize_relpath(str(insert_row["relpath"] or ""))
         outcome = _do_insert(conn, "sources", insert_row)
         if outcome == "duplicate":
             # This relpath is already registered under a different sync_key —
@@ -1684,7 +1693,7 @@ def _lw_upsert_source(
             # instead of being orphaned.
             local = conn.execute(
                 "SELECT id FROM sources WHERE relpath = ?",
-                (row.get("relpath"),),
+                (normalize_relpath(str(row.get("relpath") or "")),),
             ).fetchone()
             if local is not None:
                 return "skipped", int(local[0])
@@ -1717,6 +1726,11 @@ def _lw_upsert_source(
             for key, value in row.items()
             if key not in {"id", "sync_key"}
         }
+        # Same reason as the insert above. Without this, a peer whose revision is
+        # newer overwrites an already-canonical local path with its own NFD form,
+        # un-doing the canonicalisation on a device that had already been fixed.
+        if "relpath" in update_row:
+            update_row["relpath"] = normalize_relpath(str(update_row["relpath"] or ""))
         assignments = ", ".join(f"{key} = ?" for key in update_row)
         conn.execute(
             f"UPDATE sources SET {assignments} WHERE id = ?",

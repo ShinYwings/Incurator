@@ -2,6 +2,7 @@
 """Shared helpers for the `wiki` CLI command modules."""
 
 from __future__ import annotations
+from ..source_identity import normalize_relpath
 from .. import constants as consts
 import json
 import logging
@@ -1936,7 +1937,8 @@ def _requeue_stale_sources(paths: cfg.WikiPaths, stale_files: list) -> None:
                 # Strip wikilink brackets if present: [[path]] → path
                 relpath = relpath.strip().strip("[]")
                 row = conn.execute(
-                    "SELECT id FROM sources WHERE relpath = ?", (relpath,)
+                    "SELECT id FROM sources WHERE relpath = ?",
+                        (normalize_relpath(relpath),),
                 ).fetchone()
                 if row:
                     conn.execute(
@@ -2834,11 +2836,60 @@ def _refresh_search_index(paths: cfg.WikiPaths, *, embed: bool = True) -> None:
     return _refresh_search_index_impl(paths, embed=embed)
 
 
+_CANONICALISED_DBS: set[str] = set()
+
+
+def _canonicalise_once(paths: cfg.WikiPaths) -> None:
+    """Fold stored source paths into canonical form, once per process per vault.
+
+    This is a correctness precondition, not housekeeping. Lookups normalise as of
+    v0.78.0, so a row still stored in the macOS NFD form is unreachable by its own
+    path — and `wiki add` on that file would not find it and would register a
+    SECOND row. Normalising the reads while leaving the writes' targets in the old
+    form manufactures exactly the duplicates this release exists to remove.
+
+    It sits here because `_resolve_root_or_die` is the one gate every vault-opening
+    CLI command passes through, and because `db/schema.py` — where `init_db` lives
+    and where this would otherwise belong — is pinned by content hash in the D2
+    holdout record.
+
+    Found by applying the migration to the real vault and then checking: `wiki
+    add` never calls `init_db`, so pairing it there alone left the ingest path,
+    the one that actually registers sources, still reading stale forms.
+
+    Idempotent and cheap: after the first pass it rewrites nothing. Never fatal —
+    a database that cannot be opened is the caller's problem to report, not this
+    helper's to raise inside an unrelated command.
+    """
+    key = str(paths.state_db)
+    if key in _CANONICALISED_DBS:
+        return
+    if not paths.state_db.exists():
+        return
+    try:
+        from .. import source_identity
+
+        source_identity.ensure_canonical_relpaths(paths.state_db)
+    except Exception:  # noqa: BLE001 - a broken DB is reported by the command itself
+        # Deliberately NOT memoised on failure. The first draft marked the vault
+        # done before attempting, so a transient `database is locked` — routine
+        # while the MCP server's ingest worker holds a write — retired the
+        # canonicalisation for the life of that long-running process, leaving
+        # stored paths unreachable by their own normalised form and the next
+        # registration free to write a duplicate. The fix's own retry suppression
+        # would have reintroduced the bug the fix exists to remove.
+        _log.debug("could not canonicalise stored source paths", exc_info=True)
+        return
+    _CANONICALISED_DBS.add(key)
+
+
 def _resolve_root_or_die(hint_path: Path | None = None) -> cfg.WikiPaths:
     override = _cli_override("_resolve_root_or_die")
     if override is not None:
         return override(hint_path)
-    return _resolve_root_or_die_impl(hint_path)
+    paths = _resolve_root_or_die_impl(hint_path)
+    _canonicalise_once(paths)
+    return paths
 
 
 def _ensure_npm(install_cmd: str) -> bool:

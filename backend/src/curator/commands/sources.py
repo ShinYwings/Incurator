@@ -405,3 +405,65 @@ def sources_clear_graph_cache_cmd(
             "The next compile re-extracts them.")
     else:
         _ok(f"Source {source_id} had no staged graph batches.")
+
+
+@source_app.command("dedupe-paths")
+def sources_dedupe_paths_cmd(
+    apply: bool = typer.Option(
+        False,
+        "--apply",
+        help="Perform the merge. Without this the command only reports.",
+    ),
+) -> None:
+    """Merge sources whose paths differ only by Unicode normalisation form.
+
+    macOS hands back NFD from `readdir` while nearly all tooling and every typed
+    path produces NFC, so the same file can register twice and have its knowledge
+    split across two source ids. Measured on a real vault: 18 of 50 paths stored
+    NFD, one pair already split.
+
+    Registration and lookup canonicalise as of v0.78.0, and stored paths are
+    folded on open — but a row whose canonical form is already taken cannot be
+    folded without merging two sources and everything hanging off them. That is
+    the user's data, so it happens here, deliberately, and never as a side effect.
+
+    Reports by default. Nothing is written without `--apply`.
+    """
+    from .. import source_identity
+
+    paths = _resolve_root_or_die()
+    with db.connect(paths.state_db) as conn:
+        groups = source_identity.relpath_collisions(conn)
+        if not groups:
+            console.print("[green]No sources collide on normalisation form.[/green]")
+            return
+
+        refused = 0
+        for group in groups:
+            plan = source_identity.merge_relpath_collision(conn, group, apply=apply)
+            if plan["refused"]:
+                refused += 1
+                console.print(
+                    f"[red]REFUSED[/red] {plan['relpath']}\n"
+                    f"  ids {plan['ids']} normalise to one path but hold different "
+                    f"content hashes, so they are not the same file. Nothing done."
+                )
+                continue
+            moved = plan["rows_moved"]
+            assert isinstance(moved, dict)
+            detail = ", ".join(f"{t}={n}" for t, n in sorted(moved.items())) or "none"
+            verb = "Merged" if apply else "Would merge"
+            console.print(
+                f"[yellow]{verb}[/yellow] {plan['relpath']}\n"
+                f"  keep id={plan['keep']}  remove {plan['remove']}\n"
+                f"  rows repointed: {detail}"
+            )
+        if apply:
+            conn.commit()
+
+    if not apply:
+        console.print(
+            "\n[dim]Nothing was written. Re-run with --apply to perform it.[/dim]"
+        )
+    if refused:
+        raise typer.Exit(1)

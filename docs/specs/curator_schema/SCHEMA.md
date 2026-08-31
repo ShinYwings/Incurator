@@ -1,4 +1,4 @@
-# Incurator - Schema & Operating Conventions (v0.77.0)
+# Incurator - Schema & Operating Conventions (v0.78.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -368,6 +368,66 @@ Rules:
 ## 6. SQLite State Schema Additions
 
 ### 6.1 `sources`
+
+**Path identity (v0.78.0).** `relpath` MUST be stored and compared in Unicode
+**NFC**. It is the UNIQUE key AND the column `db_sync` reconciles peers through,
+so identity is string equality on a path — and macOS `readdir` returns NFD while
+nearly all tooling and every typed path produces NFC.
+
+Measured before the rule existed: 18 of 50 rows in a live vault held NFD paths,
+and one pair had already split into two `curated` sources sharing one
+`content_hash`, its knowledge divided across two ids. The hash could not prevent
+it: registration looks up `WHERE relpath = ?` and compares hashes only to decide
+whether the file at THAT path changed, so hash equality is change-detection on a
+known path, never cross-path identity.
+
+The consequence is cross-device, not local. `db_sync` resolves a peer's duplicate
+by looking the source up BY RELPATH to attach the peer's child rows to the local
+id, so two devices holding one file in different forms never collide and the
+peer's rows attach to a fresh duplicate.
+
+Requirements:
+
+- Every write to and comparison against `relpath` normalises to NFC.
+  `backend/tests/test_relpath_guard.py` enumerates BOTH — comparisons and writes
+  — and fails on a site that binds an unnormalised value. Scanning only
+  comparisons is not enough and was not: an INSERT has no `WHERE`, and
+  `relocate_source`'s UPDATE keys on `WHERE id = ?`, so five write sites were
+  shipping unnormalised while a comparison-only guard reported clean.
+- `db.relocate_source` is frozen by the D2 holdout record and writes its argument
+  verbatim. It is normalised at its only caller, `plugin_api.relocate_source`,
+  which the plugin invokes on every Obsidian file rename with the OS's own path
+  string — the NFD surface this rule exists for. A separate test pins that.
+- The cross-device transport normalises the peer's `relpath` on BOTH its insert
+  and its last-writer-wins update, not only in the duplicate lookup. SQLite's
+  UNIQUE is a byte comparison, so a form mismatch does not collide at all and the
+  duplicate branch is never reached; normalising only there would be dead code for
+  the case it was written for.
+- Stored paths are canonicalised on the CLI gate every vault-opening command
+  passes through (`_resolve_root_or_die`), and best-effort when the MCP server
+  starts its ingest worker. This is a correctness precondition, not housekeeping:
+  normalising reads while leaving stored rows in the old form makes them
+  unreachable by path, and the next ingest registers a duplicate.
+
+  **The MCP standalone path is NOT covered.** A tool call that resolves the vault
+  per-call without a running server, or a server started with
+  `CURATOR_DISABLE_INGEST_WORKER=1`, never canonicalises. A vault reached only
+  that way since upgrading can still hold pre-v0.78.0 paths. Recorded as a known
+  gap rather than claimed as covered.
+- Rows that collide after normalisation are NOT folded automatically. Merging two
+  sources rewrites the user's data, so it is `wiki source dedupe-paths`, which
+  reports by default and writes only under `--apply`.
+- A merge KEEPS THE LOWEST ID and REFUSES any group whose rows disagree on
+  `content_hash` — paths that normalise together but hold different bytes are not
+  one file.
+- A merge also rewrites `sources.id` values held inside JSON arrays, using the
+  registry the cross-device transport already maintains
+  (`_SOURCE_ID_ARRAY_REFS`; `prompt_runs.source_ids` is the known case). A
+  column remap cannot reach inside a JSON string, and a kept-but-stale id names
+  whatever unrelated source later occupies that row number.
+- Case folding is deliberately NOT part of identity. Measured 2026-09-01: zero
+  colliding pairs in the live vault, and two files differing only in case are
+  legitimately distinct on Linux.
 
 The v0.2.1 source row has per-layer status columns:
 

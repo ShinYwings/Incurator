@@ -6,6 +6,7 @@ from typing import Any
 
 from .. import config as cfg
 from .. import db, ingest_raw, search, source_tools
+from ..source_identity import normalize_relpath
 
 def source_row(
     paths: cfg.WikiPaths,
@@ -293,7 +294,13 @@ def relocate_source(
     A Zotero stub is an ordinary vault file and may be moved freely — its
     `logical_source_id` identifies the document, not its location.
     """
-    to_path = (to_path or "").strip()
+    # Canonical before it reaches the DB. This is the ONE path that can re-plant a
+    # macOS-form path after v0.78.0: the plugin calls it on every Obsidian file
+    # rename with `file.path`, the OS's own string — exactly the NFD surface this
+    # release exists to fix. `db.relocate_source` writes it verbatim and cannot be
+    # changed, being pinned by content hash in the D2 holdout record, so the
+    # normalisation belongs here, at its only caller.
+    to_path = normalize_relpath((to_path or "").strip())
     if not to_path:
         return {"ok": False, "state": "error", "error": "to_path is required"}
     row = source_row(paths, source_id=source_id, source_path=from_path)
