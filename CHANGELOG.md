@@ -25,9 +25,16 @@ everything else produces.
   different forms never collide at all, so the peer's rows attach to a fresh
   duplicate. Normalising is what makes two devices agree on what one file is.
 
-- **Every comparison and every write normalises, and a test says so.** Eight
-  comparison sites, thirty-three places deriving a relpath from a `Path`, no
-  chokepoint. v0.77.0 shipped four separate cases of a fix landing at one call
+- **Every comparison and every write normalises, and a test says so — after
+  review found that the first version of that test could not see writes.** It
+  scanned for `WHERE relpath =`, which an INSERT has none of and which
+  `relocate_source`'s `WHERE id = ?` UPDATE does not match, so five write sites
+  were shipping unnormalised while the guard reported clean and this entry
+  claimed otherwise. Three lenses found it independently. The guard now covers
+  both, and the writes it exposed are fixed: the cross-device transport's insert
+  and last-writer-wins update, two Reference Mode writes, and the Obsidian rename
+  path. Eight comparison sites, thirty-three places deriving a relpath from a
+  `Path`, no chokepoint. v0.77.0 shipped four separate cases of a fix landing at one call
   site and missing its sibling, so a guard enumerates the sites and fails on one
   that binds an unnormalised value. One site is exempt and recorded rather than
   waved through: `db/sources.py` is pinned by content hash in the D2 holdout
@@ -42,7 +49,12 @@ everything else produces.
   effect. Child tables are read from the schema rather than listed. The merge
   keeps the lowest id and **refuses** any group whose rows disagree on
   `content_hash` — paths that normalise together but hold different bytes are not
-  one file.
+  one file. It also rewrites ids held inside JSON arrays, reusing the registry
+  the transport already maintains: the first version discovered child tables by
+  looking for a literal `source_id` COLUMN, so it could not see
+  `prompt_runs.source_ids` at all and left rows naming a source it had just
+  deleted. Two such rows existed in the live vault after the apply and were
+  repaired.
 
 ### Verified
 

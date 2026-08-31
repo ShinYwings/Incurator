@@ -493,7 +493,9 @@ def _record_pdf_pages_conn(conn, source_id: int | None, relpath: str, parsed) ->
             """,
             (
                 source_id,
-                relpath,
+                # Reference Mode writes a path the OS handed us; canonical or the
+                # same file splits in two. Guarded by test_relpath_guard.
+                normalize_relpath(relpath),
                 page_number,
                 str(page.get("content_hash") or ""),
                 int(page.get("char_count") or 0),
@@ -1749,7 +1751,9 @@ def register_and_generate_l1(
     return generate_l1_structural_context(
         paths,
         source_id,
-        relpath,
+        # Reference Mode writes a path the OS handed us; canonical or the
+        # same file splits in two. Guarded by test_relpath_guard.
+        normalize_relpath(relpath),
         content_hash,
         existing_context_id=existing_context_id,
     )
@@ -1776,7 +1780,9 @@ def generate_l1_summary(
         return register_and_generate_l1(
             paths,
             source_id,
-            relpath,
+            # Reference Mode writes a path the OS handed us; canonical or the
+            # same file splits in two. Guarded by test_relpath_guard.
+            normalize_relpath(relpath),
             content_hash,
             existing_context_id=existing_context_id,
         )
@@ -2382,7 +2388,9 @@ def import_source_file(
                     WHERE id = ?
                     """,
                     (
-                        relpath,
+                        # Reference Mode writes a path the OS handed us; canonical or the
+                        # same file splits in two. Guarded by test_relpath_guard.
+                        normalize_relpath(relpath),
                         parsed.content_hash,
                         parsed.file_type,
                         parsed.bytes,
@@ -2408,7 +2416,9 @@ def import_source_file(
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
                     """,
                     (
-                        relpath,
+                        # Reference Mode writes a path the OS handed us; canonical or the
+                        # same file splits in two. Guarded by test_relpath_guard.
+                        normalize_relpath(relpath),
                         parsed.content_hash,
                         parsed.file_type,
                         parsed.bytes,

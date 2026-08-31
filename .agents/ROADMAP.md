@@ -693,7 +693,15 @@ model from trying.
 granted-looking path, so a directory the user never authorised reads as a corrupt
 file rather than as a permission problem.
 
-### E6. The same file registers twice, differing only by Unicode normalisation — **CONFIRMED IN THE LIVE VAULT 2026-08-31**
+### E6. The same file registers twice, differing only by Unicode normalisation — **SHIPPED v0.78.0**
+
+Prevention and the merge both landed. Live vault: 50 → 49 sources, NFD 18 → 0,
+collisions 1 → 0. Bigger than this entry said — `db_sync` reconciles peers BY
+RELPATH, so it was a cross-device duplication mechanism, not a local annoyance.
+
+The original entry follows.
+
+### E6 (original) — CONFIRMED IN THE LIVE VAULT 2026-08-31
 
 Not hypothetical. Of 50 registered sources, **18 (36%) have relpaths stored in
 NFD**, and **one pair already collides**: `04_Resources/References/Camera Pose

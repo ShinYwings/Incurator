@@ -31,6 +31,7 @@ silently invalidates that result for a reason unrelated to retrieval.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import unicodedata
 
@@ -43,6 +44,17 @@ __all__ = [
     "merge_relpath_collision",
     "ensure_canonical_relpaths",
 ]
+
+
+def _source_id_array_refs() -> dict[str, tuple[str, ...]]:
+    """The registry PR #190 built for the transport, reused here.
+
+    Imported lazily: `db_sync` is a heavy module and this one is imported by the
+    CLI gate that runs on every command.
+    """
+    from .db_sync import _SOURCE_ID_ARRAY_REFS
+
+    return _SOURCE_ID_ARRAY_REFS
 
 
 def normalize_relpath(value: str) -> str:
@@ -197,6 +209,42 @@ def merge_relpath_collision(
                 duplicate[table] = duplicate.get(table, 0) + left
             if count - left:
                 moved[table] = moved.get(table, 0) + (count - left)
+    # A source id also lives inside JSON arrays, where no column remap reaches.
+    # `prompt_runs.source_ids` is the known case, and PR #190 built the registry
+    # for it after the cross-device import shipped the identical blind spot: a
+    # kept-but-wrong id names whatever unrelated source occupies that row number.
+    # Reusing that registry rather than restating it is what keeps the two paths
+    # from drifting — a second copy is a second thing to forget.
+    array_rewritten = 0
+    remap = {loser["id"]: survivor["id"] for loser in losers}
+    for table, columns in _source_id_array_refs().items():
+        for column in columns:
+            rows_with = conn.execute(
+                f"SELECT rowid, {column} FROM {table} WHERE {column} IS NOT NULL"
+            ).fetchall()
+            for rowid, raw in rows_with:
+                try:
+                    ids = json.loads(raw)
+                except (TypeError, ValueError):
+                    continue
+                if not isinstance(ids, list):
+                    continue
+                if not any(i in remap for i in ids if isinstance(i, int)):
+                    continue
+                # De-duplicated in place: if the survivor is already named, folding
+                # the loser in must not name it twice.
+                merged: list = []
+                for value in ids:
+                    mapped = remap.get(value, value) if isinstance(value, int) else value
+                    if mapped not in merged:
+                        merged.append(mapped)
+                array_rewritten += 1
+                if apply:
+                    conn.execute(
+                        f"UPDATE {table} SET {column} = ? WHERE rowid = ?",
+                        (json.dumps(merged), rowid),
+                    )
+
     if apply:
         for loser in losers:
             conn.execute("DELETE FROM sources WHERE id = ?", (loser["id"],))
@@ -211,6 +259,7 @@ def merge_relpath_collision(
         "remove": [loser["id"] for loser in losers],
         "rows_moved": moved,
         "rows_dropped_as_duplicate": duplicate,
+        "json_arrays_rewritten": array_rewritten,
         "applied": apply,
     }
 

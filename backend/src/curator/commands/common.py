@@ -2864,7 +2864,6 @@ def _canonicalise_once(paths: cfg.WikiPaths) -> None:
     key = str(paths.state_db)
     if key in _CANONICALISED_DBS:
         return
-    _CANONICALISED_DBS.add(key)
     if not paths.state_db.exists():
         return
     try:
@@ -2872,7 +2871,16 @@ def _canonicalise_once(paths: cfg.WikiPaths) -> None:
 
         source_identity.ensure_canonical_relpaths(paths.state_db)
     except Exception:  # noqa: BLE001 - a broken DB is reported by the command itself
+        # Deliberately NOT memoised on failure. The first draft marked the vault
+        # done before attempting, so a transient `database is locked` — routine
+        # while the MCP server's ingest worker holds a write — retired the
+        # canonicalisation for the life of that long-running process, leaving
+        # stored paths unreachable by their own normalised form and the next
+        # registration free to write a duplicate. The fix's own retry suppression
+        # would have reintroduced the bug the fix exists to remove.
         _log.debug("could not canonicalise stored source paths", exc_info=True)
+        return
+    _CANONICALISED_DBS.add(key)
 
 
 def _resolve_root_or_die(hint_path: Path | None = None) -> cfg.WikiPaths:

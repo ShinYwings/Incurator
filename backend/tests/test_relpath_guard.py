@@ -149,3 +149,61 @@ def test_the_cli_gate_canonicalises_before_any_command_touches_sources() -> None
         "vault holding pre-v0.78.0 NFD paths will register duplicates on its "
         "next ingest"
     )
+
+
+# A write is invisible to the comparison scan above: an INSERT has no WHERE, and
+# `relocate_source`'s UPDATE keys on `WHERE id = ?`. Three separate write sites
+# were shipping unnormalised while the guard reported clean, and the CHANGELOG
+# claimed "every write normalises". Review found all three.
+RELPATH_WRITE = re.compile(
+    r"UPDATE\s+\w+\s+SET\s+relpath\s*=|INSERT\s+(?:OR\s+\w+\s+)?INTO\s+sources\s*\(",
+    re.I,
+)
+
+# Writes that are correct without a literal `normalize_relpath` beside them.
+WRITE_EXEMPT = {
+    # Frozen by the D2 holdout record. Its one write (`relocate_source`) is
+    # normalised at its only caller, `plugin_api/sources.py`, pinned by the test
+    # below.
+    SRC / "db" / "sources.py",
+    # Defines the boundary.
+    SRC / "source_identity.py",
+}
+
+
+def test_every_relpath_write_stores_the_canonical_form() -> None:
+    offenders: list[str] = []
+    for path in SRC.rglob("*.py"):
+        if path in WRITE_EXEMPT:
+            continue
+        text = path.read_text(encoding="utf-8")
+        for match in RELPATH_WRITE.finditer(text):
+            # Wide, because a multi-column UPDATE puts its bindings well below
+            # the SET clause — the Reference Mode writes span ~20 lines.
+            window = text[max(0, match.start() - 900) : match.end() + 1600]
+            if "normalize_relpath" in window:
+                continue
+            line = text[: match.start()].count("\n") + 1
+            offenders.append(f"{path.relative_to(SRC)}:{line}")
+
+    assert not offenders, (
+        "these write sources.relpath without canonicalising it, so the macOS form "
+        "is stored verbatim and the same file becomes two sources: "
+        + ", ".join(offenders)
+    )
+
+
+def test_the_only_caller_of_the_frozen_relocate_normalises_first() -> None:
+    """`db.relocate_source` writes its argument verbatim and cannot be edited.
+
+    The plugin calls it on every Obsidian file rename with `file.path` — the OS's
+    own string, and on macOS the NFD form. Without this a rename re-plants exactly
+    the path shape this release removes, on a vault already fixed.
+    """
+    text = (SRC / "plugin_api" / "sources.py").read_text(encoding="utf-8")
+    at = text.find("db.relocate_source(")
+    assert at != -1, "the relocate caller moved; this guard needs updating"
+    assert "normalize_relpath" in text[max(0, at - 1500) : at], (
+        "plugin_api.relocate_source passes an unnormalised path to the frozen "
+        "db.relocate_source, so a rename re-plants the macOS form"
+    )

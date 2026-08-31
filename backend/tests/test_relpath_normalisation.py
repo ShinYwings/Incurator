@@ -199,3 +199,52 @@ def test_child_tables_are_read_from_the_schema(tmp_path) -> None:
         for expected in ("source_pages", "source_spans", "knowledge_units"):
             assert expected in tables
         assert "sources" not in tables
+
+
+def test_the_merge_reaches_inside_json_source_id_arrays(tmp_path) -> None:
+    """A source id also lives inside JSON arrays, where no column remap reaches.
+
+    `prompt_runs.source_ids` is the known case. PR #190 found the identical blind
+    spot on the cross-device import path and built `_SOURCE_ID_ARRAY_REFS` for it;
+    the first draft of this merge discovered child tables by looking for a literal
+    `source_id` COLUMN, so it could not see that table at all and left rows naming
+    a source it had just deleted.
+
+    Caught by review, and confirmed against the live vault after the merge had
+    already been applied: two rows still named the removed id.
+    """
+    import json
+
+    db_path = tmp_path / "state.sqlite"
+    db.init_db(db_path)
+    with db.connect(db_path) as conn:
+        keep = _seed(conn, NFC)
+        drop = _seed(conn, NFD)
+        conn.execute(
+            "INSERT INTO prompt_runs (trace_id, prompt_id, prompt_version, family,"
+            " role, source_ids, input_hash, output_hash, model_provider,"
+            " model_name, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            ("t1", "p1", "1", "f", "r", json.dumps([drop, 99]), "i", "o", "p", "m", "2026-01-01"),
+        )
+        # A row already naming the survivor must not end up naming it twice.
+        conn.execute(
+            "INSERT INTO prompt_runs (trace_id, prompt_id, prompt_version, family,"
+            " role, source_ids, input_hash, output_hash, model_provider,"
+            " model_name, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            ("t2", "p1", "1", "f", "r", json.dumps([keep, drop]), "i", "o", "p", "m", "2026-01-01"),
+        )
+
+        plan = si.merge_relpath_collision(
+            conn, si.relpath_collisions(conn)[0], apply=True
+        )
+        assert plan["json_arrays_rewritten"] == 2
+
+        rows = [
+            json.loads(r[0])
+            for r in conn.execute(
+                "SELECT source_ids FROM prompt_runs ORDER BY trace_id"
+            )
+        ]
+        assert rows[0] == [keep, 99], "the removed id was not repointed"
+        assert rows[1] == [keep], "the survivor was named twice"
+        assert not any(drop in ids for ids in rows)
