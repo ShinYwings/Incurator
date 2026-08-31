@@ -2314,7 +2314,9 @@ create files, or traverse the filesystem.
   **v0.41.0 amendment**: the policy union is now
   `"auto" | "none" | "local-only"`, and the popover moved from `"none"` to
   `"local-only"`. `shouldInjectMcpTools` returns `false` for both `"none"` and
-  `"local-only"`, so the popover's zero-MCP guarantee is unchanged; the new
+  `"local-only"`, so the popover's zero-MCP guarantee is unchanged **for the
+  providers whose tools the plugin injects** (see the v0.77.0 amendment below —
+  it does NOT hold for a CLI provider, which loads its own registry); the new
   value additionally admits the plugin-executed local PDF reader defined in
   §13.7. Every consumer of `ToolPolicy` MUST handle the union exhaustively
   (a `never`-typed default), so adding a future value is a compile error
@@ -2830,6 +2832,15 @@ boundary closed by §13.5/§13.6.
   routing, and that a popover tool array contains only the three local names
   above. Prompt wording (§13.5 `boundaryConstraints`) documents the boundary;
   it does not enforce it.
+
+  **v0.77.0 scope correction.** Those tests assert what the PLUGIN injects, which
+  is a narrower claim than the one this bullet used to make. A CLI provider reads
+  its own MCP registry, so "the popover has no MCP tools" was never true on that
+  path however green the injection tests were — the guarantee is real for API
+  providers and is documentation, not enforcement, for CLI ones. There is no
+  per-invocation way to scope an agy spawn's registry (no `--mcp-config` flag
+  exists, and the registry is one global file read at startup), so the honest
+  contract is the scoped one, not a broader claim the tests cannot reach.
 
 - **One policy source per surface.** A surface MUST pass its `SurfaceProfile`'s
   `toolPolicy` to `streamChat`/`complete` rather than repeating a literal, and

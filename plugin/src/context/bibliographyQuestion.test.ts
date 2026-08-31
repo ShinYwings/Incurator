@@ -39,6 +39,11 @@ describe("a question that asks about the bibliography is recognised", () => {
       "summarise section 4",
       "왜 z=0 평면에서 최적화했어?",
       "what is the reference frame of the camera?",
+      // `references` is also a VERB. Found by an adversarial probe during
+      // review, not by the fixtures above — a false positive here costs a
+      // document scan and a block of irrelevant context.
+      "this references the earlier proof",
+      "the method references his 2019 result",
     ]) {
       expect(asksAboutBibliography(q), q).toBe(false);
     }

@@ -114,35 +114,35 @@ export function boundaryConstraints(
         "file, or directory names. Answer only from the context provided in this " +
         "request.";
       break;
-      case "local-only": {
-        // The two variants differ in ONE clause — whether a page reader exists —
-        // so only that clause is written twice. Duplicating the shared prose
-        // would grow the prompt budget for text the model never sees twice.
-        const reach =
-          reality === "plugin-injected"
-            ? "Your only tools read the PDF the user already has open, and nothing " +
-              "else: you may fetch a page of that document by number to follow a " +
-              "reference instead of telling the user to navigate there, and — where " +
-              "`read_pdf_page_image` is among the tools you were given — you may read " +
-              "a page as an image when what you were asked about is not in that " +
-              "page's text; a typeset paper draws many of its equations and figures " +
-              "as pictures, so the text can read as complete prose while the formula " +
-              "itself is simply absent."
-            : "You cannot open this document yourself; its pages, cited entries and " +
-              "referenced targets are already in the context above. A tool outside " +
-              "your permitted set is refused silently and the turn then returns " +
-              "nothing, so reaching for one costs the reader their answer.";
-        rules =
-          "You have NO filesystem access. Never list, browse, create, or execute " +
-          "files, scripts, or shell commands, and never invent folder, file, or " +
-          "directory names. " +
-          reach +
-          " Answer from the provided context first; where it does not cover the " +
-          "question, answer from your general knowledge of the field rather than " +
-          "stopping. Explain the subject — the reader wants the answer, not an " +
-          "account of which sentence came from where.";
-        break;
-      }
+    case "local-only": {
+      // The two variants differ in ONE clause — whether a page reader exists —
+      // so only that clause is written twice. Duplicating the shared prose
+      // would grow the prompt budget for text the model never sees twice.
+      const reach =
+        reality === "plugin-injected"
+          ? "Your only tools read the PDF the user already has open, and nothing " +
+            "else: you may fetch a page of that document by number to follow a " +
+            "reference instead of telling the user to navigate there, and — where " +
+            "`read_pdf_page_image` is among the tools you were given — you may read " +
+            "a page as an image when what you were asked about is not in that " +
+            "page's text; a typeset paper draws many of its equations and figures " +
+            "as pictures, so the text can read as complete prose while the formula " +
+            "itself is simply absent."
+          : "You cannot open this document yourself; its pages, cited entries and " +
+            "referenced targets are already in the context above. A tool outside " +
+            "your permitted set is refused silently and the turn then returns " +
+            "nothing, so reaching for one costs the reader their answer.";
+      rules =
+        "You have NO filesystem access. Never list, browse, create, or execute " +
+        "files, scripts, or shell commands, and never invent folder, file, or " +
+        "directory names. " +
+        reach +
+        " Answer from the provided context first; where it does not cover the " +
+        "question, answer from your general knowledge of the field rather than " +
+        "stopping. Explain the subject — the reader wants the answer, not an " +
+        "account of which sentence came from where.";
+      break;
+    }
     case "auto":
       // The sidechat is the only surface that states the active file and page
       // (ChatSidebarView emits "Currently active file: ..." and "The user is

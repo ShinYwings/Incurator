@@ -77,9 +77,16 @@ export function asksAboutBibliography(question: string): boolean {
   // block of irrelevant context. It counts only when a number follows it, which
   // is how someone actually names an entry.
   return (
-    /\b(references|bibliograph(?:y|ic)|works\s*cited|citations|cited\s+(?:work|paper)s?)\b/i.test(
+    // `references` is also a verb — "this references the earlier proof" is about
+    // the argument, not the back matter, and a false positive costs a document
+    // scan and a block of irrelevant context. The verb takes an object, so a
+    // determiner immediately after it is the tell.
+    (/\b(references|bibliograph(?:y|ic)|works\s*cited|citations|cited\s+(?:work|paper)s?)\b/i.test(
       question
-    ) ||
+    ) &&
+      !/\breferences\s+(the|this|that|these|those|a|an|his|her|their|its|our|your|my)\b/i.test(
+        question
+      )) ||
     /\b(reference|citation|ref)\s*\.?\s*(?:no\.?\s*)?\[?\s*\d/i.test(question) ||
     /참\s*고\s*문\s*헌|참\s*고\s*자\s*료|레퍼런스|인\s*용\s*문\s*헌|参\s*考\s*文\s*献|引\s*用\s*文\s*献/.test(
       question
