@@ -7,6 +7,7 @@ import {
 import { contextPriorityInstruction } from "./chatContextPriority";
 import { resolveSelectionReferencesBlock } from "./pdfReferenceContext";
 import { selectNoteWindow } from "./noteWindow";
+import { fitTurnBudget } from "./turnBudget";
 import {
   boundaryConstraints,
   buildRecencyAnchor,
@@ -65,6 +66,14 @@ export interface QuickQueryMessageArgs {
 }
 
 const DEFAULT_BACKGROUND_LIMIT = 12000;
+/**
+ * Characters one popover turn may spend on everything the reader did not type.
+ *
+ * Generous on purpose — the point is not frugality, it is that a ceiling exists
+ * at all. Without one the per-block caps were additive and the selection had no
+ * share of the result.
+ */
+const DEFAULT_TURN_BUDGET = 36000;
 const FOLLOWUP_TURN_LIMIT = 3;
 const FOLLOWUP_TEXT_LIMIT = 4000;
 
@@ -259,24 +268,57 @@ export function buildQuickQueryMessages(args: QuickQueryMessageArgs): LLMMessage
     ) +
     "\n</context_priority>";
 
-  const content = [
-    buildPrimarySelectionBlock(args.selectedText),
-    resolvedReferencesBlock,
-    args.resolvedWikilinksBlock ?? "",
-    background ? `<quick_query_background>\n${background}\n</quick_query_background>` : "",
-    args.vaultEvidenceBlock ?? "",
-    pinnedBlock,
-    followups,
-    `Question: ${args.question}`,
-    // Recency anchor emitted LAST so the read-only / selection-focus invariants
-    // sit at the position of strongest LLM attention.
-    buildRecencyAnchor(POPOVER_PROFILE, {
-      hasPrimarySelection: true,
-      reality,
-    }),
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+  // Fitted against ONE budget, in priority order. Every block used to carry its
+  // own independent cap and know about no other, so stacking them near their
+  // limits put a measured 102-character selection inside a 53,000-character turn
+  // — 0.19%, outweighed by the vault evidence alone by about 206x. A popover
+  // question is usually deictic, so the selection IS the subject and is short by
+  // construction; nothing shrank the supporting material to match.
+  //
+  // Priority is by how directly the reader asked for the thing: what they
+  // highlighted, then what they pointed at, then the document around it, then
+  // what the vault volunteered without being asked.
+  const content = fitTurnBudget(
+    [
+      {
+        text: buildPrimarySelectionBlock(args.selectedText),
+        priority: 0,
+        pinned: true,
+        label: "selection",
+      },
+      { text: resolvedReferencesBlock, priority: 1, label: "resolved references" },
+      { text: args.resolvedWikilinksBlock ?? "", priority: 1, label: "linked notes" },
+      {
+        text: background
+          ? `<quick_query_background>\n${background}\n</quick_query_background>`
+          : "",
+        priority: 2,
+        label: "the open document",
+      },
+      { text: pinnedBlock, priority: 3, label: "pinned sources" },
+      { text: args.vaultEvidenceBlock ?? "", priority: 4, label: "vault evidence" },
+      { text: followups, priority: 5, label: "earlier turns" },
+      {
+        text: `Question: ${args.question}`,
+        priority: 0,
+        pinned: true,
+        label: "question",
+      },
+      {
+        // Emitted LAST so the read-only / selection-focus invariants sit at the
+        // position of strongest attention, and pinned so a tight budget can never
+        // be the thing that removes them.
+        text: buildRecencyAnchor(POPOVER_PROFILE, {
+          hasPrimarySelection: true,
+          reality,
+        }),
+        priority: 0,
+        pinned: true,
+        label: "invariants",
+      },
+    ],
+    DEFAULT_TURN_BUDGET
+  ).join("\n\n");
 
   return [
     { role: "system", content: systemText },

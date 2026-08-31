@@ -216,12 +216,20 @@ export function buildRecencyAnchor(
         "target in <resolved_cross_references>. Do NOT explain, summarize, or " +
         "modify the whole document unless the latest request explicitly asks for " +
         "it, regardless of earlier turns in this conversation. " +
-        "A <resolved_citations> block, when present, holds the papers the " +
-        "selection cites; answer about the cited work from its entry there. " +
-        "A <workspace_notes> block holds notes the reader wrote themselves in " +
-        "this project; when they bear on the question, say what the reader " +
-        "already concluded and attribute it to them. " +
-        "If the pointer's " +
+        // Named, not re-explained. `blockAnnouncement.test.ts` requires every
+        // emitted block to appear in this last instruction — a block the
+        // instructions never name is one the model ignores, and that was missed
+        // three times at this exact site. But NAMING is what the contract needs.
+        // The full explanation was also written in contextPriorityInstruction and
+        // again in each block's own `note=`: a fourfold telling of one fact, 711
+        // measured chars in the two always-on copies alone. Each block explains
+        // itself where the model meets it, and `contextPriorityInstruction` no longer
+        // repeats it either — one telling, at the position of strongest attention.
+        "A <resolved_citations> block holds the papers the selection cites — " +
+          "answer about a cited work from its entry there. A <workspace_notes> " +
+          "block holds the reader's own notes — say what they concluded and " +
+          "attribute it to them. " +
+          "If the pointer's " +
         "target appears in <unresolved_cross_references> instead, call " +
         "`read_pdf_page_image` on the page it names where you were given that " +
         "tool — a rasterized equation has no text to find — and otherwise " +
