@@ -1,54 +1,39 @@
 # RELAY
 
-**Branch:** `release/v0.77.0`
-**Goal:** The Quick Query popover can follow a reference to a URL, through the
-guarded fetch path, and a denied tool no longer kills the turn.
+**Branch:** `release/v0.77.0` — pushed, PR open, awaiting review + CI.
 
-## Why
+## What shipped
 
-User report 2026-08-31: asking the popover for a reference title on a paper
-returned nothing at all —
+The Quick Query popover returned nothing when asked for a reference's title, and
+the answer was in the last pages of the PDF already open. The root cause was a
+prompt that promised a tool the CLI path never injects and denied having the one
+it does; the model reached for a URL reader outside the allow-list and the turn
+was auto-denied.
 
-> jetski: no output produced — a tool required the "read_url" permission that
-> headless mode cannot prompt for, so it was auto-denied.
+That opened a coverage audit across {paper PDF, book PDF, markdown note} x
+{popover, sidechat}, on the axis the user corrected it to: not what a reader
+needs, but what a reader DOES. Sixteen findings across two Arena audits —
+thirteen fixed, three judged and recorded. Two more came from driving the real
+Obsidian vault, which fixtures could not have produced.
 
-## What the investigation found
+Two patterns recur and are worth remembering:
 
-Everything needed was already installed. `incurator_fetch` is registered in
-`~/.gemini/config/mcp_config.json`, exposes `fetch_url`, carries an SSRF guard,
-and `mcp(*)` permits it. **Nothing anywhere tells the model that tool exists** —
-`grep fetch_url` finds no prompt text at all. So the model reaches for agy's
-built-in `read_url`, which is not in the allow-list, and the turn dies.
-
-Underneath that sits the real defect: `boundaryConstraints` tells the popover
-"You have NO filesystem access and NO MCP tools." That is true for API providers,
-where the plugin decides what tools to inject. It is **false for the agy CLI
-path**, because `syncAgyMcpConfig()` runs unconditionally in the antigravity
-branch — `ephemeral` only empties `--add-dir`. agy loads its own MCP registry, so
-the popover's zero-MCP guarantee never applied to it.
-
-## Decision (user, 2026-08-31)
-
-Asked, because it is product shape rather than engineering: seal the popover, or
-make the contract match reality. **User chose reality** — the popover may use the
-guarded `fetch_url`, and the prompt says so.
-
-Not `read_url`: an unguarded URL fetcher on the path that processes untrusted
-paper content is what `incurator_fetch` exists to avoid. Granting a fourth
-permission is the wrong shape of fix.
-
-## Plan
-
-`.agents/plans/77_popover_fetch/`
+- **Cutting from the wrong end.** A book's outline, a long note, the system
+  prompt, a bibliography scan — all correct for a paper, all wrong once the
+  reader is not at the head.
+- **Half-wiring.** A feature landed on one surface and silently absent on the
+  other, four separate times.
 
 ## Status
 
-- [x] Cause located and confirmed against the user's live config
-- [x] Product decision taken to the user
-- [ ] Plan written
-- [ ] Implementation
-- [ ] Code review skill, then CI, then merge
+- [x] Implementation, docs (EN then KR), version bump, CHANGELOG
+- [x] Local gates: pytest 1884, vitest 1234, ruff, mypy, tsc
+- [x] Verified live in Obsidian against the real vault
+- [ ] `/code-review:code-review <PR#>` — MANDATORY before merge
+- [ ] CI green, then merge
 
 ## Next
 
-Author the plan, then implement.
+Run the code-review skill on the PR, fix what it finds, merge. Then the next
+ROADMAP item — E2 (chunk size / reindex, user already approved) and E6's
+duplicate-source merge (also approved).

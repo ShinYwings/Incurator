@@ -2,6 +2,95 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.77.0] - 2026-08-31
+
+Reported: asking the Quick Query popover for a reference's title returned nothing
+at all — the CLI's own auto-denial text, rendered as though it were the answer.
+The title was in the last pages of the PDF that was already open.
+
+### Fixed
+
+- **The popover promised a tool it does not have, and denied having one it does.**
+  Its prompt offered to fetch a page of the open document by number; on every CLI
+  provider that tool is never injected. The same prompt declared "NO MCP tools",
+  which is false for `agy`, whose registry it loads itself. A model promised an
+  absent tool reaches for the nearest substitute — a URL reader outside the
+  allow-list — so the request was refused without asking and the turn produced
+  nothing. The wording is now chosen by what the provider actually gives, at both
+  emission sites, with the parameter required so a missed call site is a compile
+  error rather than a prompt that quietly lies.
+
+- **A permission denial is no longer presented as an answer.** With stdout empty
+  the client recovered stderr and promoted it, and the empty-answer check never
+  fired because the recovered string was not empty. The user was shown the CLI's
+  internal plumbing — including advice to re-run with a blanket permission skip,
+  which this repo refuses — styled as a reply. The turn now reports a real
+  failure, and names the actual cause: a denied tool and an exhausted quota are
+  indistinguishable from that code, and switching provider cannot fix a
+  permission problem.
+
+- **Questions count, not just highlights.** Citation resolution read only the
+  selected text, so "reference 12의 제목이 뭐야?" typed without re-selecting the
+  bracket resolved nothing. Cross-reference resolution had the same gap on the
+  popover, and the sidebar never received the question at all. All three now read
+  the question alongside the selection. A question about the reference list that
+  names no number gets the list itself.
+
+- **A note's `[[link]]` is followed, the way a paper's `[12]` is.** Papers have
+  had citation resolution since v0.56.0; notes had none — the plugin only ever
+  wrote wikilinks, as output locators, and never read one. Plain, aliased,
+  sectioned, same-note `[[#Heading]]` and embedded forms are followed and read,
+  attachments are skipped, and a link naming a heading delivers that section
+  rather than the whole note. Both surfaces call it.
+
+- **Cutting from the wrong end, in four places.** Truncating from the head is
+  wrong whenever the reader is not at the head:
+  - a 600-page book's outline showed the contents of pages 1–100 to a reader on
+    page 400, because the first-80-entries slice never fires on a paper;
+  - a long note was cut at its opening, so a question about the middle was
+    answered from the top;
+  - the assembled system prompt dropped its own tail, which is where the
+    attention-critical invariants are deliberately placed;
+  - a book's bibliography was scanned six pages from the end, unreachable past
+    the index, and then followed for only five pages once found.
+
+- **The reader's selection was 0.19% of its own turn.** Every optional block
+  carried an independent cap and knew about no other; nothing summed them and
+  nothing reserved a share for what the reader pointed at. Measured worst case:
+  102 characters of selection inside 53,032, outweighed by the vault evidence
+  alone by about 206x — and a popover question is usually deictic, so the common
+  case is the bad case. Blocks are now fitted against one budget in priority
+  order, with the selection, the question and the invariants pinned. What is
+  dropped is named.
+
+- **The prompt-budget gate was measuring comments.** A quoted phrase inside a
+  JSDoc comment desynced quote-parity for the rest of that file, erasing a real
+  630-character prohibition from the count and attributing ~2,600 characters of
+  commentary to prompt prose in its place. Apparent headroom 46 characters; real
+  figure 1,681. Two wording trims made earlier in this release to satisfy that
+  number are reverted.
+
+- **Instruction that could not apply.** ~1,700 characters of PDF-pointer
+  guidance rode on every markdown-note turn, naming blocks that turn cannot
+  contain — the shape v0.54.1 removed a universal rule for. Pointer instruction is
+  now chosen by document kind. Separately, what each block IS was told up to four
+  times; the verb now appears once, where attention is strongest.
+
+- **One reader action, resolved two ways.** A pointer typed into chat could fetch
+  a distant page; the same pointer inside a pinned passage could not, because it
+  went through a synchronous path. Pinning a passage quietly cost the reader the
+  ability to follow a reference inside it. And the popover's "should I query the
+  vault" gate was a narrower copy of the sidebar's, so bare follow-ups paid a
+  round-trip the sidebar skips. Both now use one implementation.
+
+### Verified
+
+Run in Obsidian against the real vault, not only in tests. Three live turns, no
+denial and no empty answer; a question about content that exists only in a linked
+note came back with that content. Two defects surfaced there that fixtures could
+not have produced — `[[#Heading]]` matched nothing, and an embedded image would
+have been read as prose and its bytes piped into the prompt.
+
 ## [0.76.0] - 2026-08-30
 
 ### Added
