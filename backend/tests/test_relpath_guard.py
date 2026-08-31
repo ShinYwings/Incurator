@@ -96,3 +96,35 @@ def test_the_guard_can_actually_fail() -> None:
     sample = 'conn.execute("SELECT id FROM sources WHERE relpath = ?", (raw,))'
     assert RELPATH_SQL.search(sample) is not None
     assert "normalize_relpath" not in sample
+
+
+INIT_DB = re.compile(r"^(\s*)db\.init_db\(", re.M)
+
+
+def test_every_init_db_is_followed_by_canonicalisation() -> None:
+    """Opening the database must leave its paths in the form lookups use.
+
+    Lookups normalise as of v0.78.0, so a row still stored in the macOS form is
+    unreachable by its own path — and the next ingest of that file would not find
+    it and would register a SECOND row. Normalising the reads without normalising
+    what is already stored manufactures the very duplicates this release removes.
+
+    The pairing cannot live inside `db.init_db` itself: `db/schema.py` is pinned
+    by content hash in the D2 holdout record. So it is enforced here instead, and
+    the four call sites cannot quietly become three.
+    """
+    offenders: list[str] = []
+    for path in SRC.rglob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        for match in INIT_DB.finditer(text):
+            following = text[match.end() : match.end() + 400]
+            if "ensure_canonical_relpaths" in following:
+                continue
+            line = text[: match.start()].count("\n") + 1
+            offenders.append(f"{path.relative_to(SRC)}:{line}")
+
+    assert not offenders, (
+        "these open the state database without canonicalising its stored paths, "
+        "so a pre-existing row in the other Unicode form stays unreachable by "
+        "path and the next ingest registers a duplicate: " + ", ".join(offenders)
+    )

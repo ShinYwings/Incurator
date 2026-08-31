@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
+from . import source_identity
 from . import config as cfg
 from . import db, page_writer
 from .workspace.provisioner import prepare_workspace
@@ -92,6 +93,7 @@ def init_testbed(
     cfg.save_config(paths, config)
 
     db.init_db(paths.state_db)
+    source_identity.ensure_canonical_relpaths(paths.state_db)
     page_writer.rebuild_index(paths, datetime.now(timezone.utc).isoformat())
 
     # Install agent rules

@@ -78,3 +78,124 @@ def test_a_lookup_in_either_form_finds_the_one_row(tmp_path) -> None:
 
         assert si.find_source_by_relpath(conn, NFD) is not None
         assert si.find_source_by_relpath(conn, NFC) is not None
+
+
+def _seed(conn, relpath: str, *, content_hash: str = "h1") -> int:
+    cur = conn.execute(
+        "INSERT INTO sources (relpath, content_hash, file_type, bytes, added_at,"
+        " status) VALUES (?,?,?,?,?,?)",
+        (relpath, content_hash, "md", 10, "2026-01-01", "curated"),
+    )
+    return int(cur.lastrowid)
+
+
+def test_stored_paths_are_rewritten_into_canonical_form(tmp_path) -> None:
+    db_path = tmp_path / "state.sqlite"
+    db.init_db(db_path)
+    with db.connect(db_path) as conn:
+        _seed(conn, NFD)
+        rewritten, skipped = si.normalize_stored_relpaths(conn)
+        assert (rewritten, skipped) == (1, 0)
+        assert conn.execute("SELECT relpath FROM sources").fetchone()[0] == NFC
+
+
+def test_normalising_twice_changes_nothing_the_second_time(tmp_path) -> None:
+    db_path = tmp_path / "state.sqlite"
+    db.init_db(db_path)
+    with db.connect(db_path) as conn:
+        _seed(conn, NFD)
+        si.normalize_stored_relpaths(conn)
+        assert si.normalize_stored_relpaths(conn) == (0, 0)
+
+
+def test_a_collision_is_skipped_not_forced(tmp_path) -> None:
+    """Rewriting into a path another row already holds violates UNIQUE.
+
+    More importantly, resolving it means merging the user's data, which is not a
+    thing that happens as a side effect of opening the database.
+    """
+    db_path = tmp_path / "state.sqlite"
+    db.init_db(db_path)
+    with db.connect(db_path) as conn:
+        _seed(conn, NFC)
+        _seed(conn, NFD)
+        rewritten, skipped = si.normalize_stored_relpaths(conn)
+        assert (rewritten, skipped) == (0, 1)
+        assert conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 2
+
+
+def test_a_collision_is_reported(tmp_path) -> None:
+    db_path = tmp_path / "state.sqlite"
+    db.init_db(db_path)
+    with db.connect(db_path) as conn:
+        first = _seed(conn, NFC)
+        second = _seed(conn, NFD)
+        groups = si.relpath_collisions(conn)
+        assert len(groups) == 1
+        assert [row["id"] for row in groups[0]] == [first, second]
+
+
+def test_the_merge_plan_changes_nothing_until_applied(tmp_path) -> None:
+    db_path = tmp_path / "state.sqlite"
+    db.init_db(db_path)
+    with db.connect(db_path) as conn:
+        keep = _seed(conn, NFC)
+        drop = _seed(conn, NFD)
+        conn.execute(
+            "INSERT INTO source_pages (source_id, wiki_path, operation, at)"
+            " VALUES (?,?,?,?)",
+            (drop, "01_Contexts/CTX-x.md", "created", "2026-01-01"),
+        )
+        plan = si.merge_relpath_collision(conn, si.relpath_collisions(conn)[0])
+
+        assert plan["keep"] == keep and plan["remove"] == [drop]
+        assert plan["rows_moved"].get("source_pages") == 1
+        assert plan["applied"] is False
+        assert conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 2
+
+
+def test_applying_the_merge_keeps_the_oldest_and_moves_its_children(tmp_path) -> None:
+    db_path = tmp_path / "state.sqlite"
+    db.init_db(db_path)
+    with db.connect(db_path) as conn:
+        keep = _seed(conn, NFC)
+        drop = _seed(conn, NFD)
+        conn.execute(
+            "INSERT INTO source_pages (source_id, wiki_path, operation, at)"
+            " VALUES (?,?,?,?)",
+            (drop, "01_Contexts/CTX-x.md", "created", "2026-01-01"),
+        )
+        si.merge_relpath_collision(conn, si.relpath_collisions(conn)[0], apply=True)
+
+        rows = conn.execute("SELECT id, relpath FROM sources").fetchall()
+        assert len(rows) == 1
+        assert rows[0]["id"] == keep and rows[0]["relpath"] == NFC
+        owner = conn.execute("SELECT source_id FROM source_pages").fetchone()[0]
+        assert owner == keep, "the surviving source did not inherit the page"
+
+
+def test_a_merge_is_refused_when_the_bytes_differ(tmp_path) -> None:
+    """Two paths that normalise together but hold different content are not one
+    file, and merging them would destroy one. This is the plan's stop condition.
+    """
+    db_path = tmp_path / "state.sqlite"
+    db.init_db(db_path)
+    with db.connect(db_path) as conn:
+        _seed(conn, NFC, content_hash="aaa")
+        _seed(conn, NFD, content_hash="bbb")
+        plan = si.merge_relpath_collision(
+            conn, si.relpath_collisions(conn)[0], apply=True
+        )
+        assert plan["refused"] is True
+        assert conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0] == 2
+
+
+def test_child_tables_are_read_from_the_schema(tmp_path) -> None:
+    """A hardcoded list goes stale, and the table it forgets orphans rows."""
+    db_path = tmp_path / "state.sqlite"
+    db.init_db(db_path)
+    with db.connect(db_path) as conn:
+        tables = si.source_child_tables(conn)
+        for expected in ("source_pages", "source_spans", "knowledge_units"):
+            assert expected in tables
+        assert "sources" not in tables

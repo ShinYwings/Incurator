@@ -22,6 +22,7 @@ Vault resolution:
 """
 
 from __future__ import annotations
+from .. import source_identity
 from ..source_identity import normalize_relpath
 from .. import constants as consts
 
@@ -726,6 +727,7 @@ def build_server() -> FastMCP:
 
             worker_paths = _resolve_paths()
             db.init_db(worker_paths.state_db)
+            source_identity.ensure_canonical_relpaths(worker_paths.state_db)
             worker = IngestWorker(
                 worker_paths,
                 lambda: cfg.load_config(worker_paths),
