@@ -18,6 +18,7 @@
  * pages before the model sees anything.
  */
 import {
+  asksAboutBibliography,
   collectBibliography,
   resolveCitations,
   type ResolvedCitation,
@@ -56,21 +57,47 @@ export interface CitationSource {
  * citations — and does so WITHOUT fetching anything, because the cheap check
  * (does the selection contain a resolvable bracket at all?) runs first.
  */
+/** Entries returned when the question asks for the reference list wholesale. */
+const MAX_WHOLE_BIBLIOGRAPHY_ENTRIES = 40;
+
 export async function resolveSelectionCitations(
   selectedText: string,
   source: CitationSource | undefined,
-  fetchPageText: (pageNum: number) => Promise<string | undefined>
+  fetchPageText: (pageNum: number) => Promise<string | undefined>,
+  question?: string
 ): Promise<ResolvedCitation[]> {
-  if (!selectedText || !source?.documentId) return [];
+  if (!source?.documentId) return [];
 
-  // Cheapest possible early-out: if nothing in the selection could ever be a
-  // citation, never touch the document. Probing with a sentinel bibliography
-  // reuses the real collision rules instead of duplicating them here.
-  if (resolveCitations(selectedText, PROBE).length === 0) return [];
+  // The question counts, not just the selection.
+  //
+  // Until v0.77.0 only `selectedText` was read here, so someone who typed
+  // "reference 12의 제목이 뭐야?" without re-selecting the bracket resolved
+  // nothing — and the answer was in the paper's own last pages. The chat sidebar
+  // had always passed its typed message; the popover passed only the highlight.
+  const asksForList = asksAboutBibliography(question ?? "");
+  const searchText = [selectedText || "", question || ""].filter(Boolean).join("\n");
+  if (!searchText && !asksForList) return [];
+
+  // Cheapest possible early-out: if nothing here could ever be a citation, never
+  // touch the document. Probing with a sentinel bibliography reuses the real
+  // collision rules instead of duplicating them. Skipped when the question asks
+  // for the list itself, which names no bracket by definition.
+  if (!asksForList && resolveCitations(searchText, PROBE).length === 0) return [];
 
   const bibliography = await loadBibliography(source, fetchPageText);
   if (bibliography.size === 0) return [];
-  return resolveCitations(selectedText, bibliography);
+
+  const matched = resolveCitations(searchText, bibliography);
+  if (matched.length > 0 || !asksForList) return matched;
+
+  // Asked about the reference list, named no bracket. Hand over the list itself
+  // rather than nothing: "what is reference 12" is answerable from it, and so is
+  // every other phrasing of the same request. Bounded, because a bibliography can
+  // run to hundreds of entries and this rides in a popover prompt.
+  return Array.from(bibliography.entries())
+    .sort((a, b) => a[0] - b[0])
+    .slice(0, MAX_WHOLE_BIBLIOGRAPHY_ENTRIES)
+    .map(([num, entry]) => ({ num, label: `[${num}]`, entry }));
 }
 
 /**

@@ -42,7 +42,50 @@ export interface ResolvedCitation {
 }
 
 /** Headings that introduce a bibliography. */
-const BIBLIOGRAPHY_HEADING = /^[\s#*]*(references|bibliography|works cited)[\s:]*$/im;
+/**
+ * The heading that starts a reference list.
+ *
+ * English-only until v0.77.0, which meant a paper headed `참고문헌` had no
+ * bibliography as far as this parser was concerned — even with the page text
+ * already in memory. The vault this ships to holds Korean and Japanese papers,
+ * so a reader asking about a reference in one of them got nothing back.
+ *
+ * `참 고 문 헌` is not a typo: PDF text extraction routinely spaces out the
+ * glyphs of a CJK heading, so the optional separators are load-bearing.
+ */
+export const BIBLIOGRAPHY_HEADING =
+  /^[\s#*]*(references?|bibliography|works\s*cited|참\s*고\s*문\s*헌|참\s*고\s*자\s*료|参\s*考\s*文\s*献|引\s*用\s*文\s*献)[\s:]*$/im;
+
+/**
+ * Whether a typed question is asking about the reference list itself.
+ *
+ * The popover fed only the highlighted SELECTION into citation resolution, never
+ * the question — so "reference 12의 제목이 뭐야?", asked without re-selecting the
+ * bracket, resolved nothing and the bibliography never reached the model. The
+ * model then reached for a URL tool it was not allowed to use and the turn died,
+ * with the answer sitting in the paper's own last pages the whole time.
+ *
+ * Deliberately broader than `[N]` extraction: people ask for "reference 12" in
+ * prose far more often than they re-select the bracket. Matching the ASK rather
+ * than the citation syntax is what makes the phrasing irrelevant.
+ */
+export function asksAboutBibliography(question: string): boolean {
+  if (!question) return false;
+  // Plural and the unambiguous nouns stand alone. Singular `reference` does NOT:
+  // "the reference frame of the camera" is about the paper's argument, not its
+  // back matter, and a false positive costs a wasted bibliography fetch and a
+  // block of irrelevant context. It counts only when a number follows it, which
+  // is how someone actually names an entry.
+  return (
+    /\b(references|bibliograph(?:y|ic)|works\s*cited|citations|cited\s+(?:work|paper)s?)\b/i.test(
+      question
+    ) ||
+    /\b(reference|citation|ref)\s*\.?\s*(?:no\.?\s*)?\[?\s*\d/i.test(question) ||
+    /참\s*고\s*문\s*헌|참\s*고\s*자\s*료|레퍼런스|인\s*용\s*문\s*헌|参\s*考\s*文\s*献|引\s*用\s*文\s*献/.test(
+      question
+    )
+  );
+}
 
 /** `[12]` at the start of a line (allowing leading whitespace) starts an entry. */
 const ENTRY_START = /^\s*\[(\d{1,3})\]\s*/;

@@ -560,7 +560,12 @@ export class QuickQueryPopover {
           // an expected id is supplied), exactly as the local PDF tool runner
           // opts in (main.ts). Omitting it here was the bug.
           (pageNum) =>
-            this.plugin.fetchActivePdfPage(pageNum, pinnedDocumentId)
+            this.plugin.fetchActivePdfPage(pageNum, pinnedDocumentId),
+          undefined,
+          // The typed question, not just the highlight. Asking "reference 12의
+          // 제목이 뭐야?" without re-selecting the bracket used to resolve
+          // nothing, and the answer was in this document's own last pages.
+          question
         );
         resolvedReferencesBlock = resolution.block;
         provenance = resolution.provenance;

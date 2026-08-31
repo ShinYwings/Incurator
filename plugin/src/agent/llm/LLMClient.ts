@@ -43,6 +43,7 @@ import type {
 import type { ToolPolicy } from "../../context/promptRegistry";
 import {
   extractAntigravityAnswerFromStderr,
+  isAntigravityPermissionDenial,
   formatMcpToolResultForDisplay,
   formatQuotaErrorMessage,
   isAntigravityStatusLine,
@@ -2227,11 +2228,28 @@ export class LLMClient {
           // response. Reject so the UI shows an error instead of an empty bubble
           // or an endless spinner.
           const errText = fullStderr.trim();
+          // Name the cause when the CLI told us what it was. A denied tool and an
+          // exhausted quota are indistinguishable from here — both are "exit 0,
+          // no answer" — and sending someone to switch providers over a
+          // permission problem costs them a change that cannot possibly help.
+          const denied = errText
+            .split(/\r?\n/)
+            .some((line) => isAntigravityPermissionDenial(line));
           reject(
             new Error(
-              `${provider} returned no answer (empty response).` +
-                (errText ? `\n\n${errText.slice(0, 400)}` : "") +
-                `\n\nThis usually means the provider quota/capacity is exhausted, the request timed out, or the model returned nothing. Switch provider/model or retry after quota resets.`
+              denied
+                ? `${provider} wanted a tool it is not allowed to use, and the ` +
+                  `headless CLI cannot ask you for permission, so the turn ` +
+                  `produced nothing.` +
+                  (errText ? `\n\n${errText.slice(0, 400)}` : "") +
+                  `\n\nThis is not a quota problem — switching provider will not ` +
+                  `help. Incurator grants the CLI a deliberately small set of ` +
+                  `tools, and widening it with a blanket permission skip is not ` +
+                  `the fix. When the answer is in the document you have open, ` +
+                  `selecting the passage usually lets it answer with no tool at all.`
+                : `${provider} returned no answer (empty response).` +
+                  (errText ? `\n\n${errText.slice(0, 400)}` : "") +
+                  `\n\nThis usually means the provider quota/capacity is exhausted, the request timed out, or the model returned nothing. Switch provider/model or retry after quota resets.`
             )
           );
         } else {

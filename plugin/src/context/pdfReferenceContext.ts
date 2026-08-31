@@ -518,7 +518,15 @@ export async function resolveSelectionContextAsync(
   selectedText: string,
   source: PdfReferenceSource | undefined,
   fetchPageText: (pageNum: number) => Promise<string | undefined>,
-  locatePages?: (label: string) => Promise<number[]>
+  locatePages?: (label: string) => Promise<number[]>,
+  /**
+   * The question the reader typed, when there is one.
+   *
+   * Citation resolution reads it alongside the selection. The popover used to
+   * pass only the highlight, so a typed "reference 12의 제목이 뭐야?" resolved
+   * nothing and the paper's own bibliography never reached the model.
+   */
+  question?: string
 ): Promise<{ block: string; provenance: ProvenanceRecord }> {
   // Citations resolve alongside the cross-references, in the same pre-turn
   // pass and on the same fetcher, so the model gets both in one prompt and
@@ -543,7 +551,8 @@ export async function resolveSelectionContextAsync(
             })),
           }
         : undefined,
-      fetchPageText
+      fetchPageText,
+      question
     ),
   ]);
   const block = [buildResolvedReferencesBlock(resolved), buildCitationsBlock(citations)]
