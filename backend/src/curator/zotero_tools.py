@@ -354,6 +354,35 @@ def _denied_result(
     }
 
 
+def _not_downloaded_result(
+    path: str, *, db_path: Any, zotero_db: str, effective_key: str,
+    candidates: list[str], checked_paths: list[str],
+) -> dict[str, Any]:
+    """Report an evicted cloud file as evicted, never as missing or denied.
+
+    `_first_readable_pdf` has computed this verdict since v0.80.0 and the caller
+    discarded it, so every consumer described an online-only iCloud PDF as
+    "Zotero attachment file not found" — sending the user to look for a file
+    that was never deleted. A Zotero attachment directory is very often the
+    iCloud one, so this is the common case here, not an exotic one.
+
+    There is no `grant_folder`: nothing is denied, so granting a folder fixes
+    nothing. The fix is to download the file.
+    """
+    return {
+        "ok": False,
+        "state": "attachment_file_not_downloaded",
+        "error": file_access.describe(Path(path)),
+        "path": path,
+        "grant_folder": "",
+        "db_path": db_path or "",
+        "zotero_db": zotero_db,
+        "attachment_key": effective_key,
+        "roots_checked": candidates,
+        "paths_checked": checked_paths,
+    }
+
+
 def resolve_pdf(attachment_key: str, paths: cfg.WikiPaths, custom_paths: str = "") -> dict[str, Any]:
     config = cfg.load_config(paths)
     candidates = zotero_root_candidates(custom_paths, config)
@@ -389,6 +418,12 @@ def resolve_pdf(attachment_key: str, paths: cfg.WikiPaths, custom_paths: str = "
                 effective_key=effective_key, candidates=candidates,
                 checked_paths=checked_paths,
             )
+        if state is file_access.Reachability.NOT_DOWNLOADED:
+            return _not_downloaded_result(
+                found, db_path=db_path, zotero_db=zotero_db,
+                effective_key=effective_key, candidates=candidates,
+                checked_paths=checked_paths,
+            )
 
     fallback_candidates = _storage_pdf_candidates(effective_key, candidates)
     found, state = _first_readable_pdf(fallback_candidates)
@@ -399,6 +434,12 @@ def resolve_pdf(attachment_key: str, paths: cfg.WikiPaths, custom_paths: str = "
         }
     if state is file_access.Reachability.DENIED:
         return _denied_result(
+            found, db_path=db_path, zotero_db=zotero_db,
+            effective_key=effective_key, candidates=candidates,
+            checked_paths=checked_paths + fallback_candidates,
+        )
+    if state is file_access.Reachability.NOT_DOWNLOADED:
+        return _not_downloaded_result(
             found, db_path=db_path, zotero_db=zotero_db,
             effective_key=effective_key, candidates=candidates,
             checked_paths=checked_paths + fallback_candidates,

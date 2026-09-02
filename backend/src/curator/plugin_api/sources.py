@@ -187,6 +187,10 @@ def import_source(
         "source_id": outcome.source_id,
         "relpath": outcome.relpath,
         "source_path": str(outcome.source_path),
+        # The folder to grant. It has been computed since v0.80.0 and dropped
+        # right here — the same loss PR #163 was reviewed for: the backend names
+        # the one actionable thing and the boundary discards it.
+        "grant_folder": outcome.grant_folder,
         "zotero_attachment_key": zotero_attachment_key,
         "title": outcome.title,
         "file_type": outcome.file_type,

@@ -44,7 +44,9 @@ of the plugin for either name returned zero hits.
 
 ### Changed
 
-- The parser boundary raises a `not_downloaded` error distinct from `missing`.
+- The parser boundary raises `ParserNotDownloaded`, distinct from `missing` and
+  from `ParserAccessDenied`, and `_resolve_reference_source` names it alongside
+  the denial in the guard that must not degrade to the reference stub.
 - **The advice is chosen by the backend's platform, not written for macOS.** A
   denial is the same verdict everywhere; the fix is not. On Linux the identical
   `PermissionError` is filesystem permissions — there is no grant dialog,
@@ -54,6 +56,25 @@ of the plugin for either name returned zero hits.
   the tab labels the button **Grant access…** only where a grant mechanism
   exists — **Open folder…** otherwise. The backend chooses, because the backend
   is the process holding the permission.
+
+The self-review found four more, all of the same shape — a value computed and
+then discarded:
+
+- **`resolve_pdf` never dispatched on `NOT_DOWNLOADED`.** The helper computed
+  the verdict and the caller dropped it, so an online-only iCloud Zotero PDF was
+  reported to every consumer as `attachment_file_missing` — the exact conflation
+  this release claims to fix, on the path where it matters most. It now returns
+  `attachment_file_not_downloaded`, ingest refuses to degrade to the stub, and
+  the repair modal names it.
+- **`import_source` dropped `grant_folder`.** The field was added to
+  `AddOutcome` and then omitted from the plugin API's explicit field list, which
+  is the same loss PR #163 was reviewed for.
+- **A configured root that went missing vanished from the report.** Omitting
+  absent roots was meant to hide folders the user never set up; a root they
+  configured and later renamed is exactly what the tab exists to surface.
+- **The grant button claimed "Opened <folder>" when nothing opened it.** With no
+  Electron shell the honest branch wrote its message and the next line
+  overwrote it unconditionally.
 
 Found by driving the tab in real Obsidian, none of which a fixture produces:
 the Overview path grid collapsed the label column to one character per line and

@@ -64,17 +64,20 @@ def access_report(
         except Exception:  # noqa: BLE001 - a broken config is `wiki lint`'s to report
             config = {}
 
-    candidates: list[tuple[str, Path]] = [("Vault", paths.root)]
+    # `declared` marks a root the USER set up. It decides what happens when a
+    # root turns out to be absent, so it travels with the candidate rather than
+    # being re-derived from the label later.
+    candidates: list[tuple[str, Path, bool]] = [("Vault", paths.root, True)]
 
     resources = paths.root / "04_Resources"
     if resources.exists():
-        candidates.append(("References (04_Resources)", resources))
+        candidates.append(("References (04_Resources)", resources, True))
 
     # Zotero keeps its index and its bytes in DIFFERENT directories, granted
     # separately. Showing one and calling it done is a mistake this repo has
     # already made; both get a row when both are configured.
     for key, root in path_refs.configured_roots(config or {}).items():
-        candidates.append((f"Configured root: {key}", root))
+        candidates.append((f"Configured root: {key}", root, True))
 
     # Zotero's ATTACHMENT directory is discovered from its prefs, not from our
     # config, and on this machine it is the iCloud folder that caused the
@@ -85,7 +88,10 @@ def access_report(
         from .. import zotero_tools
 
         for raw_root in zotero_tools.zotero_root_candidates("", config or {}):
-            candidates.append(("Zotero", Path(raw_root)))
+            # DISCOVERED, not declared: these come from Zotero's prefs, and a
+            # candidate location Zotero merely might use is not a folder the
+            # user chose. If one is absent, that is nothing to report.
+            candidates.append(("Zotero", Path(raw_root), False))
     except Exception:  # noqa: BLE001 - a broken Zotero setup is `wiki lint`'s to report
         # Logged, not swallowed: this report exists to explain why a file could
         # not be read, so a discovery failure inside it is exactly the thing that
@@ -93,11 +99,14 @@ def access_report(
         _log.debug("could not enumerate Zotero roots for the access report", exc_info=True)
 
     for label, root in (extra_roots or {}).items():
-        candidates.append((label, root))
+        # NOT declared. `extra_roots` is a caller-supplied probe list, not the
+        # user's configuration, so an absent one stays omitted — the contract
+        # `test_a_root_that_is_not_there_is_omitted` has pinned since P5.
+        candidates.append((label, root, False))
 
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for label, root in candidates:
+    for label, root, declared in candidates:
         try:
             resolved = root.expanduser().resolve()
         except OSError:
@@ -109,9 +118,13 @@ def access_report(
         state = _state_of(resolved)
         # A root that is not there is not a permission problem, and a row saying
         # "missing" about a folder the user never set up is noise. Noise is what
-        # stops someone reading the one row that matters. The vault itself is the
-        # exception: if THAT is missing, the user needs to know.
-        if state == "missing" and resolved != paths.root.resolve():
+        # stops someone reading the one row that matters.
+        #
+        # But that reasoning only covers DISCOVERED roots. A folder the user
+        # configured and that has since been renamed or unmounted is exactly the
+        # problem this tab exists to surface, and dropping its row makes it
+        # vanish silently instead — the user sees one fewer line and no reason.
+        if state == "missing" and not declared:
             continue
         grant = file_access.grant_root(resolved) if state == "denied" else None
         rows.append(

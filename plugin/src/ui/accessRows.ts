@@ -28,8 +28,18 @@ export function accessGrantLabel(platform: string): string {
   return isMacBackend(platform) ? "Grant access…" : "Open folder…";
 }
 
-/** What to expect after the folder opens. */
-export function accessOpenedMessage(folder: string, platform: string): string {
+/** What to say after trying to open the folder.
+ *
+ *  `opened` is load-bearing. Without an Electron shell nothing opens, and the
+ *  first cut said "Opened <folder>" anyway — the honest branch wrote its message
+ *  and the next line overwrote it unconditionally. Claiming an action that did
+ *  not happen is worse than saying nothing. */
+export function accessOpenedMessage(
+  folder: string,
+  platform: string,
+  opened = true,
+): string {
+  if (!opened) return `Open ${folder} yourself, then press Re-check.`;
   return isMacBackend(platform)
     ? `Opened ${folder}. Allow access if macOS asks, then press Re-check.`
     : `Opened ${folder}. Make it readable by the user running the Incurator `

@@ -1565,12 +1565,15 @@ export class IncuratorDashboardModal extends Modal {
         btn.disabled = false;
         return;
       }
+      btn.setText("Re-check");
+      detail.setText(accessOpenedMessage(root.grantFolder, platform));
     } else {
-      detail.setText(`Open ${root.grantFolder} yourself, then press Re-check.`);
+      // No Electron shell — nothing opened, so do not claim it did. The user
+      // opens the folder themselves and the Re-check button still works.
+      btn.setText("Re-check");
+      detail.setText(accessOpenedMessage(root.grantFolder, platform, false));
     }
     btn.disabled = false;
-    btn.setText("Re-check");
-    detail.setText(accessOpenedMessage(root.grantFolder, platform));
     btn.onclick = () => this.recheckAccess(root, btn, detail, pill, platform);
   }
 

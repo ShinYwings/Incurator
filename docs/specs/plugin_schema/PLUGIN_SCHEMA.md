@@ -804,6 +804,14 @@ Rules:
   payload carries `path` and `grant_folder`. Plugin UI must handle it
   explicitly rather than falling through to a default that shows the raw
   state string. See SYSTEM_BEHAVIOR §12.3.
+  From v0.80.0 it likewise returns `state=attachment_file_not_downloaded` when
+  the attachment is a cloud placeholder whose bytes are not on this machine.
+  It is distinct from BOTH of the above: nothing was deleted and nothing was
+  refused, so the payload carries `path` and an EMPTY `grant_folder` — there is
+  no folder whose granting would help. Plugin UI must handle it explicitly.
+  Ingest must NOT degrade to the reference stub on this state, for the same
+  reason it must not on a denial: the source would silently become a few lines
+  of frontmatter instead of the document it points at.
 
 ### 2.1.1 Zotero Import Profiles
 

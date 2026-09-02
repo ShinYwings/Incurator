@@ -65,3 +65,17 @@ describe("platform-specific wording", () => {
     expect(linux).not.toContain("macOS");
   });
 });
+
+describe("accessOpenedMessage", () => {
+  it("never claims a folder was opened when nothing opened it", () => {
+    const msg = accessOpenedMessage("/srv/papers", "darwin", false);
+    expect(msg).not.toContain("Opened");
+    expect(msg).toContain("yourself");
+    expect(msg).toContain("/srv/papers");
+  });
+
+  it("still says so when it did open, on both platforms", () => {
+    expect(accessOpenedMessage("/p", "darwin", true)).toContain("Opened /p");
+    expect(accessOpenedMessage("/p", "linux", true)).toContain("Opened /p");
+  });
+});
