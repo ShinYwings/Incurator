@@ -31,6 +31,12 @@ export function describeZoteroState(state: string, attachmentKey = ""): string {
       // The file IS there and this machine will not let the backend open it.
       // Saying "not found" here is what sent people looking for a corrupt PDF.
       return "The PDF exists but this app is not permitted to read it. Grant access to its folder in System Settings → Privacy & Security → Full Disk Access, then restart.";
+    case "attachment_file_not_downloaded":
+      // Neither missing nor denied. The file is exactly where the user left it
+      // and only its bytes are in the cloud, so there is no folder to grant and
+      // nothing to go looking for — it has to be downloaded.
+      return "The PDF is in the cloud and has not been downloaded to this machine. "
+        + "Open it once so your cloud client fetches it, then retry.";
     case "not_configured":
       return "No readable Zotero data directory is configured for this device.";
     default:

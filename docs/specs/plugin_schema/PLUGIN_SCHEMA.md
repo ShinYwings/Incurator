@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.79.0)
+# Incurator Plugin Schema & API Contract (v0.80.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -804,6 +804,14 @@ Rules:
   payload carries `path` and `grant_folder`. Plugin UI must handle it
   explicitly rather than falling through to a default that shows the raw
   state string. See SYSTEM_BEHAVIOR §12.3.
+  From v0.80.0 it likewise returns `state=attachment_file_not_downloaded` when
+  the attachment is a cloud placeholder whose bytes are not on this machine.
+  It is distinct from BOTH of the above: nothing was deleted and nothing was
+  refused, so the payload carries `path` and an EMPTY `grant_folder` — there is
+  no folder whose granting would help. Plugin UI must handle it explicitly.
+  Ingest must NOT degrade to the reference stub on this state, for the same
+  reason it must not on a denial: the source would silently become a few lines
+  of frontmatter instead of the document it points at.
 
 ### 2.1.1 Zotero Import Profiles
 
@@ -3348,3 +3356,72 @@ same `pack_id`/`trace_id` snapshot.
 If backend expansion or verification returns `snapshot_conflict`, the plugin
 must not display mixed-epoch evidence. It should keep the stale pack visibly
 degraded and request a refetch/rebase before using expanded evidence.
+
+## 16. Folder Access Tab Contract (v0.80.0)
+
+The Dashboard's **Access** tab reports which folders the backend can read. It is
+the plugin-side surface of `SYSTEM_BEHAVIOR.md` §12.3.2, which is normative for
+how a verdict is determined; this section fixes only the client contract.
+
+### 16.1 The rows come from the backend, verbatim
+
+The tab calls `wiki plugin access` and renders `{ok, platform, roots[]}`.
+
+`platform` is the **backend's** `sys.platform`, and it selects the wording — it
+is not the plugin's platform, which would be wrong the moment the backend runs
+elsewhere. Where no OS grant mechanism exists (anything but `darwin`), the button
+reads **Open folder…** rather than **Grant access…**, and the still-denied
+message describes filesystem permissions instead of a missed system prompt.
+
+Each root is:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `label` | string | Human name for the root (`Vault`, `Zotero`, `Configured root: <key>`) |
+| `path` | string | The resolved absolute path. Rows with an empty `path` are dropped |
+| `state` | `ok` \| `denied` \| `missing` \| `not_downloaded` | The reachability verdict |
+| `grant_folder` | string | Shallowest folder the user must grant; `""` when nothing can be granted |
+| `detail` | string | One actionable sentence; `""` when `state` is `ok` |
+
+**The plugin must not re-derive any of these.** It does not decide what a root
+is, whether a path is readable, or which folder to grant. A second
+implementation of those in TypeScript is a second thing to drift.
+
+`grant_folder` is normative in one specific way: it must be read and carried
+through. The backend has emitted it since the Zotero resolution path existed and
+no client surfaced it, which is why no screen could name a folder to grant.
+
+### 16.2 What a row may offer
+
+- `state: "denied"` **with** a non-empty `grant_folder` → a grant button.
+- Every other state → the `detail` sentence and **no button**. Opening a folder
+  cannot download an evicted file (`not_downloaded`) or conjure a missing one.
+
+### 16.3 The grant flow is two steps, and the second is the user's
+
+1. **Open** — `shell.openPath(grant_folder)` via Electron. Not
+   `window.open("file://…")`: Obsidian raises an external-application warning for
+   `file:` links, and a permission button that greets the user with a phishing
+   warning is a button they will not press. A failure to open is reported as
+   itself; the button stays available.
+2. **Re-check** — a separate button the user presses after answering macOS.
+   Automatic re-probing races the grant: the check returns while the system
+   prompt is still on screen and reports "still denied" before the user has
+   answered.
+
+The re-check calls `wiki plugin access` again and matches the row by `path`.
+
+- `ok` → the row's state badge and detail both change to say so. A badge left on
+  `denied` beside "Incurator can now read this folder" is the row contradicting
+  itself.
+- `denied` → the message must name the responsible-process trap: the grant may
+  have landed on Obsidian rather than on the backend.
+- no answer from the backend → reported as "could not re-check", **never** as a
+  denial.
+
+### 16.4 Layout
+
+Rows stack; they must not reuse the Overview path grid. Grid columns are sized
+from content, and these paths are long unbreakable strings — in real Obsidian
+that collapsed the label column to one character per line and pushed the grant
+button outside the modal. Paths and details wrap with `overflow-wrap: anywhere`.

@@ -51,10 +51,11 @@ class ParserError(Exception):
 class ParserAccessDenied(ParserError):
     """The file is there and this process may not read it.
 
-    A subclass so the boundary keeps its type: all three existing
-    `except ParserError` sites (`ingest_raw.py:2054`, `:2201`,
-    `commands/sources.py:187`) surface the message to the user unchanged, and
-    new code can be specific.
+    A subclass so the boundary keeps its type: the existing
+    `except ParserError` sites in `ingest_raw.py` and `commands/sources.py`
+    surface the message to the user unchanged, and new code can be specific.
+    (Line numbers were cited here once and went stale within a release; grep
+    for `except parsers.ParserError` instead.)
 
     It exists because wrapping this as a parse failure was actively
     misleading — `Cannot parse PDF <name>` sent the user to look for a corrupt
@@ -66,6 +67,23 @@ class ParserAccessDenied(ParserError):
         self.grant_folder = str(grant_folder) if grant_folder else ""
         detail = f" — grant access to {self.grant_folder}" if self.grant_folder else ""
         super().__init__(f"Not permitted to read {self.path}{detail}")
+
+
+class ParserNotDownloaded(ParserError):
+    """The file is registered and present, and its bytes are not on this machine.
+
+    A sibling of `ParserAccessDenied` rather than a plain `ParserError` for the
+    same reason: the two need different guards. A denial is fixed by granting a
+    folder and an eviction by downloading the file, and a caller that cannot
+    tell them apart sends the user to do the wrong one.
+
+    Crucially it must NOT be reported as "not found". The file is exactly where
+    the user left it — only its contents are in the cloud.
+    """
+
+    def __init__(self, path, detail: str = "") -> None:
+        self.path = str(path)
+        super().__init__(detail or f"{self.path} is not downloaded to this machine")
 
 
 def normalize_text(text: str) -> str:

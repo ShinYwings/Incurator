@@ -714,7 +714,16 @@ spawned CLI is *permitted* to read; this item is about the model electing to
 shell out at all. A sandbox changes which denials happen; it does not stop the
 model from trying.
 
-### E5. The backend never asks for folder permission — it guesses paths it may not open
+### E5. The backend never asks for folder permission — **SHIPPED v0.80.0**
+
+Shipped as `wiki plugin access`, the Dashboard **Access** tab, and a grant
+button whose result is re-probed against the backend. The root-cause fix was
+the four call sites that asked "can I read this?" with `exists()`/`os.access`,
+which both succeed on a file macOS will refuse to open; a source-tree test now
+fails on a new one. Driving the tab in real Obsidian found three defects
+fixtures could not — see CHANGELOG 0.80.0.
+
+### E5 (original)
 
 **Triaged in from `USER_REPORT.md` 2026-08-23.** macOS TCC denies `open()` on a
 granted-looking path, so a directory the user never authorised reads as a corrupt

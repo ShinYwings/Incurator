@@ -1935,6 +1935,76 @@ Rules:
 
 ---
 
+## 14. Folder Access tab — when Incurator cannot read your files
+
+Open the Dashboard (ribbon icon, or **Open Incurator Dashboard**) and choose
+**Access**. It lists every folder Incurator reads from, and says whether it can
+actually read each one.
+
+**On macOS**, file access is granted to the **backend process**, not to
+Obsidian. A folder can be visible in Finder, open fine when you double-click it,
+and still be unreadable here. That is the situation this tab exists to explain:
+it used to show up as PDFs that "failed to parse" for no visible reason.
+
+**On Linux**, the same verdict means ordinary filesystem permissions: the folder
+must be readable by the user account that runs the backend. There is no grant
+dialog, so the button reads **Open folder…**, and it opens the folder for you to
+inspect rather than promising a permission prompt.
+
+The tab words its advice from whichever system the **backend** runs on.
+
+Each row shows one of four verdicts:
+
+| Badge | What it means | What to do |
+|---|---|---|
+| `OK` | Incurator can read it | Nothing |
+| `DENIED` | The folder exists but the backend is not permitted to read it | Press **Grant access…** |
+| `MISSING` | The vault itself is not where Incurator expects | Check your vault path |
+| `NOT DOWNLOADED` | An iCloud/cloud file whose contents have been evicted | Open the file once so the cloud provider downloads it |
+
+Folders you never configured are simply not listed. The tab shows problems, not
+an inventory.
+
+### Granting a folder
+
+`DENIED` rows get a button — **Grant access…** on macOS, **Open folder…**
+elsewhere. Pressing it opens the folder that needs fixing — which is not necessarily the folder in the row. If your PDFs
+live at `~/Library/Mobile Documents/com~apple~CloudDocs/Zotero`, the folder macOS
+actually wants you to allow is `~/Library/Mobile Documents`, and that is the one
+the button opens.
+
+Then answer macOS's prompt and press **Re-check**.
+
+The re-check is a separate button on purpose. Incurator has no way to know when
+you have finished with the system dialog, so checking automatically would just
+report "still denied" while the prompt was still on your screen.
+
+### If it still says denied
+
+On Linux this is a filesystem permission and not a prompt you missed: check the
+folder's owner and mode, make it readable by the user running the backend, and
+press **Re-check**.
+
+On macOS, the system may have attributed the grant to Obsidian rather than to the Incurator
+backend — the folder is now readable for Obsidian and still not for the process
+that needs it. The tab says so rather than pretending the grant failed.
+
+The fix is to grant Full Disk Access to whichever program launches the backend
+(usually your terminal) in **System Settings → Privacy & Security → Full Disk
+Access**, then press **Re-check** again.
+
+### From the command line
+
+The same report, without Obsidian:
+
+```bash
+wiki plugin access
+```
+
+It prints JSON: one object per root with its `state` and, when relevant, the
+`grant_folder` to allow. Run it as the same user that runs the backend — the
+verdict genuinely differs between processes, which is the whole point.
+
 ## Debug logging
 
 By default the plugin keeps the developer console quiet: only warnings and errors

@@ -2,6 +2,88 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.80.0] - 2026-09-02
+
+A folder permission cost this project ten thousand failed spans and an agent
+reading a database by hand to find the cause. The backend had known the answer
+the whole time — `file_access.probe` classifies a path and `grant_root` names
+the folder to allow — and nothing ever asked it on the user's behalf. A `grep`
+of the plugin for either name returned zero hits.
+
+### Added
+
+- **A Dashboard "Access" tab.** One row per folder Incurator reads from, with
+  its verdict, and — when a folder is denied — a button that opens the folder
+  macOS actually wants granted. See `docs/guides/PLUGIN_GUIDE.md` §14.
+- **`wiki plugin access`.** The same report as JSON, without Obsidian. It
+  enumerates the vault, `04_Resources`, every configured `external.path_roots`
+  entry, and every Zotero root discovered from Zotero's own prefs — the last of
+  which is what surfaced the denied iCloud attachment directory. A configured
+  root that is absent is omitted rather than reported as a problem; the vault is
+  the exception.
+- **`Reachability.NOT_DOWNLOADED`.** A cloud file whose bytes were evicted is
+  neither missing nor forbidden, and naming it either sends the user to fix
+  something that was never wrong. It offers no folder to grant, because there is
+  nothing to grant.
+- **`file_access.describe(path)`** — one actionable sentence per verdict, so
+  every surface says the same thing.
+
+### Fixed
+
+- **`grant_root` never tested the path it was given.** It walked
+  `path.parents`, so the shallowest denied folder could not be the folder
+  itself, and it did not resolve symlinks first. It now resolves and probes the
+  path itself before its parents.
+- **Four call sites asked "can I read this?" the way that cannot work.**
+  `not p.exists() or not p.is_file()` and `os.access(R_OK)` both succeed for a
+  file macOS will refuse to open, so a denial arrived at the user as a missing
+  or corrupt file. `ingest_raw` (three sites) and `source_tools.rebind_source`
+  now probe. A test walks the source tree and fails on a new one.
+- **A denial reached the user with no folder to act on.** `AddOutcome` and
+  `rebind_source` now carry `grant_folder`.
+
+### Changed
+
+- The parser boundary raises `ParserNotDownloaded`, distinct from `missing` and
+  from `ParserAccessDenied`, and `_resolve_reference_source` names it alongside
+  the denial in the guard that must not degrade to the reference stub.
+- **The advice is chosen by the backend's platform, not written for macOS.** A
+  denial is the same verdict everywhere; the fix is not. On Linux the identical
+  `PermissionError` is filesystem permissions — there is no grant dialog,
+  opening the folder grants nothing, and "allow it when macOS asks" leaves the
+  user waiting for a prompt that never arrives. `wiki plugin access` now reports
+  its own `sys.platform`, `file_access.describe` words the sentence from it, and
+  the tab labels the button **Grant access…** only where a grant mechanism
+  exists — **Open folder…** otherwise. The backend chooses, because the backend
+  is the process holding the permission.
+
+The self-review found four more, all of the same shape — a value computed and
+then discarded:
+
+- **`resolve_pdf` never dispatched on `NOT_DOWNLOADED`.** The helper computed
+  the verdict and the caller dropped it, so an online-only iCloud Zotero PDF was
+  reported to every consumer as `attachment_file_missing` — the exact conflation
+  this release claims to fix, on the path where it matters most. It now returns
+  `attachment_file_not_downloaded`, ingest refuses to degrade to the stub, and
+  the repair modal names it.
+- **`import_source` dropped `grant_folder`.** The field was added to
+  `AddOutcome` and then omitted from the plugin API's explicit field list, which
+  is the same loss PR #163 was reviewed for.
+- **A configured root that went missing vanished from the report.** Omitting
+  absent roots was meant to hide folders the user never set up; a root they
+  configured and later renamed is exactly what the tab exists to surface.
+- **The grant button claimed "Opened <folder>" when nothing opened it.** With no
+  Electron shell the honest branch wrote its message and the next line
+  overwrote it unconditionally.
+
+Found by driving the tab in real Obsidian, none of which a fixture produces:
+the Overview path grid collapsed the label column to one character per line and
+pushed the grant button outside the modal; `window.open("file://…")` triggered
+Obsidian's external-application warning on the app's own button; and re-probing
+straight after opening the folder raced the macOS prompt and reported "still
+denied" before the user had answered it. Verification is now a **Re-check**
+button the user presses.
+
 ## [0.79.0] - 2026-09-01
 
 ROADMAP E2 asked for a larger chunk size and a reindex. Measuring the cause first

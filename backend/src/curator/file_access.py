@@ -29,8 +29,10 @@ this is still free.
 from __future__ import annotations
 
 import logging
+import errno
 import os
 import stat
+import sys
 from enum import Enum
 from pathlib import Path
 
@@ -50,6 +52,69 @@ class Reachability(str, Enum):
     OK = "ok"
     MISSING = "missing"
     DENIED = "denied"
+    #: The file is registered and present as a placeholder, but its bytes are not
+    #: on this machine — macOS has evicted it to iCloud-only. Deliberately NOT
+    #: `DENIED`: no permission was revoked, so there is no folder to grant and a
+    #: picker would be a no-op. Deliberately NOT `MISSING` either, because the
+    #: file has not been deleted and telling the user it is gone is wrong.
+    NOT_DOWNLOADED = "not_downloaded"
+
+
+#: How a dataless iCloud placeholder fails when it cannot be materialised. The
+#: File Provider surfaces these rather than a permission error, which is why they
+#: were landing in the catch-all and being reported as a missing file.
+_EVICTED_ERRNOS = frozenset(
+    e for e in (
+        getattr(errno, "ENODATA", None),
+        getattr(errno, "EDEADLK", None),
+        getattr(errno, "ETIMEDOUT", None),
+    ) if e is not None
+)
+
+
+def describe(path: Path) -> str:
+    """One sentence a user can act on, matched to why the path is unusable.
+
+    The wording differs because the ACTION differs: a denial is fixed by granting
+    a folder, an eviction by downloading the file, and neither fix helps the
+    other. Conflating them is what sends someone to System Settings for a file
+    that was never blocked.
+    """
+    verdict = probe(path)
+    if verdict is Reachability.OK:
+        return f"{path} is readable."
+    if verdict is Reachability.DENIED:
+        folder = grant_root(path)
+        if not folder:
+            return f"{path} cannot be read: this process is not permitted to."
+        # The FIX differs by platform, so the sentence has to. On macOS a denial
+        # is usually TCC and the user grants a folder in System Settings. On
+        # Linux there is no such grant: the same denial is filesystem
+        # permissions, and telling someone to "grant access to a folder" sends
+        # them looking for a dialog their OS does not have.
+        if sys.platform == "darwin":
+            return (
+                f"{path} cannot be read: this process is not permitted to. "
+                f"Grant access to {folder}."
+            )
+        return (
+            f"{path} cannot be read: this process is not permitted to. Check the "
+            f"permissions on {folder} — it must be readable by the user running "
+            "Incurator."
+        )
+    if verdict is Reachability.NOT_DOWNLOADED:
+        if sys.platform == "darwin":
+            return (
+                f"{path} is not downloaded to this machine — iCloud is keeping it "
+                "online-only. Open it once in Finder, or turn off Optimise Storage "
+                "for that folder, then retry."
+            )
+        return (
+            f"{path} is not downloaded to this machine — the cloud client is "
+            "keeping it online-only. Open it once so the client fetches it, "
+            "then retry."
+        )
+    return f"{path} is not there."
 
 
 def probe(path: Path) -> Reachability:
@@ -84,6 +149,14 @@ def probe(path: Path) -> Reachability:
     except IsADirectoryError:
         return Reachability.MISSING
     except OSError as e:
+        if e.errno in _EVICTED_ERRNOS:
+            # A dataless placeholder that could not materialise. `stat` says the
+            # file is there and the read says it is not, which is why a
+            # metadata-based check calls it present and this one used to call it
+            # gone. Naming a folder to grant here would be the failure this
+            # module was written about: the permission is fine, the bytes are in
+            # iCloud.
+            return Reachability.NOT_DOWNLOADED
         # A broken symlink, a dead mount, a name too long. MISSING is the safe
         # direction: it is the state every caller already handles, and claiming
         # DENIED would send the user to grant a permission that is not the
@@ -116,13 +189,33 @@ def grant_root(path: Path) -> Path | None:
     if probe(path) is not Reachability.DENIED:
         return None
 
+    # Resolve first. `probe` follows symlinks — `os.open` does — while
+    # `Path.parents` does not, so without this the two disagree about what they
+    # are looking at: probe reports the TARGET's denial and the walk climbs the
+    # LINK's parents, which are readable, and answers None.
+    try:
+        path = path.resolve(strict=False)
+    except OSError:
+        pass
+
     shallowest_denied: Path | None = None
-    for ancestor in path.parents:
+
+    # The path ITSELF may be the denied node, and for a root it usually is.
+    # Walking only `parents` answered None for `~/Downloads` and for
+    # `~/Library/Mobile Documents` — both measured DENIED at the same moment —
+    # so the grant button on a Dashboard row would have had nothing to open, on
+    # exactly the rows it exists for. A file inside a denied folder still
+    # resolves to the folder, which is the shape production depends on.
+    for candidate in (path, *path.parents):
         try:
-            with os.scandir(ancestor) as it:
+            with os.scandir(candidate) as it:
                 next(iter(it), None)
         except PermissionError:
-            shallowest_denied = ancestor
+            shallowest_denied = candidate
+        except NotADirectoryError:
+            # A denied FILE: its bytes are refused but it is not a folder, so it
+            # is never the thing to grant. Its parent is.
+            continue
         except OSError:
             continue
     return shallowest_denied

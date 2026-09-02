@@ -6,7 +6,12 @@ import importlib
 from pathlib import Path
 from typing import Any
 
-from .base import ParsedDocument, ParserAccessDenied, ParserError
+from .base import (
+    ParsedDocument,
+    ParserAccessDenied,
+    ParserError,
+    ParserNotDownloaded,
+)
 
 # Map lowercase extension → module path of the parser
 _PARSERS = {
@@ -53,6 +58,13 @@ def parse(path: Path) -> ParsedDocument:
     match file_access.probe(path):
         case file_access.Reachability.DENIED:
             raise ParserAccessDenied(path, file_access.grant_root(path))
+        case file_access.Reachability.NOT_DOWNLOADED:
+            # Registered, present as a placeholder, bytes not on this machine.
+            # Falling through here let the parser fail on empty content and blame
+            # the file; saying "not found" would be worse, because the file is
+            # there and the user would go looking for a deletion that never
+            # happened. Neither is a permission problem, so no folder is named.
+            raise ParserNotDownloaded(path, file_access.describe(path))
         case file_access.Reachability.MISSING:
             raise ParserError(f"File not found: {path}")
 
@@ -76,4 +88,4 @@ def parse(path: Path) -> ParsedDocument:
     return parser_module.parse(path)
 
 
-__all__ = ["ParsedDocument", "ParserAccessDenied", "ParserError", "parse", "is_supported", "SUPPORTED_EXTENSIONS"]
+__all__ = ["ParsedDocument", "ParserAccessDenied", "ParserError", "ParserNotDownloaded", "parse", "is_supported", "SUPPORTED_EXTENSIONS"]

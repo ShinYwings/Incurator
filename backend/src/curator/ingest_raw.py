@@ -28,7 +28,8 @@ from pathlib import Path
 from typing import Iterable
 
 from . import config as cfg
-from .parsers import ParserAccessDenied
+from . import file_access
+from .parsers import ParserAccessDenied, ParserNotDownloaded
 from . import db
 from . import parsers
 from .llm import LLMError
@@ -59,6 +60,15 @@ class AddOutcome:
     source_id: int | None = None   # Row ID in sources table
     context_id: str | None = None  # CTX-UUID for L1 context page
     message: str = ""              # Human-friendly explanation
+    #: The folder the user must grant, when the failure was a permission denial.
+    #: Empty for every other outcome — offering a folder for a corrupt PDF would
+    #: send someone to change a setting that has nothing to do with it.
+    #:
+    #: `ParserAccessDenied` computes this by walking upward from the file, and it
+    #: was being flattened into `message` and lost, which is why no surface could
+    #: name the folder and `ZoteroRepairModal` still tells users to go to System
+    #: Settings without saying where.
+    grant_folder: str = ""
 
     @property
     def ok(self) -> bool:
@@ -129,6 +139,14 @@ def _resolve_reference_source(paths: cfg.WikiPaths, source: Path) -> Path:
             resolved = zotero_tools.resolve_pdf(str(zotero_key), paths)
             if resolved.get("ok") and resolved.get("path"):
                 target_path = str(resolved["path"])
+            elif resolved.get("state") == "attachment_file_not_downloaded":
+                # Same reasoning as the denial below: the PDF is right there,
+                # only its bytes are in the cloud. Falling back to the stub
+                # would ingest a few lines of frontmatter and report success.
+                raise ParserNotDownloaded(
+                    resolved.get("path") or source,
+                    str(resolved.get("error") or ""),
+                )
             elif resolved.get("state") == "attachment_file_denied":
                 # Do NOT fall back to the stub. Every other unresolved case
                 # means "no PDF here, use the note"; this one means "the PDF is
@@ -161,13 +179,15 @@ def _resolve_reference_source(paths: cfg.WikiPaths, source: Path) -> Path:
             target_p = Path(target_path)
             if target_p.exists():
                 return target_p
-    except ParserAccessDenied:
-        # The ONE failure that must not degrade. Every other unresolved case
-        # means "no external file here, use the note"; this one means the file
-        # is present and we were refused. Degrading would ingest the stub's
-        # frontmatter and report success — the source silently becomes a few
-        # lines of metadata instead of the book it points at, which is worse
-        # than the error being replaced. See SYSTEM_BEHAVIOR §12.3.
+    except (ParserAccessDenied, ParserNotDownloaded):
+        # The failures that must not degrade. Every other unresolved case means
+        # "no external file here, use the note"; these two mean the file is
+        # present and unreadable — refused, or its bytes still in the cloud.
+        # Degrading would ingest the stub's frontmatter and report success — the
+        # source silently becomes a few lines of metadata instead of the book it
+        # points at, which is worse than the error being replaced. Both must be
+        # named here: the broad `except Exception` below would otherwise swallow
+        # them straight back into the degrade path. See SYSTEM_BEHAVIOR §12.3.
         raise
     except Exception as e:
         # KEEP broad: best-effort external-path resolver spanning file read,
@@ -384,8 +404,15 @@ def safe_import_destination(
         raise ValueError(f"Unsupported import policy: {policy}")
 
     source = source.expanduser().resolve()
-    if not source.exists() or not source.is_file():
-        raise FileNotFoundError(f"File not found: {source}")
+    # `probe`, not `exists()`. Under TCC the metadata is readable while the bytes
+    # are not, so `exists()` either lies or raises PermissionError from an
+    # ancestor — and "File not found" for a denied file sends the user looking
+    # for a deletion that never happened.
+    reach = file_access.probe(source)
+    if reach is file_access.Reachability.DENIED:
+        raise ParserAccessDenied(source, file_access.grant_root(source))
+    if reach is not file_access.Reachability.OK:
+        raise FileNotFoundError(file_access.describe(source))
     if not parsers.is_supported(source):
         raise ValueError(f"Unsupported file type: {source.suffix or '(no extension)'}")
 
@@ -2046,13 +2073,25 @@ def add_file(
     """
     source = source.expanduser().resolve()
 
-    # Guard: file must exist
-    if not source.exists() or not source.is_file():
+    # Guard: the file must be there AND readable, and the two are different facts.
+    #
+    # `Path.exists()` raises PermissionError when an ancestor folder is denied —
+    # it does not return False — so a file inside a folder this process may not
+    # open crashed `add_file` outright instead of producing an outcome. And when
+    # it did return False the message said "File not found", which is wrong twice:
+    # the file is there, and the user goes looking for a deletion that never
+    # happened.
+    #
+    # `probe` answers with the reason, so the outcome can carry the folder to
+    # grant, or say the bytes are still in iCloud, or say it is genuinely gone.
+    reachability = file_access.probe(source)
+    if reachability is not file_access.Reachability.OK:
         return AddOutcome(
             result=AddResult.ERROR,
             source_path=source,
             relpath=str(source),
-            message=f"File not found: {source}",
+            message=file_access.describe(source),
+            grant_folder=str(file_access.grant_root(source) or ""),
         )
 
     # Guard: file type must be supported
@@ -2093,6 +2132,10 @@ def add_file(
             source_path=source,
             relpath=str(source),
             message=f"Parse failed: {e}",
+            # Carry the folder, not just the sentence about it. Without this the
+            # only place that knows which folder to grant is a formatted string,
+            # and no surface can put a button on a string.
+            grant_folder=str(getattr(e, "grant_folder", "") or ""),
         )
 
     try:
@@ -2221,12 +2264,15 @@ def import_source_file(
     """
     if policy in {"reference", "ref"}:
         source = source.expanduser().resolve()
-        if not source.exists() or not source.is_file():
+        # Same reason as `add_file`'s guard: metadata lies under TCC, so ask
+        # `probe` and carry the folder the answer names.
+        if file_access.probe(source) is not file_access.Reachability.OK:
             return AddOutcome(
                 result=AddResult.ERROR,
                 source_path=source,
                 relpath=str(source),
-                message=f"File not found: {source}",
+                message=file_access.describe(source),
+                grant_folder=str(file_access.grant_root(source) or ""),
             )
         if not parsers.is_supported(source):
             return AddOutcome(
@@ -2243,6 +2289,7 @@ def import_source_file(
                 source_path=source,
                 relpath=str(source),
                 message=f"Parse failed: {exc}",
+                grant_folder=str(getattr(exc, "grant_folder", "") or ""),
             )
 
         logical_id = logical_source_id or _default_logical_source_id(source)

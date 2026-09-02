@@ -3730,3 +3730,59 @@
   line-height: 1.4;
 }
 
+
+/* ── Dashboard: Folder Access ───────────────────────────────────────────────
+   Paths here are long, unbreakable strings. They must wrap inside the modal
+   rather than widen it — a grid laid out from their content pushed the grant
+   button off-screen in real Obsidian. */
+.ai-agent-access-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 12px;
+}
+.ai-agent-access-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.ai-agent-access-row:last-child { border-bottom: none; }
+.ai-agent-access-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ai-agent-access-label {
+  font-weight: 600;
+  color: var(--text-normal);
+}
+.ai-agent-access-state {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+}
+.ai-agent-access-state.is-ok { background: var(--color-green); color: var(--text-on-accent); }
+.ai-agent-access-state.is-denied { background: var(--color-red); color: var(--text-on-accent); }
+.ai-agent-access-state.is-missing,
+.ai-agent-access-state.is-not_downloaded {
+  background: var(--color-yellow);
+  color: var(--text-on-accent);
+}
+.ai-agent-access-path {
+  font-family: var(--font-monospace);
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.ai-agent-access-detail {
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.ai-agent-access-btn { align-self: flex-start; }

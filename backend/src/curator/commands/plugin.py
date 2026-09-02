@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 
 from .common import *
 
@@ -1306,3 +1307,32 @@ def zotero_resolve_pdf(
     except Exception as exc:
         _print_json({"ok": False, "error": str(exc)})
         raise typer.Exit(code=1)
+
+
+@plugin_app.command("access")
+def plugin_access(
+    workspace_path: str = typer.Option("", "--workspace-path", help="Vault root override."),
+) -> None:
+    """Report which folders Incurator can read, and which to grant when it cannot.
+
+    The backend has always known this — `file_access.probe` classifies a path and
+    `grant_root` names the folder — and nothing asked it on the user's behalf. A
+    vault whose PDFs moved into a cloud folder failed with no way to learn why,
+    which is the incident this command exists for.
+    """
+    from .. import plugin_api
+
+    try:
+        _print_json(
+            {
+                "ok": True,
+                # The BACKEND's platform, not the plugin's. This process is the
+                # one that holds (or lacks) the permission, so it is the one
+                # whose OS decides what the fix even is — a macOS grant dialog
+                # and a Linux chmod are not the same instruction.
+                "platform": sys.platform,
+                "roots": plugin_api.access_report(_plugin_paths(workspace_path)),
+            }
+        )
+    except Exception as exc:  # noqa: BLE001 - the plugin renders whatever it gets
+        _print_json({"ok": False, "error": str(exc), "platform": sys.platform, "roots": []})
