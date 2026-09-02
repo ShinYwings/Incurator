@@ -38,8 +38,11 @@ said the chunker was never involved, and something else was.
 
 On the **42 of 49 documents this machine can read**: spans with a truncated index
 body went from **564 to 3, a 99.5% reduction**, and the property that motivated
-the release — a term past character 240 retrieves its span — went from **1 of 6
-to 65 of 65**.
+the release — a term past character 240 is present in the indexed body — went
+from **1 of 6 before** (a hand probe, small because so few bodies exceeded the
+cap to probe at all) **to 139 of 139 after**, measured by
+`backend/scripts/span_index_truncation.py`, which reproduces every number in this
+entry and is read-only.
 
 On the other **7 documents, nothing improved much (16%)**, and that is not a
 limit of this change. Their PDFs live in `~/Library/Mobile Documents` and macOS

@@ -17,6 +17,8 @@ from .. import db
 __all__ = ["MaterializeResult", "materialize_search_documents"]
 
 
+from ..pipeline import source_spans
+
 _LOG = logging.getLogger(__name__)
 
 
@@ -399,7 +401,8 @@ def materialize_search_documents(
     entity_names = {str(row["id"]): str(row["canonical_name"]) for row in entities}
     docs: list[dict[str, Any]] = []
 
-    # The index gets the span's FULL text, not its preview.
+    # The index gets a truncated span's FULL text where the source can be read,
+    # and says how often it could not.
     #
     # `source_spans` has no full-text column — only `content_hash`, computed over
     # the whole span, and `text_preview`, which is the first 200 characters
@@ -417,15 +420,43 @@ def materialize_search_documents(
     # `text_preview` is left alone: SCHEMA.md locks it immutable, and rewriting it
     # would move `content_hash` and therefore span identity, which 20,230
     # knowledge_units and 19,521 claim_supports are anchored to.
-    span_full_text = _hydrated_span_texts(db_path, [str(row["id"]) for row in spans])
+    # ONLY the spans the preview actually truncated. A preview shorter than the
+    # cap already holds the whole span, so hydrating it buys nothing and costs
+    # twice:
+    #
+    #  - `hydrate_spans` re-parses the SOURCE FILE. `materialize_search_documents`
+    #    is called about 2N+2 times per `wiki add`/`wiki sync` from six sites in
+    #    the compile pipeline, including the error path and the cached no-op path,
+    #    and its span query is vault-wide. Hydrating everything turned a cheap DB
+    #    projection into repeated full-corpus PDF parsing.
+    #  - `text_preview` collapses internal whitespace (`" ".join(text.split())`)
+    #    and hydration does not, so the body of an untruncated span would change
+    #    for whitespace alone — measured, 53% of them — and every one would
+    #    re-embed for no gain, since embeddings are keyed on the text.
+    #
+    # Both were found by review. Restricting to the truncated set is what makes
+    # the fix pay only for what it fixes.
+    truncated = [
+        str(row["id"])
+        for row in spans
+        if len(str(row.get("text_preview") or "")) >= source_spans._PREVIEW_CHARS
+    ]
+    truncated_ids = set(truncated)
+    span_full_text = _hydrated_span_texts(db_path, truncated)
     preview_fallbacks = 0
 
     for row in spans:
         source_id = int(row["source_id"])
         title = str(row.get("section_title") or sources.get(source_id, {}).get("relpath") or "")
-        hydrated = span_full_text.get(str(row["id"]))
+        span_id = str(row["id"])
+        hydrated = span_full_text.get(span_id)
         if hydrated:
             body = hydrated
+        elif span_id not in truncated_ids:
+            # Never truncated, so its preview IS the whole span. Not a fallback,
+            # and counting it as one would make the warning the user sees a lie:
+            # on a healthy vault most spans land here.
+            body = str(row.get("text_preview") or "")
         else:
             # The source moved or changed, so the text cannot be recovered. A
             # truncated body beats no body — but count it, because a silent 40%

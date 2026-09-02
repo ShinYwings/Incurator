@@ -1720,6 +1720,18 @@ def reindex(
             f"{result.documents} documents, {result.chunks} chunks"
             f"{embedding_summary}"
         )
+        if result.preview_fallbacks:
+            # The count existed and only reached a log line, which is the
+            # half-wiring this release keeps naming: the one signal that a reindex
+            # SILENTLY did less than it looks like it did was invisible to the
+            # person running it. On the vault this was built against, that number
+            # is what revealed a permissions problem nobody knew about.
+            _warn(
+                f"{result.preview_fallbacks} spans could not be read from their "
+                "source and were indexed from a 200-character preview, so search "
+                "cannot see the rest of them. Usually a folder this process is "
+                "not permitted to open."
+            )
     except Exception as e:
         _err(f"Index rebuild failed: {e}")
         raise typer.Exit(code=1)
