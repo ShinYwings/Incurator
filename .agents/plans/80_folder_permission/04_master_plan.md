@@ -69,13 +69,18 @@ downloaded", because a picker fixes only the first.
 
 ## 3. Explicit Non-Goals
 
-- **Building the Electron picker this release.** Whether a grant obtained through
-  an open panel in Obsidian reaches the spawned Python backend is still
-  unverified — this machine can no longer produce a fresh denial for that exact
-  pairing, and the measurement agent's DevTools procedure needs a human at the
-  keyboard. Shipping a button whose grant may not propagate is the failure the
-  briefing's phase 1 exists to prevent. It goes to ROADMAP with the procedure
-  attached.
+- Nothing about the two surfaces. **Corrected 2026-09-02, by the user:** the
+  first draft of this plan deferred BOTH the picker and the Dashboard tab on the
+  grounds that TCC propagation was unverified. That was the wrong call and the
+  user said so — *"저게 이번 릴리즈 핵심인데 다 빼버리면 어떡해"*.
+
+  CLAUDE.md is explicit that the stability tiebreaker settles engineering trades
+  and NOT this one: *"when the stable option means the product does less, that is
+  a product decision"* and it goes to the user. Deferring the deliverable on an
+  unfinished measurement was a product decision made silently.
+
+  It was also unnecessary, and the plan already said why: design so a failed
+  grant is VISIBLE rather than silent. See D6.
 - A tab of green rows. If nothing is denied, the surface says so in one line.
 - Widening `probe`'s contract or adding TCC detection logic.
 
@@ -114,12 +119,37 @@ and keeps it on the unprompted path. **A tab the user must open is weaker than a
 line the command prints**, so the tab comes second and shows one line when
 nothing is denied.
 
-### D5. The Dashboard tab is deferred to the same release as the picker
+### D5. The Dashboard tab ships, and it is the button that makes it worth opening
 
-Without the picker a row can only say "denied" and name a folder — which the
-reindex output will now do unprompted, on the path the user is already on. The
-tab's value is the button, and the button waits on the propagation measurement.
-Recorded, not dropped.
+One row per root, its verdict, and a grant button on any row that is denied. When
+nothing is denied it collapses to a single line rather than a wall of green rows
+nobody needs.
+
+The row's verdict must come from the backend, not the plugin: `probe` and
+`grant_root` already own that logic and a second implementation in TypeScript
+would drift. Note the trap — `probe` opens a path as a FILE, so a readable
+DIRECTORY returns MISSING; the endpoint disambiguates rather than the caller.
+
+### D6. The picker ships, and VERIFIES rather than assumes
+
+Whether a grant obtained through an Electron open panel reaches the spawned
+Python backend is not fully established. The measurement did find a live analog —
+Claude.app, an Electron app with the same hardened-runtime, non-sandboxed shape
+as Obsidian, propagates its own TCC grants through four process hops into
+arbitrary spawned commands — but Obsidian itself is unconfirmed, and this machine
+can no longer produce a fresh denial to confirm it with.
+
+So the button does not assume. After the user picks a folder, the backend
+**re-probes it and reports what it found**:
+
+- readable → say so, and offer to retry whatever failed.
+- still denied → say THAT, plainly: the folder was granted to Obsidian and the
+  backend still cannot read it. Name the folder for System Settings, which is
+  where the user would otherwise have been sent with nothing.
+
+That turns the open question into a visible outcome on the user's own machine.
+It is strictly better than today, which says nothing at all, in both branches —
+and it is the measurement, run by the feature instead of before it.
 
 ## 5. Stop Conditions
 
@@ -134,6 +164,10 @@ for the file-inside-denied-folder shape — that is the shape production depends
 - **P3** — `grant_folder` survives to the plugin: `AddOutcome`, the four
   flattening sites, and the normalizer that drops the one already arriving.
 - **P4** — the unprompted report names folders, grouped, not one line per source.
-- **P5** — docs (SYSTEM_BEHAVIOR §12.3, PLUGIN_SCHEMA, guides EN then KR),
-  version bump, CHANGELOG, and ROADMAP E5 carrying the picker + tab forward with
-  the measurement procedure attached.
+- **P5** — `wiki plugin access`: one backend command returning a row per root
+  with its verdict and the folder to grant. Disambiguates a readable directory
+  from MISSING.
+- **P6** — the Dashboard tab, rendering those rows.
+- **P7** — the picker, and the re-probe that reports what actually happened.
+- **P8** — docs (SYSTEM_BEHAVIOR §12.3, PLUGIN_SCHEMA, guides EN then KR),
+  version bump, CHANGELOG, ROADMAP.
