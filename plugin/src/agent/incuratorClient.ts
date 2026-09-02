@@ -108,6 +108,16 @@ export interface IncuratorStatusEvent {
   status: IncuratorSourceStatus;
 }
 
+export interface AccessRoot {
+  label: string;
+  path: string;
+  /** `not_downloaded` is deliberately distinct from `denied`: iCloud has the
+   *  bytes, no permission was revoked, and a folder picker would be a no-op. */
+  state: "ok" | "denied" | "missing" | "not_downloaded";
+  grantFolder: string;
+  detail: string;
+}
+
 export class IncuratorClient {
   public needsUpdate = false;
   public backendVersion = "unknown";
@@ -942,6 +952,33 @@ export class IncuratorClient {
     const result = await this.callBackendJson(["plugin", "secret", "rm", "--name", name]);
     if (!result || typeof result !== "object") return false;
     return (result as Record<string, unknown>).deleted === true;
+  }
+
+  /** Which folders Incurator can read, and which to grant when it cannot.
+   *
+   *  The backend owns this: `file_access.probe` classifies a path and
+   *  `grant_root` names the folder. The plugin renders rows and decides nothing
+   *  — a second implementation of "what is a root" in TypeScript is a second
+   *  thing to drift. */
+  async accessReport(): Promise<AccessRoot[]> {
+    const result = await this.callBackendJson(["plugin", "access"]);
+    const roots = (result as { roots?: unknown } | null)?.roots;
+    if (!Array.isArray(roots)) return [];
+    return roots.flatMap((raw) => {
+      const row = raw as Record<string, unknown>;
+      const path = typeof row.path === "string" ? row.path : "";
+      if (!path) return [];
+      return [{
+        label: typeof row.label === "string" ? row.label : path,
+        path,
+        state: (typeof row.state === "string" ? row.state : "missing") as AccessRoot["state"],
+        // The folder to open in a picker. Read it — the Zotero resolution path
+        // has emitted this field for releases and its normaliser never did,
+        // which is why no surface could name a folder.
+        grantFolder: typeof row.grant_folder === "string" ? row.grant_folder : "",
+        detail: typeof row.detail === "string" ? row.detail : "",
+      }];
+    });
   }
 
   private async callBackendJson(cmdArgs: string[]): Promise<unknown | null> {

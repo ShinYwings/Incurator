@@ -454,7 +454,7 @@ function localFilePath(linkpath: string): string | null {
   return hasScheme && !isWindowsDrive ? null : linkpath;
 }
 
-function getElectronShell(): {
+export function getElectronShell(): {
   openPath?: (path: string) => Promise<string>;
   openExternal?: (url: string) => Promise<void>;
 } | null {

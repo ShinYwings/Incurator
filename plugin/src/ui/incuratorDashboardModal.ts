@@ -2,6 +2,9 @@ import { App, Modal, Notice, parseYaml, setIcon } from "obsidian";
 import type ObsidianAIAgent from "../../main";
 import { normalizeModelEffort, type LLMProvider, type ModelOption } from "../types";
 import { resolveModelSelectValue } from "../utils/modelSelect";
+import type { AccessRoot } from "../agent/incuratorClient";
+import { getElectronShell } from "./incuratorQueryTrace";
+import { accessRowOffersGrant, accessRecheckMessage } from "./accessRows";
 
 const PROVIDER_TO_PRIMARY: Record<LLMProvider, string> = {
   antigravity: "antigravity-cli",
@@ -25,11 +28,12 @@ const PROVIDER_LABELS: Record<LLMProvider, string> = {
   deepseek:    "DeepSeek",
 };
 
-type TabId = "overview" | "jobs" | "sources" | "traces" | "synthesis" | "insights" | "persona";
+type TabId = "overview" | "jobs" | "sources" | "access" | "traces" | "synthesis" | "insights" | "persona";
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: "overview", label: "Overview", icon: "layout-dashboard" },
   { id: "jobs",     label: "Jobs",     icon: "loader" },
   { id: "sources",  label: "Sources",  icon: "list" },
+  { id: "access",   label: "Access",   icon: "folder-lock" },
   { id: "traces",   label: "Traces",   icon: "search" },
   { id: "synthesis", label: "Synthesis", icon: "network" },
   { id: "insights", label: "Insights", icon: "lightbulb" },
@@ -164,6 +168,7 @@ export class IncuratorDashboardModal extends Modal {
       case "overview":  this.renderOverview(view, p);  break;
       case "jobs":      this.renderJobs(view);          break;
       case "sources":   this.renderSources(view);       break;
+      case "access":    this.renderAccess(view);         break;
       case "traces":    this.renderTraces(view);        break;
       case "synthesis": this.renderSynthesis(view);     break;
       case "insights":  this.renderInsights(view);      break;
@@ -1453,6 +1458,143 @@ export class IncuratorDashboardModal extends Modal {
   // ---------------------------------------------------------------------------
   // PERSONA TAB
   // ---------------------------------------------------------------------------
+
+  /** Which folders Incurator can actually read.
+   *
+   *  macOS grants file access per responsible process, and `stat` keeps
+   *  succeeding after a grant is gone — so a denied folder reads as a corrupt
+   *  file everywhere downstream. This tab asks the backend, which is the
+   *  process that actually has (or lacks) the grant, and shows the answer.
+   */
+  private async renderAccess(el: HTMLElement) {
+    el.createEl("h3", { text: "Folder Access", cls: "ai-agent-dashboard-section-title" });
+    el.createDiv({
+      cls: "setting-desc",
+      text: "Folders Incurator reads from. macOS grants these to the backend process, "
+          + "not to Obsidian, so a folder can be visible in Finder and still be unreadable here.",
+    });
+
+    const list = el.createDiv("ai-agent-access-list");
+    list.createDiv({ cls: "ai-agent-dashboard-empty", text: "Checking…" });
+
+    let roots: AccessRoot[];
+    try {
+      roots = await this.plugin.incuratorClient.accessReport();
+    } catch (err) {
+      list.empty();
+      list.createDiv({ cls: "ai-agent-dashboard-error", text: `Could not check access: ${err}` });
+      return;
+    }
+    list.empty();
+    if (roots.length === 0) {
+      list.createDiv({ cls: "ai-agent-dashboard-empty", text: "Backend offline — no folders reported." });
+      return;
+    }
+    for (const root of roots) this.renderAccessRow(list, root);
+  }
+
+  private renderAccessRow(list: HTMLElement, root: AccessRoot) {
+    // Deliberately NOT the overview's two-column path grid. A grid sizes its
+    // columns from content, and these paths are long unbreakable strings — in
+    // real Obsidian that squeezed the label column to one character per line
+    // and pushed the grant button outside the modal. Rows stack instead.
+    const row = list.createDiv("ai-agent-access-row");
+    const head = row.createDiv("ai-agent-access-head");
+    head.createSpan({ cls: "ai-agent-access-label", text: root.label });
+    const pill = head.createSpan({
+      cls: `ai-agent-access-state is-${root.state}`,
+      text: root.state === "not_downloaded" ? "not downloaded" : root.state,
+    });
+    row.createDiv({ cls: "ai-agent-access-path", text: root.path });
+
+    if (root.state === "ok") return;
+
+    const detail = row.createDiv({ cls: "ai-agent-access-detail", text: root.detail });
+
+    // Only a denial is fixable by granting a folder. A missing folder has
+    // nothing to grant, and an iCloud-evicted file needs a download, not a
+    // permission — offering a picker there would be a button that cannot work.
+    if (!accessRowOffersGrant(root)) return;
+
+    const btn = row.createEl("button", { cls: "ai-agent-dashboard-btn ai-agent-access-btn" });
+    btn.setText("Grant access…");
+    btn.setAttr("title", `Opens ${root.grantFolder}`);
+    btn.onclick = () => this.grantAccess(root, btn, detail, pill);
+  }
+
+  /** Open the folder so macOS can ask, then let the user re-check.
+   *
+   *  Two things the first cut got wrong, both found by driving this in real
+   *  Obsidian:
+   *
+   *  1. `window.open("file://…")` makes Obsidian raise its "this link will open
+   *     an external application" warning. A permission button that greets the
+   *     user with a phishing warning is a button they will not press. Electron's
+   *     `shell.openPath` opens the folder with no interstitial.
+   *  2. Re-probing straight after opening the folder RACED the grant — the
+   *     re-check ran and printed "still denied" while the macOS prompt was still
+   *     on screen, unanswered. Verification cannot be automatic, because nothing
+   *     here knows when the user finished. So it becomes its own button.
+   */
+  private async grantAccess(
+    root: AccessRoot,
+    btn: HTMLButtonElement,
+    detail: HTMLElement,
+    pill: HTMLElement,
+  ) {
+    btn.disabled = true;
+    const shell = getElectronShell();
+    if (shell?.openPath) {
+      const err = await shell.openPath(root.grantFolder);
+      if (err) {
+        detail.setText(`Could not open ${root.grantFolder}: ${err}`);
+        btn.disabled = false;
+        return;
+      }
+    } else {
+      detail.setText(`Open ${root.grantFolder} in Finder, then press Re-check.`);
+    }
+    btn.disabled = false;
+    btn.setText("Re-check");
+    detail.setText(
+      `Opened ${root.grantFolder}. Allow access if macOS asks, then press Re-check.`,
+    );
+    btn.onclick = () => this.recheckAccess(root, btn, detail, pill);
+  }
+
+  /** Ask the backend again — the process that actually needs the grant.
+   *
+   *  This is the point of the button: macOS may attribute a grant to Obsidian
+   *  rather than to the backend, in which case the folder opens, the user sees
+   *  no error, and nothing is readable. Re-probing turns that into a visible
+   *  outcome instead of a silent one. */
+  private async recheckAccess(
+    root: AccessRoot,
+    btn: HTMLButtonElement,
+    detail: HTMLElement,
+    pill: HTMLElement,
+  ) {
+    btn.disabled = true;
+    btn.setText("Re-checking…");
+    let after: AccessRoot | undefined;
+    try {
+      after = (await this.plugin.incuratorClient.accessReport())
+        .find((r) => r.path === root.path);
+    } catch {
+      after = undefined;
+    }
+    btn.disabled = false;
+    if (after?.state === "ok") {
+      btn.setText("Granted");
+      btn.disabled = true;
+      pill.setText("ok");
+      pill.className = "ai-agent-access-state is-ok";
+      detail.setText(accessRecheckMessage(after));
+      return;
+    }
+    btn.setText("Re-check");
+    detail.setText(accessRecheckMessage(after));
+  }
 
   private async renderPersona(el: HTMLElement, cfgP: Promise<any>) {
     el.createEl("h3", { text: "Vault Persona", cls: "ai-agent-dashboard-section-title" });
