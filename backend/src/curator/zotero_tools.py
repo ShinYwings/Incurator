@@ -305,14 +305,24 @@ def _first_readable_pdf(candidates: list[str]) -> tuple[str, file_access.Reachab
     hunting; being refused is a different fact and a different fix.
     """
     denied = ""
+    evicted = ""
     for candidate in candidates:
         state = file_access.probe(Path(candidate))
         if state is file_access.Reachability.OK:
             return candidate, state
         if state is file_access.Reachability.DENIED and not denied:
             denied = candidate
+        # A Zotero attachment directory is very often the iCloud one, so an
+        # online-only placeholder is the common case here, not an exotic one.
+        # Reporting it as denied would send the user to grant a folder that is
+        # already granted; reporting it as missing would send them looking for a
+        # file that was never deleted.
+        if state is file_access.Reachability.NOT_DOWNLOADED and not evicted:
+            evicted = candidate
     if denied:
         return denied, file_access.Reachability.DENIED
+    if evicted:
+        return evicted, file_access.Reachability.NOT_DOWNLOADED
     return "", file_access.Reachability.MISSING
 
 

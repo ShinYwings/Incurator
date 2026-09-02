@@ -29,6 +29,7 @@ this is still free.
 from __future__ import annotations
 
 import logging
+import errno
 import os
 import stat
 from enum import Enum
@@ -50,6 +51,48 @@ class Reachability(str, Enum):
     OK = "ok"
     MISSING = "missing"
     DENIED = "denied"
+    #: The file is registered and present as a placeholder, but its bytes are not
+    #: on this machine — macOS has evicted it to iCloud-only. Deliberately NOT
+    #: `DENIED`: no permission was revoked, so there is no folder to grant and a
+    #: picker would be a no-op. Deliberately NOT `MISSING` either, because the
+    #: file has not been deleted and telling the user it is gone is wrong.
+    NOT_DOWNLOADED = "not_downloaded"
+
+
+#: How a dataless iCloud placeholder fails when it cannot be materialised. The
+#: File Provider surfaces these rather than a permission error, which is why they
+#: were landing in the catch-all and being reported as a missing file.
+_EVICTED_ERRNOS = frozenset(
+    e for e in (
+        getattr(errno, "ENODATA", None),
+        getattr(errno, "EDEADLK", None),
+        getattr(errno, "ETIMEDOUT", None),
+    ) if e is not None
+)
+
+
+def describe(path: Path) -> str:
+    """One sentence a user can act on, matched to why the path is unusable.
+
+    The wording differs because the ACTION differs: a denial is fixed by granting
+    a folder, an eviction by downloading the file, and neither fix helps the
+    other. Conflating them is what sends someone to System Settings for a file
+    that was never blocked.
+    """
+    verdict = probe(path)
+    if verdict is Reachability.OK:
+        return f"{path} is readable."
+    if verdict is Reachability.DENIED:
+        folder = grant_root(path)
+        where = f" Grant access to {folder}." if folder else ""
+        return f"{path} cannot be read: this process is not permitted to.{where}"
+    if verdict is Reachability.NOT_DOWNLOADED:
+        return (
+            f"{path} is not downloaded to this machine — iCloud is keeping it "
+            "online-only. Open it once in Finder, or turn off Optimise Storage "
+            "for that folder, then retry."
+        )
+    return f"{path} is not there."
 
 
 def probe(path: Path) -> Reachability:
@@ -84,6 +127,14 @@ def probe(path: Path) -> Reachability:
     except IsADirectoryError:
         return Reachability.MISSING
     except OSError as e:
+        if e.errno in _EVICTED_ERRNOS:
+            # A dataless placeholder that could not materialise. `stat` says the
+            # file is there and the read says it is not, which is why a
+            # metadata-based check calls it present and this one used to call it
+            # gone. Naming a folder to grant here would be the failure this
+            # module was written about: the permission is fine, the bytes are in
+            # iCloud.
+            return Reachability.NOT_DOWNLOADED
         # A broken symlink, a dead mount, a name too long. MISSING is the safe
         # direction: it is the state every caller already handles, and claiming
         # DENIED would send the user to grant a permission that is not the
