@@ -87,17 +87,30 @@ class QueryRequest:
     #: worse than not searching at all.
     #:
     #: **Recorded, not yet acted on — say so rather than imply otherwise.**
-    #: v0.69.0 computed this in the funnel, paid for it, and read only three of
-    #: the four returned fields; v0.71.0 carries the fourth into the request and
-    #: into the query trace so the cost is at least observable. But nothing in
-    #: `context_fetch` reads it to skip retrieval yet, so on the funnel path
-    #: `search_query` is still empty for such a message, `working_query` still
-    #: falls back to the raw body, and retrieval still runs BM25 over the
-    #: translation request. `plugin_api/context.py` gates its own path on
-    #: `derived.is_knowledge_question` and returns an empty pack; the funnel does
-    #: not, and making the two agree is a control-flow change that gets its own
-    #: plan (USER_REPORT.md, 2026-08-29).
-    is_knowledge_question: bool = True
+    #: Whether answering this needs stored knowledge — THREE states, not two.
+    #:
+    #: - `True`  — a classification ran and said yes.
+    #: - `False` — a classification ran and said no. The funnel refuses retrieval.
+    #: - `None`  — **nobody classified this message.** No boundary supplied a
+    #:   verdict and the funnel's own derivation did not run (an English question,
+    #:   by the documented cost tradeoff above `context_service`'s gate).
+    #:
+    #: It was `bool = True`, and that default was the bug: for a message nobody
+    #: had classified, the request ASSERTED that retrieval was wanted. v0.69.0
+    #: computed the value and read three of four fields; v0.71.0 carried it into
+    #: the request and the trace but nothing acted on it. Making it act while the
+    #: default still lied would have gated on a verdict that was never given.
+    #:
+    #: This is the same lesson `DerivedQuery.status` exists for, one field further
+    #: on: a field that cannot express "nobody looked" forces the caller to guess.
+    #:
+    #: **Test it with `is False`, never `if not ...`.** `None` is falsy, so a
+    #: truthiness test collapses "classified no" and "nobody classified this" into
+    #: one branch and would refuse retrieval for every ordinary English question
+    #: on the CLI and MCP paths. `test_knowledge_question_is_never_truthy_tested`
+    #: walks the source tree and fails on that shape rather than trusting the
+    #: convention.
+    is_knowledge_question: bool | None = None
     #: The derived intent (`QUERY_INTENTS`), or "" when no derivation ran.
     #:
     #: Routing used to read surface keywords off `working_query` — which is the

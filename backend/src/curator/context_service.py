@@ -738,7 +738,25 @@ class ContextService:
                 english_query=derived.search_query,
                 english_query_status=derived.status,
                 intent=derived.intent,
-                is_knowledge_question=derived.is_knowledge_question,
+                # Adopt the verdict ONLY from a real classification.
+                #
+                # On the provider-failure path `derive_search_query` returns
+                # `DerivedQuery(terms, bool(terms), ..., status="fallback")` --
+                # `is_knowledge_question` there is a GUESS derived from whether
+                # scraping found any terms, not something a classifier said. And
+                # `_fallback_search_terms` drops single characters, so a
+                # maths-heavy message scrapes to "" and the guess becomes False:
+                # measured, `L^T M(Q)L = 0` and `A B C` both yield "".
+                #
+                # Copying that into a gated field would turn a provider outage
+                # into "not a knowledge question" and silently return an empty
+                # pack for a real question, with a warning naming the wrong
+                # cause. `None` is the honest answer: nobody classified it.
+                is_knowledge_question=(
+                    derived.is_knowledge_question
+                    if derived.status == "derived"
+                    else None
+                ),
             )
 
         status = router.graph_status(self.paths.state_db)
@@ -774,7 +792,27 @@ class ContextService:
             "disabled_routes": sorted(self.disabled_routes),
             "downgraded": downgraded_from is not None,
         }
-        pack = evidence_mod.build_evidence(self.paths, request, route, policy=policy)
+        if request.is_knowledge_question is False:
+            # A classification ran and said this needs no stored knowledge -- a
+            # translate/summarise/rewrite request, where the text to work on is
+            # the message itself. Retrieval here selects evidence for a question
+            # nobody asked, and because `working_query` falls back to
+            # `question`, "no search terms" silently becomes "search for the
+            # entire pasted body".
+            #
+            # `is False`, NOT `if not`: `None` means nobody classified it, and
+            # that must still retrieve. See `ContextRequest.is_knowledge_question`.
+            #
+            # `plugin_api/context.py` has returned an empty pack here since
+            # v0.69.0 and the funnel did not, so the same message got two
+            # different answers depending on which surface asked. This is that
+            # decision, made once.
+            pack = evidence_mod.EvidencePack(
+                route=route,
+                warnings=[f"no retrieval: {request.intent or 'not a knowledge question'}"],
+            )
+        else:
+            pack = evidence_mod.build_evidence(self.paths, request, route, policy=policy)
         selected_items, budget_omitted_items, budget = _apply_budget(
             pack.items,
             limit_tokens=limit_tokens,

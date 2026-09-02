@@ -820,7 +820,20 @@ To do: add an optional stdin channel to `runBackendCommand`, teach
 `wiki plugin secret set` to read `--value -`, and move only `setSecret` across.
 The existing `--value` path stays for the backend's own use.
 
-### E8. `is_knowledge_question` gates nothing in the funnel
+### E8. `is_knowledge_question` gates nothing in the funnel — **SHIPPED v0.81.0**
+
+The roadmap's framing was itself a workaround: gating `build_evidence` on the
+flag would have fired only on the path that already classifies. The root cause
+was that the flag is a byproduct of the TRANSLATION step, gated on "is the
+question already English" — a condition chosen for cost, not for
+classification need — and that its `bool = True` default asserted a verdict
+for messages nobody judged. Field is now tri-state, the funnel refuses only on
+an explicit `False`, and a fallback guess is never adopted as a verdict.
+
+**Still open**: the English case on `wiki query` / MCP / `plugin query`. See
+the Known gap in CHANGELOG 0.81.0.
+
+### E8 (original)
 
 **Triaged from `USER_REPORT.md` 2026-09-01; raised by code review 2026-08-29.**
 Confirmed still open: `context_service` derives the value and carries it into the

@@ -1,4 +1,4 @@
-# Incurator - Schema & Operating Conventions (v0.80.0)
+# Incurator - Schema & Operating Conventions (v0.81.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 

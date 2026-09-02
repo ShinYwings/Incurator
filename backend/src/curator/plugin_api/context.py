@@ -94,6 +94,11 @@ def fetch_context(
                     english_query=english_query,
                     english_query_status=status,
                     intent=derived.intent,
+                    # Stated, not defaulted. This boundary classifies
+                    # unconditionally and the `False` branch returned above, so
+                    # reaching here means a classification ran and said yes. The
+                    # funnel must not have to infer that from silence.
+                    is_knowledge_question=True,
                     workspace_path=workspace_path,
                     mode="auto",
                 ),
