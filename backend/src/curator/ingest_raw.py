@@ -394,8 +394,15 @@ def safe_import_destination(
         raise ValueError(f"Unsupported import policy: {policy}")
 
     source = source.expanduser().resolve()
-    if not source.exists() or not source.is_file():
-        raise FileNotFoundError(f"File not found: {source}")
+    # `probe`, not `exists()`. Under TCC the metadata is readable while the bytes
+    # are not, so `exists()` either lies or raises PermissionError from an
+    # ancestor — and "File not found" for a denied file sends the user looking
+    # for a deletion that never happened.
+    reach = file_access.probe(source)
+    if reach is file_access.Reachability.DENIED:
+        raise ParserAccessDenied(source, file_access.grant_root(source))
+    if reach is not file_access.Reachability.OK:
+        raise FileNotFoundError(file_access.describe(source))
     if not parsers.is_supported(source):
         raise ValueError(f"Unsupported file type: {source.suffix or '(no extension)'}")
 
@@ -2247,12 +2254,15 @@ def import_source_file(
     """
     if policy in {"reference", "ref"}:
         source = source.expanduser().resolve()
-        if not source.exists() or not source.is_file():
+        # Same reason as `add_file`'s guard: metadata lies under TCC, so ask
+        # `probe` and carry the folder the answer names.
+        if file_access.probe(source) is not file_access.Reachability.OK:
             return AddOutcome(
                 result=AddResult.ERROR,
                 source_path=source,
                 relpath=str(source),
-                message=f"File not found: {source}",
+                message=file_access.describe(source),
+                grant_folder=str(file_access.grant_root(source) or ""),
             )
         if not parsers.is_supported(source):
             return AddOutcome(

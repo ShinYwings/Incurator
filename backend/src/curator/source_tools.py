@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from . import config as cfg
-from . import db, parsers, path_refs
+from . import db, file_access, parsers, path_refs
 from .source_identity import normalize_relpath
 
 
@@ -319,11 +319,18 @@ def rebind_source(
     source_id = int(row["id"])
     old_path = _row_path(paths, row)
     new_path = new_path.expanduser().resolve()
-    if not new_path.exists() or not new_path.is_file():
+    # Rebinding points a source at a path the USER chose, which is exactly where
+    # a cloud or protected folder shows up. Metadata cannot tell a denied file
+    # from an absent one, and saying "File not found" about a file that is right
+    # there is how this repo has misdirected people before.
+    reach = file_access.probe(new_path)
+    if reach is not file_access.Reachability.OK:
+        grant = file_access.grant_root(new_path)
         return {
             "ok": False,
-            "state": "error",
-            "error": f"File not found: {new_path}",
+            "state": "denied" if reach is file_access.Reachability.DENIED else "error",
+            "grant_folder": str(grant) if grant else "",
+            "error": file_access.describe(new_path),
             "source_id": source_id,
         }
     parsed = parse_source(new_path)
