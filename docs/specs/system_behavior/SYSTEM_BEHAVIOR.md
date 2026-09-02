@@ -1691,6 +1691,17 @@ fired straight afterwards races the user and reports "still denied" before they
 have answered. The flow is therefore *open the folder*, then a **Re-check** button
 the user presses when they are done.
 
+**The advice is chosen by the BACKEND's platform, never the plugin's.** A denial
+is the same verdict everywhere and the fix is not. On macOS it is usually TCC,
+granted per responsible process through a system dialog. On Linux the identical
+`PermissionError` is filesystem permissions: there is no grant dialog, opening
+the folder in a file manager grants nothing, and "allow it when macOS asks"
+sends the user waiting for a prompt that will never arrive. So the report
+carries the backend's `sys.platform`, `file_access.describe` words the sentence
+from it, and the tab labels the button **Grant access…** only where a grant
+exists — **Open folder…** otherwise. The backend chooses because the backend is
+the process holding the permission.
+
 **The re-probe asks the backend, because the backend holds the grant.** macOS
 attributes file access to the responsible process, so the answer differs by who
 is asking — measured on one machine in one session: `~/Library/Cookies` reads

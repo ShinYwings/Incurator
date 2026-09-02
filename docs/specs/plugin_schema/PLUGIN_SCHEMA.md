@@ -3357,7 +3357,15 @@ how a verdict is determined; this section fixes only the client contract.
 
 ### 16.1 The rows come from the backend, verbatim
 
-The tab calls `wiki plugin access` and renders `{ok, roots[]}`. Each root is:
+The tab calls `wiki plugin access` and renders `{ok, platform, roots[]}`.
+
+`platform` is the **backend's** `sys.platform`, and it selects the wording — it
+is not the plugin's platform, which would be wrong the moment the backend runs
+elsewhere. Where no OS grant mechanism exists (anything but `darwin`), the button
+reads **Open folder…** rather than **Grant access…**, and the still-denied
+message describes filesystem permissions instead of a missed system prompt.
+
+Each root is:
 
 | Field | Type | Meaning |
 |---|---|---|

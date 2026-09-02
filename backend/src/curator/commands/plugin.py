@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 
 from .common import *
 
@@ -1322,6 +1323,16 @@ def plugin_access(
     from .. import plugin_api
 
     try:
-        _print_json({"ok": True, "roots": plugin_api.access_report(_plugin_paths(workspace_path))})
+        _print_json(
+            {
+                "ok": True,
+                # The BACKEND's platform, not the plugin's. This process is the
+                # one that holds (or lacks) the permission, so it is the one
+                # whose OS decides what the fix even is — a macOS grant dialog
+                # and a Linux chmod are not the same instruction.
+                "platform": sys.platform,
+                "roots": plugin_api.access_report(_plugin_paths(workspace_path)),
+            }
+        )
     except Exception as exc:  # noqa: BLE001 - the plugin renders whatever it gets
-        _print_json({"ok": False, "error": str(exc), "roots": []})
+        _print_json({"ok": False, "error": str(exc), "platform": sys.platform, "roots": []})

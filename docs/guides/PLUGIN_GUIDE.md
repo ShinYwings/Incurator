@@ -1941,10 +1941,17 @@ Open the Dashboard (ribbon icon, or **Open Incurator Dashboard**) and choose
 **Access**. It lists every folder Incurator reads from, and says whether it can
 actually read each one.
 
-macOS grants file access to the **backend process**, not to Obsidian. A folder
-can be visible in Finder, open fine when you double-click it, and still be
-unreadable here. That is the situation this tab exists to explain: it used to
-show up as PDFs that "failed to parse" for no visible reason.
+**On macOS**, file access is granted to the **backend process**, not to
+Obsidian. A folder can be visible in Finder, open fine when you double-click it,
+and still be unreadable here. That is the situation this tab exists to explain:
+it used to show up as PDFs that "failed to parse" for no visible reason.
+
+**On Linux**, the same verdict means ordinary filesystem permissions: the folder
+must be readable by the user account that runs the backend. There is no grant
+dialog, so the button reads **Open folder…**, and it opens the folder for you to
+inspect rather than promising a permission prompt.
+
+The tab words its advice from whichever system the **backend** runs on.
 
 Each row shows one of four verdicts:
 
@@ -1960,8 +1967,8 @@ an inventory.
 
 ### Granting a folder
 
-`DENIED` rows get a **Grant access…** button. Pressing it opens the folder that
-needs granting — which is not necessarily the folder in the row. If your PDFs
+`DENIED` rows get a button — **Grant access…** on macOS, **Open folder…**
+elsewhere. Pressing it opens the folder that needs fixing — which is not necessarily the folder in the row. If your PDFs
 live at `~/Library/Mobile Documents/com~apple~CloudDocs/Zotero`, the folder macOS
 actually wants you to allow is `~/Library/Mobile Documents`, and that is the one
 the button opens.
@@ -1974,7 +1981,11 @@ report "still denied" while the prompt was still on your screen.
 
 ### If it still says denied
 
-macOS may have attributed the grant to Obsidian rather than to the Incurator
+On Linux this is a filesystem permission and not a prompt you missed: check the
+folder's owner and mode, make it readable by the user running the backend, and
+press **Re-check**.
+
+On macOS, the system may have attributed the grant to Obsidian rather than to the Incurator
 backend — the folder is now readable for Obsidian and still not for the process
 that needs it. The tab says so rather than pretending the grant failed.
 

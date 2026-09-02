@@ -17,7 +17,7 @@ function clientWith(payload: unknown): IncuratorClient {
 
 describe("accessReport", () => {
   it("carries grant_folder through — the field every prior surface dropped", async () => {
-    const roots = await clientWith({
+    const { roots } = await clientWith({
       ok: true,
       roots: [{
         label: "Zotero", path: "/icloud/Zotero", state: "denied",
@@ -31,7 +31,7 @@ describe("accessReport", () => {
   });
 
   it("keeps not_downloaded distinct from denied, and offers no folder", async () => {
-    const roots = await clientWith({
+    const { roots } = await clientWith({
       ok: true,
       roots: [{ label: "P", path: "/p.pdf", state: "not_downloaded", grant_folder: "", detail: "d" }],
     }).accessReport();
@@ -39,12 +39,22 @@ describe("accessReport", () => {
     expect(roots[0].grantFolder).toBe("");
   });
 
+  it("carries the BACKEND's platform, since it holds the permission", async () => {
+    const report = await clientWith({
+      ok: true, platform: "linux",
+      roots: [{ label: "R", path: "/r", state: "denied", grant_folder: "/r", detail: "d" }],
+    }).accessReport();
+    expect(report.platform).toBe("linux");
+  });
+
   it("returns [] when the backend is offline rather than throwing", async () => {
-    expect(await clientWith(null).accessReport()).toEqual([]);
+    const report = await clientWith(null).accessReport();
+    expect(report.roots).toEqual([]);
+    expect(report.platform).toBe("");
   });
 
   it("drops rows with no path instead of rendering a blank button", async () => {
-    const roots = await clientWith({ ok: true, roots: [{ label: "x" }, { path: "/ok", state: "ok" }] })
+    const { roots } = await clientWith({ ok: true, roots: [{ label: "x" }, { path: "/ok", state: "ok" }] })
       .accessReport();
     expect(roots.map((r) => r.path)).toEqual(["/ok"]);
   });

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { accessRowOffersGrant, accessRecheckMessage } from "./accessRows";
+import {
+  accessRowOffersGrant,
+  accessRecheckMessage,
+  accessGrantLabel,
+  accessOpenedMessage,
+} from "./accessRows";
 import type { AccessRoot } from "../agent/incuratorClient";
 
 const root = (over: Partial<AccessRoot>): AccessRoot => ({
@@ -23,18 +28,40 @@ describe("accessRowOffersGrant", () => {
 
 describe("accessRecheckMessage", () => {
   it("does not report a silent backend as a denial", () => {
-    expect(accessRecheckMessage(undefined)).toContain("did not answer");
-    expect(accessRecheckMessage(undefined)).not.toContain("Still denied");
+    expect(accessRecheckMessage(undefined, "darwin")).toContain("did not answer");
+    expect(accessRecheckMessage(undefined, "linux")).not.toContain("Still denied");
   });
 
-  it("names the responsible-process trap when it is still denied", () => {
-    const msg = accessRecheckMessage(root({ state: "denied" }));
+  it("names the responsible-process trap on macOS", () => {
+    const msg = accessRecheckMessage(root({ state: "denied" }), "darwin");
     expect(msg).toContain("Still denied");
     expect(msg).toContain("went to Obsidian");
   });
 
+  it("does NOT tell a Linux user to wait for a macOS prompt", () => {
+    const msg = accessRecheckMessage(root({ state: "denied" }), "linux");
+    expect(msg).toContain("Still denied");
+    expect(msg).toContain("filesystem permission");
+    expect(msg).not.toMatch(/macOS|Full Disk Access|System Settings/);
+  });
+
   it("confirms success, and passes other verdicts through as the backend worded them", () => {
-    expect(accessRecheckMessage(root({ state: "ok" }))).toContain("can now read");
-    expect(accessRecheckMessage(root({ state: "missing", detail: "gone" }))).toBe("gone");
+    expect(accessRecheckMessage(root({ state: "ok" }), "linux")).toContain("can now read");
+    expect(accessRecheckMessage(root({ state: "missing", detail: "gone" }), "darwin")).toBe("gone");
+  });
+});
+
+describe("platform-specific wording", () => {
+  it("does not promise a grant on a platform that has no grant dialog", () => {
+    expect(accessGrantLabel("darwin")).toBe("Grant access…");
+    expect(accessGrantLabel("linux")).toBe("Open folder…");
+    expect(accessGrantLabel("")).toBe("Open folder…");
+  });
+
+  it("tells a Linux user what actually fixes it after the folder opens", () => {
+    expect(accessOpenedMessage("/srv/papers", "darwin")).toContain("macOS asks");
+    const linux = accessOpenedMessage("/srv/papers", "linux");
+    expect(linux).toContain("readable by the user");
+    expect(linux).not.toContain("macOS");
   });
 });

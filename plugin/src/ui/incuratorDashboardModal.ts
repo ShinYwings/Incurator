@@ -2,9 +2,15 @@ import { App, Modal, Notice, parseYaml, setIcon } from "obsidian";
 import type ObsidianAIAgent from "../../main";
 import { normalizeModelEffort, type LLMProvider, type ModelOption } from "../types";
 import { resolveModelSelectValue } from "../utils/modelSelect";
-import type { AccessRoot } from "../agent/incuratorClient";
+import type { AccessReport, AccessRoot } from "../agent/incuratorClient";
 import { getElectronShell } from "./incuratorQueryTrace";
-import { accessRowOffersGrant, accessRecheckMessage } from "./accessRows";
+import {
+  accessRowOffersGrant,
+  accessRecheckMessage,
+  accessGrantLabel,
+  accessOpenedMessage,
+  isMacBackend,
+} from "./accessRows";
 
 const PROVIDER_TO_PRIMARY: Record<LLMProvider, string> = {
   antigravity: "antigravity-cli",
@@ -1468,32 +1474,39 @@ export class IncuratorDashboardModal extends Modal {
    */
   private async renderAccess(el: HTMLElement) {
     el.createEl("h3", { text: "Folder Access", cls: "ai-agent-dashboard-section-title" });
-    el.createDiv({
-      cls: "setting-desc",
-      text: "Folders Incurator reads from. macOS grants these to the backend process, "
-          + "not to Obsidian, so a folder can be visible in Finder and still be unreadable here.",
-    });
+    const intro = el.createDiv({ cls: "setting-desc", text: "Folders Incurator reads from." });
 
     const list = el.createDiv("ai-agent-access-list");
     list.createDiv({ cls: "ai-agent-dashboard-empty", text: "Checking…" });
 
-    let roots: AccessRoot[];
+    let report: AccessReport;
     try {
-      roots = await this.plugin.incuratorClient.accessReport();
+      report = await this.plugin.incuratorClient.accessReport();
     } catch (err) {
       list.empty();
       list.createDiv({ cls: "ai-agent-dashboard-error", text: `Could not check access: ${err}` });
       return;
     }
+    // Worded from the BACKEND's platform. On macOS the surprise is that a
+    // folder Finder opens fine can still be unreadable here; on Linux it is
+    // ordinary filesystem permissions and saying "macOS grants these" would be
+    // a sentence about an OS the user is not running.
+    intro.setText(
+      isMacBackend(report.platform)
+        ? "Folders Incurator reads from. macOS grants these to the backend process, not to "
+          + "Obsidian, so a folder can be visible in Finder and still be unreadable here."
+        : "Folders Incurator reads from. These must be readable by the user account that "
+          + "runs the Incurator backend.",
+    );
     list.empty();
-    if (roots.length === 0) {
+    if (report.roots.length === 0) {
       list.createDiv({ cls: "ai-agent-dashboard-empty", text: "Backend offline — no folders reported." });
       return;
     }
-    for (const root of roots) this.renderAccessRow(list, root);
+    for (const root of report.roots) this.renderAccessRow(list, root, report.platform);
   }
 
-  private renderAccessRow(list: HTMLElement, root: AccessRoot) {
+  private renderAccessRow(list: HTMLElement, root: AccessRoot, platform: string) {
     // Deliberately NOT the overview's two-column path grid. A grid sizes its
     // columns from content, and these paths are long unbreakable strings — in
     // real Obsidian that squeezed the label column to one character per line
@@ -1517,9 +1530,9 @@ export class IncuratorDashboardModal extends Modal {
     if (!accessRowOffersGrant(root)) return;
 
     const btn = row.createEl("button", { cls: "ai-agent-dashboard-btn ai-agent-access-btn" });
-    btn.setText("Grant access…");
+    btn.setText(accessGrantLabel(platform));
     btn.setAttr("title", `Opens ${root.grantFolder}`);
-    btn.onclick = () => this.grantAccess(root, btn, detail, pill);
+    btn.onclick = () => this.grantAccess(root, btn, detail, pill, platform);
   }
 
   /** Open the folder so macOS can ask, then let the user re-check.
@@ -1541,6 +1554,7 @@ export class IncuratorDashboardModal extends Modal {
     btn: HTMLButtonElement,
     detail: HTMLElement,
     pill: HTMLElement,
+    platform: string,
   ) {
     btn.disabled = true;
     const shell = getElectronShell();
@@ -1552,14 +1566,12 @@ export class IncuratorDashboardModal extends Modal {
         return;
       }
     } else {
-      detail.setText(`Open ${root.grantFolder} in Finder, then press Re-check.`);
+      detail.setText(`Open ${root.grantFolder} yourself, then press Re-check.`);
     }
     btn.disabled = false;
     btn.setText("Re-check");
-    detail.setText(
-      `Opened ${root.grantFolder}. Allow access if macOS asks, then press Re-check.`,
-    );
-    btn.onclick = () => this.recheckAccess(root, btn, detail, pill);
+    detail.setText(accessOpenedMessage(root.grantFolder, platform));
+    btn.onclick = () => this.recheckAccess(root, btn, detail, pill, platform);
   }
 
   /** Ask the backend again — the process that actually needs the grant.
@@ -1573,13 +1585,14 @@ export class IncuratorDashboardModal extends Modal {
     btn: HTMLButtonElement,
     detail: HTMLElement,
     pill: HTMLElement,
+    platform: string,
   ) {
     btn.disabled = true;
     btn.setText("Re-checking…");
     let after: AccessRoot | undefined;
     try {
       after = (await this.plugin.incuratorClient.accessReport())
-        .find((r) => r.path === root.path);
+        .roots.find((r) => r.path === root.path);
     } catch {
       after = undefined;
     }
@@ -1589,11 +1602,11 @@ export class IncuratorDashboardModal extends Modal {
       btn.disabled = true;
       pill.setText("ok");
       pill.className = "ai-agent-access-state is-ok";
-      detail.setText(accessRecheckMessage(after));
+      detail.setText(accessRecheckMessage(after, platform));
       return;
     }
     btn.setText("Re-check");
-    detail.setText(accessRecheckMessage(after));
+    detail.setText(accessRecheckMessage(after, platform));
   }
 
   private async renderPersona(el: HTMLElement, cfgP: Promise<any>) {

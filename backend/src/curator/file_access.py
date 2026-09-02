@@ -32,6 +32,7 @@ import logging
 import errno
 import os
 import stat
+import sys
 from enum import Enum
 from pathlib import Path
 
@@ -84,13 +85,34 @@ def describe(path: Path) -> str:
         return f"{path} is readable."
     if verdict is Reachability.DENIED:
         folder = grant_root(path)
-        where = f" Grant access to {folder}." if folder else ""
-        return f"{path} cannot be read: this process is not permitted to.{where}"
-    if verdict is Reachability.NOT_DOWNLOADED:
+        if not folder:
+            return f"{path} cannot be read: this process is not permitted to."
+        # The FIX differs by platform, so the sentence has to. On macOS a denial
+        # is usually TCC and the user grants a folder in System Settings. On
+        # Linux there is no such grant: the same denial is filesystem
+        # permissions, and telling someone to "grant access to a folder" sends
+        # them looking for a dialog their OS does not have.
+        if sys.platform == "darwin":
+            return (
+                f"{path} cannot be read: this process is not permitted to. "
+                f"Grant access to {folder}."
+            )
         return (
-            f"{path} is not downloaded to this machine — iCloud is keeping it "
-            "online-only. Open it once in Finder, or turn off Optimise Storage "
-            "for that folder, then retry."
+            f"{path} cannot be read: this process is not permitted to. Check the "
+            f"permissions on {folder} — it must be readable by the user running "
+            "Incurator."
+        )
+    if verdict is Reachability.NOT_DOWNLOADED:
+        if sys.platform == "darwin":
+            return (
+                f"{path} is not downloaded to this machine — iCloud is keeping it "
+                "online-only. Open it once in Finder, or turn off Optimise Storage "
+                "for that folder, then retry."
+            )
+        return (
+            f"{path} is not downloaded to this machine — the cloud client is "
+            "keeping it online-only. Open it once so the client fetches it, "
+            "then retry."
         )
     return f"{path} is not there."
 

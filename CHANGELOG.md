@@ -45,6 +45,15 @@ of the plugin for either name returned zero hits.
 ### Changed
 
 - The parser boundary raises a `not_downloaded` error distinct from `missing`.
+- **The advice is chosen by the backend's platform, not written for macOS.** A
+  denial is the same verdict everywhere; the fix is not. On Linux the identical
+  `PermissionError` is filesystem permissions — there is no grant dialog,
+  opening the folder grants nothing, and "allow it when macOS asks" leaves the
+  user waiting for a prompt that never arrives. `wiki plugin access` now reports
+  its own `sys.platform`, `file_access.describe` words the sentence from it, and
+  the tab labels the button **Grant access…** only where a grant mechanism
+  exists — **Open folder…** otherwise. The backend chooses, because the backend
+  is the process holding the permission.
 
 Found by driving the tab in real Obsidian, none of which a fixture produces:
 the Overview path grid collapsed the label column to one character per line and

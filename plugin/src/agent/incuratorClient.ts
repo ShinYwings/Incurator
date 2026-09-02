@@ -118,6 +118,13 @@ export interface AccessRoot {
   detail: string;
 }
 
+export interface AccessReport {
+  /** `sys.platform` of the backend process ("darwin", "linux", …). Empty when
+   *  the backend did not answer. */
+  platform: string;
+  roots: AccessRoot[];
+}
+
 export class IncuratorClient {
   public needsUpdate = false;
   public backendVersion = "unknown";
@@ -960,11 +967,16 @@ export class IncuratorClient {
    *  `grant_root` names the folder. The plugin renders rows and decides nothing
    *  — a second implementation of "what is a root" in TypeScript is a second
    *  thing to drift. */
-  async accessReport(): Promise<AccessRoot[]> {
+  async accessReport(): Promise<AccessReport> {
     const result = await this.callBackendJson(["plugin", "access"]);
-    const roots = (result as { roots?: unknown } | null)?.roots;
-    if (!Array.isArray(roots)) return [];
-    return roots.flatMap((raw) => {
+    const payload = result as { roots?: unknown; platform?: unknown } | null;
+    // The BACKEND's platform. It is the process that holds the permission, so
+    // its OS decides what the fix is; the plugin's own platform is irrelevant
+    // and would be wrong the moment the backend runs anywhere else.
+    const platform = typeof payload?.platform === "string" ? payload.platform : "";
+    const roots = payload?.roots;
+    if (!Array.isArray(roots)) return { platform, roots: [] };
+    const parsed = roots.flatMap((raw) => {
       const row = raw as Record<string, unknown>;
       const path = typeof row.path === "string" ? row.path : "";
       if (!path) return [];
@@ -979,6 +991,7 @@ export class IncuratorClient {
         detail: typeof row.detail === "string" ? row.detail : "",
       }];
     });
+    return { platform, roots: parsed };
   }
 
   private async callBackendJson(cmdArgs: string[]): Promise<unknown | null> {
