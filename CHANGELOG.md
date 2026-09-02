@@ -2,6 +2,68 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.79.0] - 2026-09-01
+
+ROADMAP E2 asked for a larger chunk size and a reindex. Measuring the cause first
+said the chunker was never involved, and something else was.
+
+### Fixed
+
+- **The search index held a span's first 200 characters.** `source_spans` has no
+  full-text column — it stores `content_hash`, computed over the whole span, and
+  `text_preview`, which is the first 200 characters. The materializer indexed
+  that preview as the span's searchable body.
+
+  Measured on a real vault, independently three times: **4,865 of 11,774 spans
+  (41.3%) sat exactly at the cap**, with a true median length of 418, a p90 of
+  1,426 and a maximum of 3,407. A 300-span sample hid 118,733 characters from
+  search. Demonstrated rather than argued: of six spans with a distinctive word
+  past character 220, five could not be found by that word.
+
+  It was not only a recall problem. `engine.py::_hydrate` does not hydrate — it
+  reads `search_documents.body` back out — so on the primary hybrid-search path a
+  sentence cut mid-word reached the model. Only the evidence route recovered full
+  text.
+
+  The index now carries the hydrated text. `text_preview` is untouched: SCHEMA
+  locks it immutable, and rewriting it would move `content_hash` and therefore
+  span identity, which 20,230 knowledge units and 19,521 claim supports anchor to.
+
+- **A span that cannot be hydrated falls back to its preview, and the count is
+  reported.** A silent fallback rate is indistinguishable from a successful
+  reindex while search stays truncated. On the vault this was measured against,
+  that number is what surfaced a permission problem nobody knew about.
+
+### Verified — and the measurement is deliberately split
+
+On the **42 of 49 documents this machine can read**: spans with a truncated index
+body went from **564 to 3, a 99.5% reduction**, and the property that motivated
+the release — a term past character 240 retrieves its span — went from **1 of 6
+to 65 of 65**.
+
+On the other **7 documents, nothing improved much (16%)**, and that is not a
+limit of this change. Their PDFs live in `~/Library/Mobile Documents` and macOS
+denies the process access, so `hydrate_spans` cannot re-parse what it cannot
+open. One of them is a book holding 8,692 spans, which is why the vault-wide
+figure (34.8% → 30.7% truncated) understates the fix so badly.
+
+Those sources ingested successfully in July and August, so the access existed
+then and does not now — the PDF store moved to the cloud and nothing said so.
+Tracked as ROADMAP E5, which now also covers a Dashboard tab listing which roots
+Incurator can read.
+
+### Not done, and why
+
+Re-segmentation was rejected on measured cost, not taste: span identity is
+`(source_id, content_hash)`, so merging spans mints new ids across 46 of 49
+sources and risks an LLM re-extraction cascade — the expensive part, not the
+embedding. A hand-classification of 40 genuinely-short spans found only 20% are
+truncated mid-thought; 37.5% are complete by design and 42.5% are PDF
+placeholders and page furniture. Retrieval-time neighbour expansion was rejected
+because its ordering is a proxy: `start_char` and `end_char` are 100% NULL, and
+the available columns collapse 11,774 spans into 1,176 groups, one holding 289
+ties. Both are recorded in ROADMAP rather than discarded.
+
 ## [0.78.0] - 2026-09-01
 
 ROADMAP E6. One file could register twice, its knowledge split across two source

@@ -581,7 +581,34 @@ The original entry follows.
 The audit found graph entity descriptions that restate the entity name rather
 than saying what it is or does, which is what the extraction contract requires.
 
-### E2. Span segmentation isolates fragments — **CONFIRMED AND QUANTIFIED 2026-08-31**
+### E2. Span segmentation isolates fragments — **PREMISE REPLACED; the real cause SHIPPED v0.79.0**
+
+The chunker was never involved: `chunk_text` defaults to `target_tokens=256` and
+never fires, because every record handed to it is already smaller than one chunk.
+Atoms are one claim by design.
+
+The cause was the INDEX. `materializer.py` used `text_preview` — the first 200
+characters — as a span's searchable body. 4,865 of 11,774 spans (41.3%) sat at
+that cap. Fixed in v0.79.0: on the 42 of 49 documents this machine can read,
+truncated bodies went 564 -> 3, and a term past char 240 went from 1-of-6
+findable to 65-of-65. The other 7 are blocked by macOS TCC — see E5.
+
+Two options were considered and REJECTED on measurement, and both stay available:
+
+- **Re-segmentation** (merge short spans). Span identity is
+  `(source_id, content_hash)`, so merging mints new ids across 46 of 49 sources
+  and risks an LLM re-extraction cascade. Hand-classifying 40 genuinely-short
+  spans found only 20% truncated mid-thought; 37.5% complete by design, 42.5%
+  PDF placeholders and page furniture. It would spend a cascade on a fifth of the
+  smaller half.
+- **Retrieval-time neighbour expansion.** Well argued, but its ordering is a
+  proxy: `start_char`/`end_char` are 100% NULL and the available columns collapse
+  11,774 spans into 1,176 groups, one holding 289 ties. Reconsider after E5, when
+  the corpus is fully hydratable and the numbers can be re-taken.
+
+The original entry follows.
+
+### E2 (original) — CONFIRMED AND QUANTIFIED 2026-08-31
 
 Measured over all 25,394 retrieval chunks in the live DB: median **181 chars**,
 p10 71, p90 265. **21% are under 100 chars and 56% under 200.** For comparison,
@@ -692,6 +719,50 @@ model from trying.
 **Triaged in from `USER_REPORT.md` 2026-08-23.** macOS TCC denies `open()` on a
 granted-looking path, so a directory the user never authorised reads as a corrupt
 file rather than as a permission problem.
+
+**Measured 2026-09-01, while shipping E2 — this is live, not hypothetical.**
+Hydrating span text for the search index failed on 10,176 of 11,774 spans. The
+cause was not code: 7 of 49 documents raise `ParserAccessDenied` because their
+PDFs sit in `~/Library/Mobile Documents` (iCloud) and the process may not read
+it. One of them, a book, accounts for 8,692 spans — 85% of the failure.
+
+Those sources were ingested successfully in July and August, so access existed
+then and does not now. The vault holds a 496-byte stub `.md`; the real text lives
+only in the cloud PDF. This is exactly the user's scenario: **the PDF store moved
+to the cloud after ingest, and nothing told anyone.**
+
+**The backend already knows the answer and no one shows it.** `file_access.probe`
+classifies OK/DENIED/MISSING, and `file_access.grant_root` walks upward to return
+the SHALLOWEST folder the user must grant — verified on this machine, it returns
+`~/Library/Mobile Documents` exactly. `ParserAccessDenied` carries it. Grepping
+`plugin/src` for any of this returns **zero** hits: the计算 is done and the user
+never sees it.
+
+Scope, decided with the user 2026-09-01:
+
+1. **A first-touch prompt.** On `ParserAccessDenied`, the plugin offers a button
+   that opens a native folder picker at `grant_root(path)`. macOS grants access to
+   a folder the user selects in an open panel, so choosing it IS the grant — no
+   trip to System Settings, no instructions to follow.
+
+2. **A Dashboard tab for granted folders.** The reader should be able to see which
+   roots Incurator can read and which it cannot, without hitting an error first.
+   Same place the other diagnostics live (`incuratorDashboardModal.ts`). List each
+   configured root and each source root with its `probe` verdict, and offer the
+   same grant button per denied row.
+
+**Start with a measurement, not the UI.** The backend is a SEPARATE process that
+Obsidian spawns. TCC attribution normally follows the responsible process, so a
+grant to Obsidian ought to reach the spawned Python — but this repo has been
+wrong about TCC repeatedly, and `grant_root`'s own docstring is a record of one
+such correction. Phase 1 is: grant a folder through an Electron picker in
+Obsidian, then check whether the spawned backend can read it. If it cannot, the
+design changes (read inside the Obsidian process, or pass a security-scoped
+bookmark) and the UI would have been built on a false premise.
+
+Also note Zotero has TWO directories — the data dir and the attachment dir — and
+they are granted separately. A UI that shows one and calls it done is the same
+mistake in a new place.
 
 ### E6. The same file registers twice, differing only by Unicode normalisation — **SHIPPED v0.78.0**
 
