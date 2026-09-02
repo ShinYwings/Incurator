@@ -17,6 +17,7 @@ from .pdf import (
     pdf_context,
 )
 from .query_api import curator_query, promote_answer
+from .access import access_report
 from .sources import (
     import_source,
     mark_source_file_missing,
@@ -49,6 +50,7 @@ __all__ = [
     "mark_source_file_missing",
     "rebind_source",
     "register_source",
+    "access_report",
     "relocate_source",
     "search",
     "search_sources",

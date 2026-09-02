@@ -107,6 +107,9 @@ def test_cli_root_command_tree_is_stable() -> None:
     assert _command_names(root.commands["mcp"]) == ["connect", "install"]
     assert _command_names(root.commands["config"]) == ["get", "models", "provider", "secret", "set"]
     assert _command_names(root.commands["plugin"]) == [
+        # `access` (v0.80.0) reports which folders Incurator can read and which
+        # to grant. The backend has always known; nothing asked it for the user.
+        "access",
         "context",
         "correction",
         "curate",
