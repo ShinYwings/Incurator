@@ -2,6 +2,58 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.80.0] - 2026-09-02
+
+A folder permission cost this project ten thousand failed spans and an agent
+reading a database by hand to find the cause. The backend had known the answer
+the whole time — `file_access.probe` classifies a path and `grant_root` names
+the folder to allow — and nothing ever asked it on the user's behalf. A `grep`
+of the plugin for either name returned zero hits.
+
+### Added
+
+- **A Dashboard "Access" tab.** One row per folder Incurator reads from, with
+  its verdict, and — when a folder is denied — a button that opens the folder
+  macOS actually wants granted. See `docs/guides/PLUGIN_GUIDE.md` §14.
+- **`wiki plugin access`.** The same report as JSON, without Obsidian. It
+  enumerates the vault, `04_Resources`, every configured `external.path_roots`
+  entry, and every Zotero root discovered from Zotero's own prefs — the last of
+  which is what surfaced the denied iCloud attachment directory. A configured
+  root that is absent is omitted rather than reported as a problem; the vault is
+  the exception.
+- **`Reachability.NOT_DOWNLOADED`.** A cloud file whose bytes were evicted is
+  neither missing nor forbidden, and naming it either sends the user to fix
+  something that was never wrong. It offers no folder to grant, because there is
+  nothing to grant.
+- **`file_access.describe(path)`** — one actionable sentence per verdict, so
+  every surface says the same thing.
+
+### Fixed
+
+- **`grant_root` never tested the path it was given.** It walked
+  `path.parents`, so the shallowest denied folder could not be the folder
+  itself, and it did not resolve symlinks first. It now resolves and probes the
+  path itself before its parents.
+- **Four call sites asked "can I read this?" the way that cannot work.**
+  `not p.exists() or not p.is_file()` and `os.access(R_OK)` both succeed for a
+  file macOS will refuse to open, so a denial arrived at the user as a missing
+  or corrupt file. `ingest_raw` (three sites) and `source_tools.rebind_source`
+  now probe. A test walks the source tree and fails on a new one.
+- **A denial reached the user with no folder to act on.** `AddOutcome` and
+  `rebind_source` now carry `grant_folder`.
+
+### Changed
+
+- The parser boundary raises a `not_downloaded` error distinct from `missing`.
+
+Found by driving the tab in real Obsidian, none of which a fixture produces:
+the Overview path grid collapsed the label column to one character per line and
+pushed the grant button outside the modal; `window.open("file://…")` triggered
+Obsidian's external-application warning on the app's own button; and re-probing
+straight after opening the folder raced the macOS prompt and reported "still
+denied" before the user had answered it. Verification is now a **Re-check**
+button the user presses.
+
 ## [0.79.0] - 2026-09-01
 
 ROADMAP E2 asked for a larger chunk size and a reindex. Measuring the cause first

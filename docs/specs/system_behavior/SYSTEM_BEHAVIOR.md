@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.79.0)
+# Incurator - System Behavior (v0.80.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -1637,6 +1637,67 @@ there with its grant folder.
 changes what a spawned process is allowed to read. macOS has no API to ask for a
 folder grant; a background process receives a silent denial rather than a
 prompt. This contract governs only whether the system can *say* what happened.
+
+### 12.3.1 Reachability has a fourth outcome: `not_downloaded`
+
+A cloud file whose bytes have been evicted is neither missing nor forbidden. The
+directory entry is there, no permission was revoked, and the read fails with
+`ENODATA` / `EDEADLK` / `ETIMEDOUT` while the provider tries to fetch it. Calling
+that `denied` sends the user to change a permission that was never the problem,
+and calling it `missing` sends them looking for a file they can see in Finder.
+
+A `not_downloaded` verdict therefore names **no folder to grant**. There is
+nothing to grant; the fix is to download the file.
+
+### 12.3.2 Surfacing reachability: `wiki plugin access` and the Access tab
+
+§12.3 says the system must be able to *say* what happened. Until v0.80.0 nothing
+asked it: a `grep` of the plugin for `probe` or `grant_root` returned zero hits,
+so a vault whose PDFs moved into a cloud folder failed with the answer sitting
+unread in the backend.
+
+**`wiki plugin access` reports one row per root worth telling the user about.**
+Each row carries `label`, `path`, `state` (the four reachability outcomes),
+`grant_folder`, and `detail` — one actionable sentence from `file_access.describe`.
+
+The enumerated roots are the vault, `04_Resources`, every configured
+`external.path_roots` entry, and **every Zotero root discovered from Zotero's own
+prefs**. The last is not redundant: Zotero's attachment directory is discovered,
+not configured, and on a real machine it was the iCloud folder that was denied
+while the configured data directory was fine. Listing only `path_roots` reports
+the healthy one and omits the broken one.
+
+**A root that is absent is omitted, not reported as missing.** A tab that lists
+folders the user never set up as problems is a tab of noise, and noise is what
+stops someone reading the one row that matters. The vault is the exception: if
+*that* is missing, the user needs to know.
+
+**Probing a directory needs one disambiguation.** `probe` opens a path as a file,
+so a perfectly readable directory comes back `missing`. A denial is unaffected —
+opening a directory you may not read raises `PermissionError` exactly as a file
+does — so only the `ok` case needs it.
+
+**The Access tab renders these rows and decides nothing.** A second
+implementation of "what is a root" or "is it readable" in TypeScript is a second
+thing to drift, and this repo has paid for that shape before.
+
+**Only a denial offers a folder to grant.** Opening a folder cannot download an
+evicted file and cannot conjure a missing one, so those states get an explanation
+and no button.
+
+**Verification is a separate, user-driven step — never automatic.** Opening the
+folder returns immediately while the macOS prompt is still on screen; a re-probe
+fired straight afterwards races the user and reports "still denied" before they
+have answered. The flow is therefore *open the folder*, then a **Re-check** button
+the user presses when they are done.
+
+**The re-probe asks the backend, because the backend holds the grant.** macOS
+attributes file access to the responsible process, so the answer differs by who
+is asking — measured on one machine in one session: `~/Library/Cookies` reads
+`denied` from a terminal and `ok` from the plugin's backend, and the iCloud Zotero
+root flipped between the two. A grant the user makes may land on Obsidian rather
+than on the backend; re-probing turns that silent outcome into a visible one, and
+the message says so rather than claiming the grant failed.
 
 ## 13. Syncthing Device Registry
 
