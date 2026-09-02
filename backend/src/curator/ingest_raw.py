@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Iterable
 
 from . import config as cfg
+from . import file_access
 from .parsers import ParserAccessDenied
 from . import db
 from . import parsers
@@ -59,6 +60,15 @@ class AddOutcome:
     source_id: int | None = None   # Row ID in sources table
     context_id: str | None = None  # CTX-UUID for L1 context page
     message: str = ""              # Human-friendly explanation
+    #: The folder the user must grant, when the failure was a permission denial.
+    #: Empty for every other outcome — offering a folder for a corrupt PDF would
+    #: send someone to change a setting that has nothing to do with it.
+    #:
+    #: `ParserAccessDenied` computes this by walking upward from the file, and it
+    #: was being flattened into `message` and lost, which is why no surface could
+    #: name the folder and `ZoteroRepairModal` still tells users to go to System
+    #: Settings without saying where.
+    grant_folder: str = ""
 
     @property
     def ok(self) -> bool:
@@ -2046,13 +2056,25 @@ def add_file(
     """
     source = source.expanduser().resolve()
 
-    # Guard: file must exist
-    if not source.exists() or not source.is_file():
+    # Guard: the file must be there AND readable, and the two are different facts.
+    #
+    # `Path.exists()` raises PermissionError when an ancestor folder is denied —
+    # it does not return False — so a file inside a folder this process may not
+    # open crashed `add_file` outright instead of producing an outcome. And when
+    # it did return False the message said "File not found", which is wrong twice:
+    # the file is there, and the user goes looking for a deletion that never
+    # happened.
+    #
+    # `probe` answers with the reason, so the outcome can carry the folder to
+    # grant, or say the bytes are still in iCloud, or say it is genuinely gone.
+    reachability = file_access.probe(source)
+    if reachability is not file_access.Reachability.OK:
         return AddOutcome(
             result=AddResult.ERROR,
             source_path=source,
             relpath=str(source),
-            message=f"File not found: {source}",
+            message=file_access.describe(source),
+            grant_folder=str(file_access.grant_root(source) or ""),
         )
 
     # Guard: file type must be supported
@@ -2093,6 +2115,10 @@ def add_file(
             source_path=source,
             relpath=str(source),
             message=f"Parse failed: {e}",
+            # Carry the folder, not just the sentence about it. Without this the
+            # only place that knows which folder to grant is a formatted string,
+            # and no surface can put a button on a string.
+            grant_folder=str(getattr(e, "grant_folder", "") or ""),
         )
 
     try:
@@ -2243,6 +2269,7 @@ def import_source_file(
                 source_path=source,
                 relpath=str(source),
                 message=f"Parse failed: {exc}",
+                grant_folder=str(getattr(exc, "grant_folder", "") or ""),
             )
 
         logical_id = logical_source_id or _default_logical_source_id(source)
