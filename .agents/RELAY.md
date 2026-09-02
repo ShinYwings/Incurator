@@ -1,29 +1,35 @@
 # RELAY
 
-**IDLE.** No active goal. `master` is at v0.78.0, working tree clean.
+**Branch:** `release/v0.79.0` — pushed, PR open, awaiting review + CI.
 
-Git log is the history; this file is live state only. It is a stub on purpose —
-accumulating session notes here is what buries the one thing the next agent
-actually needs.
+## What shipped
 
-## Where to pick up
+ROADMAP E2. The entry asked for a bigger chunk size and a reindex; measuring the
+cause first said the chunker never fires and the INDEX was holding each span's
+first 200 characters. Fixed by indexing hydrated full text.
 
-`.agents/ROADMAP.md`. The queue is Phase E and Phase F.
+Verified on the 42 of 49 documents this machine can read: truncated index bodies
+564 -> 3, and a term past character 240 went from 1-of-6 findable to 65-of-65.
 
-Two items are already approved by the user and waiting:
+## The thing to pick up next
 
-- **E2** — retrieval chunks are too small (median 181 chars; 56% under 200).
-  Shipping it re-embeds the corpus, which is a reindex of the user's vault. The
-  user approved that on 2026-08-31.
-- **E6's sibling work is done** — shipped v0.78.0.
+**E5 — folder permission.** Not optional bookkeeping: it is what blocks the other
+7 documents, one of which holds 8,692 spans. Their PDFs are in
+`~/Library/Mobile Documents` and macOS denies the process access, so no code can
+hydrate them.
 
-## Two things this repo keeps re-learning
+The backend ALREADY computes the answer — `file_access.grant_root` returns the
+exact folder to grant, verified as `~/Library/Mobile Documents` on this machine —
+and `plugin/src` contains zero references to it. Scope agreed with the user:
+a first-touch grant button, and a Dashboard tab showing which roots are readable.
 
-Both cost a release each in v0.77.0 and v0.78.0, and both were caught by review
-rather than by the author:
+**Start with the measurement, not the UI.** The backend is a separate process
+Obsidian spawns; whether a grant made through an Electron folder picker reaches
+it is unestablished, and this repo has been wrong about TCC repeatedly.
 
-- **Cutting from the wrong end.** A constant correct for a paper is wrong for a
-  book; head truncation is wrong whenever the reader is not at the head.
-- **Half-wiring.** A fix lands on one surface, one call site, one code path — and
-  its sibling ships unchanged behind a green test. If a guard cannot see the
-  sibling, widen the guard, not the exemption.
+## Two patterns this repo keeps re-learning
+
+- **Check the premise before building.** E2's stated cause was wrong, and three
+  releases running, the entry's own framing was the thing to measure first.
+- **Half-wiring and cutting from the wrong end** — v0.77.0 and v0.78.0 each paid a
+  release for these, both caught by review rather than by the author.

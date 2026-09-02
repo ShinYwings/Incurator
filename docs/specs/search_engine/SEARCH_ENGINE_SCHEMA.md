@@ -1,4 +1,4 @@
-# Incurator Search Engine Schema (v0.78.0)
+# Incurator Search Engine Schema (v0.79.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -384,6 +384,25 @@ and removes the preview-as-evidence defect (Failure Atlas F10).
 - `source_spans.text_preview` remains a 200-character display preview in the
   DB; it is NEVER presented as the sufficient source evidence for a span
   longer than the preview.
+- **The SEARCH INDEX obeys the same rule (v0.79.0).** `search_documents.body`
+  for a `source_span` is the hydrated full text, not the preview. It was the
+  preview until v0.79.0, which meant the searchable body of a span was its first
+  200 characters: measured on a real vault, 4,865 of 11,774 spans (41.3%) sat
+  exactly at the cap, with a true median of 418 and a p90 of 1,426.
+
+  That broke this section's own guarantee in two ways. A term appearing only past
+  character 200 could not retrieve its span at all — measured 1 of 6 findable
+  before, 65 of 65 after. And the primary hybrid-search path reads this body
+  straight back out (`engine.py::_hydrate` does not hydrate; it reads
+  `search_documents.body`), so a sentence cut mid-word reached the model. Only the
+  evidence route described below ever recovered the full text.
+
+  A span whose source cannot be re-parsed falls back to its preview and the count
+  is REPORTED (`MaterializeResult.preview_fallbacks`). A silent fallback rate
+  would be indistinguishable from a successful reindex while search stayed
+  truncated — and on the vault this was measured against, 7 of 49 documents were
+  unreadable through macOS TCC, so the count is what surfaced the permission
+  problem at all.
 - Evidence surfaces (evidence packs, source-section route items,
   entity-derived span items) hydrate the exact span text from the registered
   source file at evidence-build time. Hydration re-parses the registered

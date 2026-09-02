@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import hashlib
 import json
 import re
@@ -15,6 +17,11 @@ from .. import db
 __all__ = ["MaterializeResult", "materialize_search_documents"]
 
 
+from ..pipeline import source_spans
+
+_LOG = logging.getLogger(__name__)
+
+
 _CJK_RE = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]")
 
 
@@ -25,6 +32,10 @@ class MaterializeResult:
     embeddings: int = 0
     skipped_unchanged: int = 0
     failures: int = 0
+    #: Spans whose full text could not be recovered, so the index holds their
+    #: 200-char preview instead. Reported because a silent fallback rate would
+    #: look exactly like a successful reindex while search stayed truncated.
+    preview_fallbacks: int = 0
 
 
 def _json_hash(payload: Any) -> str:
@@ -198,6 +209,30 @@ def _current_embedding_count(db_path: Path) -> int:
     return int(row[0] or 0)
 
 
+def _hydrated_span_texts(db_path: Path, span_ids: list[str]) -> dict[str, str]:
+    """Full span text, recovered by re-parsing the source and matching on hash.
+
+    Lazily imported: `pipeline.compile` imports this module, so a module-level
+    import is a cycle. `evidence.py` reaches the same function the same way.
+
+    Never fatal. A vault whose sources have moved should still get an index built
+    from previews rather than no index at all.
+    """
+    if not span_ids:
+        return {}
+    try:
+        from ..pipeline.compile import hydrate_spans
+
+        return hydrate_spans(db_path, span_ids)
+    except Exception:  # noqa: BLE001 - degrade to previews, and say so
+        _LOG.warning(
+            "could not hydrate span text for the search index; "
+            "falling back to 200-char previews",
+            exc_info=True,
+        )
+        return {}
+
+
 def materialize_search_documents(
     db_path: Path, search_config: dict | None = None
 ) -> MaterializeResult:
@@ -366,10 +401,68 @@ def materialize_search_documents(
     entity_names = {str(row["id"]): str(row["canonical_name"]) for row in entities}
     docs: list[dict[str, Any]] = []
 
+    # The index gets a truncated span's FULL text where the source can be read,
+    # and says how often it could not.
+    #
+    # `source_spans` has no full-text column — only `content_hash`, computed over
+    # the whole span, and `text_preview`, which is the first 200 characters
+    # (`pipeline/source_spans.py:31`). Indexing the preview meant the searchable
+    # body of a span WAS those 200 characters. Measured on a real vault: 4,865 of
+    # 11,774 spans (41.3%) sit exactly at that cap, with a true median length of
+    # 418 and a p90 of 1,426 — 118,733 characters invisible to search in a
+    # 300-span sample alone.
+    #
+    # It is not only a recall problem. The primary hybrid-search path reads this
+    # body straight back out (`engine.py:_hydrate`) and hands it to the model, so
+    # a cut mid-word reached the answer. Only the entity/source-section route
+    # re-hydrated (`evidence.py:297`).
+    #
+    # `text_preview` is left alone: SCHEMA.md locks it immutable, and rewriting it
+    # would move `content_hash` and therefore span identity, which 20,230
+    # knowledge_units and 19,521 claim_supports are anchored to.
+    # ONLY the spans the preview actually truncated. A preview shorter than the
+    # cap already holds the whole span, so hydrating it buys nothing and costs
+    # twice:
+    #
+    #  - `hydrate_spans` re-parses the SOURCE FILE. `materialize_search_documents`
+    #    is called about 2N+2 times per `wiki add`/`wiki sync` from six sites in
+    #    the compile pipeline, including the error path and the cached no-op path,
+    #    and its span query is vault-wide. Hydrating everything turned a cheap DB
+    #    projection into repeated full-corpus PDF parsing.
+    #  - `text_preview` collapses internal whitespace (`" ".join(text.split())`)
+    #    and hydration does not, so the body of an untruncated span would change
+    #    for whitespace alone — measured, 53% of them — and every one would
+    #    re-embed for no gain, since embeddings are keyed on the text.
+    #
+    # Both were found by review. Restricting to the truncated set is what makes
+    # the fix pay only for what it fixes.
+    truncated = [
+        str(row["id"])
+        for row in spans
+        if len(str(row.get("text_preview") or "")) >= source_spans._PREVIEW_CHARS
+    ]
+    truncated_ids = set(truncated)
+    span_full_text = _hydrated_span_texts(db_path, truncated)
+    preview_fallbacks = 0
+
     for row in spans:
         source_id = int(row["source_id"])
         title = str(row.get("section_title") or sources.get(source_id, {}).get("relpath") or "")
-        body = str(row.get("text_preview") or "")
+        span_id = str(row["id"])
+        hydrated = span_full_text.get(span_id)
+        if hydrated:
+            body = hydrated
+        elif span_id not in truncated_ids:
+            # Never truncated, so its preview IS the whole span. Not a fallback,
+            # and counting it as one would make the warning the user sees a lie:
+            # on a healthy vault most spans land here.
+            body = str(row.get("text_preview") or "")
+        else:
+            # The source moved or changed, so the text cannot be recovered. A
+            # truncated body beats no body — but count it, because a silent 40%
+            # fallback rate would look exactly like success.
+            body = str(row.get("text_preview") or "")
+            preview_fallbacks += 1
         docs.append(_build_doc(
             record_type="source_span",
             record_id=str(row["id"]),
@@ -520,9 +613,18 @@ def materialize_search_documents(
     preserved_embeddings = _current_embedding_count(db_path)
     db.set_index_meta(db_path, "search_materialized_documents", str(len(docs)))
     db.set_index_meta(db_path, "search_materializer_version", "v0.3.2-p5")
+    if preview_fallbacks:
+        _LOG.warning(
+            "search index: %d of %d spans could not be hydrated and were indexed "
+            "from their 200-char preview",
+            preview_fallbacks,
+            len(spans),
+        )
+
     return MaterializeResult(
         documents=len(docs),
         chunks=chunk_result.chunks,
         embeddings=preserved_embeddings,
         skipped_unchanged=preserved_embeddings,
+        preview_fallbacks=preview_fallbacks,
     )
