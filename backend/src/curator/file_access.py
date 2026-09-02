@@ -116,13 +116,33 @@ def grant_root(path: Path) -> Path | None:
     if probe(path) is not Reachability.DENIED:
         return None
 
+    # Resolve first. `probe` follows symlinks — `os.open` does — while
+    # `Path.parents` does not, so without this the two disagree about what they
+    # are looking at: probe reports the TARGET's denial and the walk climbs the
+    # LINK's parents, which are readable, and answers None.
+    try:
+        path = path.resolve(strict=False)
+    except OSError:
+        pass
+
     shallowest_denied: Path | None = None
-    for ancestor in path.parents:
+
+    # The path ITSELF may be the denied node, and for a root it usually is.
+    # Walking only `parents` answered None for `~/Downloads` and for
+    # `~/Library/Mobile Documents` — both measured DENIED at the same moment —
+    # so the grant button on a Dashboard row would have had nothing to open, on
+    # exactly the rows it exists for. A file inside a denied folder still
+    # resolves to the folder, which is the shape production depends on.
+    for candidate in (path, *path.parents):
         try:
-            with os.scandir(ancestor) as it:
+            with os.scandir(candidate) as it:
                 next(iter(it), None)
         except PermissionError:
-            shallowest_denied = ancestor
+            shallowest_denied = candidate
+        except NotADirectoryError:
+            # A denied FILE: its bytes are refused but it is not a folder, so it
+            # is never the thing to grant. Its parent is.
+            continue
         except OSError:
             continue
     return shallowest_denied
