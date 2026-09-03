@@ -23,30 +23,61 @@ def test_the_field_defaults_to_nobody_looked() -> None:
     assert QueryRequest(question="anything").is_knowledge_question is None
 
 
-def test_a_derived_no_is_adopted_and_a_fallback_guess_is_not(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """The provider-failure path guesses; the funnel must not gate on a guess.
+def _adopted_verdict(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, derived) -> bool | None:
+    """What the REAL funnel records after `derive_search_query` returns `derived`.
 
-    `derive_search_query` returns `bool(terms)` when the provider fails, and
-    `_fallback_search_terms` drops single characters — so `L^T M(Q)L = 0`
-    scrapes to "" and the guess becomes False. Adopting that would answer a real
-    question with an empty pack blaming "not a knowledge question".
+    Not a hand copy of the ternary. The first cut of this test defined a local
+    `adopt()` closure and asserted on that; a reviewer stripped the
+    `status == "derived"` guard out of `context_service.py` and all 33 related
+    tests still passed. A test that re-implements the branch it checks proves
+    nothing about the branch.
     """
+    from curator import context_service as cs
     from curator import query as query_mod
 
-    adopted: list[bool | None] = []
+    paths = _seed_context_vault(tmp_path)
+    monkeypatch.setattr(query_mod, "derive_search_query", lambda *a, **k: derived)
 
-    def adopt(derived) -> bool | None:
-        return derived.is_knowledge_question if derived.status == "derived" else None
+    class _Client:
+        provider = "fake"
+        model = "fake"
 
-    real = query_mod.DerivedQuery("", False, "", "not a knowledge question", status="derived")
-    guess = query_mod.DerivedQuery(
-        "", bool(""), "", "derivation unavailable: boom", status="fallback"
+        def chat(self, messages, *, json_mode: bool = False, temperature: float = 0.3) -> str:
+            return "{}"
+
+    response = cs.ContextService(paths, _Client()).context_fetch(
+        # Korean and no `english_query`, so the funnel's derivation gate fires.
+        QueryRequest(question="이 문단이 무엇을 말하는지 알려줘", mode="local")
     )
-    adopted.append(adopt(real))
-    adopted.append(adopt(guess))
-    assert adopted == [False, None]
+    from curator import db
+
+    trace = db.get_query_trace(paths.state_db, response["trace_id"])
+    assert trace is not None
+    return trace["retrieval_trace"]["context_service"]["derivation"]["is_knowledge_question"]
+
+
+def test_a_derived_verdict_is_adopted(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from curator.query import DerivedQuery
+
+    assert _adopted_verdict(
+        monkeypatch, tmp_path,
+        DerivedQuery("", False, "", "not a knowledge question", status="derived"),
+    ) is False
+
+
+def test_a_fallback_guess_is_not_adopted(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The provider failed, so nobody classified anything.
+
+    `DerivedQuery(terms, bool(terms), ..., status="fallback")` carries a guess
+    from whether scraping found terms. Adopting it would let a provider outage
+    refuse retrieval for a real question.
+    """
+    from curator.query import DerivedQuery
+
+    assert _adopted_verdict(
+        monkeypatch, tmp_path,
+        DerivedQuery("", bool(""), "", "derivation unavailable: boom", status="fallback"),
+    ) is None
 
 
 def test_the_fallback_really_can_scrape_a_maths_message_to_nothing() -> None:
@@ -62,11 +93,18 @@ def test_the_fallback_really_can_scrape_a_maths_message_to_nothing() -> None:
 def _truthy_offenders(root: Path) -> list[str]:
     """Truthiness tests on the REQUEST's tri-state verdict.
 
-    Scoped to `request`/`req` on purpose. Two types carry a field of this name
-    and only one of them has three states: `DerivedQuery.is_knowledge_question`
-    is a plain `bool` produced by a classification that definitely ran, so
-    `query.py`'s `if not parsed.is_knowledge_question:` is correct and must not
-    be flagged. `ContextRequest`'s can be `None`, and there truthiness is a bug.
+    Scoped to `request`/`req` on purpose. THREE types carry a field of this
+    name and only `QueryRequest`'s has three states:
+
+    - `SearchQueryOutputV2.is_knowledge_question` — the LLM's parsed output,
+      reached only after a successful parse, so `query.py`'s
+      `if not parsed.is_knowledge_question:` is correct and must not be flagged.
+    - `DerivedQuery.is_knowledge_question` — a plain `bool`, but NOT always a
+      classification: on the provider-failure path it is `bool(terms)` scraped
+      from the message. That is why the funnel adopts it only when
+      `status == "derived"`.
+    - `QueryRequest.is_knowledge_question` — can be `None`, and there truthiness
+      collapses "classified no" with "nobody classified this".
     """
     bad = re.compile(
         r"if\s+not\s+(?:request|req)\.is_knowledge_question\b"
@@ -241,3 +279,48 @@ def test_the_refusal_pack_does_not_leave_a_silent_hole_in_the_trace() -> None:
     # And the funnel really builds it that way.
     source = (SRC / "context_service.py").read_text()
     assert '"skipped": "not a knowledge question"' in source
+
+
+def test_a_provider_outage_does_not_empty_the_popover_pack(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The boundary the popover and sidechat actually use.
+
+    `plugin_api.fetch_context` gated on `derived.is_knowledge_question` with no
+    `status` check. On the provider-failure path that value is `bool(terms)`
+    scraped from the message, and `_fallback_search_terms` drops single
+    characters — so `L^T M(Q)L = 0` scraped to "", the guess became False, and a
+    real question got an empty pack. v0.81.0's CHANGELOG claimed these surfaces
+    were covered; they were not, and two review lenses reproduced it here.
+    """
+    from curator import llm
+    from curator.plugin_api import context as context_api
+
+    paths = _seed_context_vault(tmp_path)
+
+    class _DeadClient:
+        provider = "fake"
+        model = "fake"
+
+        def chat(self, *a, **k):
+            raise RuntimeError("provider down")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc) -> bool:
+            return False
+
+    monkeypatch.setattr(llm, "build_client", lambda *a, **k: _DeadClient())
+
+    response = context_api.fetch_context(paths, query_text="L^T M(Q)L = 0")
+
+    assert response["ok"] is True
+    # Retrieval must still have run: nobody classified this, so nothing may
+    # refuse it. The empty-pack refusal is reserved for a real "no".
+    assert not any(
+        "not a knowledge question" in w for w in response.get("warnings", [])
+    ), response.get("warnings")
+    assert "coverage" not in response or response["coverage"].get(
+        "sufficiency"
+    ) != "not_applicable", response.get("coverage")

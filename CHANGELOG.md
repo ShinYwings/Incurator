@@ -29,6 +29,14 @@ asserted the opposite of not knowing. ROADMAP E8.
   guess becomes `False`. Measured: `L^T M(Q)L = 0` and `A B C` both scrape to
   `""`. A verdict is now adopted only from `status == "derived"`. Found in the
   Arena's verification pass; all three proposals would have shipped it.
+- **The same guess emptied the popover and sidechat pack.**
+  `plugin_api/context.py` — the boundary those two surfaces use — gated on
+  `derived.is_knowledge_question` with no `status` check at all, so a provider
+  outage on a terse or symbolic message returned zero evidence for a real
+  question. The first draft of this release claimed those surfaces were
+  "covered"; two review lenses reproduced the failure against the real function
+  and showed the claim was false. That boundary now trusts only a real
+  classification, and states `is_knowledge_question` only when one ran.
 
 ### Changed
 
@@ -42,9 +50,12 @@ asserted the opposite of not knowing. ROADMAP E8.
 An English `translate this: <body>` through `wiki query`, the two MCP tools, or
 `plugin query` is still never classified — no boundary on those paths classifies
 and the funnel's gate is scoped to non-English input for cost reasons. The
-popover and sidechat go through `plugin_api/context.py`, which classifies
-unconditionally, so the surfaces a reader actually touches are covered. This
-release does not fix the English case and should not be read as doing so.
+popover and sidechat go through `plugin_api/context.py`, which classifies every
+message regardless of language, so the surfaces a reader actually touches are
+covered — but only for messages a classification actually reached; see the
+provider-outage fix above. This release does not fix the English case and should
+not be read as doing so.
+
 ## [0.80.1] - 2026-09-03
 
 A question about a paper was answered with "No Git history found".

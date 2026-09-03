@@ -801,7 +801,7 @@ class ContextService:
             # entire pasted body".
             #
             # `is False`, NOT `if not`: `None` means nobody classified it, and
-            # that must still retrieve. See `ContextRequest.is_knowledge_question`.
+            # that must still retrieve. See `QueryRequest.is_knowledge_question`.
             #
             # `plugin_api/context.py` has returned an empty pack here since
             # v0.69.0 and the funnel did not, so the same message got two

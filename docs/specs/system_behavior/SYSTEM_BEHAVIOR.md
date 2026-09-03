@@ -2332,12 +2332,23 @@ characters, so a maths-heavy message scrapes to `""` and the guess becomes
 that would turn a provider outage into "not a knowledge question" and return an
 empty pack naming the wrong cause. A fallback verdict is recorded as `null`.
 
+**Every boundary that classifies applies the same rule.** `plugin_api/context.py`
+serves the popover and sidechat, and it read the verdict with **no `status`
+check at all** — so a provider outage on a terse or symbolic message returned an
+empty pack for a real question on the two surfaces a reader actually uses. A
+boundary refuses retrieval only on a verdict from `status == "derived"`, and
+declares `is_knowledge_question` on the request only when one ran. The rule is
+normative for any future boundary: the funnel cannot re-derive what a boundary
+already discarded.
+
 **Known gap.** An English `translate this: <body>` sent through `wiki query`,
 the two MCP tools, or `plugin query` is still never classified, because no
 boundary on those paths classifies and the funnel's gate is scoped to non-English
 input for cost reasons. The popover and sidechat go through
-`plugin_api/context.py`, which does classify, so the surfaces a reader touches
-are covered.
+`plugin_api/context.py`, which classifies every message regardless of language,
+so the surfaces a reader touches are covered — for every message a
+classification actually reached. When the provider fails there, nothing is
+classified and retrieval proceeds, which is the correct behaviour and not a gap.
 
 **Why `status` exists as a separate field.** *"A derivation ran and legitimately
 found no search terms"* and *"no derivation ran at all"* both store
