@@ -26,9 +26,23 @@ matching used as an intent classifier, running before and instead of the model
 that can actually tell a git request from a physics question. Tightening
 keywords is whack-a-mole against every common verb in every language.
 
-Git status and push remain available through the Git plugin. A git-history tool
-the model can call deliberately is tracked separately — it has to be an MCP tool
-to reach CLI-routed providers, which receive no plugin-injected tools.
+**What this costs, stated plainly.** Sidechat was the only place in Incurator
+offering git status, history and push, so those leave the plugin's UI — with the
+guards that came with them (refusing a behind or diverged branch, warning about
+`.curator/` contents). Use a dedicated Obsidian git plugin for everyday work —
+**Obsidian Git** (`obsidian-git`) is a separate third-party community plugin, not
+part of Incurator — or run `wiki plugin git status|history|push` yourself.
+
+### Removed
+
+- `IncuratorClient.getGitStatus`, `.getGitHistory` and `.pushGitChanges`, whose
+  only caller was the deleted router. The backend commands they wrapped are
+  unchanged. `getGitLog`, `getGitDiffStat` and `commitGitChanges` are left in
+  place: they were already unreachable before this change.
+
+A read-only git-history tool the model can call on purpose is queued as ROADMAP
+E9 — it has to be a backend MCP tool to reach CLI-routed providers, which receive
+no plugin-injected tools.
 
 ## [0.80.0] - 2026-09-02
 

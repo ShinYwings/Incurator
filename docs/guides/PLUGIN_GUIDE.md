@@ -1821,11 +1821,13 @@ local JSON commands (never via MCP for same-device flows). The client
 | `getSynthesisAudit(synthesisId, workspacePath)` | `wiki plugin synthesis show` | Read-only L4-to-L1 synthesis audit report |
 | `proposeCorrection(nodeId, correction, previous, workspacePath)` | `wiki plugin correction propose` | Classification/recommended action/review flag |
 
-## 13. Git Sidechat Integration
+## 13. Git Backend Commands
 
-The plugin exposes local Git repository workflows through sidechat without
-adding manual Commit/Push dashboard buttons. It uses your existing local `git`
-only — there is **no GitHub CLI (`gh`) dependency** and the plugin never stores
+**Sidechat no longer runs git commands (v0.80.1).** It used to, and the section
+below explains why that was removed. What remains is a set of backend commands
+you can run yourself; the plugin does not call them.
+
+Incurator uses your existing local `git` only — there is **no GitHub CLI (`gh`) dependency** and the plugin never stores
 GitHub tokens. (Authentication for pushing over HTTPS, if you use it, is handled
 by your normal git credential helper, outside the plugin.)
 
@@ -1853,9 +1855,27 @@ The router was removed rather than tightened, because the defect is substring
 matching used as an intent classifier — tightening keywords is whack-a-mole
 against every common verb in every language.
 
-Use the Git plugin for status, commits and pushes. The client methods above
-remain available to code that calls them deliberately; nothing calls them from
-the text of a chat message.
+**What this costs you, plainly.** Sidechat was the only place in Incurator that
+offered git status, history and push, so those are gone from the plugin's UI —
+along with the guards documented in the table above, such as refusing to push a
+behind or diverged branch and warning about `.curator/` contents. Incurator has
+never had Commit/Push dashboard buttons.
+
+For everyday git work use a dedicated Obsidian git plugin — **Obsidian Git**
+(`obsidian-git`) is the common choice and is a separate, third-party community
+plugin, not part of Incurator. For the backend commands in the table, run them
+yourself:
+
+```bash
+wiki plugin git status
+wiki plugin git history --file-path <path>
+wiki plugin git push
+```
+
+The `getGitStatus`, `getGitHistory` and `pushGitChanges` client methods were
+removed along with the router that was their only caller. `getGitLog`,
+`getGitDiffStat` and `commitGitChanges` remain in `IncuratorClient` but have no
+caller either — they were already unreachable before v0.80.1.
 
 Git commands must be deterministic backend calls through `IncuratorClient`, not
 provider-native shell/tool guesses. If the backend reports no git repository, no
