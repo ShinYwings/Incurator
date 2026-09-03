@@ -125,6 +125,15 @@ export interface AccessReport {
   roots: AccessRoot[];
 }
 
+/* Removed in v0.80.1 with the sidechat's prose git router: `getGitStatus`,
+   `getGitHistory` and `pushGitChanges` had exactly one caller between them —
+   `runGitSidechatCommand` — and deleting it orphaned all three. The backend
+   commands they wrapped (`wiki plugin git status|history|push`) are unchanged
+   and still reachable from the CLI.
+
+   `getGitLog`, `getGitDiffStat` and `commitGitChanges` are left alone: they were
+   already unreachable before this change, so they are not this change's mess to
+   clean up. */
 export class IncuratorClient {
   public needsUpdate = false;
   public backendVersion = "unknown";
@@ -345,14 +354,6 @@ export class IncuratorClient {
     }
   }
 
-  async getGitStatus(): Promise<GitStatusResult> {
-    if (this.settings.incuratorEnabled === false) {
-      return { ok: false, error: "backend_disabled", message: "Incurator backend is disabled." };
-    }
-    const result = await this.callBackendJson(["plugin", "git", "status"]);
-    return this.pickRecord(result) as unknown as GitStatusResult;
-  }
-
   async getGitLog(limit = 10): Promise<{ ok: boolean; commits?: unknown[]; error?: string; message?: string }> {
     if (this.settings.incuratorEnabled === false) {
       return { ok: false, error: "backend_disabled", message: "Incurator backend is disabled." };
@@ -370,27 +371,6 @@ export class IncuratorClient {
     }
     const result = await this.callBackendJson(["plugin", "git", "diff", "--stat"]);
     return this.pickRecord(result) as { ok: boolean; stat?: string; staged_stat?: string; error?: string; message?: string };
-  }
-
-  async getGitHistory(filePath: string, queryText = "", limit = 10): Promise<GitHistoryResult> {
-    if (this.settings.incuratorEnabled === false) {
-      return { ok: false, error: "backend_disabled", message: "Incurator backend is disabled." };
-    }
-    const result = await this.callBackendJson([
-      "plugin", "git", "history",
-      "--file-path", filePath,
-      "--query", queryText,
-      "--limit", String(limit),
-    ]);
-    return this.pickRecord(result) as unknown as GitHistoryResult;
-  }
-
-  async pushGitChanges(): Promise<GitPushResult> {
-    if (this.settings.incuratorEnabled === false) {
-      return { ok: false, error: "backend_disabled", message: "Incurator backend is disabled." };
-    }
-    const result = await this.callBackendJson(["plugin", "git", "push"]);
-    return this.pickRecord(result) as unknown as GitPushResult;
   }
 
   async commitGitChanges(message: string): Promise<{ ok: boolean; commit?: string; error?: string; message?: string }> {

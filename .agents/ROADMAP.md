@@ -714,6 +714,22 @@ spawned CLI is *permitted* to read; this item is about the model electing to
 shell out at all. A sandbox changes which denials happen; it does not stop the
 model from trying.
 
+
+### E9. A git-history tool the model can call on purpose
+
+**From the v0.80.1 hotfix (2026-09-03).** The prose router was removed because it
+guessed intent from substrings. The user's stated need is the other direction:
+*"너가 깃 히스토리 보면서 어떤 부분이 바뀌었는지 보는 경우가 있을거같긴해"* — the
+MODEL wanting history while it works, not the human asking for it in prose.
+
+**Constraint that decides the shape.** `surfaceToolReality` says everything
+except ollama and deepseek routes through a CLI subprocess, which receives **no
+plugin-injected tools** and loads its own MCP registry. So this has to be a
+backend MCP tool (`curator_*`) to reach the providers actually in use; a
+plugin-injected tool would be invisible on the CLI path — the v0.77.0 mistake.
+
+Scope: read-only history. Push and commit stay out of the model's reach.
+
 ### E5. The backend never asks for folder permission — **SHIPPED v0.80.0**
 
 Shipped as `wiki plugin access`, the Dashboard **Access** tab, and a grant
