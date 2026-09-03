@@ -359,40 +359,11 @@ describe("IncuratorClient", () => {
     ]);
   });
 
-  it("calls hidden plugin git commands for status, history, and push", async () => {
-    const calls: string[][] = [];
-    const backendJson = async (args: string[]) => {
-      calls.push(args);
-      if (args.includes("history")) {
-        return { ok: true, file_path: "note.md", commits: [] };
-      }
-      if (args.includes("push")) {
-        return { ok: true, branch: "main", upstream: "origin/main" };
-      }
-      return { ok: true, repo: { is_repo: true, branch: "main" } };
-    };
-    const client = new IncuratorClient(settings(), "0.3.1", backendJson);
-
-    await client.getGitStatus();
-    await client.getGitHistory("/vault/note.md", "selected phrase", 7);
-    await client.pushGitChanges();
-
-    expect(calls).toEqual([
-      ["plugin", "git", "status"],
-      [
-        "plugin",
-        "git",
-        "history",
-        "--file-path",
-        "/vault/note.md",
-        "--query",
-        "selected phrase",
-        "--limit",
-        "7",
-      ],
-      ["plugin", "git", "push"],
-    ]);
-  });
+  // Removed in v0.80.1 with `getGitStatus` / `getGitHistory` / `pushGitChanges`.
+  // Their only caller was the sidechat's prose git router, which classified
+  // messages by bare substring and answered a question about a paper with
+  // `git log` on a PDF. The backend commands it exercised are unchanged and
+  // still reachable from the CLI; nothing in the plugin calls them.
 
   it("getPdfContext can call backend with source identity instead of only a file path", async () => {
     const calls: string[][] = [];
