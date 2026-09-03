@@ -807,9 +807,20 @@ class ContextService:
             # v0.69.0 and the funnel did not, so the same message got two
             # different answers depending on which surface asked. This is that
             # decision, made once.
+            # A FIXED string, not `request.intent`. `intent` is the ROUTING
+            # intent (lookup / synthesis / discovery) that steers query
+            # expansion — interpolating it produced "no retrieval: lookup",
+            # which names a mechanism the reader did not ask about and states
+            # the wrong cause. The classifier's own `reason` lives on
+            # `DerivedQuery` and never reaches the request, so the honest thing
+            # to say here is the fact this branch actually knows.
             pack = evidence_mod.EvidencePack(
                 route=route,
-                warnings=[f"no retrieval: {request.intent or 'not a knowledge question'}"],
+                warnings=["no retrieval: not a knowledge question"],
+                # The trace must explain itself. `retrieval_execution_id` stays
+                # empty because no retrieval executed, and an empty child_id in
+                # the action list is otherwise a silent hole: this says why.
+                retrieval_trace={"skipped": "not a knowledge question"},
             )
         else:
             pack = evidence_mod.build_evidence(self.paths, request, route, policy=policy)

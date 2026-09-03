@@ -152,3 +152,37 @@ def test_the_gate_expression_is_the_one_in_the_funnel() -> None:
     source = (SRC / "context_service.py").read_text()
     assert "if request.is_knowledge_question is False:" in source
     assert "if not request.is_knowledge_question" not in source
+
+
+def test_the_refusal_pack_states_its_cause_and_names_no_mechanism() -> None:
+    """The warning must say why retrieval was skipped, not which router ran.
+
+    The first cut interpolated `request.intent` — the ROUTING intent that steers
+    query expansion — and produced "no retrieval: lookup": a mechanism the
+    reader never asked about, stated as if it were the cause.
+    """
+    source = (SRC / "context_service.py").read_text()
+    assert '"no retrieval: not a knowledge question"' in source
+    assert "no retrieval: {request.intent" not in source
+
+
+def test_the_refusal_pack_does_not_leave_a_silent_hole_in_the_trace() -> None:
+    """`build_evidence` always assigns an `RTR-` id; the refusal pack cannot.
+
+    The context action list records `child_id: pack.retrieval_execution_id`, so
+    a refusal writes a "retrieval" action pointing at nothing. That empty child
+    is legitimate — no retrieval executed — but it must be explained rather than
+    left for a reader to puzzle over.
+    """
+    from curator.retrieval import evidence as evidence_mod
+
+    pack = evidence_mod.EvidencePack(
+        route="local",
+        warnings=["no retrieval: not a knowledge question"],
+        retrieval_trace={"skipped": "not a knowledge question"},
+    )
+    assert pack.retrieval_execution_id == ""
+    assert pack.retrieval_trace["skipped"] == "not a knowledge question"
+    # And the funnel really builds it that way.
+    source = (SRC / "context_service.py").read_text()
+    assert '"skipped": "not a knowledge question"' in source
