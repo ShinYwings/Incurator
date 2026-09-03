@@ -118,28 +118,83 @@ def test_the_truthiness_guard_can_actually_fail(tmp_path: Path) -> None:
     assert _truthy_offenders(tmp_path) == []
 
 
-def test_the_funnel_refuses_only_on_an_explicit_no(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The gate's whole contract, through the real `context_fetch` branch.
+def _seed_context_vault(tmp_path: Path):
+    """Smallest vault ContextService will serve a local route from.
 
-    `None` must still retrieve: refusing on it would break every ordinary
-    English question on the CLI and MCP paths, which are never classified.
+    A local copy, matching this repo's convention -- no test module imports
+    another.
     """
-    from curator.retrieval import evidence as evidence_mod
+    from curator import config as cfg
+    from curator import db
 
-    built: list[str] = []
-    monkeypatch.setattr(
-        evidence_mod,
-        "build_evidence",
-        lambda *a, **k: built.append("ran") or evidence_mod.EvidencePack(route="local"),
+    paths = cfg.WikiPaths(tmp_path / "vault")
+    db.init_db(paths.state_db)
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "INSERT INTO sources (relpath, content_hash, file_type, bytes, added_at) "
+            "VALUES ('04_Resources/context.md', 'source-hash', 'md', 1, datetime('now'))"
+        )
+    span_id = db.upsert_source_span(
+        paths.state_db,
+        source_id=1,
+        relpath="04_Resources/context.md",
+        span_type="paragraph",
+        content_hash="span-hash",
+        section_title="Context",
+        text_preview="Residual connections stabilize optimization.",
+    )
+    db.upsert_graph_entity(
+        paths.state_db,
+        canonical_name="residual connection",
+        entity_type="concept",
+        source_span_ids=[span_id],
+    )
+    return paths
+
+
+def _fetch(paths, verdict: bool | None) -> dict:
+    """Through the REAL `context_fetch`, not a copy of its branch.
+
+    The first cut of these tests defined a local `gate()` helper "the exact
+    expression context_service uses" and asserted on that -- a hand copy, which
+    proves nothing about the code. v0.79.0 shipped that same mistake and the
+    review caught it here before merge.
+    """
+    from curator import context_service as cs
+
+    return cs.ContextService(paths).context_fetch(
+        QueryRequest(
+            question="what does a residual connection do?",
+            english_query="residual connection",
+            english_query_status="derived",
+            is_knowledge_question=verdict,
+            mode="local",
+        )
     )
 
-    def gate(verdict: bool | None) -> bool:
-        """The exact expression `context_service` uses."""
-        return verdict is False
 
-    assert gate(False) is True, "a classified 'no' refuses"
-    assert gate(None) is False, "nobody classified it — still retrieve"
-    assert gate(True) is False, "a classified 'yes' retrieves"
+def test_a_classified_no_returns_no_evidence_through_the_real_funnel(tmp_path: Path) -> None:
+    paths = _seed_context_vault(tmp_path)
+    response = _fetch(paths, False)
+
+    assert response["items"] == []
+    assert response["source_span_ids"] == []
+    assert any("not a knowledge question" in w for w in response.get("warnings", []))
+
+
+def test_an_unclassified_message_still_retrieves(tmp_path: Path) -> None:
+    """`None` must behave exactly as before. Refusing on it would break every
+    ordinary English question on the CLI and MCP paths, which never classify."""
+    paths = _seed_context_vault(tmp_path)
+    response = _fetch(paths, None)
+
+    assert response["items"], "nobody classified it -- retrieval must still run"
+    assert not any("not a knowledge question" in w for w in response.get("warnings", []))
+
+
+def test_a_classified_yes_retrieves_too(tmp_path: Path) -> None:
+    paths = _seed_context_vault(tmp_path)
+    assert _fetch(paths, True)["items"]
 
 
 def test_the_gate_expression_is_the_one_in_the_funnel() -> None:
