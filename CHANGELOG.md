@@ -2,6 +2,34 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.80.1] - 2026-09-03
+
+A question about a paper was answered with "No Git history found".
+
+### Fixed
+
+- **The sidechat guessed git intent from prose, and hijacked ordinary
+  questions.** `detectGitSidechatCommand` classified every message by bare
+  substring. `isHistoryRequest` matched `"바뀌"` — a fragment of 바뀌다, one of
+  the most common Korean verbs — so *"수식 9가 어떻게 10으로 바뀌었는지"* was
+  discarded and answered with `git log` on a PDF sitting in a Zotero folder that
+  is not in any repository. Measured against the real function, `"예전에"`,
+  `"변경사항"`, and a bare `"history"` hijack ordinary questions the same way.
+- **An innocent question could have pushed the vault to a remote.**
+  `isPushRequest` was `/\bpush\b/`, and "push-broom" is ordinary vocabulary in
+  light-field camera geometry — the reader's own field. It reached
+  `git_manager.push()`, which runs `git push` on the vault repo with no
+  confirmation.
+
+The prose router is removed rather than tightened: the defect is substring
+matching used as an intent classifier, running before and instead of the model
+that can actually tell a git request from a physics question. Tightening
+keywords is whack-a-mole against every common verb in every language.
+
+Git status and push remain available through the Git plugin. A git-history tool
+the model can call deliberately is tracked separately — it has to be an MCP tool
+to reach CLI-routed providers, which receive no plugin-injected tools.
+
 ## [0.80.0] - 2026-09-02
 
 A folder permission cost this project ten thousand failed spans and an agent

@@ -1840,12 +1840,22 @@ Repository operations use hidden backend JSON commands:
 | `pushGitChanges()` | `wiki plugin git push` | Push current branch when upstream is safe |
 | `commitGitChanges(message)` | `wiki plugin git commit` | Guarded fallback for explicit commit requests |
 
-The default workflow assumes the vault may already use scheduled commits. For
-requests like `push해줘`, sidechat should push existing commits rather than
-creating a new commit first. For selected Markdown history questions such as
-"이 내용 예전에 어떻게 바뀌었는지 히스토리 찾아줘", sidechat should pass the
-selected text or a normalized excerpt plus the active Markdown file path to
-`getGitHistory`.
+**Sidechat does not infer git intent from what you type (v0.80.1).** It used to:
+a substring matcher classified every message, and it hijacked ordinary
+questions. `"바뀌"` — a fragment of 바뀌다, one of the most common Korean verbs —
+routed *"수식 9가 어떻게 10으로 바뀌었는지"* to `git log` on a PDF that is not in
+any repository, and the question itself was discarded. `"예전에"`,
+`"변경사항"`, and a bare `"history"` did the same. Worse, a bare `push` matched
+"push-broom", ordinary vocabulary in light-field camera geometry, and reached
+`git push` on the vault with **no confirmation**.
+
+The router was removed rather than tightened, because the defect is substring
+matching used as an intent classifier — tightening keywords is whack-a-mole
+against every common verb in every language.
+
+Use the Git plugin for status, commits and pushes. The client methods above
+remain available to code that calls them deliberately; nothing calls them from
+the text of a chat message.
 
 Git commands must be deterministic backend calls through `IncuratorClient`, not
 provider-native shell/tool guesses. If the backend reports no git repository, no

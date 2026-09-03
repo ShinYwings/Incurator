@@ -90,10 +90,6 @@ import {
   shouldUseBackendPdfContext,
 } from "../../context/providerContextPolicy";
 import {
-  detectGitSidechatCommand,
-  type GitSidechatCommand,
-} from "../gitSidechatCommands";
-import {
   type ChatMessage,
   type ChatMode,
   type ChatSession,
@@ -1128,32 +1124,17 @@ export class ChatSidebarView extends ItemView {
     this.renderMessages();
     await this.persistCurrentSession();
 
-    const gitCommand = detectGitSidechatCommand(
-      content,
-      userMsg.contextRefs || [],
-      capturedActiveCtx
-        ? {
-            viewType: capturedActiveCtx.viewType,
-            filePath: capturedActiveCtx.filePath,
-            absolutePath: capturedActiveCtx.absolutePath,
-          }
-        : null
-    );
-    if (gitCommand) {
-      assistantMsg.content = "Running Git command...";
-      this.renderAssistantMessage(assistantMsg);
-      try {
-        assistantMsg.content = await this.runGitSidechatCommand(gitCommand);
-      } catch (err) {
-        assistantMsg.content = `❌ Git command failed: ${err instanceof Error ? err.message : String(err)}`;
-      } finally {
-        assistantMsg.isStreaming = false;
-        this.renderAssistantMessage(assistantMsg);
-        await this.persistCurrentSession();
-      }
-      return;
-    }
-
+    // No prose git router here, deliberately. A substring matcher used as an
+    // intent classifier hijacked ordinary questions: `isHistoryRequest`
+    // matched "바뀌" -- a fragment of 바뀌다, one of the most common Korean
+    // verbs -- so "수식 9가 어떻게 10으로 바뀌었는지" was discarded and answered
+    // with `git log` on a PDF that is not in any repository. Worse,
+    // `isPushRequest` was /\bpush\b/, and "push-broom" is ordinary vocabulary
+    // in light-field camera geometry: an innocent question could run
+    // `git push` on the vault with no confirmation.
+    //
+    // Git work belongs to an explicit invocation or to a tool the model calls
+    // on purpose -- never to a guess at what prose is about.
     this.isGenerating = true;
     setIcon(this.sendBtn, "square");
     this.sendBtn.setAttribute("aria-label", "Stop generating");
@@ -1340,66 +1321,6 @@ export class ChatSidebarView extends ItemView {
       this.renderAssistantMessage(assistantMsg);
     });
     return truncated;
-  }
-
-  private async runGitSidechatCommand(command: GitSidechatCommand): Promise<string> {
-    const client = this.getIncuratorClient();
-    if (command.kind === "status") {
-      const status = await client.getGitStatus();
-      if (!status.ok) {
-        return `❌ Git status unavailable: ${status.message || status.error || "unknown error"}`;
-      }
-      const repo = status.repo || {};
-      const tree = status.working_tree || {};
-      const warnings = status.warnings?.length
-        ? `\n\nWarnings:\n${status.warnings.map((w) => `- ${w}`).join("\n")}`
-        : "";
-      return [
-        "Git status",
-        "",
-        `- Branch: ${repo.branch || "unknown"}`,
-        `- Upstream: ${repo.upstream || "none"}`,
-        `- Ahead/behind: ${repo.ahead ?? 0}/${repo.behind ?? 0}`,
-        `- Remote: ${repo.remote_url || "none"}`,
-        `- Working tree: ${tree.clean ? "clean" : "dirty"}`,
-        `- Staged/unstaged/untracked/conflicted: ${tree.staged ?? 0}/${tree.unstaged ?? 0}/${tree.untracked ?? 0}/${tree.conflicted ?? 0}`,
-        warnings,
-      ].filter(Boolean).join("\n");
-    }
-
-    if (command.kind === "push") {
-      const result = await client.pushGitChanges();
-      if (!result.ok) {
-        return `❌ Git push blocked: ${result.message || result.error || "unknown error"}`;
-      }
-      const details = [result.stdout, result.stderr].filter((v) => v && v.trim()).join("\n").trim();
-      return `✅ Pushed ${result.branch || "current branch"}${result.upstream ? ` to ${result.upstream}` : ""}.${details ? `\n\n${details}` : ""}`;
-    }
-
-    const history = await client.getGitHistory(command.filePath, command.queryText, 10);
-    if (!history.ok) {
-      return `❌ Git history unavailable: ${history.message || history.error || "unknown error"}`;
-    }
-    const commits = history.commits || [];
-    if (commits.length === 0) {
-      return `No Git history found for ${history.file_path || command.filePath}.`;
-    }
-    const mode = history.query_excerpt
-      ? history.exact_match
-        ? `matching "${history.query_excerpt}"`
-        : `recent file history (no exact match for "${history.query_excerpt}")`
-      : "recent file history";
-    const lines = [`Git history for ${history.file_path || command.filePath} — ${mode}:`, ""];
-    for (const commit of commits.slice(0, 5)) {
-      lines.push(`- ${commit.hash.slice(0, 8)} ${commit.subject}${commit.date ? ` (${commit.date})` : ""}`);
-      const patch = (commit.patch || "").trim();
-      if (patch) {
-        lines.push("```diff");
-        lines.push(patch.slice(0, 1200));
-        lines.push("```");
-      }
-    }
-    return lines.join("\n");
   }
 
   private async buildLLMMessages(

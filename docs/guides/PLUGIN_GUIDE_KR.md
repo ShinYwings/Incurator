@@ -1569,11 +1569,22 @@ push 인증이 필요하면 플러그인 밖, 평소 쓰는 git credential helpe
 | `pushGitChanges()` | `wiki plugin git push` | upstream이 안전할 때 현재 branch push |
 | `commitGitChanges(message)` | `wiki plugin git commit` | 명시적 commit 요청용 guarded fallback |
 
-기본 워크플로우는 vault에 scheduled commit이 이미 있을 수 있다고 가정합니다.
-`push해줘` 같은 요청에서는 sidechat이 새 commit을 먼저 만들지 않고 기존 commit을
-push해야 합니다. "이 내용 예전에 어떻게 바뀌었는지 히스토리 찾아줘" 같은 선택한
-Markdown history 질문에서는 선택 텍스트 또는 정규화된 excerpt와 현재 Markdown 파일
-경로를 `getGitHistory`에 전달해야 합니다.
+**sidechat은 입력한 문장에서 git 의도를 추론하지 않습니다 (v0.80.1).** 예전에는
+추론했고, 그것이 평범한 질문을 가로챘습니다. 부분문자열 매처가 모든 메시지를
+분류했는데, 키워드 중 `"바뀌"` — 한국어에서 가장 흔한 동사 중 하나인 바뀌다의
+조각 — 때문에 *"수식 9가 어떻게 10으로 바뀌었는지"* 라는 질문이 통째로 버려지고,
+git 저장소에 있지도 않은 PDF에 대한 `git log`로 치환됐습니다. `"예전에"`,
+`"변경사항"`, 맨 `"history"` 도 같은 방식으로 걸렸습니다. 더 심각하게는, 맨
+`push` 가 라이트필드 카메라 기하의 일상 용어인 "push-broom"에 매치되어 볼트에
+**확인 없이** `git push` 를 실행할 수 있었습니다.
+
+조건을 좁히는 대신 라우터를 제거했습니다. 결함은 부분문자열 매칭을 의도
+분류기로 쓴 것 자체이고, 키워드를 조이는 것은 모든 언어의 흔한 동사를 상대로 한
+두더지잡기이기 때문입니다.
+
+status, commit, push는 Git 플러그인을 사용하세요. 위 client 메서드들은 의도적으로
+호출하는 코드에서는 그대로 쓸 수 있으며, 채팅 메시지 본문에서 이들을 호출하는
+경로는 없습니다.
 
 Git 명령은 provider-native shell/tool 추측이 아니라 `IncuratorClient`를 통한 결정적
 backend 호출이어야 합니다. backend가 git repository 없음, upstream 없음,
