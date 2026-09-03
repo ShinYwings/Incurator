@@ -538,6 +538,21 @@ Vault — it returns an answer + a `QTR-` trace and writes **no** vault file:
 
 `wiki query` and `curator_query` read the currently compiled DAG and synthesize a sessionless answer with a `QTR-` trace. **A question that is not already in English is first converted to an internal English search query (v0.69.0)** — this costs one extra model call, and without it the route signals (which are English-only by contract) cannot match, so every non-English question landed on a narrow local lookup regardless of what it asked for. English questions skip that step and route on your own words. `search_curator` returns retrieval results without answer synthesis. Queries do not register sources, run pending L2/L3 jobs, or write a frozen Exhibition file; use `wiki add` and `wiki build` explicitly to update the compiled DAG.
 
+**Some messages are not questions, and get no evidence.** If the classifier
+judges that answering needs no stored knowledge — "translate this paragraph:
+…", "summarise the text below", "rewrite this" — retrieval is skipped and the
+answer comes from the message alone. The result carries the warning
+`no retrieval: not a knowledge question`. This is deliberate: searching the
+vault for a translation request selects evidence for a question nobody asked,
+and because an empty search query falls back to your own message, it would
+search for the entire pasted body.
+
+The classifier only runs on a question that is **not already English**, for the
+cost reason described above. So an English "translate this: …" typed at
+`wiki query`, at the MCP tools, or at `wiki plugin query` is still searched
+normally. The popover and the sidechat classify every message regardless of
+language, so this gap does not affect them.
+
 **Querying never writes to the DAG.** There is no flag that turns an answer into
 a knowledge node. The `--update` flag that once created an L2 Atom from the
 synthesized answer was removed in v0.44.0: it wrote an `ATM-*.md` file straight

@@ -310,6 +310,16 @@ does not reliably inherit the shell `PATH` that finds a bare `wiki`.
   and uses DB-native lexical/vector retrieval where possible; clients can still
   fall back to source sections or local PDF context. For an evidence pack without
   synthesis, use `curator_fetch_context`.
+- **Messages that need no stored knowledge (v0.81.0)**: if a classification
+  judges the message not to be a knowledge question — "translate this paragraph:
+  …", "summarise the text below" — retrieval is skipped and the result carries
+  the warning `no retrieval: not a knowledge question` with an empty evidence
+  pack. Searching the vault for a translation request selects evidence for a
+  question nobody asked, and because an empty search query falls back to the
+  message itself, it would search for the entire pasted body. **The
+  classification only runs on a question that is not already English**, for cost
+  reasons, so an English "translate this: …" sent to this tool is still searched
+  normally.
 - **Workspace policy failures**: An empty path or a directory without
   `curate.yml` uses the `default` policy. If the file exists but is unreadable,
   malformed, has an invalid root/source-scope shape, or is semantically invalid,
@@ -427,6 +437,16 @@ and plugin, and they never edit read-only source truth (`03_Notes/`,
   not a frozen file; it is the primary surface for reasoning agents (e.g. the
   Obsidian agent) that do their own synthesis. For broad questions the pack leads
   with the shared **L4 Synthesis** nodes.
+- **Messages that need no stored knowledge (v0.81.0)**: if a classification
+  judges the message not to be a knowledge question — "translate this paragraph:
+  …", "summarise the text below" — retrieval is skipped and the result carries
+  the warning `no retrieval: not a knowledge question` with an empty evidence
+  pack. Searching the vault for a translation request selects evidence for a
+  question nobody asked, and because an empty search query falls back to the
+  message itself, it would search for the entire pasted body. **The
+  classification only runs on a question that is not already English**, for cost
+  reasons, so an English "translate this: …" sent to this tool is still searched
+  normally.
 - **Workspace policy failures**: An empty path or a directory without
   `curate.yml` uses the `default` policy. If the file exists but is unreadable,
   malformed, has an invalid root/source-scope shape, or is semantically invalid,

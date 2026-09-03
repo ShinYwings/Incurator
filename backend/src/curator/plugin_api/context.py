@@ -61,7 +61,17 @@ def fetch_context(
             english_query, is_knowledge, reason = (
                 derived.search_query, derived.is_knowledge_question, derived.reason
             )
-            if not is_knowledge:
+            # `status == "derived"` is load-bearing, not decoration. On the
+            # provider-failure path `derive_search_query` returns
+            # `DerivedQuery(terms, bool(terms), ..., status="fallback")`, where
+            # the verdict is a GUESS from whether scraping found any terms --
+            # and `_fallback_search_terms` drops single characters, so
+            # `L^T M(Q)L = 0` and `A B C` both scrape to "" and the guess is
+            # False. Without this check a provider outage returned an empty pack
+            # for a real question on the popover and sidechat, which v0.81.0's
+            # own CHANGELOG claimed were covered. They were not.
+            classified = derived.status == "derived"
+            if classified and not is_knowledge:
                 # Not a knowledge question — the message asks for something to be
                 # done to text the user supplied, or needs no stored knowledge.
                 # Returning an empty pack is the honest answer; running retrieval
@@ -94,6 +104,12 @@ def fetch_context(
                     english_query=english_query,
                     english_query_status=status,
                     intent=derived.intent,
+                    # Stated, not defaulted -- but only when a classification
+                    # actually ran. Reaching here with `status == "fallback"`
+                    # means scraping found terms, which is not a verdict; saying
+                    # `True` there would assert what nobody judged, in the same
+                    # release that removed exactly that lie from the funnel.
+                    is_knowledge_question=True if classified else None,
                     workspace_path=workspace_path,
                     mode="auto",
                 ),

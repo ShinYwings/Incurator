@@ -247,9 +247,14 @@ def test_derivation_survives_the_post_synthesis_trace_rewrite(tmp_path: Path) ->
     # the block as well as one appearing. `is_knowledge_question` joined it in
     # v0.71.0, when the funnel started carrying the flag end-to-end instead of
     # recomputing it downstream — so it must survive the rewrite too.
+    # `is_knowledge_question` is None, not True, and that is the v0.81.0 fix
+    # rather than a loosened assertion: this caller supplies `english_query`
+    # itself, so the funnel's derivation never runs and NOBODY classified this
+    # message. The field used to default to True and assert a verdict that was
+    # never given; it now records the truth, and the trace serialises it as null.
     assert context["derivation"] == {
         "status": "derived",
         "search_query_empty": False,
         "routing_intent": "lookup",
-        "is_knowledge_question": True,
+        "is_knowledge_question": None,
     }

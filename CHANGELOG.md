@@ -2,6 +2,60 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.81.0] - 2026-09-03
+
+The funnel worked out whether a message needed stored knowledge, and then
+asserted the opposite of not knowing. ROADMAP E8.
+
+### Fixed
+
+- **A message nobody classified claimed it wanted retrieval.**
+  `ContextRequest.is_knowledge_question` was `bool = True`, so the default was a
+  verdict. The funnel classifies only when the question is not already English —
+  a gate chosen for translation cost, not for classification need — so on most
+  paths nothing ever judged the message and the request said "yes" anyway. The
+  field is now `True` / `False` / `None`, defaults to `None`, and the trace
+  serialises that as `null`.
+- **The funnel ignored the verdict it did compute.** For a non-English message
+  the classification ran on every path and was discarded, so `search_query`
+  stayed empty, `working_query` fell back to the pasted body, and BM25 ran over
+  the translation request itself. The funnel now refuses retrieval on an
+  explicit `False`, returning the same empty pack `plugin_api/context.py` has
+  returned since v0.69.0 — one decision instead of two that disagreed.
+- **A provider outage would have been reported as "not a knowledge question".**
+  On its failure path `derive_search_query` returns `bool(terms)` scraped from
+  the raw message — a guess, not a classification — and `_fallback_search_terms`
+  drops single characters, so a maths-heavy message scrapes to `""` and the
+  guess becomes `False`. Measured: `L^T M(Q)L = 0` and `A B C` both scrape to
+  `""`. A verdict is now adopted only from `status == "derived"`. Found in the
+  Arena's verification pass; all three proposals would have shipped it.
+- **The same guess emptied the popover and sidechat pack.**
+  `plugin_api/context.py` — the boundary those two surfaces use — gated on
+  `derived.is_knowledge_question` with no `status` check at all, so a provider
+  outage on a terse or symbolic message returned zero evidence for a real
+  question. The first draft of this release claimed those surfaces were
+  "covered"; two review lenses reproduced the failure against the real function
+  and showed the claim was false. That boundary now trusts only a real
+  classification, and states `is_knowledge_question` only when one ran.
+
+### Changed
+
+- The gate is written `is False`, never `if not`, because `None` is falsy and a
+  truthiness test would refuse retrieval for every ordinary English question on
+  the CLI and MCP paths. A test walks the source tree to keep it that way, and a
+  second test injects a violation to prove that guard can actually fail.
+
+### Known gap
+
+An English `translate this: <body>` through `wiki query`, the two MCP tools, or
+`plugin query` is still never classified — no boundary on those paths classifies
+and the funnel's gate is scoped to non-English input for cost reasons. The
+popover and sidechat go through `plugin_api/context.py`, which classifies every
+message regardless of language, so the surfaces a reader actually touches are
+covered — but only for messages a classification actually reached; see the
+provider-outage fix above. This release does not fix the English case and should
+not be read as doing so.
+
 ## [0.80.1] - 2026-09-03
 
 A question about a paper was answered with "No Git history found".

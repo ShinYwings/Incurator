@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.80.0)
+# Incurator - System Behavior (v0.81.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -2305,7 +2305,50 @@ degrades to the previous behaviour instead of misrouting.
 | `status` | `"derived"` \| `"fallback"` \| `"unset"` | whether a derivation ran, and whether it succeeded |
 | `search_query_empty` | bool | whether it produced no search terms |
 | `routing_intent` | `""` \| `lookup` \| `synthesis` \| `discovery` | the intent it stated |
-| `is_knowledge_question` | bool | whether it judged the message to ask for stored knowledge at all (v0.71.0) |
+| `is_knowledge_question` | `true` \| `false` \| `null` | whether a classification judged the message to ask for stored knowledge — `null` means **nobody classified it** (v0.81.0) (v0.71.0) |
+
+**`is_knowledge_question` has three values, and the third is not decoration.**
+It was a `bool` defaulting to `true`, so a message nobody had classified
+*asserted* that retrieval was wanted. Two consequences, both measured:
+
+- The funnel classifies only when the question is not already English (the cost
+  gate above `derive_search_query`), so an English message is never classified
+  on any path — the trace claimed `true` for a verdict that was never sought.
+- `plugin_api/context.py` classifies unconditionally and refuses retrieval on a
+  `false`; the funnel did not. The same message therefore got two different
+  answers depending on which surface asked.
+
+From v0.81.0 the field is `true` / `false` / `null`, defaults to `null`, and the
+funnel **refuses retrieval only on an explicit `false`** — never on `null`,
+which would break every ordinary English question on the CLI and MCP paths.
+Because `null` is falsy in Python, the branch is written `is False` and a test
+walks the source tree to keep it that way.
+
+**A verdict is adopted only from `status == "derived"`.** On the provider-failure
+path `derive_search_query` returns `bool(terms)` from scraped fallback terms —
+a guess, not a classification — and `_fallback_search_terms` drops single
+characters, so a maths-heavy message scrapes to `""` and the guess becomes
+`false`. Measured: `L^T M(Q)L = 0` and `A B C` both scrape to `""`. Gating on
+that would turn a provider outage into "not a knowledge question" and return an
+empty pack naming the wrong cause. A fallback verdict is recorded as `null`.
+
+**Every boundary that classifies applies the same rule.** `plugin_api/context.py`
+serves the popover and sidechat, and it read the verdict with **no `status`
+check at all** — so a provider outage on a terse or symbolic message returned an
+empty pack for a real question on the two surfaces a reader actually uses. A
+boundary refuses retrieval only on a verdict from `status == "derived"`, and
+declares `is_knowledge_question` on the request only when one ran. The rule is
+normative for any future boundary: the funnel cannot re-derive what a boundary
+already discarded.
+
+**Known gap.** An English `translate this: <body>` sent through `wiki query`,
+the two MCP tools, or `plugin query` is still never classified, because no
+boundary on those paths classifies and the funnel's gate is scoped to non-English
+input for cost reasons. The popover and sidechat go through
+`plugin_api/context.py`, which classifies every message regardless of language,
+so the surfaces a reader touches are covered — for every message a
+classification actually reached. When the provider fails there, nothing is
+classified and retrieval proceeds, which is the correct behaviour and not a gap.
 
 **Why `status` exists as a separate field.** *"A derivation ran and legitimately
 found no search terms"* and *"no derivation ran at all"* both store
