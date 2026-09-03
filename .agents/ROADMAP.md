@@ -681,7 +681,7 @@ needs its own briefing.
 **Also blocked on C3**: every number above that comes from `source_spans`
 describes an older parse.
 
-### E4. agy shells out during graph extraction — Hartley PUBLISHED anyway (v0.63.0)
+### E4. agy shells out during graph extraction — **ACTIVE**
 
 **NEW, found by the v0.62.0 live run (2026-08-21).** The staged compile now
 fails in `curator.entity_relation_extract@v2`: 2 of 5 calls returned
