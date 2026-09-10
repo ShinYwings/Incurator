@@ -2,6 +2,14 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.82.1] - 2026-09-11
+
+### Fixed
+
+- `./setup.sh` now completes the plugin install and security audit under npm
+  10.9 without the Vitest optional-peer `edgesOut` crash. Vitest is pinned to
+  the patched 4.1.11 release and setup reports any remaining audit advisory.
+
 ## [0.82.0] - 2026-09-11
 
 ### Added
