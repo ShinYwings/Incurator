@@ -84,12 +84,20 @@ Incurator는 Python 백엔드(`backend/`)와 Obsidian 플러그인(`plugin/`)을
 ### 설치 스크립트
 저장소 루트에서 `./setup.sh`를 실행하여 Python 백엔드 종속성(`uv` 사용), Node.js/Ollama, 로컬 DB-native 검색 모델(`wiki models ensure`)을 자동으로 설치합니다. 모델 준비를 건너뛰려면 `INCURATOR_SKIP_MODELS=1`을 설정하세요. Obsidian 플러그인은 이제 `wiki init` 실행 시 상호작용 방식으로 설치됩니다.
 
-**npm 보안 수정이 자동으로 실행됩니다 (v0.52.1).** `setup.sh`는 `npm install`과
+**npm 보안 수정이 자동으로 실행됩니다 (v0.82.1).** `setup.sh`는 `npm install`과
 `npm run build` 사이에 `plugin/`에서 `npm audit fix`를 실행하므로, 취약점이 알려진
-전이 종속성이 조용히 빌드에 섞여 들어가지 않습니다. 알아둘 점:
+전이 종속성이 조용히 빌드에 섞여 들어가지 않습니다. 플러그인은 패치된 Vitest 4.x를
+사용하며 두 npm 명령 모두 `--legacy-peer-deps`를 사용합니다. npm 10.9의 Arborist는
+이 옵션이 없으면 Vitest의 선택적 브라우저 peer를 해석하다가 `Cannot read properties of
+null (reading 'edgesOut')`로 audit 전에 종료될 수 있습니다. 플러그인은 해당 선택적
+브라우저 러너를 설치하지 않으므로 이 설정으로 종속성 트리를 결정적으로 유지합니다.
+알아둘 점:
 
 - `--force`는 절대 사용하지 않습니다. semver 호환 수정만 적용하며, 호환성을 깨는
   major 버전 상승은 실제 리뷰가 필요하므로 의도적으로 건드리지 않습니다.
+- `--legacy-peer-deps`는 플러그인의 install/audit 명령에만 의도적으로 적용합니다.
+  npm peer 해석 충돌을 피할 뿐이며, 호환성을 깨는 업그레이드를 허용하거나 보안
+  감사를 건너뛰지 않습니다.
 - `plugin/package-lock.json`이 수정될 수 있습니다. 정상 동작이며 그대로 커밋하세요.
   lockfile만 바뀐 커밋은 PR 없이 `master`에 fast-forward로 올립니다.
 - 취약점 때문에 setup이 중단되지는 않습니다. `setup.sh`는 `set -euo pipefail`로

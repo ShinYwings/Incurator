@@ -82,13 +82,21 @@ Incurator uses a Monorepo structure containing both the Python backend (`backend
 ### Setup Script
 Run `./setup.sh` at the repository root to automatically install the Python backend dependencies (via `uv`), install Node.js/Ollama, and run `wiki models ensure` for the local DB-native search models. Set `INCURATOR_SKIP_MODELS=1` to skip model provisioning. The Obsidian plugin is now installed interactively when running `wiki init`.
 
-**npm security fixes run automatically (v0.52.1).** Between `npm install` and
+**npm security fixes run automatically (v0.82.1).** Between `npm install` and
 `npm run build`, `setup.sh` runs `npm audit fix` in `plugin/`, so a known-
-vulnerable transitive dependency never quietly rides along in a build. Details
-worth knowing:
+vulnerable transitive dependency never quietly rides along in a build. The
+plugin pins the patched Vitest 4.1 line and both npm commands use
+`--legacy-peer-deps`: npm 10.9's Arborist otherwise crashes while resolving
+Vitest's optional browser peers with `Cannot read properties of null (reading
+'edgesOut')` before the audit can run. The plugin does not install those
+optional browser runners, so this keeps setup's dependency tree deterministic.
+Details worth knowing:
 
 - It never passes `--force`. Only semver-compatible fixes are applied; a
   breaking major bump needs a real review and is deliberately left alone.
+- The `--legacy-peer-deps` option is deliberate and limited to the plugin
+  install/audit commands. It avoids npm's peer-resolution crash; it does not
+  permit breaking upgrades or skip the security audit.
 - It may modify `plugin/package-lock.json`. That is expected — commit the
   change. Lockfile-only commits land on `master` by fast-forward, no PR.
 - Setup never aborts over an advisory. `setup.sh` runs under `set -euo

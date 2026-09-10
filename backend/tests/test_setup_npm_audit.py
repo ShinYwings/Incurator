@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 
 SETUP = Path(__file__).resolve().parents[2] / "setup.sh"
+PLUGIN_PACKAGE = SETUP.parent / "plugin" / "package.json"
 
 
 @pytest.fixture(scope="module")
@@ -29,6 +30,25 @@ def test_setup_script_exists() -> None:
     assert SETUP.is_file(), f"setup.sh not found at {SETUP}"
 
 
+def test_plugin_pins_vitest_security_fix() -> None:
+    """The audit advisory is fixed in Vitest 4.1.11; ^4.1.7 is vulnerable."""
+    import json
+
+    package = json.loads(PLUGIN_PACKAGE.read_text(encoding="utf-8"))
+    assert package["devDependencies"]["vitest"] == "^4.1.11"
+
+
+def test_plugin_declares_imported_codemirror_modules() -> None:
+    """Clean npm installs must retain modules imported by the plugin source."""
+    import json
+
+    dev_dependencies = json.loads(
+        PLUGIN_PACKAGE.read_text(encoding="utf-8")
+    )["devDependencies"]
+    assert dev_dependencies["@codemirror/state"] == "6.5.0"
+    assert dev_dependencies["@codemirror/view"] == "6.38.6"
+
+
 def test_setup_still_runs_under_strict_mode(setup_text: str) -> None:
     """If this ever relaxes, the guards below stop being load-bearing."""
     assert "set -euo pipefail" in setup_text
@@ -37,6 +57,16 @@ def test_setup_still_runs_under_strict_mode(setup_text: str) -> None:
 def test_npm_audit_fix_runs_during_setup(setup_text: str) -> None:
     assert re.search(r"^\s*npm audit fix\b", setup_text, re.MULTILINE), (
         "setup.sh must apply semver-compatible npm security fixes"
+    )
+
+
+def test_npm_install_and_audit_use_legacy_peer_resolution(setup_text: str) -> None:
+    """npm 10.9 Arborist crashes on Vitest's optional browser peer set."""
+    assert re.search(r"^\s*npm install --legacy-peer-deps\s*$", setup_text, re.MULTILINE)
+    assert re.search(
+        r"^\s*npm audit fix --legacy-peer-deps\s*\|\| true\s*$",
+        setup_text,
+        re.MULTILINE,
     )
 
 

@@ -25,7 +25,12 @@ echo ""
 echo "=== Building Incurator Obsidian Plugin (Frontend) ==="
 cd "$ROOT_DIR/plugin"
 if command -v npm &> /dev/null; then
-    npm install
+    # npm 10.9's Arborist crashes while resolving Vitest's optional browser
+    # peers ("Cannot read properties of null (reading 'edgesOut')"). The
+    # plugin does not install those optional browser runners; keeping peer
+    # resolution out of this install/audit pass matches the locked tree and
+    # lets setup reach the actual security audit deterministically.
+    npm install --legacy-peer-deps
     # Apply semver-compatible security fixes to plugin/package-lock.json on every
     # setup, so a known-vulnerable transitive dep never quietly rides along in a
     # build. NEVER `--force`: that pulls breaking major bumps in unreviewed.
@@ -36,7 +41,7 @@ if command -v npm &> /dev/null; then
     # open at all. Neither is a reason to abort a developer's setup — an upstream
     # advisory with no published fix is not something this run can act on.
     echo "--- Applying semver-compatible npm security fixes ---"
-    npm audit fix || true
+    npm audit fix --legacy-peer-deps || true
     if npm audit >/dev/null 2>&1; then
         echo "✓ npm audit: 0 vulnerabilities."
     else

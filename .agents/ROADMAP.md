@@ -68,8 +68,16 @@ preserved Codex final edits/diff targets, current model catalogues, portable
 terminal source audits, and native quota/auth/timeout false-error fixes.
 Local backend 1964 / plugin 1284 tests and final Linux CI passed; merged 2026-09-11.
 Antigravity instructions now describe the actual chat tool contract; live
-permission-denial prevention remains I4 below. Resume no other roadmap work
+provider and permission validation is recorded in I4 below. Resume no other roadmap work
 as part of this user-requested hotfix.
+
+### Hotfix H1. setup npm audit resolution — **COMPLETE 2026-09-11**
+
+`./setup.sh` had failed inside npm 10.9 Arborist while resolving Vitest's
+optional browser peers (`Cannot read properties of null (reading 'edgesOut')`).
+The branch pins the patched Vitest 4.1.11 release, declares direct CodeMirror
+imports, and uses the stable peer-resolution mode. The real setup path, audit
+result, plugin typecheck/build, and regression tests passed.
 
 ## Phase A — Make failure visible — **COMPLETE**
 
@@ -981,22 +989,19 @@ tests alone.
 
 ## Blocked / Icebox
 
-### I4. Antigravity live validation after provider refusal — v0.82.0
+### I4. Antigravity live validation after provider refusal — **COMPLETE 2026-09-11**
 
-The user reports quota was not actually depleted. Sidechat's quota/auth/timeout
-substring false positives are fixed and tested; raw diagnostics no longer assert
-account depletion. A direct isolated agy call still receives the provider's
-`Individual quota reached` refusal; `/usage` reports Starter Quota and0% Gemini,
-whose entitlement correctness is unverified. Per-invocation failure is now
-visible in5.285seconds instead of five-minute retries. This is not a resolution
-of upstream entitlement or proof the user's account is exhausted.
-
-The precise chat research/edit instructions preserve narrow permissions, but
-full live prevention of the user's denied-shell example and provider-backed
-evidence smoke cannot be verified until agy serves requests. No blanket grants,
-automatic provider swap, snapshot patching or live data migration was used.
-Resume with a real successful Sidechat document/notes query and edit proposal
-under the same granted tool surface. Original E4 extraction draft remains separate.
+After the user changed accounts, CLI 1.2.0 resolved `gemini-3.8-flash` to its
+medium variant and returned a real answer in 3.0 seconds. The earlier account's
+`RESOURCE_EXHAUSTED (429): Individual quota reached` was a provider response,
+not a local usage verdict; the invocation watcher still stops that retry loop in
+5.8 seconds. Live permission tests passed: `read_file(*)` read a disposable
+file, while retired and path-scoped read rules were auto-denied. `command(wiki)`
+reached native `run_command`; an absolute-path command was correctly denied by
+the narrow prefix. The configured Incurator MCP `curator_get_version` call
+returned `0.82.1` in 3.5 seconds. No blanket grants, provider swaps, vault
+edits, or data migrations were used. Original E4 extraction draft remains
+separate.
 
 ### I1. Retrieval and projection leftovers
 
