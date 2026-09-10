@@ -235,6 +235,11 @@ export function formatQuotaErrorMessage(provider: LLMProvider, message: string):
   );
 }
 
+/** Match the runtime's whole timeout record, never a quoted prose fragment. */
+export function isAntigravityTimeoutDiagnostic(message: string): boolean {
+  return /^\[agy\] print timeout after \S+(?: with turn in progress)?; returning partial output\s*$/m.test(message);
+}
+
 export function formatMcpToolResultForDisplay(toolName: string, raw: string): string {
   if (!toolName.includes("curator_query")) {
     return raw.length > 600 ? `${raw.slice(0, 600)}\n…` : raw;

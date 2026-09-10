@@ -1,4 +1,5 @@
 import { closeSync, openSync, readSync, unlinkSync, writeFileSync } from "fs";
+import { clearInterval, setInterval } from "timers";
 
 /** The CLI hides terminal quota behind retries in print mode. Read only this
  * invocation's diagnostic records, never model prose or another run's log.

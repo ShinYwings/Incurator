@@ -2,7 +2,7 @@
 
 All notable changes to Incurator are documented here.
 
-## [0.82.0] - 2026-09-10
+## [0.82.0] - 2026-09-11
 
 ### Added
 
@@ -20,8 +20,11 @@ All notable changes to Incurator are documented here.
 - Antigravity consumes native response deltas and tool progress. Timeouts and
   failed turns preserve visible partial text while reporting incomplete output.
   Invocation-scoped runtime refusals stop the CLI's repeated retries promptly.
-  Quoted quota/429 diagnostics cannot kill a successful native answer, and errors
+  Quoted quota/429, login, or timeout prose cannot kill a successful native answer, and errors
   no longer assert account depletion from an empty response or provider report.
+  Cancellation takes precedence over buffered diagnostics. Missing final results
+  cannot turn partial responses into completed edits. Popovers retain evidence
+  ready before document assembly ends even after the retrieval deadline.
 - Antigravity receives the actual chat tool/edit contract: explain supplied
   documents directly, use available MCP tools for missing research evidence,
   and return note-edit proposals without shell computation or transcript

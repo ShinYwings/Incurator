@@ -126,6 +126,7 @@ describe("CLI request ownership", () => {
     expect(prompt).toContain("Do not run shell commands");
     expect(prompt).toContain("ai-agent-edit");
     expect(prompt).toContain("Use only the supplied context");
+    expect(prompt).toContain("Preserve the response format requested by the supplied instructions");
     expect(capturedEnv?.PATH).not.toBe(process.env.PATH);
     expect(capturedEnv?.PATH).toContain(process.env.PATH || "");
     expect(capturedEnv?.TMPDIR).toMatch(/incurator-cli-lifecycle-.*\/tmp$/);
@@ -232,11 +233,82 @@ describe("CLI request ownership", () => {
     // rejection in the broken implementation this regression characterizes.
     const observed = pending.then(value => ({ value }), error => ({ error }));
     await vi.waitFor(() => expect(processMocks.spawn).toHaveBeenCalledOnce());
-    child.stderr.emit("data", Buffer.from('Diagnostic example: HTTP 429 Individual quota reached\n'));
+    child.stderr.emit("data", Buffer.from('Diagnostic example: HTTP 429 Individual quota reached; returning partial output\n'));
     child.stdout.emit("data", Buffer.from(agyResult(answer)));
     child.emit("close", 0);
     expect(await observed).toEqual({ value: answer });
     expect(child.kill).not.toHaveBeenCalled();
+  });
+
+  it("does not treat quoted authentication instructions as native authentication failures", async () => {
+    const client = cliClient();
+    const child = new FakeCliProcess();
+    processMocks.spawn.mockReturnValue(child);
+    const pending = client.streamChat([{ role: "user", content: "explain this error" }], vi.fn());
+    const observed = pending.then(value => ({ value }), error => ({ error }));
+    await vi.waitFor(() => expect(processMocks.spawn).toHaveBeenCalledOnce());
+    const answer = "The note says Session expired and suggests codex login.";
+    child.stderr.emit("data", Buffer.from("Documentation example: codex login\n"));
+    child.stdout.emit("data", Buffer.from(agyResult(answer)));
+    child.emit("close", 0);
+    expect(await observed).toEqual({ value: answer });
+    expect(child.kill).not.toHaveBeenCalled();
+  });
+
+  it("does not reject a completed response because stderr quotes timeout prose", async () => {
+    processMocks.execFile.mockImplementation((_command: string, _args: string[], _options: unknown, callback: Function) => {
+      callback(null, { stdout: agyResult("complete answer"), stderr: "Documentation example: returning partial output" });
+    });
+    await expect(cliClient().complete([{ role: "user", content: "explain" }])).resolves.toBe("complete answer");
+  });
+
+  it("keeps cancellation ahead of a buffered provider refusal", async () => {
+    const client = cliClient();
+    const owner = new AbortController();
+    const child = new FakeCliProcess();
+    processMocks.spawn.mockReturnValue(child);
+    const pending = client.streamChat([{ role: "user", content: "explain" }], vi.fn(), { signal: owner.signal });
+    const observed = pending.then(value => ({ value }), error => ({ error }));
+    await vi.waitFor(() => expect(processMocks.spawn).toHaveBeenCalledOnce());
+    const args: string[] = processMocks.spawn.mock.calls[0][1];
+    const log = args[args.indexOf("--log-file") + 1];
+    appendFileSync(log, "I0910 13:37:18.256298     327 run.go:387] Run: attempt 1 failed (RESOURCE_EXHAUSTED (code 429): Individual quota reached.), retrying in 4s\n");
+    owner.abort();
+    child.emit("close", null);
+    expect(await observed).toEqual({ value: "" });
+    expect(existsSync(log)).toBe(false);
+  });
+
+  it("keeps completion cancellation ahead of an unread refusal and final callback", async () => {
+    const owner = new AbortController();
+    let log = "";
+    processMocks.execFile.mockImplementation((_command: string, args: string[], _options: unknown, callback: Function) => {
+      log = args[args.indexOf("--log-file") + 1];
+      appendFileSync(log, "I0910 13:37:18.256298     327 run.go:387] Run: attempt 1 failed (RESOURCE_EXHAUSTED (code 429): Individual quota reached.), retrying in 4s\n");
+      owner.abort();
+      callback(null, { stdout: agyResult("answer after cancellation"), stderr: "" });
+    });
+    await expect(cliClient().complete([{ role: "user", content: "explain" }], { signal: owner.signal })).rejects.toMatchObject({ name: "AbortError" });
+    expect(existsSync(log)).toBe(false);
+  });
+
+  it("rejects missing final results for both streamed and non-streamed agy answers", async () => {
+    const partial = JSON.stringify({ event: "step_update", step_update: { step_index: 1, step_type: "agent_response", text_delta: "Incomplete edit" } }) + "\n{broken final";
+    const client = cliClient();
+    const child = new FakeCliProcess();
+    processMocks.spawn.mockReturnValue(child);
+    const chunks: string[] = [];
+    const pending = client.streamChat([{ role: "user", content: "edit" }], chunk => chunks.push(chunk.text));
+    const rejected = expect(pending).rejects.toThrow("final result");
+    await vi.waitFor(() => expect(processMocks.spawn).toHaveBeenCalledOnce());
+    child.stdout.emit("data", Buffer.from(partial));
+    child.emit("close", 0);
+    await rejected;
+    expect(chunks.join("")).toContain("Incomplete edit");
+    processMocks.execFile.mockImplementation((_command: string, _args: string[], _options: unknown, callback: Function) => {
+      callback(null, { stdout: partial, stderr: "" });
+    });
+    await expect(client.complete([{ role: "user", content: "edit" }])).rejects.toThrow("final result");
   });
 
   it("aborts an exhausted completion promptly and disposes its log", async () => {

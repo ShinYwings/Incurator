@@ -2511,11 +2511,21 @@ cannot trigger this log guard. Native-stream stderr is diagnostic text, not a
 quota verdict: bare 429/quota substrings cannot kill an answer or override a
 successful native result. Errors attribute the provider's report without
 asserting actual account depletion; empty output does not imply quota failure.
+The same rule excludes quoted login/authentication phrases from native failure
+detection. agy requires a valid final SUCCESS result, even on exit 0; missing or
+malformed results preserve visible text but cannot complete an edit. Explicit
+caller cancellation disposes the log watcher and precedes unsettled diagnostics.
+Timeout detection matches complete native agy diagnostic lines only on agy
+invocations; ordinary quoted timeout prose is not a failed turn.
 Watchers and temporary logs are removed on every
 terminal path. The invocation explicitly directs document explanations to supplied
 context and requested research to available MCP tools, with no shell computation
 or transcript recovery. This instruction does not claim to remove native tools:
 the existing narrow permission grants and OS containment remain enforced.
+The invocation policy preserves each caller's response format: Sidechat follows
+its edit-proposal contract, while inline replacements and JSON completions keep
+their supplied formats. The runtime log poll uses Node timers in the Electron
+renderer so unreferenced timer cleanup does not depend on browser timer handles.
 
 §13.5 closed the HTTP/MCP-injection path, but **CLI providers were uncontrolled**:
 `toolPolicy` never reached `buildCliCommand`, so a CLI-backed popover/sidechat
@@ -3253,6 +3263,10 @@ wiki plugin context fetch --query "<question>" --workspace-path "<vault-or-works
 It returns the `context_fetch` pack without an `answer` field. `wiki plugin
 query` remains available for explicit backend synthesis, but ordinary provider
 grounding uses the pack command.
+Popover lookup readiness is retained for the same permitted fetch: if evidence
+arrives after its four-second deadline but before document assembly ends, it is
+included without adding a wait. Retrieval-gated follow-ups cannot acquire it by
+reading an unrelated cached result.
 The provider prompt reuses the supplied pack and workspace notes, prohibits
 redundant retrieval, and reserves a second `curator_query` synthesis for explicit
 requests. Missing facts may still be retrieved through evidence-only tools.

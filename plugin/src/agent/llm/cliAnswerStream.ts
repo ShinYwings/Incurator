@@ -4,6 +4,7 @@
 export class CliAnswerStream {
   text = "";
   error = "";
+  hasFinalResult = false;
   private lastId = "";
   private lastText = "";
   private readonly completed = new Set<string>();
@@ -43,6 +44,7 @@ export class CliAnswerStream {
 
     if (event.event === "result") {
       const result = event.result || {};
+      this.hasFinalResult = result.status === "SUCCESS";
       if (result.status && result.status !== "SUCCESS") {
         this.error = String(result.error || `Antigravity turn ${result.status}`);
       }

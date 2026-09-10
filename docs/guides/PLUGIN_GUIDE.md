@@ -507,6 +507,10 @@ not establish that your account usage is depleted. An empty response or a quota
 phrase in diagnostic text no longer becomes an account-usage verdict or destroys
 a successful native answer. Explicit repeated runtime refusals stop promptly
 instead of spending five minutes retrying.
+Successful answers can quote login instructions without triggering a login
+error. Cancelled requests stay cancelled; unfinished native results are reported
+as incomplete. Popovers include evidence already ready when document preparation
+finishes, even if the evidence deadline passed during that preparation.
 
 Codex preserves each separate assistant message and its final edit proposal.
 Progress text can no longer consume the opening of a later SEARCH/REPLACE block.

@@ -529,7 +529,10 @@ export class QuickQueryPopover {
     // Pin identity before any parallel work; vault evidence and document
     // references are independent, so their waits overlap instead of adding.
     const pinnedDocumentId = this.plugin.getActivePdfDocumentId();
-    const vaultEvidencePending = this.vaultEvidenceFor(question).catch((error) => {
+    let readyVaultEvidence: string | undefined;
+    const vaultEvidencePending = this.vaultEvidenceFor(question, (block) => {
+      readyVaultEvidence = block;
+    }).catch((error) => {
       logger.warn("Vault evidence preparation failed:", error);
       return undefined;
     });
@@ -619,7 +622,10 @@ export class QuickQueryPopover {
     // engine and forbids giving the popover tools, so this is one pre-turn
     // backend call and zero extra tool rounds. Never fatal: a popover that
     // cannot reach the vault still answers about the selection.
-    const vaultEvidenceBlock = await vaultEvidencePending;
+    // The deadline may expire while references are still preparing. Reuse the
+    // same permitted fetch if it became ready meanwhile; never add another wait
+    // or peek at a cache that a retrieval-gated follow-up was forbidden to use.
+    const vaultEvidenceBlock = (await vaultEvidencePending) || readyVaultEvidence;
 
     const messages = buildQuickQueryContextMessages({
       // The provider decides what the prompt may honestly promise: the local page
@@ -748,7 +754,10 @@ export class QuickQueryPopover {
    *    One popover, one fetch.
    *  - **Edit requests paid too.** "rewrite this" does not use vault evidence;
    *    the sidechat already skips retrieval for those and this did not. */
-  private async vaultEvidenceFor(question: string): Promise<string | undefined> {
+  private async vaultEvidenceFor(
+    question: string,
+    onReady?: (block: string | undefined) => void
+  ): Promise<string | undefined> {
     // The SAME gate the sidebar uses, not a narrower one. Both surfaces are
     // answering "should I even go to the vault for this", and the popover's copy
     // knew only about edit requests — so a bare "again" / "다시 해줘" still paid
@@ -790,7 +799,10 @@ export class QuickQueryPopover {
 
     let timer: ReturnType<typeof setTimeout> | undefined;
     const evidence = await Promise.race([
-      this.vaultEvidencePending,
+      this.vaultEvidencePending.then((block) => {
+        onReady?.(block || undefined);
+        return block;
+      }),
       new Promise<null>((resolve) => {
         timer = setTimeout(() => resolve(null), QUICK_QUERY_VAULT_EVIDENCE_TIMEOUT_MS);
       }),

@@ -36,9 +36,18 @@ No roadmap E4 graph extraction changes, live vault mutation, source deletion, da
 - Arena: `hotfix_chat_arena/A_latency.md`, `B_provider_edit.md`, `C_linux_sync.md`, `D_models.md`, independent critiques and root critique. P3 probe findings amend domain document before coding native policy.
 
 ## 7. Execution Phases (Follow TDD and CI at each phase)
+- Review amendment F: preserve same-request evidence readiness past the deadline;
+  gate agy success on a valid final result; preserve caller cancellation;
+  ignore auth substrings in successful native answers. Independent cross-critique
+  and exact edge cases are in `hotfix_chat_arena/F_review_followup.md`.
+  Claude verification was explicitly waived by the user on 2026-09-11;
+  Codex adversarial review and CI remain release gates.
 - **P0 — Research & Measured Baseline:** isolated sync import reproduced exact user source_id 32 failure; native CLI model lists verified; actual agy stream/custom agent probes and timing fixture.
 - **P1 — Contract Specification:** domain-specific guide/spec updates before code, English then KR. No stored schema change or live migration.
 - **P2 — Source lifecycle + transport:** source removal, legacy terminal orphan import/export, atomic failure tests; targeted pytest and ruff.
 - **P3 — Provider runtime:** Codex stream/diff tests; agy native event parser and measured safe agent policy; targeted vitest and typecheck.
+  Preserve each caller's response format: the shared agy invocation policy must
+  not force Sidechat edit fences into inline plain-text replacements or JSON
+  completion tasks. Sidechat's own supplied edit contract remains authoritative.
 - **P4 — Context preparation + catalogue:** deferred scheduling/toggle/Plan tests and model catalogue/default tests; implement minimal matching code.
 - **P5 — Testbed Smoke and Release:** existing complex_math_backprop/ResNet testbed, no production writes; full checks, review skill, version/spec title/changelog sync, push PR/CI/merge, delete implemented plan and prune finished branch. Resume no roadmap item in this task.

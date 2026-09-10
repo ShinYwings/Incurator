@@ -45,6 +45,7 @@ import type {
 import type { ToolPolicy } from "../../context/promptRegistry";
 import {
   isAntigravityPermissionDenial,
+  isAntigravityTimeoutDiagnostic,
   formatMcpToolResultForDisplay,
   formatQuotaErrorMessage,
   isAntigravityStatusLine,
@@ -2007,6 +2008,7 @@ export class LLMClient {
       let quotaWatch: ReturnType<typeof watchAgyQuota> | undefined;
       try {
         quotaWatch = diagnosticLog ? watchAgyQuota(diagnosticLog, (reason) => {
+          if (signal.aborted) return;
           fullStderr += `\n${reason}`;
           quotaWatch?.dispose();
           child.kill();
@@ -2032,7 +2034,10 @@ export class LLMClient {
         child.stdin?.end();
       }
 
-      const abortChild = () => child.kill();
+      const abortChild = () => {
+        quotaWatch?.dispose();
+        child.kill();
+      };
       if (signal.aborted) abortChild();
       else signal.addEventListener("abort", abortChild, { once: true });
       const detachAbort = () => signal.removeEventListener("abort", abortChild);
@@ -2076,7 +2081,7 @@ export class LLMClient {
           "codex login",
           "Session expired"
         ];
-        if (authKeywords.some(kw => fullStdout.includes(kw))) {
+        if (!nativeStream && authKeywords.some(kw => fullStdout.includes(kw))) {
           child.kill();
           reject(new Error(`CLI authentication required. Please go to Settings -> Incurator -> ${provider} and click 'Login' to authenticate interactively.`));
           return;
@@ -2097,7 +2102,7 @@ export class LLMClient {
           "codex login",
           "Session expired"
         ];
-        if (authKeywords.some(kw => fullStderr.includes(kw))) {
+        if (!nativeStream && authKeywords.some(kw => fullStderr.includes(kw))) {
           child.kill();
           reject(new Error(`CLI authentication required. Please go to Settings -> Incurator -> ${provider} and click 'Login' to authenticate interactively.`));
           return;
@@ -2137,7 +2142,7 @@ export class LLMClient {
       });
 
       child.on("close", (code) => {
-        quotaWatch?.poll();
+        if (!signal.aborted) quotaWatch?.poll();
         quotaWatch?.dispose();
         detachAbort();
         // v0.28.0: clean the per-call image dir on every terminal path (success,
@@ -2209,9 +2214,11 @@ export class LLMClient {
           onChunk({ text: "", done: true });
           this.recordUsage(provider, observedUsage);
           resolve(fullOutput);
-        } else if (nativeStream?.error || /\[agy\] print timeout|returning partial output/i.test(fullStderr)) {
+        } else if (nativeStream?.error || (provider === "antigravity" && isAntigravityTimeoutDiagnostic(fullStderr))) {
           closeStatusBlock();
           reject(new Error(nativeStream?.error || "Antigravity timed out before completing the answer. Partial output is preserved."));
+        } else if (code === 0 && provider === "antigravity" && !nativeStream?.hasFinalResult) {
+          reject(new Error("Antigravity ended without a successful final result. Partial output is preserved."));
         } else if (!nativeStream && isQuotaErrorMessage(combinedForQuota)) {
           // Provider token/quota exhausted — surface a real error instead of
           // spinning forever or silently returning an empty answer.
@@ -2388,13 +2395,17 @@ export class LLMClient {
     // Compose caller cancellation with a terminal provider diagnostic without
     // aborting another overlapping invocation or mutating shared settings.
     const invocation = new AbortController();
-    const abortInvocation = () => invocation.abort();
+    let quotaWatch: ReturnType<typeof watchAgyQuota> | undefined;
+    const abortInvocation = () => {
+      quotaWatch?.dispose();
+      invocation.abort();
+    };
     if (signal?.aborted) invocation.abort();
     else signal?.addEventListener("abort", abortInvocation, { once: true });
     let quotaReason = "";
-    let quotaWatch: ReturnType<typeof watchAgyQuota> | undefined;
     try {
       quotaWatch = diagnosticLog ? watchAgyQuota(diagnosticLog, (reason) => {
+        if (signal?.aborted) return;
         quotaReason = reason;
         invocation.abort();
       }) : undefined;
@@ -2406,6 +2417,7 @@ export class LLMClient {
         windowsHide: true,
         signal: invocation.signal,
       });
+      if (signal?.aborted) throw new DOMException("aborted", "AbortError");
       quotaWatch?.poll();
       if (quotaReason) throw new Error(formatQuotaErrorMessage(provider, quotaReason));
 
@@ -2421,9 +2433,10 @@ export class LLMClient {
       if (provider === "antigravity") {
         const stream = new CliAnswerStream(provider);
         for (const line of stdout.split(/\r?\n/)) stream.consume(line);
-        if (stream.error || /\[agy\] print timeout|returning partial output/i.test(stderr)) {
+        if (stream.error || isAntigravityTimeoutDiagnostic(stderr)) {
           throw new Error(stream.error || "Antigravity timed out before completing the answer.");
         }
+        if (!stream.hasFinalResult) throw new Error("Antigravity ended without a successful final result.");
         if (!stream.text.trim()) throw new Error(stderr.trim() || "Antigravity returned no answer.");
         this.recordUsage(provider, this.extractUsageFromJsonLines(stdout));
         return stream.text;
@@ -2444,6 +2457,7 @@ export class LLMClient {
       }
       throw new Error(`${provider} CLI returned an empty response.`);
     } catch (err: unknown) {
+      if (signal?.aborted) throw new DOMException("aborted", "AbortError");
       if (quotaReason) throw new Error(formatQuotaErrorMessage(provider, quotaReason));
       if (err instanceof Error && err.name === "AbortError") throw err;
       const msg = err instanceof Error ? err.message : String(err);
@@ -2640,7 +2654,7 @@ export class LLMClient {
         // removes native tools; permissions and the OS sandbox still enforce scope.
         const chatPolicy =
           "You are answering an Obsidian chat request. Do not run shell commands, terminal programs, scripts, or code to compute an explanation or recover transcripts/logs. " +
-          "Reason directly from the supplied document context. If asked to edit a note, return ai-agent-edit SEARCH/REPLACE proposals; do not write files. " +
+          "Reason directly from the supplied document context. Do not write files. Preserve the response format requested by the supplied instructions: sidechat note edits use ai-agent-edit SEARCH/REPLACE proposals, while inline replacements and JSON tasks keep their specified formats. " +
           (ephemeral
             ? "Use only the supplied context and explicitly attached images. Do not search the workspace or call retrieval/network tools. "
             : "Use available Incurator or fetch MCP tools only for missing evidence required by the request, respecting the automatic knowledge policy in the context. Read explicitly supplied image paths with the native file reader. ") +
