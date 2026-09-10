@@ -219,6 +219,21 @@ def test_imported_source_tombstone_runs_same_dependency_closure(
             "SELECT retired_at FROM knowledge_units WHERE id = ?",
             (seeded["unit_id"],),
         ).fetchone()[0] is not None
+        assert conn.execute(
+            "SELECT source_id FROM knowledge_units WHERE id = ?",
+            (seeded["unit_id"],),
+        ).fetchone()[0] is None
+        assert conn.execute(
+            "SELECT source_id FROM compiler_generations WHERE id = ?",
+            (seeded["generation_id"],),
+        ).fetchone()[0] is None
+    # A tombstone recipient becomes an exporter too. Retained audit rows must
+    # survive that second hop without needing the now-deleted parent.
+    forward = tmp_path / "forward.jsonl"
+    export_knowledge(target_paths.state_db, forward)
+    third_peer = tmp_path / "third.sqlite"
+    db.init_db(third_peer)
+    assert import_knowledge(third_peer, forward).rejected == 0
 
 
 def test_stale_snapshot_cannot_resurrect_deleted_source_closure(
@@ -533,3 +548,38 @@ def test_source_removal_retires_under_supported_relation_and_search_endpoints(
         paths.state_db,
         f"DOC-graph_relation-{relation_id}",
     ) is None
+
+
+def test_source_removal_retained_audits_roundtrip_to_fresh_peer(tmp_path: Path) -> None:
+    """Deletion must leave portable audit links, including already retired units."""
+    paths = cfg.WikiPaths(tmp_path / "origin")
+    db.init_db(paths.state_db)
+    seeded = _seed_compiled_source(paths, "04_Resources/a.md", content_hash="audit-source")
+    retired_at = "2026-08-01T00:00:00Z"
+    with db.connect(paths.state_db) as conn:
+        conn.execute(
+            "UPDATE knowledge_units SET retired_at = ? WHERE id = ?",
+            (retired_at, seeded["unit_id"]),
+        )
+    removed, message = ingest_raw.remove_source(paths, int(seeded["source_id"]))
+    assert removed, message
+    with db.connect(paths.state_db) as conn:
+        unit = dict(conn.execute("SELECT * FROM knowledge_units").fetchone())
+        generation = dict(conn.execute("SELECT * FROM compiler_generations").fetchone())
+    assert unit["source_id"] is None
+    assert unit["retired_at"] == retired_at
+    assert unit["updated_at"] > retired_at
+    assert generation["source_id"] is None
+    assert generation["status"] == "discarded"
+
+    exported = tmp_path / "peer.jsonl"
+    export_knowledge(paths.state_db, exported)
+    target = tmp_path / "target.sqlite"
+    db.init_db(target)
+    result = import_knowledge(target, exported)
+    assert result.rejected == 0
+    with db.connect(target) as conn:
+        assert dict(conn.execute("SELECT * FROM knowledge_units").fetchone()) == unit
+        assert dict(conn.execute("SELECT * FROM compiler_generations").fetchone()) == generation
+    repeated = import_knowledge(target, exported)
+    assert repeated.inserted == repeated.updated == repeated.deleted == 0

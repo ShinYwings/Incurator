@@ -2584,7 +2584,7 @@ export default class ObsidianAIAgent extends Plugin {
       const res = await this.incuratorClient.dbAutosync();
       if (!res.ok) {
         this.syncStatusBar?.setText("⚠ Sync Failed");
-        new Notice(`Auto-sync failed: ${res.error || "Unknown error"}. Check if Incurator Repo Path is set in settings.`);
+        new Notice(`Auto-sync failed: ${res.error || "Unknown error"}`);
         return;
       }
       if (res.exported) {

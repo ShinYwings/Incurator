@@ -7,8 +7,8 @@
       "install_cmd": "curl -fsSL https://antigravity.google/cli/install.sh | bash",
       "models": [
         {
-          "id": "gemini-3.7-flash",
-          "label": "Gemini 3.7 Flash",
+          "id": "gemini-3.8-flash",
+          "label": "Gemini 3.8 Flash",
           "context_window": 1000000,
           "supports_vision": true,
           "efforts": [
@@ -19,8 +19,8 @@
           "default_effort": "medium"
         },
         {
-          "id": "gemini-3.5-flash",
-          "label": "Gemini 3.5 Flash",
+          "id": "gemini-3.7-flash",
+          "label": "Gemini 3.7 Flash",
           "context_window": 1000000,
           "supports_vision": true,
           "efforts": [
@@ -126,6 +126,20 @@
           "default_effort": "high"
         },
         {
+          "id": "claude-fable-5-1",
+          "label": "Claude Fable 5.1",
+          "context_window": 1000000,
+          "supports_vision": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "default_effort": "high"
+        },
+        {
           "id": "claude-fable-5",
           "label": "Claude Fable 5",
           "context_window": 1000000,
@@ -166,6 +180,21 @@
       "cli_cmd": "codex",
       "install_cmd": "npm install -g @openai/codex",
       "models": [
+        {
+          "id": "gpt-6-astra",
+          "label": "GPT-6 Astra",
+          "context_window": 272000,
+          "supports_vision": true,
+          "efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultra"
+          ],
+          "default_effort": "low"
+        },
         {
           "id": "gpt-5.6-sol",
           "label": "GPT-5.6 Sol",

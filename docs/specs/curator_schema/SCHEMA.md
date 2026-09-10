@@ -1,4 +1,4 @@
-# Incurator - Schema & Operating Conventions (v0.81.0)
+# Incurator - Schema & Operating Conventions (v0.82.0)
 
 Audience: Incurator backend, Obsidian plugin, MCP clients, and coding agents.
 
@@ -91,7 +91,7 @@ query traces belong to the search-engine spec.
 
 ```yaml
 llm:
-  antigravity_flash_model: gemini-3.5-flash
+  antigravity_flash_model: gemini-3.8-flash
   antigravity_think_model: gemini-3.1-pro
 ```
 
@@ -2013,6 +2013,10 @@ Column semantics (frozen enums):
     must not be served as formula-grounded.
   - `uncertain` — recovery produced a candidate below the acceptance
     threshold; excluded from served formulas.
+- A retained unit whose source was removed has `source_id = NULL`; its ID,
+  retirement timestamp, statement, evidence and generation links remain audit
+  data. A valid terminal orphan from an older peer is detached during transport
+  without dropping the row. Live orphan references remain invalid.
 - `retired_at` — ISO 8601 UTC. Non-NULL marks the row retired by source
   edit/delete/split reconciliation. Retired rows are never deleted by the
   compiler (tombstone-style audit trail) and never feed downstream stages,
@@ -2095,7 +2099,7 @@ Rules:
 ```sql
 CREATE TABLE IF NOT EXISTS compiler_generations (
     id TEXT PRIMARY KEY,               -- GEN-<UUID8>
-    source_id INTEGER,                 -- per-source compile scope; NULL = corpus-wide stage set
+    source_id INTEGER,                 -- active NULL = corpus-wide; discarded NULL may mean removed source
     status TEXT NOT NULL DEFAULT 'staged',  -- staged | authoritative | discarded
     prompt_contract_version TEXT NOT NULL,
     created_at TEXT NOT NULL,
@@ -2197,7 +2201,7 @@ reserved key `formula_recovery`:
       "page_hash": "<sha256 of the rendered page image>",
       "crop_hash": "<sha256 of the cropped region image>",
       "provider": "antigravity",
-      "model": "gemini-3.5-flash",
+      "model": "gemini-3.8-flash",
       "confidence": 0.91,
       "latex": "\\\\nabla_W L = \\\\delta x^T",
       "validator_trace_id": "PTR-...",  // null until reviewed

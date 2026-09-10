@@ -48,8 +48,9 @@ describe("model catalogue helpers", () => {
     const bundled = getBundledModelCatalogue();
     // The catalogue's FIRST entry per provider IS the default, so this order is
     // a behavioural assertion, not cosmetic.
-    expect(getDefaultModel(bundled, "antigravity")).toBe("gemini-3.7-flash");
+    expect(getDefaultModel(bundled, "antigravity")).toBe("gemini-3.8-flash");
     expect(bundled.openai?.map((model) => model.id)).toEqual([
+      "gpt-6-astra",
       "gpt-5.6-sol",
       "gpt-5.6-terra",
       "gpt-5.6-luna",
@@ -59,10 +60,12 @@ describe("model catalogue helpers", () => {
       "claude-opus-5",
       "claude-sonnet-5",
       "claude-sonnet-4-6",
+      "claude-fable-5-1",
       "claude-fable-5",
       "claude-opus-4-8",
       "claude-haiku-4-5",
     ]);
+    expect(bundled.antigravity?.map((model) => model.id)).not.toContain("gemini-3.5-flash");
     expect(bundled.openai?.[0]).toMatchObject({
       contextWindow: 272000,
       efforts: ["low", "medium", "high", "xhigh", "max", "ultra"],

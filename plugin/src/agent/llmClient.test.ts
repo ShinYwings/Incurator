@@ -549,8 +549,9 @@ describe("LLM quota errors", () => {
 
   it("formats a user-visible sidechat message", () => {
     const text = formatQuotaErrorMessage("antigravity", "Individual quota reached");
-    expect(text).toContain("quota or capacity");
-    expect(text).toContain("Switch provider/model");
+    expect(text).toContain("reported a quota, rate-limit, or capacity error");
+    expect(text).not.toContain("Switch provider/model");
+    expect(text).toContain("has not verified account usage");
   });
 
   it("never treats the model's own answer as quota evidence", () => {

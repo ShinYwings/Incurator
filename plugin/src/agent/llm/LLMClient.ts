@@ -1,4 +1,5 @@
 import { logger } from "../../utils/logger";
+import { watchAgyQuota } from "./agyQuotaWatch";
 import { requestUrl, Notice } from "obsidian";
 import { execFile, spawn } from "child_process";
 import {
@@ -16,6 +17,7 @@ import {
 import { homedir } from "os";
 import { dirname, join } from "path";
 import { buildSandboxPlan } from "../sandboxWrapper";
+import { CliAnswerStream } from "./cliAnswerStream";
 import { promisify, TextDecoder } from "util";
 import { expandPath } from "../../utils/deviceRegistry";
 import type { MCPManager } from "../mcpClient";
@@ -42,8 +44,8 @@ import type {
 } from "../../types";
 import type { ToolPolicy } from "../../context/promptRegistry";
 import {
-  extractAntigravityAnswerFromStderr,
   isAntigravityPermissionDenial,
+  isAntigravityTimeoutDiagnostic,
   formatMcpToolResultForDisplay,
   formatQuotaErrorMessage,
   isAntigravityStatusLine,
@@ -1808,12 +1810,16 @@ export class LLMClient {
       const imageRunDir = this._chatImageRunDir;
       let cwd: string;
       let outputFile: string | undefined;
+      let diagnosticLog: string | undefined;
       let command: string;
       let args: string[];
       let env: Record<string, string> | undefined;
       let stdin: string | undefined;
       try {
         cwd = this.getCliCwd();
+        diagnosticLog = provider === "antigravity"
+          ? join(cwd, `agy-${Date.now()}-${Math.random().toString(36).slice(2)}.log`)
+          : undefined;
         outputFile =
           provider === "openai"
             ? join(
@@ -1826,7 +1832,9 @@ export class LLMClient {
           outputFile,
           provider,
           true,
-          toolPolicy
+          toolPolicy,
+          undefined,
+          diagnosticLog
         ));
       } catch (err) {
         // Synchronous setup failed before any child spawn, so neither "close"
@@ -1852,6 +1860,8 @@ export class LLMClient {
       let statusBlockOpen = false;
       let lastCodexStatus = "";
       let codexAnswerText = "";
+      const nativeStream = provider === "openai" || provider === "antigravity"
+        ? new CliAnswerStream(provider) : null;
       let observedUsage: Partial<ProviderUsage> | undefined;
 
       const emitCodexStatus = (status: string) => {
@@ -1870,6 +1880,19 @@ export class LLMClient {
           statusBlockOpen = false;
           inThinking = false;
         }
+      };
+
+      const processNativeLine = (line: string) => {
+        if (!nativeStream) return;
+        const chunk = nativeStream.consume(line);
+        observedUsage = this.mergeUsage(observedUsage, this.extractUsageFromJsonLine(line));
+        const status = chunk.status || (provider === "openai" ? this.summarizeCodexJsonLine(line) : "");
+        if (status) emitCodexStatus(status);
+        if (chunk.text) {
+          closeStatusBlock();
+          onChunk({ text: chunk.text, done: false });
+        }
+        codexAnswerText = nativeStream.text;
       };
 
       const emitMcpAvailability = () => {
@@ -1977,16 +2000,33 @@ export class LLMClient {
         emitCodexStatus(`Preparing context for ${this.settings.model}`);
         emitCodexStatus("Starting Codex CLI");
       } else if (provider === "antigravity") {
-        emitCodexStatus("Thinking... (Antigravity is generating the full response)");
+        emitCodexStatus("Starting Antigravity CLI");
       }
       emitMcpAvailability();
 
-      const child = spawn(command, args, {
-        cwd,
-        env: this.getAugmentedEnv(env),
-        stdio: ["pipe", "pipe", "pipe"],
-        windowsHide: true,
-      });
+      let child: ReturnType<typeof spawn>;
+      let quotaWatch: ReturnType<typeof watchAgyQuota> | undefined;
+      try {
+        quotaWatch = diagnosticLog ? watchAgyQuota(diagnosticLog, (reason) => {
+          if (signal.aborted) return;
+          fullStderr += `\n${reason}`;
+          quotaWatch?.dispose();
+          child.kill();
+          closeStatusBlock();
+          reject(new Error(formatQuotaErrorMessage(provider, reason)));
+        }) : undefined;
+        child = spawn(command, args, {
+          cwd,
+          env: this.getAugmentedEnv(env),
+          stdio: ["pipe", "pipe", "pipe"],
+          windowsHide: true,
+        });
+      } catch (err) {
+        quotaWatch?.dispose();
+        this.cleanupChatImageDir(imageRunDir);
+        reject(err);
+        return;
+      }
 
       if (stdin !== undefined) {
         child.stdin?.end(stdin);
@@ -1994,7 +2034,10 @@ export class LLMClient {
         child.stdin?.end();
       }
 
-      const abortChild = () => child.kill();
+      const abortChild = () => {
+        quotaWatch?.dispose();
+        child.kill();
+      };
       if (signal.aborted) abortChild();
       else signal.addEventListener("abort", abortChild, { once: true });
       const detachAbort = () => signal.removeEventListener("abort", abortChild);
@@ -2013,23 +2056,12 @@ export class LLMClient {
           for (const line of lines) {
             processClaudeJsonLine(line);
           }
-        } else if (provider === "openai") {
+        } else if (nativeStream) {
           codexJsonBuffer += text;
           const lines = codexJsonBuffer.split("\n");
           codexJsonBuffer = lines.pop() || "";
           for (const line of lines) {
-            observedUsage = this.mergeUsage(observedUsage, this.extractUsageFromJsonLine(line));
-            const status = this.summarizeCodexJsonLine(line);
-            if (status && !codexAnswerText) emitCodexStatus(status);
-            const answerText = this.extractCodexAnswerTextFromJsonLine(line);
-            if (answerText && answerText.length > codexAnswerText.length) {
-              closeStatusBlock();
-              onChunk({
-                text: answerText.slice(codexAnswerText.length),
-                done: false,
-              });
-              codexAnswerText = answerText;
-            }
+            processNativeLine(line);
           }
         } else {
           closeStatusBlock();
@@ -2049,7 +2081,7 @@ export class LLMClient {
           "codex login",
           "Session expired"
         ];
-        if (authKeywords.some(kw => fullStdout.includes(kw))) {
+        if (!nativeStream && authKeywords.some(kw => fullStdout.includes(kw))) {
           child.kill();
           reject(new Error(`CLI authentication required. Please go to Settings -> Incurator -> ${provider} and click 'Login' to authenticate interactively.`));
           return;
@@ -2070,23 +2102,17 @@ export class LLMClient {
           "codex login",
           "Session expired"
         ];
-        if (authKeywords.some(kw => fullStderr.includes(kw))) {
+        if (!nativeStream && authKeywords.some(kw => fullStderr.includes(kw))) {
           child.kill();
           reject(new Error(`CLI authentication required. Please go to Settings -> Incurator -> ${provider} and click 'Login' to authenticate interactively.`));
           return;
         }
 
-        // Token/quota exhausted mid-stream → fail fast instead of letting the
-        // CLI spin until its print-timeout with no answer.
-        //
-        // Strict subset: this path KILLS the child, so a false positive
-        // destroys an answer the user already paid for. `agy` can route the
-        // final answer through stderr (see the antigravity branch below), and
-        // "rate limit" / "too many requests" are ordinary English an answer can
-        // contain. The close-time check may use the looser matcher because
-        // `quotaEvidenceFor` excludes a produced answer from its evidence;
-        // there is no such protection here.
-        if (isUnambiguousQuotaError(fullStderr)) {
+        // Native JSON providers have structured failure events. Their stderr
+        // can quote arbitrary diagnostics (including 429), so it cannot justify
+        // killing a valid answer. agy's hidden retries are monitored separately
+        // through this invocation's exact runtime failure records.
+        if (!nativeStream && isUnambiguousQuotaError(fullStderr)) {
           child.kill();
           reject(new Error(formatQuotaErrorMessage(provider, fullStderr.trim())));
           return;
@@ -2116,6 +2142,8 @@ export class LLMClient {
       });
 
       child.on("close", (code) => {
+        if (!signal.aborted) quotaWatch?.poll();
+        quotaWatch?.dispose();
         detachAbort();
         // v0.28.0: clean the per-call image dir on every terminal path (success,
         // error-exit, and abort → kill → close all flow through here).
@@ -2137,54 +2165,32 @@ export class LLMClient {
           return;
         }
 
-        if (provider === "openai" && codexJsonBuffer.trim()) {
-          observedUsage = this.mergeUsage(
-            observedUsage,
-            this.extractUsageFromJsonLine(codexJsonBuffer)
-          );
-          const answerText = this.extractCodexAnswerTextFromJsonLine(codexJsonBuffer);
-          if (answerText && answerText.length > codexAnswerText.length) {
-            closeStatusBlock();
-            onChunk({
-              text: answerText.slice(codexAnswerText.length),
-              done: false,
-            });
-            codexAnswerText = answerText;
-          }
-          const status = this.summarizeCodexJsonLine(codexJsonBuffer);
-          if (status && !codexAnswerText) emitCodexStatus(status);
+        if (nativeStream && codexJsonBuffer.trim()) {
+          processNativeLine(codexJsonBuffer);
         }
 
-        let recoveredAntigravityAnswer = "";
         if (outputFile && existsSync(outputFile)) {
           try {
             fullOutput = readFileSync(outputFile, "utf-8").trim();
+            const finalDelta = nativeStream?.reconcileFinal(fullOutput);
+            if (finalDelta) {
+              closeStatusBlock();
+              onChunk({ text: finalDelta, done: false });
+            }
             unlinkSync(outputFile);
           } catch (e) {
             // ignore
           }
-        } else {
+        } else if (!nativeStream) {
           fullOutput = this.cleanCliOutput(provider, fullOutput);
-          if (provider === "antigravity" && fullOutput.trim().length === 0) {
-            recoveredAntigravityAnswer = extractAntigravityAnswerFromStderr(fullStderr);
-            if (recoveredAntigravityAnswer) {
-              fullOutput = recoveredAntigravityAnswer;
-            }
-          }
         }
 
-        if (provider === "openai") {
-          closeStatusBlock();
-          if (!codexAnswerText) {
-            onChunk({ text: fullOutput, done: false });
-          }
-        } else if (provider === "antigravity" && recoveredAntigravityAnswer) {
-          closeStatusBlock();
-          onChunk({ text: recoveredAntigravityAnswer, done: false });
-        } else {
-          // antigravity: ensure thinking block is closed before done
-          closeStatusBlock();
+        if (nativeStream) {
+          fullOutput = nativeStream.text;
+          codexAnswerText = fullOutput;
         }
+
+        closeStatusBlock();
 
         const trimmedOutput = fullOutput.trim();
         // The user-visible answer: codex streams via codexAnswerText, other CLI
@@ -2208,7 +2214,12 @@ export class LLMClient {
           onChunk({ text: "", done: true });
           this.recordUsage(provider, observedUsage);
           resolve(fullOutput);
-        } else if (isQuotaErrorMessage(combinedForQuota)) {
+        } else if (nativeStream?.error || (provider === "antigravity" && isAntigravityTimeoutDiagnostic(fullStderr))) {
+          closeStatusBlock();
+          reject(new Error(nativeStream?.error || "Antigravity timed out before completing the answer. Partial output is preserved."));
+        } else if (code === 0 && provider === "antigravity" && !nativeStream?.hasFinalResult) {
+          reject(new Error("Antigravity ended without a successful final result. Partial output is preserved."));
+        } else if (!nativeStream && isQuotaErrorMessage(combinedForQuota)) {
           // Provider token/quota exhausted — surface a real error instead of
           // spinning forever or silently returning an empty answer.
           reject(
@@ -2219,7 +2230,7 @@ export class LLMClient {
               )
             )
           );
-        } else if (code !== 0 && emittedAnswer.length === 0) {
+        } else if (code !== 0) {
           const errText = fullStderr.trim();
           reject(new Error(`${provider} CLI failed: ${errText.slice(0, 500)}`));
         } else if (emittedAnswer.length === 0) {
@@ -2238,18 +2249,10 @@ export class LLMClient {
           reject(
             new Error(
               denied
-                ? `${provider} wanted a tool it is not allowed to use, and the ` +
-                  `headless CLI cannot ask you for permission, so the turn ` +
-                  `produced nothing.` +
-                  (errText ? `\n\n${errText.slice(0, 400)}` : "") +
-                  `\n\nThis is not a quota problem — switching provider will not ` +
-                  `help. Incurator grants the CLI a deliberately small set of ` +
-                  `tools, and widening it with a blanket permission skip is not ` +
-                  `the fix. When the answer is in the document you have open, ` +
-                  `selecting the passage usually lets it answer with no tool at all.`
+                ? `${provider} attempted a tool outside this chat's permitted scope and returned no answer. The request failed; no note edit was applied.`
                 : `${provider} returned no answer (empty response).` +
                   (errText ? `\n\n${errText.slice(0, 400)}` : "") +
-                  `\n\nThis usually means the provider quota/capacity is exhausted, the request timed out, or the model returned nothing. Switch provider/model or retry after quota resets.`
+                  `\n\nThe CLI supplied no completed answer. Account usage cannot be determined from an empty response.`
             )
           );
         } else {
@@ -2260,6 +2263,7 @@ export class LLMClient {
       });
 
       child.on("error", (err) => {
+        quotaWatch?.dispose();
         detachAbort();
         // spawn failure may fire without a "close"; clean the image dir here too.
         this.cleanupChatImageDir(imageRunDir);
@@ -2339,75 +2343,6 @@ export class LLMClient {
     return null;
   }
 
-  private extractCodexAnswerTextFromJsonLine(line: string): string | null {
-    if (!line.trim()) return null;
-    let event: Record<string, unknown>;
-    try {
-      event = JSON.parse(line) as Record<string, unknown>;
-    } catch {
-      return null;
-    }
-
-    const msg =
-      event.msg && typeof event.msg === "object"
-        ? (event.msg as Record<string, unknown>)
-        : undefined;
-    const item = (event.item ||
-      msg?.item ||
-      msg ||
-      event) as Record<string, unknown>;
-
-    return this.extractAssistantMessageText(item);
-  }
-
-  private extractAssistantMessageText(item: Record<string, unknown>): string | null {
-    const itemType = String(item.type || "").toLowerCase();
-    if (
-      itemType.includes("reasoning") ||
-      itemType.includes("tool") ||
-      itemType.includes("function") ||
-      itemType.includes("command")
-    ) {
-      return null;
-    }
-
-    const directText = item.text;
-    if (typeof directText === "string" && directText.trim()) return directText;
-
-    const directContent = item.content;
-    if (typeof directContent === "string" && directContent.trim()) return directContent;
-    if (Array.isArray(directContent)) {
-      const text = directContent
-        .map((block) => {
-          if (!block || typeof block !== "object") return "";
-          const record = block as Record<string, unknown>;
-          const blockType = String(record.type || "").toLowerCase();
-          if (
-            blockType &&
-            !blockType.includes("text") &&
-            !blockType.includes("message") &&
-            !blockType.includes("output")
-          ) {
-            return "";
-          }
-          return typeof record.text === "string"
-            ? record.text
-            : typeof record.content === "string"
-              ? record.content
-              : "";
-        })
-        .join("");
-      if (text.trim()) return text;
-    }
-
-    const message = item.message;
-    if (message && typeof message === "object") {
-      return this.extractAssistantMessageText(message as Record<string, unknown>);
-    }
-
-    return null;
-  }
-
   private findNestedString(value: unknown, keys: string[]): string | null {
     if (!value || typeof value !== "object") return null;
     const record = value as Record<string, unknown>;
@@ -2437,6 +2372,9 @@ export class LLMClient {
     const prompt = this.messagesToCliPrompt(messages);
     const imageRunDir = this._chatImageRunDir;
     const cwd = this.getCliCwd();
+    const diagnosticLog = provider === "antigravity"
+      ? join(cwd, `agy-${Date.now()}-${Math.random().toString(36).slice(2)}.log`)
+      : undefined;
     const outputFile =
       provider === "openai"
         ? join(
@@ -2451,17 +2389,37 @@ export class LLMClient {
       false,
       toolPolicy,
       model,
+      diagnosticLog,
     );
 
+    // Compose caller cancellation with a terminal provider diagnostic without
+    // aborting another overlapping invocation or mutating shared settings.
+    const invocation = new AbortController();
+    let quotaWatch: ReturnType<typeof watchAgyQuota> | undefined;
+    const abortInvocation = () => {
+      quotaWatch?.dispose();
+      invocation.abort();
+    };
+    if (signal?.aborted) invocation.abort();
+    else signal?.addEventListener("abort", abortInvocation, { once: true });
+    let quotaReason = "";
     try {
+      quotaWatch = diagnosticLog ? watchAgyQuota(diagnosticLog, (reason) => {
+        if (signal?.aborted) return;
+        quotaReason = reason;
+        invocation.abort();
+      }) : undefined;
       const { stdout, stderr } = await execFileAsync(command, args, {
         cwd,
         env: this.getAugmentedEnv(env),
         timeout: CLI_TIMEOUT_MS,
         maxBuffer: 10 * 1024 * 1024,
         windowsHide: true,
-        signal,
+        signal: invocation.signal,
       });
+      if (signal?.aborted) throw new DOMException("aborted", "AbortError");
+      quotaWatch?.poll();
+      if (quotaReason) throw new Error(formatQuotaErrorMessage(provider, quotaReason));
 
       if (provider === "claude") {
         const result = this.extractClaudeJsonResult(stdout);
@@ -2470,6 +2428,18 @@ export class LLMClient {
           return result;
         }
         throw new Error("claude CLI returned no result event.");
+      }
+
+      if (provider === "antigravity") {
+        const stream = new CliAnswerStream(provider);
+        for (const line of stdout.split(/\r?\n/)) stream.consume(line);
+        if (stream.error || isAntigravityTimeoutDiagnostic(stderr)) {
+          throw new Error(stream.error || "Antigravity timed out before completing the answer.");
+        }
+        if (!stream.hasFinalResult) throw new Error("Antigravity ended without a successful final result.");
+        if (!stream.text.trim()) throw new Error(stderr.trim() || "Antigravity returned no answer.");
+        this.recordUsage(provider, this.extractUsageFromJsonLines(stdout));
+        return stream.text;
       }
 
       const output =
@@ -2487,6 +2457,8 @@ export class LLMClient {
       }
       throw new Error(`${provider} CLI returned an empty response.`);
     } catch (err: unknown) {
+      if (signal?.aborted) throw new DOMException("aborted", "AbortError");
+      if (quotaReason) throw new Error(formatQuotaErrorMessage(provider, quotaReason));
       if (err instanceof Error && err.name === "AbortError") throw err;
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("ENOENT")) {
@@ -2494,10 +2466,10 @@ export class LLMClient {
           `${provider} CLI is not installed or not found on PATH.\n\nInstall the CLI first, then retry.`
         );
       }
-      throw new Error(
-        `${provider} CLI request failed: ${msg}\n\nRun the provider CLI login again, then retry.`
-      );
+      throw new Error(`${provider} CLI request failed: ${msg}`);
     } finally {
+      quotaWatch?.dispose();
+      signal?.removeEventListener("abort", abortInvocation);
       if (outputFile && existsSync(outputFile)) {
         unlinkSync(outputFile);
       }
@@ -2540,6 +2512,8 @@ export class LLMClient {
   private extractUsage(event: Record<string, unknown>): Partial<ProviderUsage> | undefined {
     const usageCandidate =
       event.usage ||
+      (event.result as Record<string, unknown> | undefined)?.usage ||
+      (event.step_update as Record<string, unknown> | undefined)?.usage ||
       (event.message as Record<string, unknown> | undefined)?.usage ||
       (event.msg as Record<string, unknown> | undefined)?.usage ||
       (event.msg as Record<string, unknown> | undefined)?.usage_info;
@@ -2646,6 +2620,7 @@ export class LLMClient {
     preferStdin = false,
     toolPolicy: ToolPolicy = "auto",
     modelOverride?: string,
+    diagnosticLog?: string,
   ): {
     command: string;
     args: string[];
@@ -2674,6 +2649,16 @@ export class LLMClient {
     switch (p) {
       case "antigravity": {
         this.syncAgyMcpConfig();
+        // Headless agents otherwise infer a coding task from note-edit prose.
+        // Describe the actual chat contract without pretending this instruction
+        // removes native tools; permissions and the OS sandbox still enforce scope.
+        const chatPolicy =
+          "You are answering an Obsidian chat request. Do not run shell commands, terminal programs, scripts, or code to compute an explanation or recover transcripts/logs. " +
+          "Reason directly from the supplied document context. Do not write files. Preserve the response format requested by the supplied instructions: sidechat note edits use ai-agent-edit SEARCH/REPLACE proposals, while inline replacements and JSON tasks keep their specified formats. " +
+          (ephemeral
+            ? "Use only the supplied context and explicitly attached images. Do not search the workspace or call retrieval/network tools. "
+            : "Use available Incurator or fetch MCP tools only for missing evidence required by the request, respecting the automatic knowledge policy in the context. Read explicitly supplied image paths with the native file reader. ") +
+          "If a required tool is denied or evidence is unavailable, state the specific gap and answer the supported parts without retrying the denied operation.\n\n";
         const antigravityModelArgs = model ? ["--model", model] : [];
         const antigravityEffortArgs = this.settings.agentEffort
           ? ["--effort", this.settings.agentEffort]
@@ -2688,10 +2673,12 @@ export class LLMClient {
             // prompt that would otherwise HANG (P0). It does NOT actually contain agy
             // (P0) — the OS sandbox (wrapWithOsSandbox) does. NO blanket skip / trust.
             "--sandbox",
+            "--output-format", "stream-json",
+            ...(diagnosticLog ? ["--log-file", diagnosticLog] : []),
             ...addDirs, // empty in ephemeral (tool-free popover) mode
             ...antigravityModelArgs,
             ...antigravityEffortArgs,
-            "-p", prompt,
+            "-p", chatPolicy + prompt,
           ],
           env: {},
         };

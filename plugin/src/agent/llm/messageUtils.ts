@@ -229,10 +229,15 @@ export function quotaEvidenceFor(
 export function formatQuotaErrorMessage(provider: LLMProvider, message: string): string {
   const label = provider === "openai" ? "Codex/OpenAI" : provider;
   return (
-    `${label} quota or capacity is currently unavailable.\n\n` +
+    `${label} reported a quota, rate-limit, or capacity error for this request.\n\n` +
     `${message.slice(0, 700)}\n\n` +
-    "Switch provider/model, configure a fallback, or retry after quota resets."
+    "This is the provider's diagnostic; Incurator has not verified account usage."
   );
+}
+
+/** Match the runtime's whole timeout record, never a quoted prose fragment. */
+export function isAntigravityTimeoutDiagnostic(message: string): boolean {
+  return /^\[agy\] print timeout after \S+(?: with turn in progress)?; returning partial output\s*$/m.test(message);
 }
 
 export function formatMcpToolResultForDisplay(toolName: string, raw: string): string {

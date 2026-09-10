@@ -1240,6 +1240,13 @@ existing file — with a new identity and never calls an unarchived conflict
 file fails; fix the reported file/permission problem and rerun the command.
 Row-level imports are idempotent, so the retry is safe.
 
+Removing a source retains its retired claims and discarded compiler generations
+for audit, with their source link detached. Sync also imports older snapshots
+containing these terminal audit rows after their source disappeared, preserving
+the rows without attaching them to an unrelated local source. Active rows with
+missing sources still fail visibly. No snapshot-file editing, database reset or
+reindex is needed for this fix.
+
 Schema-v12 and schema-v13 snapshots are intentionally incompatible. Upgrade all
 devices and let each one publish a new snapshot. If an old manually created
 composite tombstone has no structured key, import/export stops and reports its
@@ -1281,9 +1288,9 @@ Configure the LLM backends that power Incurator's intelligence. The system maint
 | Provider | Type | Key Features |
 | :--- | :--- | :--- |
 | `ollama` | Local | Use local models like DeepSeek or Llama 3 (Free, offline capable) |
-| `antigravity-cli` | CLI | Inference via Google Antigravity CLI (`agy`) (Fast, reliable free option). Also exposes Claude / GPT-OSS models alongside Gemini 3.5 Flash / 3.1 Pro |
-| `claude-code` | CLI | Inference via official Anthropic `claude` command (Sonnet 4.6 / Fable 5 / Opus 4.8 / Haiku 4.5) |
-| `codex-cli` | CLI | Inference via official OpenAI `codex` command (GPT-5.6 Sol / Terra / Luna, plus visible GPT-5.5 compatibility) |
+| `antigravity-cli` | CLI | Inference via Google Antigravity CLI (`agy`) (Fast, reliable free option). Also exposes Claude / GPT-OSS models alongside Gemini 3.8 / 3.7 / 3.6 Flash / 3.1 Pro |
+| `claude-code` | CLI | Inference via official Anthropic `claude` command (Opus 5 / Sonnet 5 / Fable 5.1 / Sonnet 4.6 / Fable 5 / Opus 4.8 / Haiku 4.5) |
+| `codex-cli` | CLI | Inference via official OpenAI `codex` command (GPT-6 Astra / GPT-5.6 Sol / Terra / Luna, plus visible GPT-5.5 compatibility) |
 | `deepseek-api` | API key | Inference via DeepSeek's OpenAI-compatible API (`DEEPSEEK_API_KEY` or an encrypted local backend secret; current models `deepseek-v4-flash` / `deepseek-v4-pro` / `deepseek-v4-flash-vision-exp`, all with a 1M-token context window) |
 
 ```bash

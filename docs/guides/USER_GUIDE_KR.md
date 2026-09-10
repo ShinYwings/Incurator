@@ -1173,6 +1173,13 @@ Autosync는 손상된 상태를 초기 상태로 취급하지 않습니다. 동�
 병합 완료로 보고하지 않습니다. 이미 커밋된 이전 파일은 유지되고 실패한
 파일은 재시도할 수 있습니다.
 
+source를 제거해도 retired claim과 discarded compiler generation은 감사용으로
+보존하며 source 연결만 해제합니다. 이전 snapshot에 source가 사라진 terminal
+audit row가 있어도 sync는 이를 보존해서 가져오며, 무관한 로컬 source에
+연결하지 않습니다. 활성 row가 존재하지 않는 source를 참조하면 여전히 오류를
+명시합니다. 이 수정에는 snapshot 파일 편집, DB 초기화, reindex가 필요하지
+않습니다.
+
 Schema v12와 v13 snapshot은 의도적으로 호환되지 않습니다. 모든 기기를
 업그레이드한 뒤 각 기기가 새 snapshot을 내보내게 하십시오. 예전에 수동으로
 만든 복합 tombstone에 구조화된 키가 없으면 import/export는 추측하거나 데이터를
@@ -1211,9 +1218,9 @@ Incurator의 지능을 담당하는 LLM 백엔드를 설정합니다. 시스템�
 | 프로바이더 | 유형 | 특징 |
 | :--- | :--- | :--- |
 | `ollama` | 로컬 | DeepSeek, Llama 3 등 로컬 모델 사용 (비용 무료, 오프라인 가능) |
-| `antigravity-cli` | CLI | Google Antigravity CLI (`agy`)를 통한 추론 (가장 빠르고 안정적인 무료 옵션). Gemini 3.5 Flash / 3.1 Pro 외에 Claude·GPT-OSS 모델도 노출됩니다 |
-| `claude-code` | CLI | Anthropic 공식 `claude` 명령어를 통한 추론 (Sonnet 4.6 / Fable 5 / Opus 4.8 / Haiku 4.5) |
-| `codex-cli` | CLI | OpenAI 공식 `codex` 명령어를 통한 추론 (GPT-5.6 Sol / Terra / Luna 및 노출되는 GPT-5.5 호환 모델) |
+| `antigravity-cli` | CLI | Google Antigravity CLI (`agy`)를 통한 추론 (가장 빠르고 안정적인 무료 옵션). Gemini 3.8 / 3.7 / 3.6 Flash / 3.1 Pro 외에 Claude·GPT-OSS 모델도 노출됩니다 |
+| `claude-code` | CLI | Anthropic 공식 `claude` 명령어를 통한 추론 (Opus 5 / Sonnet 5 / Fable 5.1 / Sonnet 4.6 / Fable 5 / Opus 4.8 / Haiku 4.5) |
+| `codex-cli` | CLI | OpenAI 공식 `codex` 명령어를 통한 추론 (GPT-6 Astra / GPT-5.6 Sol / Terra / Luna 및 노출되는 GPT-5.5 호환 모델) |
 | `deepseek-api` | API key | DeepSeek의 OpenAI 호환 API를 통한 추론 (`DEEPSEEK_API_KEY` 또는 암호화된 로컬 backend secret; 현재 모델 `deepseek-v4-flash` / `deepseek-v4-pro` / `deepseek-v4-flash-vision-exp`, 모두 1M 토큰 컨텍스트) |
 
 ```bash

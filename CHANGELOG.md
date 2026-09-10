@@ -2,6 +2,54 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.82.0] - 2026-09-11
+
+### Added
+
+- Sidechat **Knowledge: On / Off** controls automatic vault evidence, project
+  note consultation, and PDF semantic suggestions. The saved choice applies to
+  the next sent message; selected/open/pinned documents and explicit references
+  remain available. Chat/Plan mode and its saved Plan instructions are removed.
+
+### Fixed
+
+- Independent vault retrieval now overlaps document preparation in sidechat and
+  popovers. Project notes are searched once per turn, including Markdown-only
+  chats, instead of once per PDF. Providers reuse supplied evidence instead of
+  automatically requesting another backend synthesis.
+- Antigravity consumes native response deltas and tool progress. Timeouts and
+  failed turns preserve visible partial text while reporting incomplete output.
+  Invocation-scoped runtime refusals stop the CLI's repeated retries promptly.
+  Quoted quota/429, login, or timeout prose cannot kill a successful native answer, and errors
+  no longer assert account depletion from an empty response or provider report.
+  Cancellation takes precedence over buffered diagnostics. Missing final results
+  cannot turn partial responses into completed edits. Popovers retain evidence
+  ready before document assembly ends even after the retrieval deadline.
+- Antigravity receives the actual chat tool/edit contract: explain supplied
+  documents directly, use available MCP tools for missing research evidence,
+  and return note-edit proposals without shell computation or transcript
+  recovery. Existing permission grants and OS containment remain unchanged.
+- Codex preserves independent assistant items and reconciles its final output
+  file without truncating edit fences. Absolute/encoded targets resolving to the
+  active note now open its review diff correctly; Accept still applies changes.
+- Source deletion detaches the nullable source link on retained retired units
+  and discarded compiler generations. Full export/import also handles historical
+  terminal audit rows without binding peer integers to unrelated local sources.
+  Active/malformed orphans still fail atomically. This repairs fresh-device
+  snapshot import without editing snapshot files or dropping audit/QTR records.
+  Sync errors no longer incorrectly blame the configured repository path.
+- Shared model catalogues now include Gemini 3.8 Flash, Claude Fable 5.1, and
+  GPT-6 Astra. Retired Gemini 3.5 Flash is removed; existing unavailable selections
+  normalize through the settings load path. Gemini defaults to 3.8 Flash and
+  Codex to GPT-6 Astra; supported saved selections remain intact.
+
+### Validation limits
+
+- A provider-reported quota refusal does not establish actual account usage.
+  Account entitlement is external to this plugin. Native tool
+  exclusion is not guaranteed by the new prompt; live denied-shell prevention
+  cannot be fully verified while the provider refuses requests.
+
 ## [0.81.0] - 2026-09-03
 
 The funnel worked out whether a message needed stored knowledge, and then

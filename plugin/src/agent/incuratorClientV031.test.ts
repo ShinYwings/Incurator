@@ -11,7 +11,7 @@ function settings(): PluginSettings {
   return {
     provider: "antigravity",
     model: "",
-    chatMode: "chat",
+    sidechatKnowledgeEnabled: true,
     codexReasoningEffort: "medium",
     claudeEffort: "medium",
     agentEffort: "",

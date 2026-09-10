@@ -91,7 +91,6 @@ import {
 } from "../../context/providerContextPolicy";
 import {
   type ChatMessage,
-  type ChatMode,
   type ChatSession,
   type CodexReasoningEffort,
   type ContextRef,
@@ -150,7 +149,7 @@ export class ChatSidebarView extends ItemView {
   private activeSessionTitleEl!: HTMLElement;
   private sessionDrawerEl!: HTMLElement;
   private sessionSearchEl!: HTMLInputElement;
-  private modeSelectEl!: HTMLSelectElement;
+  private knowledgeToggleEl!: HTMLButtonElement;
   private reasoningSelectEl!: HTMLSelectElement;
   private customModelInputEl!: HTMLInputElement;
   private inputAreaEl!: HTMLElement;
@@ -403,22 +402,15 @@ export class ChatSidebarView extends ItemView {
     setIcon(attachBtn, "paperclip");
     attachBtn.addEventListener("click", () => this.openFilePicker());
 
-    this.modeSelectEl = leftControls.createEl("select", {
+    this.knowledgeToggleEl = leftControls.createEl("button", {
       cls: "ai-agent-mode-select",
-      attr: { "aria-label": "Chat mode", title: "Chat mode" },
+      attr: { type: "button", title: "Toggle automatic prior-knowledge lookup (applies to the next message)" },
     });
-    [
-      { value: "chat", label: "Chat" },
-      { value: "plan", label: "Plan" },
-    ].forEach((mode) => {
-      this.modeSelectEl.createEl("option", {
-        value: mode.value,
-        text: mode.label,
-      });
-    });
-    this.modeSelectEl.value = this.plugin.settings.chatMode;
-    this.modeSelectEl.addEventListener("change", () => {
-      this.onModeChange(this.modeSelectEl.value as ChatMode);
+    this.syncKnowledgeToggle();
+    this.knowledgeToggleEl.addEventListener("click", () => {
+      this.plugin.settings.sidechatKnowledgeEnabled = this.plugin.settings.sidechatKnowledgeEnabled === false;
+      this.syncKnowledgeToggle();
+      void this.plugin.saveSettings();
       this.restoreInputFocus();
     });
 
@@ -1082,6 +1074,8 @@ export class ChatSidebarView extends ItemView {
     }
 
     this.lastQueryTrace = null;
+    // Capture before materialization awaits: the composer can change for the next turn.
+    const automaticKnowledge = this.plugin.settings.sidechatKnowledgeEnabled !== false;
     const capturedActiveCtx = this.plugin.refreshActiveContext();
     // v0.28.0: snapshot the refs to send THIS turn before non-pinned ones are
     // cleared below, but DON'T materialize (crop VLM / image work) yet — that is
@@ -1152,7 +1146,7 @@ export class ChatSidebarView extends ItemView {
       ].filter(shouldIncludeContext);
       userMsg.contextRefs = finalRefs.length > 0 ? finalRefs : undefined;
       await this.persistCurrentSession();
-      const llmMessages = await this.buildLLMMessages(capturedActiveCtx);
+      const llmMessages = await this.buildLLMMessages(capturedActiveCtx, automaticKnowledge);
       this.prepareStatusText = "";
       await this.streamAssistantWithContinuation(llmMessages, assistantMsg);
     } catch (err: unknown) {
@@ -1324,7 +1318,8 @@ export class ChatSidebarView extends ItemView {
   }
 
   private async buildLLMMessages(
-    activeCtx: ReturnType<ObsidianAIAgent["refreshActiveContext"]>
+    activeCtx: ReturnType<ObsidianAIAgent["refreshActiveContext"]>,
+    automaticKnowledge = this.plugin.settings.sidechatKnowledgeEnabled !== false
   ): Promise<LLMMessage[]> {
     const llmMessages: LLMMessage[] = [];
     const lastUserMessage = [...this.messages]
@@ -1335,7 +1330,7 @@ export class ChatSidebarView extends ItemView {
     );
     let systemText = buildBaseSystemPrompt({
       hasExternalIncuratorMcp,
-      planMode: this.plugin.settings.chatMode === "plan",
+      automaticKnowledge,
     });
 
     const rulesContext = this.loadCursorStyleRules();
@@ -1392,7 +1387,8 @@ export class ChatSidebarView extends ItemView {
     const incuratorContext = await this.buildIncuratorProviderContext(
       activeCtx,
       lastUserMessage?.content || "",
-      lastUserMessage?.contextRefs
+      lastUserMessage?.contextRefs,
+      automaticKnowledge
     );
     if (incuratorContext) {
       systemText += `\n\n<obsidian_incurator_context>\n${incuratorContext}\n</obsidian_incurator_context>`;
@@ -1736,18 +1732,45 @@ export class ChatSidebarView extends ItemView {
   private async buildIncuratorProviderContext(
     activeCtx: ReturnType<ObsidianAIAgent["refreshActiveContext"]>,
     query: string,
-    userContextRefs: ContextRef[] | undefined = undefined
+    userContextRefs: ContextRef[] | undefined = undefined,
+    automaticKnowledge = this.plugin.settings.sidechatKnowledgeEnabled !== false
   ): Promise<string> {
     if (this.plugin.settings.incuratorEnabled === false) return "";
 
     const sections: string[] = [];
     const client = this.getIncuratorClient();
-    const pdfSourceStatuses: IncuratorSourceStatus[] = [];
+
     const pdfTabs = this.getPromptIncludedTabs(activeCtx).filter(
       (tab) =>
         (tab.viewType === "pdf" || tab.viewType === EXTERNAL_PDF_VIEW_TYPE) &&
         tab.pdfPage
     );
+
+    // These reads are independent of page assembly. Start them once, pin their
+    // workspace before awaiting, and observe failures immediately even if a
+    // document read later fails. Enabled retrieval keeps its full quality/budget.
+    const wsPath = this.contextWorkspacePath(activeCtx.filePath || "");
+    const workspaceRelpath = workspaceRelpathForFile(activeCtx.filePath || "");
+    const notesPending = automaticKnowledge
+      ? this.workspaceNotesFor(query, workspaceRelpath).catch((error) => {
+          logger.warn("Workspace note consultation failed:", error);
+          return "";
+        })
+      : Promise.resolve("");
+    const packLimit = Math.max(
+      1000,
+      Math.min(16000, Math.floor((this.plugin.settings.maxContextLength || 128000) * 0.18))
+    );
+    const evidencePending = automaticKnowledge && client.available &&
+      shouldRunCuratorDomainQuery({ query, userContextRefs })
+      ? this.timedContextCall("curator_context_fetch", wsPath || "default", () => client.fetchContext(query, {
+          workspacePath: wsPath,
+          limitTokens: packLimit,
+        })).catch((error) => {
+          logger.warn("Vault evidence fetch failed:", error);
+          return null;
+        })
+      : Promise.resolve(null);
 
     for (const tab of pdfTabs.slice(0, 3)) {
       const pdf = tab.pdfPage;
@@ -1782,7 +1805,6 @@ export class ChatSidebarView extends ItemView {
         sourceStatus = await this.ensureIncuratorStatusForRef(statusRef);
       }
       if (sourceStatus) {
-        if (tab.isActive) pdfSourceStatuses.push(sourceStatus);
         sections.push(
           `<incurator_source_status document="${escapeAttribute(tab.label)}" state="${sourceStatus.state}" l1="${sourceStatus.l1Complete === true}" l3="${sourceStatus.l3Complete === true}">\n${escapeAttribute(sourceStatus.message || "")}\n</incurator_source_status>`
         );
@@ -1907,14 +1929,6 @@ export class ChatSidebarView extends ItemView {
       }
       if (resolvedReferencesBlock) sections.push(resolvedReferencesBlock);
 
-      // Duty 2: the reader's own project notes. Consulted at answer time and
-      // never ingested — 01_Workspaces is the Artist Space, and promoting it
-      // into the vault-wide DAG would mix project-local working state into
-      // shared knowledge (plan 05 §4.7). Scoped to the ACTIVE workspace only:
-      // outside a project this consults nothing rather than falling back to a
-      // whole-vault index, which §4.7 rejected on measured grounds.
-      const workspaceNotesBlock = await this.workspaceNotesFor(query);
-      if (workspaceNotesBlock) sections.push(workspaceNotesBlock);
       if (windowPages.length > 0) {
         const contextSource = useBackendPdfContext
           ? backendCtx?.contextSource ?? "ephemeral_parse"
@@ -1934,7 +1948,7 @@ export class ChatSidebarView extends ItemView {
       }
 
       // RAG hits use the semantic search index — only meaningful for tracked sources.
-      if (useBackendPdfContext && this.plugin.settings.pdfRagEnabled && query.trim()) {
+      if (automaticKnowledge && useBackendPdfContext && this.plugin.settings.pdfRagEnabled && query.trim()) {
         const canRag = backendCtx?.sourceTracked ?? false;
         if (canRag) {
           this.setPrepareStatus(`Searching PDF pages — ${docLabel}...`);
@@ -1977,15 +1991,12 @@ export class ChatSidebarView extends ItemView {
       }
     }
 
-    if (client.available && query.trim()) {
-      // The vault ROOT is not a workspace. `curate.yml` lives only at
-      // `01_Workspaces/<project>/curate.yml`, so passing the root made the
-      // backend fall back to the empty default policy on every request — the
-      // Artist-persona lens in about.md §4/§5.6 never applied to anything a
-      // user read. Resolve the real workspace from the note in focus, and pass
-      // nothing when none applies rather than a path that merely looks like one.
-      const wsPath = this.contextWorkspacePath();
+    const workspaceNotesBlock = await notesPending;
+    if (workspaceNotesBlock) sections.push(workspaceNotesBlock);
 
+    if (client.available && query.trim()) {
+      // a conversational chat never binds an unrelated workspace: wsPath was
+      // captured before document preparation started.
       if (wsPath) {
         sections.push(
           `<incurator_workspace path="${escapeAttribute(wsPath)}">\n` +
@@ -1994,25 +2005,10 @@ export class ChatSidebarView extends ItemView {
         );
       }
 
-      // Run the knowledge-graph query for both in-workspace and plain vault
-      // chat. When wsPath is empty the backend resolves workspace_id=default,
-      // so a conversational chat never binds an unrelated workspace.
-      const pdfFocused = pdfTabs.some((tab) => tab.isActive);
-      if (shouldRunCuratorDomainQuery({ query, userContextRefs, pdfFocused, pdfSourceStatuses })) {
+      if (automaticKnowledge && shouldRunCuratorDomainQuery({ query, userContextRefs })) {
         this.setPrepareStatus("Fetching Incurator evidence pack...");
-        const packLimit = Math.max(
-          1000,
-          Math.min(16000, Math.floor((this.plugin.settings.maxContextLength || 128000) * 0.18))
-        );
-        const contextPack = await this.timedContextCall(
-          "curator_context_fetch",
-          wsPath || "default",
-          () => client.fetchContext(query, {
-            workspacePath: wsPath,
-            limitTokens: packLimit,
-          })
-        );
-        if (contextPack.ok) {
+        const contextPack = await evidencePending;
+        if (contextPack?.ok) {
           sections.push(formatCuratorContextPack(contextPack, query));
           this.lastQueryTrace = {
             ok: true,
@@ -4048,7 +4044,7 @@ export class ChatSidebarView extends ItemView {
     if (!file && !isNewFile) return;
 
     const active = this.app.workspace.getActiveViewOfType(MarkdownView);
-    if (active && active.file?.path !== target) return; // different note focused → keep pill
+    if (active && active.file?.path !== (file?.path || target)) return; // different note focused → keep pill
 
     // Bug 28: route through reviewFileEditProposals, not the broken reviewAssistantEdit
     msg.diffAutoOpened = await this.reviewFileEditProposals(target, proposals);
@@ -4073,9 +4069,7 @@ export class ChatSidebarView extends ItemView {
    * Returns "" outside a workspace, on an empty query, or when nothing matched
    * — the prompt gets no block rather than an empty one.
    */
-  private async workspaceNotesFor(query: string): Promise<string> {
-    const activeRelpath = this.app.workspace.getActiveFile()?.path || "";
-    const workspaceRelpath = workspaceRelpathForFile(activeRelpath);
+  private async workspaceNotesFor(query: string, workspaceRelpath: string): Promise<string> {
     if (!workspaceRelpath) return "";
     try {
       const hits = await searchWorkspaceNotes(
@@ -4101,9 +4095,8 @@ export class ChatSidebarView extends ItemView {
     }
   }
 
-  private contextWorkspacePath(): string {
+  private contextWorkspacePath(activeRelpath = this.app.workspace.getActiveFile()?.path || ""): string {
     const vaultBase = (this.app.vault.adapter as any).getBasePath?.() || "";
-    const activeRelpath = this.app.workspace.getActiveFile()?.path || "";
     return resolveWorkspacePath(vaultBase, activeRelpath) || vaultBase;
   }
 
@@ -4760,9 +4753,11 @@ export class ChatSidebarView extends ItemView {
     this.syncSessionControls();
   }
 
-  private async onModeChange(mode: ChatMode): Promise<void> {
-    this.plugin.settings.chatMode = mode;
-    await this.plugin.saveSettings();
+  private syncKnowledgeToggle(): void {
+    const enabled = this.plugin.settings.sidechatKnowledgeEnabled !== false;
+    this.knowledgeToggleEl.setText(`Knowledge: ${enabled ? "On" : "Off"}`);
+    this.knowledgeToggleEl.setAttribute("aria-pressed", String(enabled));
+    this.knowledgeToggleEl.setAttribute("aria-label", `Automatic prior-knowledge lookup ${enabled ? "on" : "off"}`);
   }
 
   private async onReasoningChange(effort: string): Promise<void> {

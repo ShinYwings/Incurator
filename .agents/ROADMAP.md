@@ -61,6 +61,16 @@ against the real vault found that. Any release touching the ingest or retrieval
 path states its live check up front — and, as v0.63.0's P0 did, writes its stop
 condition *before* the code and verifies it by measurement.
 
+## Urgent user hotfix — v0.82.0 / PR #201
+
+Verified: Knowledge On/Off, Plan removal, overlapping context preparation,
+preserved Codex final edits/diff targets, current model catalogues, portable
+terminal source audits, and native quota/auth/timeout false-error fixes.
+Local backend1964/plugin1284 tests pass; final PR CI is the merge gate.
+Antigravity instructions now describe the actual chat tool contract; live
+permission-denial prevention remains I4 below. Resume no other roadmap work
+as part of this user-requested hotfix.
+
 ## Phase A — Make failure visible — **COMPLETE**
 
 Shipped v0.66.0 → v0.69.0. Nothing here fixed a pipeline; together they made
@@ -970,6 +980,23 @@ dashboard surfaces, validated against real plugin behaviour rather than unit
 tests alone.
 
 ## Blocked / Icebox
+
+### I4. Antigravity live validation after provider refusal — v0.82.0
+
+The user reports quota was not actually depleted. Sidechat's quota/auth/timeout
+substring false positives are fixed and tested; raw diagnostics no longer assert
+account depletion. A direct isolated agy call still receives the provider's
+`Individual quota reached` refusal; `/usage` reports Starter Quota and0% Gemini,
+whose entitlement correctness is unverified. Per-invocation failure is now
+visible in5.285seconds instead of five-minute retries. This is not a resolution
+of upstream entitlement or proof the user's account is exhausted.
+
+The precise chat research/edit instructions preserve narrow permissions, but
+full live prevention of the user's denied-shell example and provider-backed
+evidence smoke cannot be verified until agy serves requests. No blanket grants,
+automatic provider swap, snapshot patching or live data migration was used.
+Resume with a real successful Sidechat document/notes query and edit proposal
+under the same granted tool surface. Original E4 extraction draft remains separate.
 
 ### I1. Retrieval and projection leftovers
 
