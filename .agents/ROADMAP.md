@@ -61,12 +61,12 @@ against the real vault found that. Any release touching the ingest or retrieval
 path states its live check up front — and, as v0.63.0's P0 did, writes its stop
 condition *before* the code and verifies it by measurement.
 
-## Urgent user hotfix — v0.82.0 / PR #201
+## Urgent user hotfix — v0.82.0 / PR #201 — merged
 
 Verified: Knowledge On/Off, Plan removal, overlapping context preparation,
 preserved Codex final edits/diff targets, current model catalogues, portable
 terminal source audits, and native quota/auth/timeout false-error fixes.
-Local backend1964/plugin1284 tests pass; final PR CI is the merge gate.
+Local backend 1964 / plugin 1284 tests and final Linux CI passed; merged 2026-09-11.
 Antigravity instructions now describe the actual chat tool contract; live
 permission-denial prevention remains I4 below. Resume no other roadmap work
 as part of this user-requested hotfix.

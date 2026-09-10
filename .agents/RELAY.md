@@ -10,11 +10,14 @@ Executors (Claude/Codex):
 2. Read the draft and run the Arena debate to synthesize the final `PLAN_TEMPLATE.md` for E4.
 3. Update `ROADMAP.md` and this file once the plan is finalized, then proceed to TDD/Implementation.
 
-### Update (2026-09-10, Codex — urgent user fixes)
+### Update (2026-09-11, Codex — hotfix shipped)
 
-**Current branch:** `hotfix/chat-provider-sync`. E4 remains paused; the user explicitly requested only this hotfix before roadmap work.
-**Goal:** response latency + knowledge toggle / remove Plan, Antigravity denied tools, current model catalogue, Codex note diff loss, Linux sync error.
-**Plan reference:** PR #201; implementation plans/Arena preserved in commits b29d83d2,785641b7,7835357a and deleted after implementation. Remaining provider-validation gap is ROADMAP I4.
-**Progress:** PR #201 open, initial Linux CI green. Full local backend 1964 passed, plugin1284 passed; ruff/mypy/tsc/build pass. Exact 85 MiB snapshot replays in4seconds with zero rejects, all63 terminal audits and123 QTR retained, second import idempotent. Follow-up F fixes false auth/timeout substring errors, cancellation priority, missing final result and deadline-ready evidence loss. Version0.82.0 docs/changelog/manifests updated. Direct agy reported refusal surfaced at5.285seconds instead of5minutes.
-**Critical context:** preserve original untracked E4 draft. No production vault/DB/snapshot writes. User says actual quota was NOT depleted: CLI diagnostic is only a reported refusal, not account proof. Current agy /usage reports Starter Quota/zero Gemini, correctness unverified. Native denied-shell prevention and full provider evidence smoke remain unverified while runtime refuses/stalls. Mandatory Claude review skill invocation failed authentication; user explicitly waived Claude validation on2026-09-11. Codex independent adversarial review completed; no Claude-login blocker remains.
-**Next:** final review fixes independently verified; commit release, confirm final CI, merge PR201 and prune completed branch. External-provider validation gap is recorded in ROADMAP I4. Resume no roadmap work.
+v0.82.0 merged as PR #201 / 4083923e; current branch `master`.
+Backend 1964 and plugin 1284 local tests passed; final Linux CI, type checks,
+lint and build passed. Codex independent review findings are fixed. User waived
+Claude validation after the prescribed skill invocation failed authentication.
+Plans/Arena remain in merge history and are removed from the active workspace.
+No production vault/DB/snapshot edits; original untracked E4 draft preserved.
+Remaining agy provider-refusal/denied-shell live validation is ROADMAP I4; do not
+claim actual account depletion from the CLI's diagnostic. E4 remains paused:
+the user requested this hotfix only. No active implementation remains here.
