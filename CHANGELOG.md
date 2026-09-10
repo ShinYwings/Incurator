@@ -2,6 +2,15 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.82.2] - 2026-09-11
+
+### Fixed
+
+- Sidechat provider prompts now replay only the latest four conversation
+  messages within a 48,000-character guard. Full sessions remain persisted, and
+  older turns stay available through the compact continuity summary, removing
+  unbounded prompt growth when Knowledge is Off.
+
 ## [0.82.1] - 2026-09-11
 
 ### Fixed

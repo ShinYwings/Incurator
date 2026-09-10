@@ -45,6 +45,11 @@ session/profile commits use Obsidian's atomic adapter processing API. Obsidian
 ### Features
 
 - **Multi-turn conversation**: Session history is preserved. Create and switch between multiple sessions.
+- **Bounded provider history**: The complete session remains available in the
+  session drawer, but each provider request carries at most the latest four
+  conversation messages (and a 48,000-character guard). Older turns stay in a
+  compact continuity summary, so long sessions do not make Knowledge Off
+  requests slow by replaying every previous answer.
 - **Codex-style sidebar**: New chat and conversation history live in the top thread header; history opens as an in-sidebar searchable drawer.
 - **Streaming responses**: Enabled by default; can be turned off in settings.
 - **Sticky scroll**: While a response streams, the view follows the new text only when you are already scrolled to the bottom. If you scroll up to read earlier text, your position is preserved — completing a response no longer yanks the view down to the latest message.

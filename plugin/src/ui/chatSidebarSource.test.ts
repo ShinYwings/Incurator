@@ -4,6 +4,15 @@ import { join } from "path";
 import { describe, expect, it } from "vitest";
 
 describe("chat sidebar context chip source contract", () => {
+  it("bounds provider history without truncating persisted sessions", () => {
+    const dir = fileURLToPath(new URL(".", import.meta.url));
+    const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
+
+    expect(source).toContain('import { selectPromptHistory } from "./promptHistory"');
+    expect(source).toContain("for (const msg of selectPromptHistory(this.messages))");
+    expect(source).toContain("Keep the full transcript in the persisted session");
+  });
+
   it("resets model effort through the shared catalogue normalizer", () => {
     const dir = fileURLToPath(new URL(".", import.meta.url));
     const source = readFileSync(join(dir, "chat", "ChatSidebarView.ts"), "utf8");
