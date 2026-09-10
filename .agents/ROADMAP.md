@@ -61,28 +61,24 @@ against the real vault found that. Any release touching the ingest or retrieval
 path states its live check up front — and, as v0.63.0's P0 did, writes its stop
 condition *before* the code and verifies it by measurement.
 
-## Urgent user hotfix — v0.82.0 / PR #201 — merged
+## Urgent user hotfix series — v0.82.0 → v0.82.3 — merged
 
-Verified: Knowledge On/Off, Plan removal, overlapping context preparation,
-preserved Codex final edits/diff targets, current model catalogues, portable
-terminal source audits, and native quota/auth/timeout false-error fixes.
-Local backend 1964 / plugin 1284 tests and final Linux CI passed; merged 2026-09-11.
-Antigravity instructions now describe the actual chat tool contract; live
-provider and permission validation is recorded in I4 below. Resume no other roadmap work
-as part of this user-requested hotfix.
+PR #201 shipped the Knowledge On/Off and provider/sync hotfixes. PR #202 shipped
+the setup npm audit fix. PR #203 briefly shipped a bounded sidechat history
+window, then v0.82.3 reverted that window at the user's request because it
+could hide older conversational context. The current product behavior is the
+complete active-session replay; any future compaction must preserve that context
+semantics before implementation.
 
 ### Hotfix H2. Sidechat history prompt latency — **REVERTED 2026-09-11**
 
 Knowledge Off correctly skips automatic vault retrieval, but the sidebar still
 serializes the entire persisted chat into every provider request. The active
-session measured about 202k characters, so retrieval is not the only latency
-source. Keep full session history on disk while bounding the provider payload to
-the latest turns and the existing compact continuity summary.
-
-The v0.82.2 history window was reverted at the user's request so the active
-session and every message are sent again. A compact-history design remains a
-later roadmap item and must preserve the full conversational context before it
-is reconsidered.
+session measured 205,948 counted characters, so retrieval is not the only
+latency source. The v0.82.2 history window was reverted at the user's request;
+the active session and every message are sent again. A compact-history design
+remains a later roadmap item and must preserve the full conversational context
+before it is reconsidered.
 
 ### Hotfix H1. setup npm audit resolution — **COMPLETE 2026-09-11**
 
@@ -712,7 +708,7 @@ needs its own briefing.
 **Also blocked on C3**: every number above that comes from `source_spans`
 describes an older parse.
 
-### E4. agy shells out during graph extraction — **ACTIVE**
+### E4. agy shells out during graph extraction — **ACTIVE; NEXT QUEUE ITEM**
 
 **NEW, found by the v0.62.0 live run (2026-08-21).** The staged compile now
 fails in `curator.entity_relation_extract@v2`: 2 of 5 calls returned
@@ -744,6 +740,10 @@ compile error. Belongs with D3.
 spawned CLI is *permitted* to read; this item is about the model electing to
 shell out at all. A sandbox changes which denials happen; it does not stop the
 model from trying.
+
+The retained briefing is `.agents/drafts/e4_agy_shell_out.md`; the next relay
+should turn that briefing into an Arena plan before changing provider tools or
+retry semantics.
 
 
 ### E9. A git-history tool the model can call on purpose
@@ -1012,7 +1012,8 @@ not a local usage verdict; the invocation watcher still stops that retry loop in
 file, while retired and path-scoped read rules were auto-denied. `command(wiki)`
 reached native `run_command`; an absolute-path command was correctly denied by
 the narrow prefix. The configured Incurator MCP `curator_get_version` call
-returned `0.82.1` in 3.5 seconds. No blanket grants, provider swaps, vault
+returned `0.82.1` in 3.5 seconds (validation was run before the v0.82.3 release).
+No blanket grants, provider swaps, vault
 edits, or data migrations were used. Original E4 extraction draft remains
 separate.
 

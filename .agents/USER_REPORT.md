@@ -8,4 +8,4 @@ Agents must check this document and triage the received items into the `To-Do (Q
 
 ## 📝 User Inbox
 
-*(empty — last triaged 2026-09-11 into hotfix plan 10, review amendment F)*
+*(empty — last triaged 2026-09-11; v0.82.3 release state and next E4 relay prepared)*
