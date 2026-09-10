@@ -443,6 +443,13 @@ loop, also for Markdown. The popover starts its existing four-second evidence
 wait alongside reference preparation and retains the result for follow-ups;
 this does not reduce the enabled retrieval quality or cap provider generation.
 
+The persisted chat transcript is not truncated. When a sidechat provider prompt
+is assembled, only the latest four non-system messages are replayed, with a
+48,000-character guard applied to the contiguous suffix. Older turns remain
+available in the session drawer and are represented by the compact continuity
+summary, so a long session does not add unbounded input latency when Knowledge
+is Off. The latest message is retained even if it alone exceeds the guard.
+
 ```typescript
 interface PluginSettings {
   // LLM provider selection
@@ -2486,7 +2493,7 @@ create files, or traverse the filesystem.
     pointer / `<resolved_cross_references>` rule), the read-only edit ban for
     surfaces with `allowEdits: false`, and the surface boundary. The chat sidebar
     appends this to the latest user turn (which always survives the
-    `CONTINUITY_MESSAGE_LIMIT` history slice); the popover appends it after the
+    bounded provider-history slice); the popover appends it after the
     question. This fixes long-session attention decay where a localized
     `Cmd+Shift+L` selection was overridden by earlier whole-document tasks.
 

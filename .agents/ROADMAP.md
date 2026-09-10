@@ -71,6 +71,14 @@ Antigravity instructions now describe the actual chat tool contract; live
 provider and permission validation is recorded in I4 below. Resume no other roadmap work
 as part of this user-requested hotfix.
 
+### Hotfix H2. Sidechat history prompt latency — **ACTIVE**
+
+Knowledge Off correctly skips automatic vault retrieval, but the sidebar still
+serializes the entire persisted chat into every provider request. The active
+session measured about 202k characters, so retrieval is not the only latency
+source. Keep full session history on disk while bounding the provider payload to
+the latest turns and the existing compact continuity summary.
+
 ### Hotfix H1. setup npm audit resolution — **COMPLETE 2026-09-11**
 
 `./setup.sh` had failed inside npm 10.9 Arborist while resolving Vitest's
