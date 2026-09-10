@@ -61,6 +61,17 @@ against the real vault found that. Any release touching the ingest or retrieval
 path states its live check up front — and, as v0.63.0's P0 did, writes its stop
 condition *before* the code and verifies it by measurement.
 
+## To-Do — urgent user hotfix (2026-09-10)
+
+Active branch: `hotfix/chat-provider-sync`; Arena: `.agents/plans/hotfix_chat_arena/`.
+This user-requested batch precedes E4. Resume no other roadmap work in this task.
+
+- [ ] Reduce popover/sidechat answer latency; explicit sidechat prior-knowledge search on/off; remove Plan mode.
+- [ ] Fix Antigravity sidechat command permission denial yielding no answer.
+- [ ] Refresh Antigravity, Claude and Codex catalogues; remove retired Gemini 3.5 Flash.
+- [ ] Fix Codex requested note edits that lose modification proposals/diff.
+- [ ] Diagnose/fix Linux Obsidian agent sync failure (user recalls “QTR”; exact log requested).
+
 ## Phase A — Make failure visible — **COMPLETE**
 
 Shipped v0.66.0 → v0.69.0. Nothing here fixed a pipeline; together they made
