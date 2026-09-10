@@ -2,6 +2,14 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.82.3] - 2026-09-11
+
+### Changed
+
+- Sidechat provider prompts again include the complete active session history.
+  The v0.82.2 history window is reverted until the planned compact-history
+  design is ready; persisted sessions remain unchanged.
+
 ## [0.82.2] - 2026-09-11
 
 ### Fixed

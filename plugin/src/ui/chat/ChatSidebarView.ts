@@ -114,7 +114,6 @@ import {
   buildWorkspaceNotesBlock,
   searchWorkspaceNotes,
 } from "../../context/workspaceNotes";
-import { selectPromptHistory } from "./promptHistory";
 
 export interface MultiEditProposal {
   filepath: string;
@@ -1255,11 +1254,11 @@ export class ChatSidebarView extends ItemView {
     assistantMsg.isStreaming = true;
     assistantMsg.truncated = false;
     try {
-      // buildLLMMessages selects a suffix from the active session. If the user
-      // clicked Continue on an OLD truncated message, everything after it could
-      // still enter that suffix out of order. Temporarily slice the history to
-      // end at this message, then restore it (the object ref is shared, so
-      // streamed deltas still land on the right message).
+      // buildLLMMessages serializes the WHOLE active session. If the user clicked
+      // Continue on an OLD truncated message, everything after it would leak into
+      // the prompt out of order. Temporarily slice the history to end at this
+      // message, then restore it (the object ref is shared, so streamed deltas
+      // still land on the right message).
       const allMessages = this.messages;
       const idx = allMessages.indexOf(assistantMsg);
       let built: LLMMessage[];
@@ -1508,11 +1507,8 @@ export class ChatSidebarView extends ItemView {
 
     const activeContextParts = this.buildActiveContextParts(activeCtx);
 
-    // Keep the full transcript in the persisted session, but send only a
-    // bounded recent suffix to the provider. Older turns are already represented
-    // by the compact continuity summary above; replaying every long answer here
-    // made Knowledge Off slow because retrieval was not the only prompt cost.
-    for (const msg of selectPromptHistory(this.messages)) {
+    for (const msg of this.messages) {
+      if (msg.role === "system") continue;
 
       const contentParts: LLMContentPart[] = [];
       const canSendImages = modelSupportsVision(
@@ -1602,7 +1598,7 @@ export class ChatSidebarView extends ItemView {
         // end of the payload so a localized selection (e.g. Cmd+Shift+L) asked
         // about late in a long session is not overridden by earlier whole-file
         // tasks. Appended to the latest user turn, which always survives the
-        // bounded provider-history slice.
+        // CONTINUITY_MESSAGE_LIMIT history slice.
         textContent +=
           "\n\n" +
           buildRecencyAnchor(SIDECHAT_PROFILE, {
