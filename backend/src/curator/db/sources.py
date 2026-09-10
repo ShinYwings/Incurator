@@ -499,6 +499,14 @@ def _delete_source_on_connection(
         (source_id,),
         deleted_at=revision,
     )
+    # Retained audits outlive their source, but its machine-local integer cannot
+    # travel without the parent. Detach only after reconciliation has consumed
+    # the source scope; stamp even already-retired units so LWW sees this change.
+    for table in ("knowledge_units", "compiler_generations"):
+        conn.execute(
+            f"UPDATE {table} SET source_id = NULL, updated_at = ? WHERE source_id = ?",
+            (revision, source_id),
+        )
     conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))
     return revision
 

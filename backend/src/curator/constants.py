@@ -105,8 +105,8 @@ DEFAULT_TIMEOUT = 120.0
 # `test_v021_models.py` asserts the two agree, so a catalogue edit that forgets a
 # constant fails rather than silently disagreeing with the dropdown.
 DEFAULT_CLAUDE_MODEL = "claude-opus-5"
-DEFAULT_CODEX_MODEL = "gpt-5.6-sol"
-DEFAULT_ANTIGRAVITY_MODEL = "gemini-3.7-flash"
+DEFAULT_CODEX_MODEL = "gpt-6-astra"
+DEFAULT_ANTIGRAVITY_MODEL = "gemini-3.8-flash"
 DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash"
 
 # v0.3.2 DB-native search providers. Qwen3 0.6B GGUFs are chosen

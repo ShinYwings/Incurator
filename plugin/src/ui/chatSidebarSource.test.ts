@@ -121,7 +121,7 @@ describe("chat sidebar context chip source contract", () => {
     expect(source).toContain("private async maybeAutoOpenDiff(msg: ChatMessage)");
     expect(source).toContain("if (msg.diffAutoOpened) return;");
     expect(source).toContain("if (files.size !== 1) return;");
-    expect(source).toContain("if (active && active.file?.path !== target) return;");
+    expect(source).toContain("if (active && active.file?.path !== (file?.path || target)) return;");
     expect(source).toContain("await this.maybeAutoOpenDiff(assistantMsg);");
   });
 
@@ -236,7 +236,7 @@ describe("chat sidebar context chip source contract", () => {
     expect(providerContext).not.toContain("registerSource(");
     expect(providerContext).not.toContain("auto-index");
     expect(providerContext).toContain("context_source=");
-    expect(providerContext).toContain("pdfSourceStatuses");
+    expect(providerContext).toContain("<incurator_source_status");
     expect(providerContext).toContain("if (useBackendPdfContext && client.available");
     expect(providerContext).not.toContain("const shouldFetchBackendContext");
   });
@@ -567,13 +567,13 @@ describe("chat sidebar context chip source contract", () => {
       tryIdx
     );
     const buildIdx = source.indexOf(
-      "const llmMessages = await this.buildLLMMessages(capturedActiveCtx);",
+      "const llmMessages = await this.buildLLMMessages(capturedActiveCtx, automaticKnowledge);",
       tryIdx
     );
     expect(materializeIdx).toBeGreaterThan(tryIdx);
     expect(buildIdx).toBeGreaterThan(materializeIdx);
     // The old pre-try call site must not exist.
-    expect(source).not.toContain("const llmMessages = await this.buildLLMMessages(capturedActiveCtx);\n    this.prepareStatusText");
+    expect(source).not.toContain("const llmMessages = await this.buildLLMMessages(capturedActiveCtx, automaticKnowledge);\n    this.prepareStatusText");
   });
 
   it("G14-2: renderAssistantMessage targets message by data-msg-id, not always the last bubble", () => {

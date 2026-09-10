@@ -526,6 +526,13 @@ export class QuickQueryPopover {
     this.startThinkingTimer(loadingEl);
 
     const activeContext = this.plugin.refreshActiveContext();
+    // Pin identity before any parallel work; vault evidence and document
+    // references are independent, so their waits overlap instead of adding.
+    const pinnedDocumentId = this.plugin.getActivePdfDocumentId();
+    const vaultEvidencePending = this.vaultEvidenceFor(question).catch((error) => {
+      logger.warn("Vault evidence preparation failed:", error);
+      return undefined;
+    });
     // Async cross-page resolution: fetch any pages not yet in the window before
     // building the LLM messages. Falls back to sync inline resolution when the
     // PDF is not open or the fetch returns nothing.
@@ -565,7 +572,6 @@ export class QuickQueryPopover {
     if (activeContext?.pdfPage) {
       // Read the identity ONCE, before the first await, and use the same value
       // for the index we write into and for every page fetch below.
-      const pinnedDocumentId = this.plugin.getActivePdfDocumentId();
       try {
         const resolution = await resolveSelectionContextAsync(
           this.capturedSelection,
@@ -613,7 +619,7 @@ export class QuickQueryPopover {
     // engine and forbids giving the popover tools, so this is one pre-turn
     // backend call and zero extra tool rounds. Never fatal: a popover that
     // cannot reach the vault still answers about the selection.
-    const vaultEvidenceBlock = await this.vaultEvidenceFor(question);
+    const vaultEvidenceBlock = await vaultEvidencePending;
 
     const messages = buildQuickQueryContextMessages({
       // The provider decides what the prompt may honestly promise: the local page

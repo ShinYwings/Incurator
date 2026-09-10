@@ -1,4 +1,4 @@
-# Incurator - System Behavior (v0.81.0)
+# Incurator - System Behavior (v0.82.0)
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
@@ -1016,20 +1016,25 @@ The interactive `wiki config provider` wizard and the plugin dashboard LLM card
 must offer only the efforts a chosen model declares, and changing the model must
 reset its effort to that model's `default_effort`.
 
-The v0.36.8 CLI-backed catalogue is locked to the installed runtime contract:
+The CLI-backed catalogue (verified 2026-09-10) follows the installed runtime contract:
 
 | Provider | Model | Context | Efforts | Default |
 | --- | --- | ---: | --- | --- |
-| Antigravity | `gemini-3.5-flash` | 1,000,000 | `low`, `medium`, `high` | `medium` |
+| Antigravity | `gemini-3.8-flash` | 1,000,000 | `low`, `medium`, `high` | `medium` |
+| Antigravity | `gemini-3.7-flash` | 1,000,000 | `low`, `medium`, `high` | `medium` |
 | Antigravity | `gemini-3.6-flash` | 1,000,000 | `low`, `medium`, `high` | `medium` |
 | Antigravity | `gemini-3.1-pro` | 1,000,000 | `low`, `high` | `high` |
 | Antigravity | `claude-sonnet-4-6` | 200,000 | none (fixed thinking variant) | none |
 | Antigravity | `claude-opus-4-6-thinking` | 200,000 | none (fixed thinking variant) | none |
 | Antigravity | `gpt-oss-120b` | 128,000 | `medium` | `medium` |
 | Claude Code | `claude-sonnet-4-6` | 1,000,000 | `low`, `medium`, `high`, `max` | `high` |
+| Claude Code | `claude-opus-5` | 1,000,000 | `low`, `medium`, `high`, `xhigh`, `max` | `high` |
+| Claude Code | `claude-sonnet-5` | 1,000,000 | `low`, `medium`, `high`, `xhigh`, `max` | `high` |
+| Claude Code | `claude-fable-5-1` | 1,000,000 | `low`, `medium`, `high`, `xhigh`, `max` | `high` |
 | Claude Code | `claude-fable-5` | 1,000,000 | `low`, `medium`, `high`, `xhigh`, `max` | `high` |
 | Claude Code | `claude-opus-4-8` | 1,000,000 | `low`, `medium`, `high`, `xhigh`, `max` | `high` |
 | Claude Code | `claude-haiku-4-5` | 200,000 | none | none |
+| Codex CLI | `gpt-6-astra` | 272,000 | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `low` |
 | Codex CLI | `gpt-5.6-sol` | 272,000 | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `low` |
 | Codex CLI | `gpt-5.6-terra` | 272,000 | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `medium` |
 | Codex CLI | `gpt-5.6-luna` | 272,000 | `low`, `medium`, `high`, `xhigh`, `max` | `medium` |
@@ -3460,6 +3465,14 @@ changes. `source_spans` breaks the assumption: it has **no `updated_at`**, its
   another live source still supplies their provenance/support. Hard-deleted
   canonical rows receive portable tombstones, while device-local jobs and
   search rows are deleted/rematerialized without transport tombstones.
+- Retained audit rows detach their nullable `source_id` when their source is
+  removed, after dependency reconciliation in the same transaction. Knowledge
+  units keep their retirement timestamp and compiler generations remain
+  discarded; all other audit content survives. Export/import also detach an
+  older terminal audit reference only when its parent is absent from the full
+  source table/snapshot. An active orphan or malformed terminal marker still
+  fails; a peer integer is never matched to an unrelated local source ID.
+  Snapshot normalization does not rewrite the source database or snapshot file.
 - Serving is independently fail-closed: source spans and knowledge units must
   join a live `sources` row. Ordinary graph entities must retain live provenance
   or active-edge membership; authored `vault_note`, `vault_asset`, and `tag`

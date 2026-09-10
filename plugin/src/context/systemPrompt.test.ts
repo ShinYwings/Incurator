@@ -3,7 +3,7 @@ import { buildBaseSystemPrompt, editableSelectionInstruction, getEditLoopContrac
 
 describe("buildBaseSystemPrompt", () => {
   it("always includes the base Obsidian assistant instructions and edit-block format", () => {
-    const text = buildBaseSystemPrompt({ hasExternalIncuratorMcp: false, planMode: false });
+    const text = buildBaseSystemPrompt({ hasExternalIncuratorMcp: false });
     expect(text).toContain("AI assistant embedded in Obsidian");
     expect(text).toContain("ai-agent-edit");
     expect(text).toContain("Do not suggest note edits");
@@ -27,22 +27,27 @@ describe("buildBaseSystemPrompt", () => {
   });
 
   it("adds the external incurator-MCP addendum only when enabled", () => {
-    const on = buildBaseSystemPrompt({ hasExternalIncuratorMcp: true, planMode: false });
+    const on = buildBaseSystemPrompt({ hasExternalIncuratorMcp: true });
     expect(on).toContain("external 'incurator' MCP server enabled");
     expect(on).toContain("ordinary requests such as explaining selected text");
     expect(on).toContain("workspace_path");
     expect(on).not.toContain("ALWAYS start");
+    expect(on).not.toContain("use `curator_query`");
+    expect(on).toContain("Do not repeat retrieval");
   });
 
-  it("adds the plan-mode addendum only when in plan mode", () => {
-    const on = buildBaseSystemPrompt({ hasExternalIncuratorMcp: false, planMode: true });
-    expect(on).toContain("Plan mode is enabled");
+  it("ignores legacy Plan options and preserves normal edit instructions", () => {
+    const legacy = { hasExternalIncuratorMcp: false, planMode: true };
+    const text = buildBaseSystemPrompt(legacy);
+    expect(text).not.toContain("Plan mode is enabled");
+    expect(text).toContain("ai-agent-edit");
   });
 
-  it("includes both addenda when both flags are set", () => {
-    const both = buildBaseSystemPrompt({ hasExternalIncuratorMcp: true, planMode: true });
-    expect(both).toContain("external 'incurator' MCP server enabled");
-    expect(both).toContain("Plan mode is enabled");
+  it("does not request automatic curator calls when knowledge is off", () => {
+    const text = buildBaseSystemPrompt({ hasExternalIncuratorMcp: true, automaticKnowledge: false });
+    expect(text).not.toContain("start by calling `curator_check_workspace`");
+    expect(text).toContain("Automatic prior-knowledge lookup is off");
+    expect(text).toContain("explicitly asks");
   });
 
   it("wraps the latest user message with an explicit detected-language bridge", () => {

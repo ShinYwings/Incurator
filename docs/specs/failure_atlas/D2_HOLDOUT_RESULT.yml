@@ -591,6 +591,19 @@ evaluated_code:
       The consumed holdout cannot be rerun after run_count=3; this hash re-arms
       the existing drift tripwire and claims no new holdout result. No metric,
       run_count, valid_run_count, or frozen input is touched.
+  v082_terminal_source_audit_rearm:
+    date: '2026-09-10'
+    prior_sources_sha256: 45a1f5fc10709e6e996d8578c2b1770bfb7bce303db0db7e2d874885391de999
+    reason: >-
+      Source deletion now detaches nullable source_id on retained knowledge_units
+      and compiler_generations after graph reconciliation, before deleting the
+      source, and stamps the closure revision for peer synchronization. These
+      audit rows must outlive their source without carrying a dangling local ID.
+      The only changed function is _delete_source_on_connection. The frozen Q06
+      harness seeds sources, source_spans, and search_documents and never deletes
+      a source. Its search, ingestion, ranking, and metrics are unchanged. Re-arm
+      the code drift tripwire without rerunning the consumed holdout or changing
+      any frozen inputs, metrics, run_count, or valid_run_count.
   file_sha256:
     backend/scripts/failure_atlas_holdout.py: c6afe0307dd3f68fa9902387bb0dc269db6ff9d6b73ad2f3ac1cc6ecc883297a
     backend/src/curator/retrieval/evaluation.py: 0cc9e655142c725dd4bbbabfd2b44d6bf0355265bb2510fbb78cbd47d7d43c17
@@ -603,7 +616,7 @@ evaluated_code:
     backend/src/curator/db/schema.py: 5c6976e8d1f486129eda6cdad93f4e01174fd8ebc7a453532e2336ec24fce772
     backend/src/curator/db/_entities.py: 396ed846461703dc3f34e006b738b21c478704fd6e74e6b6bafebe36c21e1607
     backend/src/curator/db/jobs.py: 068d2111bcfab902d56ea6ded90e1c29db77abc6331ad1427f9ec9f2433f1dfc
-    backend/src/curator/db/sources.py: 45a1f5fc10709e6e996d8578c2b1770bfb7bce303db0db7e2d874885391de999
+    backend/src/curator/db/sources.py: 7137cfd4e68a5f21ef0e5d905ff0359ecb11381bb83be7db4f09058c94651a57
   preflight_family_metrics:
     direct-factual:
       query_count: 7

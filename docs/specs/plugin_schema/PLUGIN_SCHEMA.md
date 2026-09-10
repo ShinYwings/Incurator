@@ -1,4 +1,4 @@
-# Incurator Plugin Schema & API Contract (v0.81.0)
+# Incurator Plugin Schema & API Contract (v0.82.0)
 
 Audience: Obsidian plugin developers, frontend contributors, and coding agents.
 
@@ -428,6 +428,21 @@ the only feedback was `File not found`.
 
 Stored in `data.json` (Obsidian plugin storage). All fields required unless marked optional.
 
+`sidechatKnowledgeEnabled` defaults to true, including older settings where it
+is absent, and is captured at Send before asynchronous preparation. Off disables
+automatic vault evidence, workspace-note consultation and PDF semantic
+suggestions; selected/open/pinned context and explicit document references,
+wikilinks and deliberate tool requests remain available. The base prompt must
+not advertise automatic curator tools when off. The composer exposes an
+accessible pressed-state Knowledge toggle. Chat/Plan and its prompt addendum
+are removed; a legacy stored `chatMode` key has no behavioral effect.
+
+Evidence lookup runs concurrently with document preparation, with immediate
+rejection handling. Workspace notes are consulted once per turn outside the PDF
+loop, also for Markdown. The popover starts its existing four-second evidence
+wait alongside reference preparation and retains the result for follow-ups;
+this does not reduce the enabled retrieval quality or cap provider generation.
+
 ```typescript
 interface PluginSettings {
   // LLM provider selection
@@ -437,7 +452,7 @@ interface PluginSettings {
                                    // region-extraction model is sourced from the
                                    // backend `llm.latex_extract_model`/`vision_model`
                                    // via the Dashboard runtime snapshot — see §2.6.
-  chatMode: ChatMode;              // "chat" | "plan"
+  sidechatKnowledgeEnabled: boolean; // default true; automatic prior-knowledge lookup
   codexReasoningEffort: CodexReasoningEffort;  // ""|"low"|"medium"|"high"|"xhigh"|"max"|"ultra"
   claudeEffort: ClaudeEffort;      // ""|"low"|"medium"|"high"|"xhigh"|"max"
   agentEffort: string;             // Ollama/Antigravity reasoning-effort slot; empty = provider default
@@ -2477,6 +2492,31 @@ create files, or traverse the filesystem.
 
 ### 13.6 CLI Tool-Scope Sandbox (v0.23.0)
 
+**Native CLI answer streams.** Codex assistant items have independent IDs;
+completed messages must not be sliced by the length of an earlier item. Repeated
+snapshots of the same item are deduplicated. The last-message output file is
+reconciled with the last item so an edit proposal is emitted intact exactly once.
+Non-answer JSON events are never used as fallback answer prose. Diff auto-open
+compares the resolved vault-relative target with the active note.
+
+Antigravity uses native `stream-json` response deltas and tool status events in
+both streaming and completion calls. A timeout or failed result retains any
+already-visible answer and reports the incomplete turn; it is never treated as a
+completed answer or automatically retried. Completion callers reject incomplete
+results. Each agy invocation monitors its own temporary CLI diagnostic log for
+an explicit runtime `RESOURCE_EXHAUSTED` / `Individual quota reached` failure.
+That provider-reported refusal stops the invocation promptly instead of waiting through
+the CLI's exponential retries. Answer text and generic 429/capacity mentions
+cannot trigger this log guard. Native-stream stderr is diagnostic text, not a
+quota verdict: bare 429/quota substrings cannot kill an answer or override a
+successful native result. Errors attribute the provider's report without
+asserting actual account depletion; empty output does not imply quota failure.
+Watchers and temporary logs are removed on every
+terminal path. The invocation explicitly directs document explanations to supplied
+context and requested research to available MCP tools, with no shell computation
+or transcript recovery. This instruction does not claim to remove native tools:
+the existing narrow permission grants and OS containment remain enforced.
+
 §13.5 closed the HTTP/MCP-injection path, but **CLI providers were uncontrolled**:
 `toolPolicy` never reached `buildCliCommand`, so a CLI-backed popover/sidechat
 inherited the CLI agent's NATIVE tools (agy ran `--dangerously-skip-permissions`,
@@ -3213,6 +3253,9 @@ wiki plugin context fetch --query "<question>" --workspace-path "<vault-or-works
 It returns the `context_fetch` pack without an `answer` field. `wiki plugin
 query` remains available for explicit backend synthesis, but ordinary provider
 grounding uses the pack command.
+The provider prompt reuses the supplied pack and workspace notes, prohibits
+redundant retrieval, and reserves a second `curator_query` synthesis for explicit
+requests. Missing facts may still be retrieved through evidence-only tools.
 
 Follow-up operations use the same root pack and snapshot:
 

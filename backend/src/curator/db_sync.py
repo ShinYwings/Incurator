@@ -599,6 +599,28 @@ def _require_timestamp(value: object, *, context: str) -> str:
     return value
 
 
+def _detach_terminal_source_reference(
+    table: str, row: dict, source_ids: set[int],
+) -> None:
+    """Normalize retained audit links, never infer a peer integer's local owner.
+
+    A valid terminal row can survive source removal; a live or malformed orphan
+    cannot. Callers supply the complete parent inventory, not an in-order prefix
+    or the export's --since selection. Only the transport dictionary is changed.
+    """
+    source_id = row.get("source_id")
+    if type(source_id) is not int or source_id in source_ids:
+        return
+    if table == "knowledge_units":
+        terminal_stamp = row.get("retired_at")
+    elif table == "compiler_generations" and row.get("status") == "discarded":
+        terminal_stamp = row.get("discarded_at")
+    else:
+        return
+    if _timestamp_key(terminal_stamp) != datetime.min.replace(tzinfo=timezone.utc):
+        row["source_id"] = None
+
+
 @dataclass
 class ExportStats:
     total_rows: int = 0
@@ -999,6 +1021,9 @@ def export_knowledge(
                         "SELECT name FROM sqlite_master WHERE type='table'"
                     ).fetchall()
                 }
+                # Include parents omitted by --since: absence from a partial
+                # export does not mean the local source was removed.
+                source_ids = {int(row[0]) for row in conn.execute("SELECT id FROM sources")}
 
                 for tbl in export_tables:
                     if tbl not in existing_tables:
@@ -1026,6 +1051,7 @@ def export_knowledge(
                     count = 0
                     for row in rows:
                         row_payload = dict(row)
+                        _detach_terminal_source_reference(tbl, row_payload, source_ids)
                         if tbl == "deleted_records":
                             target_table = row_payload.get("table_name")
                             if (
@@ -1125,8 +1151,8 @@ def import_knowledge(
             # Peer id -> the id this device already uses for the same row.
             # Only convergences land here; a row the peer alone has maps to
             # itself and is left out, so an empty map means nothing to repair.
-            entity_id_map, span_id_map, relation_id_map = _prescan_converged_ids(
-                conn, in_path
+            entity_id_map, span_id_map, relation_id_map, peer_source_ids = (
+                _prescan_converged_ids(conn, in_path)
             )
             planned_source_inserts: set[int] = set()
             # Sources the database refused. Their child rows are LOST, not
@@ -1202,6 +1228,10 @@ def import_knowledge(
                 else:
                     source_sync_key: str | None = None
                     parent_will_be_inserted = False
+                    # Historical deletion kept terminal audits with a dangling
+                    # source_id. Preserve the row, but never alias that integer
+                    # to an unrelated source on this device.
+                    _detach_terminal_source_reference(tbl, row, peer_source_ids)
                     if row.get("source_id") is not None:
                         remote_source_id = row["source_id"]
                         if remote_source_id not in source_id_map:
@@ -1997,7 +2027,7 @@ def _open_export(in_path: Path) -> "IO[str]":
 
 def _prescan_converged_ids(
     conn: "db.sqlite3.Connection", in_path: Path
-) -> tuple[dict[str, str], dict[str, str], dict[str, str]]:
+) -> tuple[dict[str, str], dict[str, str], dict[str, str], set[int]]:
     """Peer id -> local id, for rows this device already has under another id.
 
     Built BEFORE anything is applied, by reading the file once for just the two
@@ -2032,6 +2062,7 @@ def _prescan_converged_ids(
         )
     }
     peer_source_sync_key: dict[int, str] = {}
+    peer_source_ids: set[int] = set()
 
     with _open_export(in_path) as f:
         for line in f:
@@ -2055,6 +2086,11 @@ def _prescan_converged_ids(
 
             if table == "sources":
                 remote_id, key = row.get("id"), row.get("sync_key")
+                # Record every integer parent, even if malformed or placed
+                # later. Such a parent must fail normal validation, not cause
+                # its earlier audit child to be mistaken for a removed source.
+                if type(remote_id) is int:
+                    peer_source_ids.add(remote_id)
                 if isinstance(remote_id, int) and isinstance(key, str) and key:
                     peer_source_sync_key[remote_id] = key
                 continue
@@ -2110,7 +2146,7 @@ def _prescan_converged_ids(
                 if local is not None and local != remote_id:
                     relation_map[remote_id] = local
 
-    return entity_map, span_map, relation_map
+    return entity_map, span_map, relation_map, peer_source_ids
 
 
 def _translate_row_ids(

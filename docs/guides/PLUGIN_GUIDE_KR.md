@@ -49,8 +49,13 @@ Obsidian 1.0.x에서는 `versions.json`을 통해 호환되는 Incurator v0.39.2
 - **스트리밍 응답**: 기본값으로 활성화되어 있으며, 설정에서 끌 수 있습니다.
 - **스크롤 고정**: 답변이 스트리밍되는 동안에는 이미 맨 아래에 있을 때만 새 텍스트를 따라 내려갑니다. 위로 스크롤해 이전 내용을 읽고 있으면 현재 위치가 유지되며, 답변 생성이 끝나도 더 이상 화면이 맨 아래로 강제 이동하지 않습니다.
 - **컨텍스트 참조**: 텍스트, PDF 페이지, 이미지 스니펫을 메시지에 첨부해 질문합니다.
-- **Plan 모드**: `chatMode: plan`으로 전환 시 AI가 단계별 계획을 먼저 제시합니다.
+- **Knowledge 켜기/끄기**: 입력창의 **Knowledge: On / Off** 버튼으로 자동 사전지식 검색을 설정하며 선택은 저장됩니다. 기본값은 On입니다. Off에서는 자동 vault 근거 검색, 프로젝트 노트 검색, PDF 의미 기반 추천을 건너뜁니다. 선택한/열린/고정한 문맥, 명시적인 문서 참조와 링크, 직접 요청한 도구 작업은 계속 사용할 수 있습니다. 전송 시 선택을 고정하므로 진행 중 변경은 다음 질문에 적용됩니다. Chat/Plan 모드와 이전에 저장한 Plan 동작은 제거되었습니다.
+  답변 제공자는 이미 전달된 근거를 재사용해 직접 답변을 종합합니다. 정보가 부족할 때만 근거를 추가로 요청하며, 백엔드에 다시 답변 종합을 맡기는 것은 명시적으로 요청한 경우로 한정합니다.
 - **Incurator 연동**: Curator 백엔드가 연결된 경우 추적 가능한 DAG 근거를 컨텍스트로 주입합니다.
+
+사전지식 검색은 문서 준비와 동시에 시작하며, Markdown을 읽을 때도 프로젝트
+노트를 질문당 한 번만 검색합니다. 검색을 켰을 때의 근거 품질을 낮추지 않으면서
+순차적인 준비 대기를 줄입니다. 제공자의 답변 생성 시간은 문맥 준비 시간과 별개입니다.
 
 ---
 
@@ -187,6 +192,8 @@ LLM이 제안 생성 → Diff 표시 → Accept / Reject
   vault 전체에서 찾아, 각 구절이 어느 노트에서 왔는지 함께 알려줍니다. 그래서 "이거
   관련해서 내가 쓴 다른 게 있어?"가 지금 읽고 있는 파일을 넘어섭니다. 미리 한 번
   조회하는 방식이라 팝업에 도구가 생기는 것도, 왕복이 늘어나는 것도 아닙니다.
+  검색은 문서 참조 준비와 동시에 시작하며 시작 시점부터 최대 4초만 기다립니다.
+  늦게 도착한 결과는 같은 팝업의 후속 질문에서 사용할 수 있습니다.
 - **지속되는 팝업**: 팝업에는 질문 입력칸과 **Ask** 버튼만 있습니다. 프리셋·퀵버튼은
   없습니다. 한 번 열리면 다른 곳을 클릭하거나 스크롤해도 닫히지 않으며, **×** 또는
   `Esc`로 직접 닫습니다.
@@ -452,6 +459,23 @@ LLM이 제안 생성 → Diff 표시 → Accept / Reject
   Ollama 연결 오류를 포함한 provider별 오류 메시지도 정상 cancellation을 대체하지
   않습니다. non-streaming CLI query도 선택한 per-call model과 streaming query와
   동일한 GUI-safe CLI search path를 유지합니다.
+
+Antigravity 답변은 실제 응답 조각이 도착하는 대로 표시되며, 자료를 찾는 동안
+도구 진행 상태도 표시됩니다. 시간 제한에 도달하면 부분 답변을 남기고 응답이
+완료되지 않았다는 오류를 표시하며, 플러그인은 요청을 자동으로 재시도하지
+않습니다. 제공된 문서 설명에는 포함된 컨텍스트를, 요청한 자료 조사에는
+사용 가능한 MCP 도구를 사용하도록 지시하며 셸 계산이나 대화 로그 복원을
+요구하지 않습니다. 기존 도구 권한은 유지되므로 이 지시가 모델의 권한 거부
+도구 요청을 완전히 방지한다고 보장하지는 않습니다.
+사용량 관련 오류는 해당 요청에 대해 제공자가 반환한 내용을 표시하며, 계정의
+사용량이 실제로 소진됐다고 단정하지 않습니다. 빈 응답이나 진단 문구에 포함된
+사용량 관련 단어만으로 소진을 판정하거나 정상적인 native 답변을 버리지 않습니다.
+런타임이 명시적으로 같은 거부를 반복할 때는 5분 동안 재시도하지 않고 즉시 표시합니다.
+
+Codex는 서로 다른 어시스턴트 메시지와 최종 편집 제안을 보존합니다. 앞선 진행
+설명이 이후 SEARCH/REPLACE 블록의 시작 부분을 없애지 않습니다. 편집 대상이
+활성 노트를 절대 경로나 인코딩된 경로로 지정해도 경로 확인 후 같은 검토 diff를
+열며, 실제 변경에는 여전히 Accept가 필요합니다.
 
 선택한 구절은 질문과 함께 1차 컨텍스트로 전달되고, 현재 페이지/outline은 배경으로
 전달됩니다. 현재 설정된 AI 제공자/모델을 사용합니다. 버튼이 뜨지 않게 하려면
@@ -829,14 +853,22 @@ agy login
 
 | 모델 | 설명 |
 | --- | --- |
-| `gemini-3.5-flash` | 기본값. 빠르고 효율적 |
+| `gemini-3.8-flash` | 기본값. 빠른 Gemini 비전 모델 |
+| `gemini-3.7-flash` | 계속 지원되는 이전 Flash 모델 |
 | `gemini-3.6-flash` | 현재의 빠른 Gemini 비전 모델 |
 | `gemini-3.1-pro` | 고품질 추론 |
 | `claude-sonnet-4-6` | `agy`가 제공하는 고정-thinking Claude variant |
 | `claude-opus-4-6-thinking` | `agy`가 제공하는 고정-thinking Opus variant |
 | `gpt-oss-120b` | 텍스트 전용 medium-effort 모델 |
 
+2026-09-10에 [Antigravity 모델 목록](https://antigravity.google/docs/models/), [Claude Fable 5.1 문서](https://platform.claude.com/docs/en/models/fable-5-1/overview), 설치된 Codex 모델 목록([GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra))으로 카탈로그를 확인했습니다. Gemini 3.5 Flash는 지원 종료되어, 기존 플러그인 선택값을 로드하면 기존의 미지원 모델 정규화 과정을 통해 Gemini 3.8 Flash를 사용합니다. 계속 지원되는 선택값은 유지됩니다. 채팅 중에는 모델 목록을 조회하지 않습니다.
+
 `antigravityPrintTimeoutSec`: CLI 응답 최대 대기 시간 (기본 300초)
+
+Antigravity가 선택한 모델의 개별 사용량 한도 소진을 보고하면 요청을 곧바로
+종료하고 원인을 표시합니다. “Thinking”을 표시하며 5분 동안 재시도하지
+않습니다. 일시적인 용량 오류는 CLI의 정상 재시도를 유지하며, 한도 오류로
+모델을 몰래 바꾸지 않습니다.
 
 ### 7.2 Claude
 
@@ -849,12 +881,15 @@ claude login
 ```
 
 effort 지원 범위는 모델별로 다릅니다. Sonnet 4.6은 `low` / `medium` /
-`high` / `max`, Fable 5와 Opus 4.8은 여기에 `xhigh`를 추가로 지원하며,
+`high` / `max`, Fable 5.1, Fable 5, Opus 5와 Opus 4.8은 여기에 `xhigh`를 추가로 지원하며,
 Haiku 4.5에는 effort 조절 기능이 없습니다.
 
 | 모델 | 기본 effort |
 | --- | --- |
-| `claude-sonnet-4-6` | `high` (플러그인 기본값) |
+| `claude-opus-5` | `high` (플러그인 기본값) |
+| `claude-sonnet-5` | `high` |
+| `claude-sonnet-4-6` | `high` |
+| `claude-fable-5-1` | `high` |
 | `claude-fable-5` | `high` |
 | `claude-opus-4-8` | `high` |
 | `claude-haiku-4-5` | 없음 |
@@ -869,13 +904,14 @@ codex login
 # 또는 플러그인 내 명령: Login to OpenAI Codex CLI
 ```
 
-`codexReasoningEffort` 지원 범위도 모델별로 다릅니다. Sol과 Terra는 `low` /
+`codexReasoningEffort` 지원 범위도 모델별로 다릅니다. Astra, Sol과 Terra는 `low` /
 `medium` / `high` / `xhigh` / `max` / `ultra`, Luna는 `max`까지, GPT-5.5는
 `xhigh`까지 지원합니다. Codex의 `ultra`에서는 작업이 자동 위임될 수 있습니다.
 
 | 모델 | 설명 |
 | --- | --- |
-| `gpt-5.6-sol` | 기본값. frontier agentic coding (`low` 기본 effort) |
+| `gpt-6-astra` | 기본값. 복잡한 추론과 에이전트 작업 (`low` 기본 effort) |
+| `gpt-5.6-sol` | 에이전트 코딩 (`low` 기본 effort) |
 | `gpt-5.6-terra` | 균형 잡힌 일상 agentic coding (`medium` 기본값) |
 | `gpt-5.6-luna` | 경량 agentic coding (`medium` 기본값) |
 | `gpt-5.5` | 노출되는 호환 모델 (`medium` 기본값) |
@@ -1237,7 +1273,8 @@ Incurator MCP tool discovery 없이 JSON 결과만 받습니다. 이 plugin plum
 - **피드백**: 실행 중 상태 표시줄 `⟳ Sync`, 그리고 실제로 변경이 적용됐을 때만 토스트 알림(동기화 변경 알림).
 
 백엔드가 손상된 동기화 상태, 피어 가져오기, tombstone 삭제 또는 충돌 파일
-처리 오류를 보고하면 플러그인은 **Sync Failed**로 표시합니다. 해당 실행은
+처리 오류를 보고하면 플러그인은 **Sync Failed**와 보고된 원인을 표시합니다.
+피어 가져오기 오류가 곧 저장소 경로 문제를 뜻하지는 않습니다. 해당 실행은
 병합 완료 토스트를 보여 주거나 실패한 충돌 파일을 처리 완료로 세지 않으며,
 원본 파일과 상태를 보존해 다음 실행에서 안전하게 재시도할 수 있게 합니다.
 

@@ -2,7 +2,7 @@
  * Base system-prompt assembly for the chat sidebar.
  *
  * Pure and unit-testable: given a few flags it returns the static instruction
- * text (base behaviour + the external Incurator MCP and plan-mode addenda). The dynamic,
+ * text (base behaviour + the external Incurator MCP and knowledge policy). The dynamic,
  * state-dependent sections (cursor rules, continuity, incurator context, open
  * tabs) are appended by the caller, which owns that state.
  */
@@ -10,8 +10,8 @@
 export interface BaseSystemPromptOptions {
   /** True when an external 'incurator' MCP server is enabled for agent tools. */
   hasExternalIncuratorMcp: boolean;
-  /** True when chat is in plan mode. */
-  planMode: boolean;
+  /** False disables automatic prior-knowledge lookup; explicit requests remain usable. */
+  automaticKnowledge?: boolean;
 }
 
 const BASE_INSTRUCTIONS =
@@ -58,20 +58,21 @@ const BASE_INSTRUCTIONS =
 const EXTERNAL_INCURATOR_MCP_ADDENDUM =
   "\n\nThe user has an external 'incurator' MCP server enabled. Use it when the user asks about the knowledge base, workspace, source provenance, build/sync state, or a domain question that needs vault RAG. " +
   "1. For Incurator/workspace tasks, start by calling `curator_check_workspace` (passing the active workspace path provided in <incurator_workspace> if available) to initialize the session and read the `curate.yml` rules. " +
-  "2. For knowledge-base/domain questions that need synthesis, use `curator_query` and pass the active workspace path from <incurator_workspace> as `workspace_path` when available. This tool returns a synthesized answer plus a trace; it is sessionless and writes no file. " +
-  "3. Use `curator_fetch_context` for a curated evidence pack (no synthesis), or `search_curator` for raw search hits. " +
+  "2. Synthesize the answer yourself from the supplied evidence pack and workspace notes. Do not repeat retrieval for evidence already supplied. Reserve `curator_query` for an explicit request for backend synthesis. " +
+  "3. If relevant evidence is missing, use `curator_fetch_context` for a curated evidence pack (no synthesis), or `search_curator` for raw search hits; pass the active workspace path from <incurator_workspace> as `workspace_path` when available. " +
   "4. For ordinary requests such as explaining selected text, answer directly from the visible/pinned context and do not mention Incurator setup or note-edit suggestions unless the user asks. " +
   "5. If asked to refer to a specific chapter or section of a PDF, use `curator_get_pdf_toc` to find the page number, then call `curator_get_pdf_context` with `radius=0` and that `page_num` to fetch it.";
 
-const PLAN_MODE_ADDENDUM =
-  "\n\nPlan mode is enabled. First reason about the user's goal, then respond with a concise implementation plan. " +
-  "Do not modify files or imply that changes were made. Ask one short clarifying question only if the next action is genuinely ambiguous.";
+const KNOWLEDGE_OFF_ADDENDUM =
+  "\n\nAutomatic prior-knowledge lookup is off for this turn. Answer from included selected/open/pinned context. " +
+  "Do not automatically search the vault or call curator retrieval tools to add background knowledge. " +
+  "Follow explicit document references and links, and use retrieval tools only when the user explicitly asks to consult notes or other stored knowledge.";
 
 /** Build the static base system-prompt text (before dynamic context is appended). */
 export function buildBaseSystemPrompt(opts: BaseSystemPromptOptions): string {
   let text = BASE_INSTRUCTIONS;
-  if (opts.hasExternalIncuratorMcp) text += EXTERNAL_INCURATOR_MCP_ADDENDUM;
-  if (opts.planMode) text += PLAN_MODE_ADDENDUM;
+  if (opts.automaticKnowledge === false) text += KNOWLEDGE_OFF_ADDENDUM;
+  else if (opts.hasExternalIncuratorMcp) text += EXTERNAL_INCURATOR_MCP_ADDENDUM;
   return text;
 }
 

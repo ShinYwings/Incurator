@@ -49,8 +49,14 @@ session/profile commits use Obsidian's atomic adapter processing API. Obsidian
 - **Streaming responses**: Enabled by default; can be turned off in settings.
 - **Sticky scroll**: While a response streams, the view follows the new text only when you are already scrolled to the bottom. If you scroll up to read earlier text, your position is preserved — completing a response no longer yanks the view down to the latest message.
 - **Context references**: Attach text, PDF pages, or image snippets to your messages.
-- **Plan mode**: With `chatMode: plan`, the AI presents a step-by-step plan before acting.
+- **Knowledge on/off**: The composer’s **Knowledge: On / Off** button controls automatic prior-knowledge lookup and remembers your choice. On is the default. Off skips automatic vault evidence, project-note search, and PDF semantic suggestions; selected/open/pinned context, explicit document references and links, and deliberate tool requests remain available. The choice is captured when you send, so changing it affects the next turn. Chat/Plan mode has been removed, including previously saved Plan behavior.
+  The answering provider reuses supplied evidence and synthesizes the response directly. It requests additional evidence only for missing information; a second backend synthesis is reserved for an explicit request.
 - **Incurator integration**: When connected to a Curator backend, traceable DAG evidence is injected as context.
+
+Knowledge lookup starts alongside document preparation, and project notes are
+consulted once per turn, including when reading Markdown. This removes serial
+preparation waits without reducing the enabled lookup’s evidence quality.
+Provider generation time is separate from context preparation.
 
 ---
 
@@ -197,7 +203,9 @@ Where material is left out, the prompt says so.
   searches your vault for passages that bear on the question and names the note
   each one came from, so "what else have I written about this?" reaches beyond
   the file you are reading. It is one lookup done up front — the popover still
-  gets no tools and makes no extra round trips.
+  gets no tools and makes no extra round trips. Lookup starts alongside document
+  reference preparation and has a four-second wait budget from its start. A
+  slower result remains available for a follow-up in the same popover.
 - **Persistent popover**: The popover has just a query input and an **Ask**
   button. There are no preset/quick buttons. Once opened, it stays open while
   you click or scroll elsewhere; close it with **×** or `Esc`.
@@ -485,6 +493,25 @@ Where material is left out, the prompt says so.
   including Ollama reachability errors, do not replace normal cancellation.
   Non-streaming CLI queries preserve the selected per-call model and the same
   GUI-safe CLI search path as streaming queries.
+
+Antigravity answers now appear as native response chunks arrive, with tool
+progress shown while research runs. If its time limit expires, the partial answer
+stays visible with an incomplete-turn error; the plugin does not automatically
+retry the request. Supplied document explanations are directed to the included
+context, and requested research to available MCP tools, without shell-based
+calculations or transcript recovery. The existing tool permissions remain in
+place, so this instruction does not guarantee that the model never asks for a
+denied tool.
+Quota-related errors quote what the provider reported for the request; they do
+not establish that your account usage is depleted. An empty response or a quota
+phrase in diagnostic text no longer becomes an account-usage verdict or destroys
+a successful native answer. Explicit repeated runtime refusals stop promptly
+instead of spending five minutes retrying.
+
+Codex preserves each separate assistant message and its final edit proposal.
+Progress text can no longer consume the opening of a later SEARCH/REPLACE block.
+An edit that names the active note with an absolute or encoded path opens the
+same review diff after that path resolves; changes still require Accept.
 
 The passage you selected is sent as the primary context together with your
 question and the current page/outline as background, using the currently
@@ -928,14 +955,23 @@ agy login
 
 | Model | Description |
 |-------|-------------|
-| `gemini-3.5-flash` | Default. Fast and efficient |
+| `gemini-3.8-flash` | Default. Fast Gemini vision model |
+| `gemini-3.7-flash` | Supported earlier Flash model |
 | `gemini-3.6-flash` | Current fast Gemini vision model |
 | `gemini-3.1-pro` | High-quality reasoning |
 | `claude-sonnet-4-6` | Fixed-thinking Claude variant exposed by `agy` |
 | `claude-opus-4-6-thinking` | Fixed-thinking Opus variant exposed by `agy` |
 | `gpt-oss-120b` | Text-only medium-effort model |
 
+The catalogue was verified on 2026-09-10 against the [Antigravity model list](https://antigravity.google/docs/models/), [Claude Fable 5.1 documentation](https://platform.claude.com/docs/en/models/fable-5-1/overview), and the installed Codex model inventory ([GPT-6 Astra](https://developers.openai.com/api/docs/models/gpt-6-astra)). Gemini 3.5 Flash is retired; loading a saved plugin selection of that model uses Gemini 3.8 Flash through the existing unavailable-model normalization. Still-supported choices remain selected. No model discovery runs during chat.
+
 `antigravityPrintTimeoutSec`: Maximum wait time for CLI response (default 300 seconds)
+
+When Antigravity reports that the selected model's individual quota is exhausted,
+the request stops promptly and shows that cause. It no longer spends the full
+five minutes retrying while displaying “Thinking”. Temporary capacity errors
+retain the CLI's normal retry behavior; a quota failure never switches models
+silently.
 
 ### 7.2 Claude
 
@@ -948,11 +984,14 @@ claude login
 ```
 
 Effort is model-specific. Sonnet 4.6 supports `low` / `medium` / `high` / `max`;
-Fable 5 and Opus 4.8 also support `xhigh`; Haiku 4.5 has no effort control.
+Fable 5.1, Fable 5, Opus 5 and Opus 4.8 also support `xhigh`; Haiku 4.5 has no effort control.
 
 | Model | Default effort |
 | --- | --- |
-| `claude-sonnet-4-6` | `high` (plugin default) |
+| `claude-opus-5` | `high` (plugin default) |
+| `claude-sonnet-5` | `high` |
+| `claude-sonnet-4-6` | `high` |
+| `claude-fable-5-1` | `high` |
 | `claude-fable-5` | `high` |
 | `claude-opus-4-8` | `high` |
 | `claude-haiku-4-5` | None |
@@ -967,13 +1006,14 @@ codex login
 # Or use the plugin command: Login to OpenAI Codex CLI
 ```
 
-`codexReasoningEffort` is model-specific. Sol and Terra support `low` /
+`codexReasoningEffort` is model-specific. Astra, Sol and Terra support `low` /
 `medium` / `high` / `xhigh` / `max` / `ultra`; Luna stops at `max`; GPT-5.5
 stops at `xhigh`. `ultra` may automatically delegate work in Codex.
 
 | Model | Description |
 | --- | --- |
-| `gpt-5.6-sol` | Default; frontier agentic coding (`low` default effort) |
+| `gpt-6-astra` | Default; complex reasoning and agentic work (`low` default effort) |
+| `gpt-5.6-sol` | Agentic coding (`low` default effort) |
 | `gpt-5.6-terra` | Balanced everyday agentic coding (`medium` default) |
 | `gpt-5.6-luna` | Lighter-weight agentic coding (`medium` default) |
 | `gpt-5.5` | Visible compatibility model (`medium` default) |
@@ -1404,7 +1444,8 @@ no manual export/import.
 
 If local sync bookkeeping is corrupt, a peer import fails, or a conflict cannot
 be archived, the backend returns a failed pass. The plugin shows **Sync Failed**
-and does not show a “Merged conflict” toast for that file. After correcting the
+with the reported cause and does not show a “Merged conflict” toast for that
+file. A peer import error does not imply a repository-path problem. After correcting the
 reported state/file/permission problem, the next coalesced poll or manual sync
 retries safely; a failed pass never resets the device identity.
 

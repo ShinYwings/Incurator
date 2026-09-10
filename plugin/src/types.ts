@@ -28,7 +28,6 @@ export interface LastMarkdownScrollPosition extends FileScrollPosition {
 
 // ─── LLM Provider ───────────────────────────────────────────────
 export type LLMProvider = "antigravity" | "claude" | "openai" | "ollama" | "deepseek";
-export type ChatMode = "chat" | "plan";
 export type CodexReasoningEffort = "" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra";
 export type ClaudeEffort = "" | "low" | "medium" | "high" | "xhigh" | "max";
 
@@ -87,7 +86,7 @@ export const OBSIDIAN_DEEPSEEK_SECRET = "obsidian-deepseek-api-key";
 export interface PluginSettings {
   provider: LLMProvider;
   model: string;
-  chatMode: ChatMode;
+  sidechatKnowledgeEnabled: boolean;
   codexReasoningEffort: CodexReasoningEffort;
   claudeEffort: ClaudeEffort;
   agentEffort: string;
@@ -141,7 +140,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   recentZoteroItems: [],
   provider: "antigravity",
   model: "",
-  chatMode: "chat",
+  sidechatKnowledgeEnabled: true,
   codexReasoningEffort: "low",
   claudeEffort: "high",
   agentEffort: "",

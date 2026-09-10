@@ -33,7 +33,7 @@ class TestSharedModelsCatalogue(unittest.TestCase):
         # a deliberate behavioural choice, not cosmetic ordering.
         self.assertEqual(
             models.get_default_model("antigravity"),
-            "gemini-3.7-flash",
+            "gemini-3.8-flash",
         )
 
     def test_models_json_is_single_source_and_well_formed(self) -> None:
@@ -230,6 +230,7 @@ class TestModelEfforts(unittest.TestCase):
                 "claude-opus-5",
                 "claude-sonnet-5",
                 "claude-sonnet-4-6",
+                "claude-fable-5-1",
                 "claude-fable-5",
                 "claude-opus-4-8",
                 "claude-haiku-4-5",
@@ -237,9 +238,9 @@ class TestModelEfforts(unittest.TestCase):
         )
         self.assertEqual(
             [model["id"] for model in available["openai"]],
-            ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"],
+            ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"],
         )
-        self.assertEqual([model["context_window"] for model in available["openai"]], [272000] * 4)
+        self.assertEqual([model["context_window"] for model in available["openai"]], [272000] * 5)
         self.assertEqual(consts.DEFAULT_CLAUDE_MODEL, available["claude"][0]["id"])
         self.assertEqual(consts.DEFAULT_CODEX_MODEL, available["openai"][0]["id"])
         self.assertEqual(consts.DEFAULT_CLAUDE_EFFORT, "high")
@@ -272,7 +273,9 @@ class TestModelEfforts(unittest.TestCase):
         catalogue = models.load_models_catalogue()
         agy_ids = {m["id"] for m in catalogue["providers"]["antigravity"]["models"]}
         self.assertNotIn("gemini-3.5-pro", agy_ids)
-        self.assertIn("gemini-3.5-flash", agy_ids)
+        self.assertNotIn("gemini-3.5-flash", agy_ids)
+        self.assertIn("gemini-3.8-flash", agy_ids)
+        self.assertIn("gemini-3.7-flash", agy_ids)
         self.assertIn("gpt-oss-120b", agy_ids)
         self.assertNotIn("claude-opus-4-6", agy_ids)
         self.assertIn("claude-opus-4-6-thinking", agy_ids)

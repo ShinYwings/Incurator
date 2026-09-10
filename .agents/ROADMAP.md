@@ -70,7 +70,8 @@ This user-requested batch precedes E4. Resume no other roadmap work in this task
 - [ ] Fix Antigravity sidechat command permission denial yielding no answer.
 - [ ] Refresh Antigravity, Claude and Codex catalogues; remove retired Gemini 3.5 Flash.
 - [ ] Fix Codex requested note edits that lose modification proposals/diff.
-- [ ] Diagnose/fix Linux Obsidian agent sync failure (user recalls “QTR”; exact log requested).
+- [ ] Fix Linux peer import `knowledge_units references unmapped source_id 32`; validate source deletion and historical terminal audits without snapshot patching.
+- [ ] Prevent false account-quota claims and native stderr quota-text cancellation; distinguish agy-reported refusal from actual usage (user correction 2026-09-10).
 
 ## Phase A — Make failure visible — **COMPLETE**
 

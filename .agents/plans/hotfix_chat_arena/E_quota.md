@@ -1,4 +1,21 @@
-# Runtime diagnosis: terminal quota retries masquerade as generation
+# Runtime diagnosis: provider-reported quota retries masquerade as generation
+
+## User correction (2026-09-10)
+
+“애초에 사용량이 소진되지도 않았는데 사용량 소진됐다고 뜬거야”.
+The CLI diagnostic is evidence of a rejected invocation, NOT proof of depleted
+account usage. The actual query selected gemini-3.1-pro and the runtime resolved
+gemini-3.1-pro-high; the catalog contains this alias, so retired 3.5 selection is
+not established as this query's cause. Preserve that uncertainty.
+
+Additional confirmed code defect: the native-stream stderr handler kills work
+on any bare 429/quota substring, including quoted diagnostics, before a native
+SUCCESS result can arrive. For native JSON providers, trust structured failure
+events and invocation-scoped runtime failure logs, not free-form stderr. A
+successful answer survives unrelated stderr diagnostics. Error presentation must
+attribute a provider report and must not assert actual account depletion or
+prescribe purchasing credits/logging in without evidence. Add fake-process
+tests with quoted quota text in stderr and in the successful answer.
 Date: 2026-09-10 | Agent Persona: Runtime maintainer
 
 ## 1. Core Logic & Implementation
