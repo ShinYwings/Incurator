@@ -15,7 +15,7 @@ No permission expansion, no provider rerouting, no prompt/schema changes, no ret
 - Recovered output and legitimate empty structured results remain accepted by existing validation.
 - Explicit ERROR envelopes cannot return successful payloads, regardless of exit code.
 - Existing capacity cooldown and OS sandbox stay enforced.
-- Exact live contract, harmless forced-command probe, all backend/plugin gates, required code-review skill, green CI.
+- Pre-change direct live evidence and captured-envelope replay, all backend/plugin gates, required code-review skill, green CI. Further live provider tests removed per user directive.
 
 ## 4. Locked Design Decisions (Arena Consensus)
 Correct the provider boundary in llm.py; retain AntigravityCliError and existing graph loop. Detect no-answer denial using native denied_actions, not arbitrary log prose. Preserve present structured results (including empty arrays) and usable response text. Explicit provider ERROR takes precedence over payload. Correct claims that schema/one turn guarantees no tools. See agy_shell_out_arena/05_* and 06_* for domain analyses, pseudocode and cross-critique.

@@ -11,7 +11,9 @@ Date: 2026-09-11 | Anchor: ce854940 (v0.82.4)
 - Two independent domain proposals and two live-evidence cross-critiques agree on boundary-only fix. Broad exception retry taxonomy deferred.
 - No storage contract or migration, no user-vault mutation. Pre-existing .agents/drafts/e4_agy_shell_out.md preserved until closure bookkeeping.
 
-Post-change validation: pending.
+Post-change validation: 7 new regressions failed before implementation, then passed. Full local backend: 1980 passed, 6 skipped, 4 xfailed; plugin: 1286 passed, 3 skipped. Ruff, mypy, TypeScript, production build passed. A testbed-scoped `wiki plugin version` smoke returned JSON (dev environment installed metadata is stale; not evidence of production deployment).
+
+Review: exact code-review skill invoked for PR #205; Claude OAuth session expired before review, no authentication retry. Independent peer review found no high-confidence actionable issue but is not a substitute for the mandated skill. PR remains open until required review or explicit user waiver.
 
 ## User correction: no login-triggering tests
 The new pytest live graph test inherited conftest's temporary HOME and triggered agy authentication despite a valid real login. It timed out at 60 seconds; no agy process remains. User requested deletion. Removed it, the prior backend opt-in agy live test, and the global INCURATOR_LIVE_AGY guard bypass. Further automated verification replays captured real envelopes; no more real agy invocations in this task. The earlier direct live probes used normal HOME and remain valid pre-change evidence. Post-change live validation is explicitly not claimed.

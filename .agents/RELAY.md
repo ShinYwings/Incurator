@@ -3,19 +3,24 @@
 **Branch:** `codex/e4-denied-envelope`
 
 ## Goal
-E4: make current agy no-output permission denials reach graph batch retry.
+E4: normalize current agy denied/no-answer envelopes so graph batch retry runs.
 
 ## Plan Reference
 `.agents/plans/06_e4_denied_envelope.md`; evidence in `06_e4_roadmap_evidence.md`.
+PR: https://github.com/ShinYwings/Incurator/pull/205 (OPEN, target v0.82.5).
 
 ## Analysis & Reasoning
-The August draft is stale: retry and durable resume already exist. agy 1.2.0 now returns exit 0 / SUCCESS / empty response / denied_actions on command denial; the adapter returns empty text and bypasses graph exception retry. Live exact graph contract succeeds in 13.5 seconds, 2 turns. No permission widening is needed.
+agy 1.2.0 can return exit 0 / SUCCESS / blank response / denied_actions on command refusal. The backend returned empty text and bypassed graph exception retry. Fix raises existing AntigravityCliError before parsing. Graph cache, retry cap, permissions and extraction schema remain unchanged. Earlier direct live graph probe succeeded in 13.5 s; forced command reproduced denial in 8.38 s.
 
 ## Progress Status
-Arena proposals and cross-critique complete. Docs, TDD and provider boundary fix next. Current merged release is v0.82.4 (PR #204); target patch v0.82.5.
+Implementation, regressions, English/Korean docs and v0.82.5 manifests/changelog committed and pushed. Local checks: 1980 backend passed, 6 skipped, 4 xfailed; 1286 plugin passed, 3 skipped; Ruff, mypy, TypeScript and production build passed. Independent peer review found no actionable defect.
 
 ## Critical Context / Blockers
-Do not reindex or mutate user data. Existing E4 draft was user-owned untracked content. Keep sandbox, graph cache, retry limit and prompt contract unchanged. Broad retry classification remains separate.
+Required `/code-review:code-review 205` was invoked through installed Claude CLI but failed before review: OAuth session expired and could not be refreshed. No login retry performed. Independent review is not recorded as a substitute; PR remains unmerged pending required review or explicit user waiver. Current merged release remains v0.82.4.
+
+User explicitly requested removing tests that trigger agy login. Removed the new live graph test, existing backend live structured-output test, and global INCURATOR_LIVE_AGY spawn-guard bypass. Root cause: pytest isolates HOME, so real agy cannot see existing login. DO NOT run agy from pytest or retry login. Further validation uses captured-response replay. No agy processes remained after timeout. No post-change real provider validation claimed.
+
+Original untracked `.agents/drafts/e4_agy_shell_out.md` is preserved. No user-vault reindex, migration, or production-data mutation. Plans stay active until merge. E7 is recorded shipped by prior PR #204.
 
 ## Immediate Next Action
-Write provider/graph envelope regressions before implementation, then live checks, review and release.
+Finish the required review once available (do not automatically authenticate), verify latest PR CI, then merge and prune the finished branch, retire implemented plans, and update roadmap/relay. Do not restart E4 research or repeat live agy calls.

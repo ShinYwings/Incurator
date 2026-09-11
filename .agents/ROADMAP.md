@@ -711,6 +711,9 @@ describes an older parse.
 ### E4. agy denied envelopes bypass graph retry — **ACTIVE; v0.82.5**
 
 Current Arena: `.agents/plans/06_e4_denied_envelope.md`.
+PR #205 implements the fix and removes login-triggering backend live tests.
+Local checks and independent peer review passed; required code-review skill
+could not run because Claude OAuth expired. PR remains open, not shipped.
 The August briefing is historical: per-batch retries and durable successful-batch
 reuse already shipped. Current agy 1.2.0 returns exit 0 and SUCCESS for a denied
 command, with no answer and a native `denied_actions` list. Live probe reproduced
