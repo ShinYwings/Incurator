@@ -990,6 +990,9 @@ provider-native control:
   plaintext `llm.deepseek-api.api_key`. Environment variables take precedence.
   `api_key_secret` points to a local encrypted secret outside the shared vault;
   shared/project config must not contain newly stored plaintext API keys.
+  The Obsidian plugin stores its provider key through `wiki plugin secret set`
+  with `--value -` and sends the actual value over the child process's stdin;
+  provider credentials MUST NOT be placed in backend command argv or logs.
   The encrypted secret store distinguishes missing from corrupt/unreadable JSON,
   and it also distinguishes both from **stored but undecryptable**. The Fernet
   key is machine-local and is never synced, so a config that arrived through

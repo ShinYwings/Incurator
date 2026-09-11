@@ -1541,8 +1541,11 @@ Rules:
 - **The plugin's provider key is persisted OUTSIDE the vault** (v0.62.4). It is
   still stripped from `data.json` — that rule does not change — but it is now
   handed to `wiki plugin secret set`, which encrypts it under the machine-local
-  `.cache/config/secrets/`. Restoring at load prefers `process.env`, then the
-  store. Without the second path the key was memory-only, and a GUI-launched
+  `.cache/config/secrets/`. The plugin bridge invokes that command with
+  `--value -` and writes the actual key through the child process's stdin; the
+  credential MUST NOT appear in argv, logs, or process diagnostics. Restoring at
+  load prefers `process.env`, then the store. Without the second path the key was
+  memory-only, and a GUI-launched
   Obsidian has no shell environment, so **every plugin update lost it**;
   reproduced deterministically, and it blocked the acceptance test twice.
   **The plugin's key and the backend's own are separate by design** — possibly

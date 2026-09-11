@@ -152,3 +152,21 @@ def test_removing_the_plugin_key_leaves_the_backend_key_alone(isolated_secrets: 
 
     survivor = _run("plugin", "secret", "get", "--name", "backend-deepseek")
     assert survivor["value"] == "sk-backend", "sign-out took the backend's key with it"
+
+
+def test_stdin_sentinel_accepts_a_secret_without_putting_it_in_argv(
+    isolated_secrets: Path,
+) -> None:
+    """The plugin must pass secret bytes over stdin, not a visible argv value."""
+    result = runner.invoke(
+        app,
+        ["plugin", "secret", "set", "--name", "deepseek-api-key", "--value", "-"],
+        input="sk-stdin-only\n",
+    )
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output[result.output.index("{"):])
+    assert payload["ok"] is True
+    assert "sk-stdin-only" not in result.output
+
+    got = _run("plugin", "secret", "get", "--name", "deepseek-api-key")
+    assert got["value"] == "sk-stdin-only"
