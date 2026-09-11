@@ -155,3 +155,11 @@ cd plugin && npx tsc --noEmit
 - `curator_search_source` 또는 `curator_get_pdf_page`를 검증하는 페이지 출처(provenance) 단언문 하나
 
 개인 Zotero 라이브러리나 개인 PDF를 커밋하지 마세요. 공개 fixture용으로는 최소한의 퍼블릭 도메인 PDF나 합성 텍스트 PDF를 사용하세요.
+
+### 백엔드 테스트의 provider 격리
+
+백엔드 pytest는 HOME을 격리하고 실제 provider CLI subprocess 실행을 차단합니다.
+Provider adapter 테스트는 agy를 실행하는 대신 확보한 응답을 재생합니다. 기존
+`INCURATOR_LIVE_AGY` 예외는 임시 HOME 때문에 사용자의 기존 로그인을 찾지 못하고
+인증 요청을 띄우므로 제거했습니다. 이제 해당 환경변수를 설정해도 subprocess
+차단이 해제되지 않습니다.

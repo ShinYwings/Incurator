@@ -12,3 +12,6 @@ Date: 2026-09-11 | Anchor: ce854940 (v0.82.4)
 - No storage contract or migration, no user-vault mutation. Pre-existing .agents/drafts/e4_agy_shell_out.md preserved until closure bookkeeping.
 
 Post-change validation: pending.
+
+## User correction: no login-triggering tests
+The new pytest live graph test inherited conftest's temporary HOME and triggered agy authentication despite a valid real login. It timed out at 60 seconds; no agy process remains. User requested deletion. Removed it, the prior backend opt-in agy live test, and the global INCURATOR_LIVE_AGY guard bypass. Further automated verification replays captured real envelopes; no more real agy invocations in this task. The earlier direct live probes used normal HOME and remain valid pre-change evidence. Post-change live validation is explicitly not claimed.

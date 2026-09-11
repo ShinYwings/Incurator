@@ -917,10 +917,10 @@ leaving the real answer in the response text under field names the contract
 never declared. Sending an unflattened schema therefore ingests a source to
 nothing while reporting success — a worse outcome than the crash this replaces.
 
-**One turn is the property that matters.** `num_turns: 1` means the model
-answered directly: no tool call, so nothing for a permission layer to deny. A
-structured call reporting more than one turn must be logged — it is the early
-sign of the failure recurring.
+**Turn count is diagnostic, not a permission guarantee.** A current live graph
+extraction completed successfully in two turns. Conversely, agy 1.2.0 returned
+a denied command with `num_turns: 1`. Neither schema mode nor turn count proves
+that a model cannot request a tool. Multi-turn calls remain logged for diagnosis.
 
 **Precedence when reading the result.**
 
@@ -929,8 +929,8 @@ sign of the failure recurring.
 2. `structured_output` **empty after one turn** → use it. An empty result is a
    legitimate answer: a references list, a title page, or boilerplate contains
    nothing extractable, and the model says so in prose out of habit while
-   returning an honestly empty structure. One turn means it answered directly,
-   so that structure IS the answer.
+   returning an honestly empty structure. The present structure is an answer candidate;
+   the registered contract validates it.
 3. `structured_output` empty **after more than one turn, or with no turn count**,
    while the response text is non-empty → fall back to parsing the response text
    and log the degradation. This is the measured defect shape: the model went
@@ -941,12 +941,21 @@ sign of the failure recurring.
    prose where a caller expects JSON fails the parse, burns the one-shot repair
    retry, and can fail the batch.
 
-**The error envelope moves the reason.** Under structured output the CLI still
-exits non-zero on failure, but stderr is empty and the cause moves into the
-envelope's `error` field. A client must read the message from there; building it
-from stderr yields an exit code with no explanation. Capacity/quota detection
-must consult the envelope's error text as well as the log file, since stderr is
-no longer a signal.
+**Result errors take precedence over process success.** Structured output can
+return exit zero and `status: SUCCESS` even when a command was denied. When
+`denied_actions` is nonempty, `response` is blank and `structured_output` is
+absent/null, the backend raises a provider permission error before parsing. The
+existing graph batch retry then repeats the original batch, rather than spending
+a JSON-repair turn on a provider refusal. A supplied structured result, including
+a legitimate empty extraction, or recovered response text still reaches normal
+contract validation. Denial metadata alone must not discard recovered answers.
+An explicit `status: ERROR` or nonempty envelope `error` fails even with exit
+zero or a populated payload. Error reasons feed the existing capacity check;
+a no-answer permission denial itself does not start a quota cooldown.
+
+Validated graph batches remain durable and reusable after later failures. A
+failed batch cannot publish a partial generation. No tool permission, retry
+budget, extraction schema or provider selection changes with this handling.
 
 ### 11.1 Model Catalogue and Reasoning Effort
 

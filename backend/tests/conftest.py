@@ -52,19 +52,11 @@ def block_real_provider_cli(monkeypatch: pytest.MonkeyPatch) -> None:
     correctly do — and this guard is what makes forgetting it loud instead of
     silent.
     """
-    import os
     import subprocess
 
-    # One test is BUILT to hit the real CLI, behind its own explicit opt-in:
-    # `test_structured_output.py::test_live_...` is skipped unless
-    # `INCURATOR_LIVE_AGY=1`, and it deliberately does not patch `subprocess.run`
-    # because asserting what the CLI actually accepts is its whole purpose.
-    # `skipif` does not stop fixtures from running when the flag IS set, so
-    # without this carve-out the guard would silently break the one test the flag
-    # exists to enable.
-    if os.environ.get("INCURATOR_LIVE_AGY"):
-        return
-
+    # No live-provider opt-out: HOME is isolated for every test, so a real
+    # agy invocation cannot find the existing login and starts authentication.
+    # Provider tests replay captured responses instead (user directive 2026-09-11).
     real_run = subprocess.run
     real_popen = subprocess.Popen
     blocked = {"agy", "claude", "codex", "gemini", "ollama"}

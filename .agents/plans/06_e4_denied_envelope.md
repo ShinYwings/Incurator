@@ -31,5 +31,5 @@ See 06_e4_roadmap_evidence.md. Base ce854940, current release 0.82.4. Only pre-e
 - P1: Update English specs/guides then Korean guide; preserve extraction contract v2.
 - P2: Write failing provider and full adapter-to-graph regressions.
 - P3: Normalize result errors before unwrapping; run targeted tests and Ruff.
-- P4: Run exact live graph/denial checks in testbed scope, isolated graph DB replay; no production ingest.
+- P4: Replay captured live graph/denial envelopes through isolated graph DB. Per user correction, remove login-triggering pytest live calls and the provider guard opt-out; no further real agy invocations.
 - P5: Full checks, patch manifests/changelog, PR and code-review skill, CI, merge, prune, refresh relay. Delete completed master plan; keep evidence in Git.

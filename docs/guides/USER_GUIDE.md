@@ -677,8 +677,12 @@ What this means in practice:
   object directly. Before v0.60.0 the model was free to answer a JSON request by
   *writing a program* to build the answer — two large books failed mid-run when
   the CLI tried to shell out to `python3` and was correctly denied. Nothing about
-  this widens what a model is allowed to run; it removes the reason to reach for
-  a shell at all.
+  this widens what a model is allowed to run; native output still does not
+  prevent the model from requesting a tool. If agy denies a tool and returns
+  no answer, the backend reports that refusal even when the CLI says SUCCESS.
+  Graph extraction retries the original batch through its existing retry limit
+  and reuses previously validated batches. Recovered answers and valid empty
+  extractions remain accepted; incomplete graphs are never published.
   If the provider refuses with a rate limit, the job is **not** restarted
   immediately: the queue is left untouched and `wiki jobs run` tells you roughly
   how long to wait. Before v0.62.0 this mattered a great deal, because restarting

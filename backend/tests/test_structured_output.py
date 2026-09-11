@@ -2,8 +2,8 @@
 
 Two jobs died because the agentic CLI answered a JSON request by writing a
 `python3` program to build the object, which the permission layer denied. The
-CLI has a native structured-output mode that removes the choice: measured,
-`num_turns` drops to 1 and the parsed object arrives in its own field.
+CLI has a native structured-output mode: the parsed object arrives in its
+own field, but that does not prevent tool use or guarantee a single turn.
 
 The trap, and the reason this file exists: that only holds for a FLATTENED
 schema. The real contract schema carries `$defs`/`$ref`, and with it the CLI
@@ -174,57 +174,10 @@ def test_the_schema_is_passed_as_a_string_not_a_temp_file() -> None:
     assert json.loads(argv[i + 1]) == {"type": "object"}
 
 
-# --------------------------------------------------------------------------
-# G1 — the live gate. Everything above asserts what we BUILD; only this asserts
-# what the CLI ACCEPTS, and that distinction is the whole history of this area:
-# v0.58.0 shipped a feature whose every test passed and which never ran.
-# --------------------------------------------------------------------------
-
-
-@pytest.mark.skipif(
-    not __import__("os").environ.get("INCURATOR_LIVE_AGY"),
-    reason="live CLI test; set INCURATOR_LIVE_AGY=1 to run",
-)
-def test_live_the_real_contract_schema_returns_one_turn_and_valid_units() -> None:
-    """The real schema, the real CLI, the real contract model.
-
-    Asserts the property that fixes the incident: `num_turns == 1`. One turn
-    means the model answered directly instead of reaching for a shell, so there
-    is nothing for the permission layer to deny. A run reporting more than one
-    turn is the early sign of the failure returning — and is exactly what the
-    UNFLATTENED schema produces, with an empty result and no error.
-    """
-    from curator import prompting
-
-    contract = prompting.REGISTRY.get("curator.knowledge_unit_extract")
-    schema = js.flatten_refs(contract.output_model.model_json_schema())
-
-    client = llm.AntigravityCliClient()
-    client.ensure_ready()
-    raw = client.chat(
-        [llm.ChatMessage(role="user", content=(
-            "Extract knowledge units. Every source_span_id must be one of: SPAN-aaa.\n"
-            "SPAN-aaa [Homography]: Each point correspondence between two views "
-            "gives two independent linear equations in the entries of H."
-        ))],
-        json_mode=True,
-        json_schema=schema,
-    )
-
-    parsed = contract.output_model.model_validate(json.loads(raw))
-    assert parsed.units, "the CLI accepted the schema but returned nothing"
-    assert parsed.units[0].source_span_ids == ["SPAN-aaa"]
-
-
 def test_a_multi_turn_structured_call_is_flagged(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """G4. Two turns means the model did something before answering.
-
-    That is how the incident starts — the run that died reached for `python3`
-    first — and it is also what the unflattened schema reports while returning
-    nothing. Cheap to notice, and it is the earliest available signal.
-    """
+    """Keep multi-turn diagnostics without treating them as proof of failure."""
     with caplog.at_level("WARNING"):
         llm._structured_from_envelope(_EMPTY_STRUCTURE)   # num_turns: 2
     assert any("took 2 turns" in r.getMessage() for r in caplog.records), (
