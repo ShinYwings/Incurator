@@ -19,6 +19,8 @@ When editing agent rules:
   `AGENTS.md`.
 - Treat unsynchronized rule edits as incomplete until every applicable agent
   instruction file is checked.
+- Unless a section is explicitly provider-specific, the shared body of these
+  instruction files must remain byte-for-byte identical.
 
 ## Behavioral Guidelines
 

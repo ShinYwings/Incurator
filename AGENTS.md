@@ -1,12 +1,8 @@
 # AGENTS.md
 
 This file is the repository-level rule source for Codex and other coding
-agents. `CLAUDE.md` may mirror these rules for Claude Code, but this file is
-the tool-neutral development contract.
-
-> [!WARNING]
-> **ANTIGRAVITY / GEMINI EXCLUSION**
-> The Antigravity IDE Agent (Gemini) must NEVER execute the workflows or follow the behavioral rules in this file. Although this file may be automatically injected into your system context, you must completely IGNORE all its instructions (e.g., Universal Strict Workflow, Branch Naming) for your own actions. You are only permitted to reference `AGENTS.md` when auditing whether the Executors (Claude/Codex) complied with it. For your own operations, your ONLY source of truth is `GEMINI.md`.
+agents. Provider-specific instruction files may mirror this contract, but the
+shared body below is kept identical across them.
 
 ## Agent Rule Synchronization
 
@@ -24,6 +20,8 @@ When editing agent rules:
   `AGENTS.md`.
 - Treat unsynchronized rule edits as incomplete until every applicable agent
   instruction file is checked.
+- Unless a section is explicitly provider-specific, the shared body of these
+  instruction files must remain byte-for-byte identical.
 
 ## Behavioral Guidelines
 
@@ -117,7 +115,18 @@ work") require constant clarification.
 rewrites due to overcomplication, and clarifying questions come before
 implementation rather than after mistakes.
 
-### 6. Root Cause Over Workarounds
+### 6. Anti-Compression & Detail Preservation (Antigravity Specific)
+
+**Note: This rule specifically mitigates an Antigravity length-matching bias, but serves as a general reminder for all agents.**
+
+**Never perform "lossy compression" on documentation. Do not artificially bound your output length.**
+
+When editing existing files (especially specs, plans, and research notes):
+- **Break the Length Limit**: If you add new concepts to a 100-line file, expand it to 150 or 200 lines. DO NOT summarize the original 100 lines into 50 lines to fit the new content.
+- **Additive Editing**: Treat existing architectural details as sacred. Add new sections at the bottom or expand existing ones. Never replace detailed paragraphs with bulleted summaries.
+- **Extreme Detail**: When explaining logic or architecture, write exhaustively. Do not use abstract buzzwords to compress complex mechanisms.
+
+### 7. Root Cause Over Workarounds
 
 **Fix the disease, not the symptoms. Do not use workarounds.**
 
@@ -125,6 +134,8 @@ implementation rather than after mistakes.
 - If a function is fundamentally flawed, fix the function. Do not wrap it in a `try...except` that hides the failure or add external scripts to patch its outputs.
 - If you find yourself writing logic that "corrects" the output of another buggy component, STOP. Go back and fix the buggy component directly.
 - Workarounds accumulate tech debt and cause cascading failures. Your job is to identify the root cause and resolve it definitively.
+
+Incurator is an LLM-maintained personal knowledge base (Zettelkasten) integrated with Obsidian. It ingests external sources through a 4-layer curation pipeline (L1 Contexts → L2 Atoms → L3 Concepts → L4 Synthesis) using a multi-provider LLM backend, building a verifiable cross-linked knowledge graph accessible to both humans and AI agents.
 
 ## Core Rule: Documentation & Test Mandate
 
@@ -159,7 +170,7 @@ Concrete examples:
 ## Core Rule: The Development Pipeline State Machine
 
 **GLOBAL PRIORITY RULE**: Every task flows strictly through a cascading pipeline: `User Report → Draft → Plan → Implementation`.
-When you wake up, you MUST evaluate the current project state and execute the NEXT logical phase. Never skip steps.
+When any agent wakes up, they MUST evaluate the current project state and execute the NEXT logical phase. Never skip steps.
 
 - **State 1 (Inbox Populated)**: If there are raw items in `.agents/USER_REPORT.md`, you may bypass the draft phase entirely and author a Master Plan (`.agents/plans/`) directly from the user report. You do NOT need to create a draft first.
 - **State 2 (Drafts Exist, No Plans)**: If a pre-existing draft has been provided in `.agents/drafts/`, you MUST use that draft as the Briefing for your Arena debate to synthesize the `PLAN_TEMPLATE.md`.
@@ -168,7 +179,7 @@ When you wake up, you MUST evaluate the current project state and execute the NE
 
 ## Core Rule: System Update Workflow (Universal Strict Workflow)
 
-**GLOBAL PRIORITY RULE**: Before starting any `/goal` or architectural planning, you MUST check `.agents/USER_REPORT.md` for new inbox items, and `.agents/ROADMAP.md`'s To-Do queue. If there are unresolved bugs or pending items in the user report, you MUST prioritize grouping and fixing those first.
+**GLOBAL PRIORITY RULE**: Before starting any `/goal` or architectural planning, agents MUST check `.agents/USER_REPORT.md` for new inbox items, and `.agents/ROADMAP.md`'s To-Do queue. If there are unresolved bugs or pending items in the user report, you MUST prioritize grouping and fixing those first.
 **BLOCKED ICEBOX EXCEPTION**: If an item in `USER_REPORT.md` is waiting on an external dependency or cannot be fixed immediately, move it to the `🧊 Blocked / Icebox` section in `.agents/ROADMAP.md` and **delete** it from `USER_REPORT.md`. The Global Priority Rule explicitly IGNORES items in this section.
 **HOTFIX EXCEPTION**: If a critical bug is reported while a large Batch Release (e.g., `v0.4.0`) is already being planned or worked on, the agent MUST immediately create a separate `hotfix/...` branch, patch the bug (`+0.0.1`), and open a PR. Do not delay hotfixes by bundling them into ongoing major/minor batch plans.
 **VERSION BUMP IS MANDATORY FOR ALL CODE CHANGES**: Step 10 (Version Bump & Changelog) is NON-NEGOTIABLE for any branch that modifies code (`hotfix/*`, `release/*`, `feature/*`, `fix/*`). Only `chore/*` branches (CI, tooling, dependency-only changes) are exempt. `pyproject.toml`, `package.json`, `manifest.json`, and `package-lock.json` (both its top-level `version` and its `packages[""].version`) must all agree on the same version before the PR is opened. The CI `version-consistency` job will block the merge if they disagree — this is the hard gate. The version bump is what triggers the Obsidian update toast for installed users; skipping it silently breaks the self-update mechanism.
@@ -219,7 +230,7 @@ Whenever a user requests a new feature, reports a bug, or uses the `/goal` comma
 
 9. **Local CI Validation**: Before finalizing, you MUST run all local checks. Keep the service/runtime venv at the repo root as `.venv`; `./setup.sh` updates this environment for real backend/plugin service deployment and MUST NOT install dev-only check tools into it. Keep the backend development/validation venv at the repo root as `.venv-dev`; install `backend[dev,mcp]` there. Run backend checks through the repo-root helper, which calls `.venv-dev/bin` directly, stores tool caches under repository `.cache/`, and never creates backend-local artifacts: `scripts/backend-check pytest`, `scripts/backend-check ruff`, `scripts/backend-check mypy`, and the plugin's `npx vitest run -c ./plugin/vitest.config.ts`. **The plugin's TypeScript check is a separate gate CI runs and vitest does not**: `cd plugin && npx tsc --noEmit`. It must be run FROM `plugin/` — at the repo root `npx tsc` resolves to an unrelated package and prints "This is not the tsc command you are looking for", which reads like a missing tool rather than a wrong directory. Skipping it costs a full CI round-trip: vitest type-erases, so a type error passes every local test and fails CI in 11 seconds. Never create `backend/.venv`, `backend/.venv-dev`, `backend/uv.lock`, or backend-local tool caches. Ensure the entire system is intact.
 10. **Report Cleanup**: Once an item is verified, ensure it is marked as completed or removed from `.agents/ROADMAP.md` (since it was already deleted from USER_REPORT.md during planning).
-11. **Version Bump & Changelog**: Update the version strings in all relevant configuration files (`pyproject.toml`, `package.json`, `manifest.json`, `package-lock.json`) AND update `CHANGELOG.md` with the release notes for this version. **MINOR/MAJOR SPEC-LINE SYNC (mandatory whenever the `MAJOR.MINOR` line changes — e.g. `0.16.x → 0.17.0`)**: `backend/tests/test_spec_sync.py` derives the active version from the build manifests (`backend/pyproject.toml` plus the `plugin/` JSON manifests, including `plugin/package-lock.json` — the single source of truth, read directly, NOT from installed package metadata) and hard-asserts that (a) all build manifests agree on the version and (b) every static spec title (`docs/specs/*/{SCHEMA,SYSTEM_BEHAVIOR,PLUGIN_SCHEMA,SEARCH_ENGINE_SCHEMA}.md` first line) declares the active `vX.Y` line. So on any minor/major bump you MUST also bump the `(vX.Y.Z)` suffix in all four spec-file titles to the new line. There is no `ACTIVE_VERSION` constant to maintain and no dev-venv reinstall is needed — because the test reads the manifest directly, it validates identically locally and in CI. Pure patch bumps that keep the same minor line do not touch the spec titles.
+11. **Version Bump & Changelog**: Update the version strings in all relevant configuration files (`pyproject.toml`, `package.json`, `manifest.json`, `package-lock.json`) AND update `CHANGELOG.md` with the release notes for this version. **MINOR/MAJOR SPEC-LINE SYNC (mandatory whenever the `MAJOR.MINOR` line changes — e.g. `0.16.x → 0.17.0`)**: `backend/tests/test_spec_sync.py` derives the active version from the build manifests (`backend/pyproject.toml` plus the `plugin/` JSON manifests, including `plugin/package-lock.json` — the single source of truth, read directly, NOT from installed package metadata) and hard-asserts that (a) all build manifests agree on the version and (b) every static spec title (first line of `docs/specs/curator_schema/SCHEMA.md`, `docs/specs/system_behavior/SYSTEM_BEHAVIOR.md`, `docs/specs/plugin_schema/PLUGIN_SCHEMA.md`, and `docs/specs/search_engine/SEARCH_ENGINE_SCHEMA.md`) declares the active `vX.Y` line. So on any minor/major bump you MUST also bump the `(vX.Y.Z)` suffix in all four spec-file titles to the new line. There is no `ACTIVE_VERSION` constant to maintain and no dev-venv reinstall is needed — because the test reads the manifest directly, it validates identically locally and in CI. Pure patch bumps that keep the same minor line do not touch the spec titles.
 12. **Plan Deletion**: **Delete** the implemented plan file(s) from the workspace. The plan's historical context will be statically preserved in the Git history for this version.
 13. **Release Commit**: Create a final release commit explicitly named `chore(release): vX.Y.Z`.
 14. **Push, PR, Review & Merge (Zero-Interaction Auto-Pilot)**: Push the branch to the remote repository. Create a GitHub Pull Request that includes a detailed PR Description (Why, What, How). **CRITICAL**: Once the workflow begins, agents MUST auto-approve their own steps and operate with zero user interaction. Do not pause to ask the user for confirmation on intermediate code changes or terminal commands.
@@ -319,41 +330,18 @@ The mandatory sequence when review feedback arrives:
 
 ---
 
-## Shared Architecture Memory
-
-All agents (Claude Code, Codex) MUST treat the following decisions as locked unless the user explicitly overrides them. These are condensed here so every agent starts with the same mental model regardless of which tool-specific memory system it uses.
-
-### Storage Model
-- **`state.sqlite` = single source of truth.** Holds source_spans, knowledge_units, graph entities/relations, community_reports, synthesis_nodes, dag_edges, job queue.
-  **It is machine-local, not in the vault**: `<repo>/.cache/vaults/<sha256(resolved_vault_root)[:16]>/state.sqlite` (`config.py::WikiPaths.state_db`). A 0-byte stub may sit at `<vault>/.curator/state.sqlite`; reading it returns zero rows and looks like an un-ingested vault. Find the live one with `ls -S .cache/vaults/*/state.sqlite | head -1`.
-- **`.curator/Collections/` markdown = derived disposable search corpus.** Regenerated from DB at any time. Not authoritative. Do not treat stale markdown as ground truth — re-emit from DB if in doubt.
-- **Search is DB-native (v0.3.2+).** SQLite FTS5/BM25 + chunk vector + RRF fusion + LLM reranking. Do not add external search-binary dependencies.
-- **No backward-compat shims.** New runs use the current code path directly.
-
-### Curation Model
-- **Static/frozen Exhibition files (EXH-*.md) are REMOVED.** `wiki curate`, `curator_curate_workspace`, EXH answer-cache, and EXH reverse-parse backprop were deleted. Do not reintroduce them.
-- **Curation = dynamic KRS-biased lens applied at retrieval time.** `curate.yml` (KRS) + insight promotions = a retrieval policy; never stored as a file.
-- **Layer stack: L1 spans → L2 atoms → L3 concepts → L4 Synthesis (shared stored SYN-*) → Curation lens (dynamic, not stored).**
-- **Durable human artifacts = `02_Wiki/` promotions only.** Chat history lives in plugin `sessions.json`, not the vault.
-
-### Where to Find Extended Decisions
-- Claude-specific memory: `~/.claude/projects/-Users-shin-shinywings-Incurator/memory/`
-- Project-local memory (all agents): `.claude/projects/-Users-shin-shinywings-Incurator/memory/`
-- Specs (authoritative): `docs/specs/system_behavior/SYSTEM_BEHAVIOR.md`, `docs/specs/curator_schema/SCHEMA.md`
-
----
-
 ## Core Rule: Cross-Agent Relay Protocol
 
-To prevent context fragmentation and hallucinations when switching between AI coding agents (Claude Code, Codex), all agents MUST adhere to the following protocol:
+To prevent context fragmentation and hallucinations when switching between AI coding agents (Antigravity, Claude Code, Cursor/Codex), all agents MUST adhere to the following protocol:
 
-- **On Wakeup**: **CRITICAL INSTRUCTION FOR ALL AGENTS (CODEX, CLAUDE)**. At the start of EVERY new conversation or session, the VERY FIRST ACTION you must take is to check if `.agents/RELAY.md` exists. If it does, you MUST read it in its entirety before taking ANY other action. Do NOT wait for the user to explicitly ask you to "resume work" or "read RELAY.md". If you fail to do this, you will cause severe context loss and code corruption.
+- **On Wakeup**: **CRITICAL INSTRUCTION FOR ALL AGENTS (CODEX, CLAUDE, ANTIGRAVITY)**. At the start of EVERY new conversation or session, the VERY FIRST ACTION you must take is to check if `.agents/RELAY.md` exists. If it does, you MUST read it in its entirety before taking ANY other action. Do NOT wait for the user to explicitly ask you to "resume work" or "read RELAY.md". If you fail to do this, you will cause severe context loss and code corruption.
 - **Update Frequency**: 
   - Agents MUST update `.agents/RELAY.md` at the **end of every session** (before stopping execution).
   - Agents MUST always keep `.agents/RELAY.md` updated during a `/goal` or when an implementation plan is active.
 - **Format & Behavior**: 
   - **For Main Architecture Tasks / Goals**: Overwrite `.agents/RELAY.md` entirely using the standard template (Goal, Plan Reference, Analysis & Reasoning, Progress Status, Critical Context/Blockers, Immediate Next Action). Maintain a single active state for the core task.
   - **For Bug Fixes / Side-Tasks (Any Agent)**: When any agent handles a side-task or bug fix while a main goal is active, it must NOT overwrite the main relay state. Instead, **APPEND** a new section (e.g., `### Update (YYYY-MM-DD, AgentName)`) at the bottom of `.agents/RELAY.md` summarizing what was investigated, fixed, or modified. This ensures the primary agent's context is not destroyed by small interventions.
+  - **Antigravity Fallback Execution**: If primary executors (e.g., Claude Code) are rate-limited or resting, Antigravity may temporarily act as the Executor. However, any code written by Antigravity MUST be explicitly marked in `.agents/RELAY.md` for mandatory verification by the primary Executor upon wakeup.
   - **IDLE Cleanup (Feed-Forward Exception)**: When the goal is fully shipped
     (PR merged, no active task), truncate `.agents/RELAY.md` to a minimal IDLE
     stub — do NOT accumulate session history. Git log is the history; RELAY.md
@@ -448,13 +436,37 @@ was actually correct.
 
 ---
 
+## Shared Architecture Memory
+
+All agents (Claude Code, Codex, Antigravity) MUST treat the following decisions as locked unless the user explicitly overrides them. These are condensed here so every agent starts with the same mental model regardless of which tool-specific memory system it uses.
+
+### Storage Model
+- **`state.sqlite` = single source of truth.** Holds source_spans, knowledge_units, graph entities/relations, community_reports, synthesis_nodes, dag_edges, job queue.
+  **It is machine-local, not in the vault**: `<repo>/.cache/vaults/<sha256(resolved_vault_root)[:16]>/state.sqlite` (`config.py::WikiPaths.state_db`). A 0-byte stub may sit at `<vault>/.curator/state.sqlite`; reading it returns zero rows and looks like an un-ingested vault. Find the live one with `ls -S .cache/vaults/*/state.sqlite | head -1`.
+- **`.curator/Collections/` markdown = derived disposable search corpus.** Regenerated from DB at any time. Not authoritative. Do not treat stale markdown as ground truth — re-emit from DB if in doubt.
+- **Search is DB-native (v0.3.2+).** SQLite FTS5/BM25 + chunk vector + RRF fusion + LLM reranking. Do not add external search-binary dependencies.
+- **No backward-compat shims.** New runs use the current code path directly.
+
+### Curation Model
+- **Static/frozen Exhibition files (EXH-*.md) are REMOVED.** `wiki curate`, `curator_curate_workspace`, EXH answer-cache, and EXH reverse-parse backprop were deleted. Do not reintroduce them.
+- **Curation = dynamic KRS-biased lens applied at retrieval time.** `curate.yml` (KRS) + insight promotions = a retrieval policy; never stored as a file.
+- **Layer stack: L1 spans → L2 atoms → L3 concepts → L4 Synthesis (shared stored SYN-*) → Curation lens (dynamic, not stored).**
+- **Durable human artifacts = `02_Wiki/` promotions only.** Chat history lives in plugin `sessions.json`, not the vault.
+
+### Where to Find Extended Decisions
+- Claude-specific memory: `~/.claude/projects/-Users-shin-shinywings-Incurator/memory/`
+- Project-local memory (all agents): `.claude/projects/-Users-shin-shinywings-Incurator/memory/`
+- Specs (authoritative): `docs/specs/system_behavior/SYSTEM_BEHAVIOR.md`, `docs/specs/curator_schema/SCHEMA.md`
+
+---
+
 ## Core Rule: Testbed-Driven Development
 
 All feature additions, bug fixes, migrations, and system rule changes must be validated in the `testbed/` vault which simulates a real environment. 
 
 ### Testbed Scenario Management
 The standard scenario template for development and validation is located at `tests/scenarios/`. 
-Each scenario is contained in its own folder (e.g., `tests/scenarios/testbed_template/`). 
+Each scenario is contained in its own folder (e.g., `tests/scenarios/testbed_template/`).
 Agents should refer to the specific scenario's `MASTER_PLAN.md` to understand the domain and validation goals.
 
 - **Standard Template**: `tests/scenarios/testbed_template/` is the blueprint for creating new scenarios, but it is rarely the active one.
@@ -466,30 +478,137 @@ Agents should refer to the specific scenario's `MASTER_PLAN.md` to understand th
 - **Blockers**: If a dependency is unavailable, report the exact blocker and run every lower-level validation that does not need that dependency.
 - **Completion Criteria**: Do not treat a query/search change as complete until it has been checked with the testbed, or until the search/LLM blocker is documented.
 
-Recommended baseline:
+## Development Commands
 
 ```bash
-# Replace <scenario_name> with the folder name (e.g., testbed_template)
+# Runtime/service venv policy: ./setup.sh updates <repo>/.venv for the real
+# backend/plugin service deployment. Do not install dev-only check tools there.
+./setup.sh
+
+# Backend dev/validation venv policy: checks use <repo>/.venv-dev directly,
+# never backend/.venv, backend/uv.lock, or backend-local caches.
+uv venv "$(git rev-parse --show-toplevel)/.venv-dev"
+uv pip install --python "$(git rev-parse --show-toplevel)/.venv-dev/bin/python" \
+  -e "$(git rev-parse --show-toplevel)/backend[dev,mcp]"
+
+# Lint / type-check / test. Use the root helper; it calls .venv-dev/bin
+# directly and pins mypy stubs/cache without exporting VIRTUAL_ENV.
+scripts/backend-check ruff
+scripts/backend-check mypy
+scripts/backend-check pytest
+
+# Run a single test
+scripts/backend-check pytest backend/tests/test_db.py::test_source_deduplication -v
+
+# Build package
+hatch backend/build
+
+# Recreate the ignored development validation vault
 # Optional: --llm <provider> --model <model_name>
 wiki testbed init <scenario_name> --force
 VAULT_ROOT=testbed wiki status
 VAULT_ROOT=testbed wiki add
 VAULT_ROOT=testbed wiki sync
 VAULT_ROOT=testbed wiki lint
-# Or run the whole ingest pipeline (add → build → embed → sync) in one step:
-VAULT_ROOT=testbed wiki update
 ```
 
-The generated `testbed/` vault is configured to use a primary LLM backend (default: `antigravity-cli`). Before running LLM-sensitive testbed commands, make sure the configured primary LLM tool is installed and authenticated.
+**CLI entry point** (after install):
+```bash
+wiki init <path>        # Initialize a Curator vault
+wiki update             # One-shot pipeline: add → build → embed → sync
+wiki add <file>         # Parse source and generate L1-L4 layers
+wiki sync               # Verify DAG integrity, rebuild index/ledger
+wiki lint               # Health check: broken links, orphans, contradictions
+wiki query "<question>" # Search and synthesize answer with citations
+wiki reindex            # Force rebuild of DB-native FTS5 search index
+wiki status             # Show config and stats
+wiki config provider    # Switch LLM backend
+wiki sources list|show|rm  # Manage tracked source files
+```
 
-When the configured LLM backend is available, also run:
+## Architecture
+
+### Data Flow
+
+```
+[Source File]
+     │  wiki add
+     ▼
+[ingest_raw.py] — parse via parsers/* → register in db.sources (content-hash dedup)
+     │  LLM pass → generate L1-L4
+     ▼
+[01_Contexts/CTX-<UUID>.md]
+[02_Atoms/ATM-<UUID>.md]       ← atomic facts extracted by LLM
+[03_Concepts/CON-<UUID>.md]    ← cross-source thematic groupings
+[04_Synthesis/SYN-<UUID>.md]   ← shared stored synthesis (workspace-independent)
+     │
+     │  Curation lens (dynamic, applied at query time via curate.yml KRS)
+     ▼
+     ├─ wiki query (search.py / DB-native FTS5+vector+RRF+rerank)
+     └─ HITL promotion → 02_Wiki/ (becomes new L1 input next cycle)
+```
+
+### Key Modules
+
+| Module | Role |
+|--------|------|
+| `cli.py` | Typer CLI; auto-selects LLM backend by available RAM (<16 GB → Antigravity cloud, ≥16 GB → Ollama local) |
+| `db/` | SQLite state (`state.sqlite`): source deduplication (SHA256 hash), ingest run history, source→page provenance. Package (decomposed from the former `db.py`, DB-2): `db/schema.py` (DDL, migrations, `connect`, `init_db`), `db/_entities.py` (entity repository queries), `db/__init__.py` re-export facade — still imported as `from . import db` and used via `db.<name>` |
+| `ingest_raw.py` | File discovery, hash-based dedup, parser dispatch, L1 Context generation |
+| `ingest_llm.py` | Three-phase DAG construction: Phase A (atoms), Phase B (concepts/communities), Phase C (synthesis) |
+| `sync.py` | DAG integrity verification; Mode A (global reverse L4→L1) and Mode B (targeted bidirectional) |
+| `search.py` | DB-native search: SQLite FTS5/BM25 + chunk vector + RRF fusion + LLM reranking |
+| `query.py` | Retrieval + LLM synthesis with citation management |
+| `llm.py` | Multi-provider clients: `OllamaClient`, `AntigravityClient`, `ClaudeClient`, `OpenAIClient`, `FailoverClient` |
+| `config.py` | Vault topology, `.curator/config.yml` loading, path resolution |
+| `page_writer.py` | Frontmatter parse/write, wikilink extraction, index and log file updates |
+| `parsers/` | Normalize PDF, HTML, plain-text, image → `ParsedDocument` |
+| `lint.py` | Detects contradictions, orphan nodes, broken wikilinks, malformed frontmatter |
+| `mcp_server.py` | MCP server interface (in progress) |
+
+### Vault Structure
+
+```
+<vault>/
+├── .obsidian/         Obsidian configuration and plugins
+├── 00_System/         User-defined folders (e.g., sandbox, inbox, daily, etc.)
+├── 01_Workspaces/     [Artist Space] Project-specific studios
+│   └── <project_name>/
+│       ├── curate.yml     Knowledge Requirement Spec (Required)
+│       ├── .agents/       Agent-specific workspace (Auto-generated)
+│       └── <notes/scripts>Human artifacts related to this project
+├── 02_Wiki/           [Human Space] Human-curated knowledge (promoted from L4)
+├── 03_Notes/          [Source] Human notes — READ-ONLY
+├── 04_Resources/      [Source] External references — READ-ONLY
+├── 05_Assets/         Media assets (images, PDF attachments, etc.)
+├── 06_Archives/       Archives for deprecated or old sources
+└── .curator/          [Machine Space] Hidden core (managed by wiki CLI)
+    ├── settings.yml   Vault-scoped portable settings (persona, sync policy, etc.)
+    ├── index.md       DAG routing table (all L1-L4 node IDs)
+    ├── overview.md    Domain manifest
+    ├── log.md         Append-only event log
+    ├── ledger.md      HITL correction record
+    └── Collections/
+        ├── 01_Contexts/
+        ├── 02_Atoms/
+        ├── 03_Concepts/
+        └── 04_Synthesis/
+```
+
+**`state.sqlite` is NOT in the vault.** It is machine-local, at
+`<repo>/.cache/vaults/<sha256(resolved_vault_root)[:16]>/state.sqlite`
+(`config.py::WikiPaths.state_db`). A 0-byte `state.sqlite` may exist at
+`<vault>/.curator/` as a legacy stub — opening it reads zero rows and looks
+exactly like a vault that was never ingested. That has cost real debugging time
+in this project more than once. To find the live DB:
 
 ```bash
-VAULT_ROOT=testbed wiki reindex
-VAULT_ROOT=testbed wiki query "Summarize the core concepts in this vault."
+ls -S .cache/vaults/*/state.sqlite | head -1
 ```
 
-## Architecture Source Of Truth
+Each cache directory holds a `vault_root` file naming the vault it belongs to.
+
+### Architecture Source Of Truth
 
 The **entire `docs/` tree is source of truth**. The system design becomes increasingly concrete across three distinct levels of documentation. Agents must read the relevant docs before implementing or changing behavior, and respect this hierarchy:
 
@@ -572,12 +691,9 @@ As the orchestrator, you must route the workflow through these execution roles s
 
 ## Simulated LLM Fallback
 
-Use the primary LLM backend first for LLM-sensitive changes. If it is too slow
-or blocked, run the `local_slm_simulator` role as a fast approximation:
+Use the primary LLM backend first for LLM-sensitive changes. If it is too slow or blocked, run the `local_slm_simulator` role as a fast approximation:
 
 - Compare the seeded L1-L4 testbed pages against the raw scenario files.
-- Verify that paper/resource claims merge above L1 and that the RAG page remains
-  a separate topic.
+- Verify that paper/resource claims merge above L1 and that the RAG page remains a separate topic.
 - Prefer short, explicit reasoning over exhaustive analysis.
-- Clearly label the result as simulated validation, not a replacement for a
-  later real model run.
+- Clearly label the result as simulated validation, not a replacement for a later real model run.
