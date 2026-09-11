@@ -708,43 +708,17 @@ needs its own briefing.
 **Also blocked on C3**: every number above that comes from `source_spans`
 describes an older parse.
 
-### E4. agy shells out during graph extraction — **ACTIVE; NEXT QUEUE ITEM**
+### E4. agy denied envelopes bypass graph retry — **ACTIVE; v0.82.5**
 
-**NEW, found by the v0.62.0 live run (2026-08-21).** The staged compile now
-fails in `curator.entity_relation_extract@v2`: 2 of 5 calls returned
-
-> `permission check failed for command "python3 -c '… transcript_full.jsonl …'"`
-
-The model tried to read the CLI's own transcript log to recover its prompt input.
-This is the v0.60.0 class (model computes instead of answering), but **neither of
-that release's causes applies**: the contract's schema flattens cleanly and IS
-sent, and graph extraction is already batched by `client_optimal_chunk_chars`.
-What remains is the agy model electing to run shell commands under a structured-
-output contract, where one denied command fails the whole compile.
-
-**This is a hard blocker for any large source, not an intermittent annoyance.**
-Graph extraction batches by `optimal_chunk_chars` and **every batch must
-succeed** for the generation to publish. Source 45 needs **~87 batches**
-(1,551,159 prompt chars at 18,000 each). The observed agy success rate is
-**57%** (4 ok / 3 failed across today's attempts), so the chance of a clean run
-is about **7×10⁻²²**. Retrying cannot work. Any source past roughly a dozen graph
-batches is effectively unpublishable until this is fixed — and the whole vault's
-large references are in that class.
-
-Fix directions, none investigated yet: grant the agy sandbox a scratch execution
-allowance; route `entity_relation_extract` to a provider that does not shell out;
-or make a denied shell command a retryable per-batch failure instead of a fatal
-compile error. Belongs with D3.
-
-**Related to D3 (the agy sandbox)** but not the same: D3 is about what the
-spawned CLI is *permitted* to read; this item is about the model electing to
-shell out at all. A sandbox changes which denials happen; it does not stop the
-model from trying.
-
-The retained briefing is `.agents/drafts/e4_agy_shell_out.md`; the next relay
-should turn that briefing into an Arena plan before changing provider tools or
-retry semantics.
-
+Current Arena: `.agents/plans/06_e4_denied_envelope.md`.
+The August briefing is historical: per-batch retries and durable successful-batch
+reuse already shipped. Current agy 1.2.0 returns exit 0 and SUCCESS for a denied
+command, with no answer and a native `denied_actions` list. Live probe reproduced
+this in 8.38 s. The backend unwraps it to empty text, so JSON repair runs instead
+of graph's existing exception retry. Normalize the no-answer denial at the
+provider boundary; preserve sandbox, capabilities, graph cache and retry budget.
+A real entity_relation_extract@v2 probe succeeded in 13.5 s with two turns;
+turn count does not prove tool use or its absence.
 
 ### E9. A git-history tool the model can call on purpose
 
@@ -850,22 +824,10 @@ The original entry follows.
 where most tooling produces NFC, so one file becomes two `sources` rows and its
 knowledge is split across both.
 
-### E7. The provider key travels as a CLI argument
+### E7. The provider key travels as a CLI argument — **SHIPPED v0.82.4**
 
-**Triaged from `USER_REPORT.md` 2026-09-01; raised by code review 2026-08-29.**
-Confirmed still open: `incuratorClient.ts:917` calls
-`["plugin","secret","set","--name",name,"--value",value]`, and argv is visible in
-`ps`. macOS restricts `kern.procargs2` to the same uid, which is why the v0.71.0
-review scored it LOW, but "only every process you run" is not nothing.
-
-The fix needs the value on stdin, and that path —
-`main.ts runBackendJsonCommand` → `runBackendCommand` — is the spawn EVERY
-backend call shares. Changing a shared signature mid-release for a LOW is what
-the stability tiebreaker exists to prevent, which is why it is its own item.
-
-To do: add an optional stdin channel to `runBackendCommand`, teach
-`wiki plugin secret set` to read `--value -`, and move only `setSecret` across.
-The existing `--value` path stays for the backend's own use.
+PR #204 sends the plugin key through stdin with `--value -`. Backend/plugin
+regressions and CI passed. The direct CLI literal-value path remains available.
 
 ### E8. `is_knowledge_question` gates nothing in the funnel — **SHIPPED v0.81.0**
 
