@@ -708,12 +708,11 @@ needs its own briefing.
 **Also blocked on C3**: every number above that comes from `source_spans`
 describes an older parse.
 
-### E4. agy denied envelopes bypass graph retry — **ACTIVE; v0.82.5**
+### E4. agy denied envelopes bypass graph retry — **SHIPPED 2026-09-11; v0.82.5**
 
-Current Arena: `.agents/plans/06_e4_denied_envelope.md`.
-PR #205 implements the fix and removes login-triggering backend live tests.
-Local checks and independent peer review passed; required code-review skill
-could not run because Claude OAuth expired. PR remains open, not shipped.
+PR #206 shipped the fix and removed login-triggering backend live tests.
+All CI gates and local checks passed. The required code-review skill could not
+run because Claude OAuth expired; the user explicitly authorized the merge.
 The August briefing is historical: per-batch retries and durable successful-batch
 reuse already shipped. Current agy 1.2.0 returns exit 0 and SUCCESS for a denied
 command, with no answer and a native `denied_actions` list. Live probe reproduced

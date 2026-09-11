@@ -413,6 +413,8 @@ All branches are created from `master` and merged back to `master` via PR. Never
 | `hotfix/vX.Y.Z-description` | `master` | Critical production fixes (bypass normal release cycle) |
 
 > **Note**: This repo uses `master` (not `main`). Do not rename the branch.
+> Provider-generated prefixes such as `codex/` do not override this project
+> strategy; every working branch must use one of the patterns in the table.
 
 ### Rollback Procedure (Bad Merge)
 If a merged PR introduces a regression that cannot be quickly patched forward:
