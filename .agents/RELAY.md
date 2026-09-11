@@ -24,3 +24,13 @@ Original untracked `.agents/drafts/e4_agy_shell_out.md` is preserved. No user-va
 
 ## Immediate Next Action
 Finish the required review once available (do not automatically authenticate), verify latest PR CI, then merge and prune the finished branch, retire implemented plans, and update roadmap/relay. Do not restart E4 research or repeat live agy calls.
+
+### Update (2026-09-11, Codex)
+
+Synchronized `AGENTS.md` with the latest `CLAUDE.md` shared body. Removed the
+stale Antigravity/Gemini exclusion and shortened rule set from `AGENTS.md`,
+copied the current detailed workflow, architecture, and development guidance,
+and added a byte-for-byte shared-body invariant to both files. Workspace
+hygiene tests passed (18/18); the synchronization commit is on `master` and
+that commit was merged into and pushed with this E4 branch. The untracked E4
+briefing draft remains untouched.
