@@ -8,4 +8,4 @@ Agents must check this document and triage the received items into the `To-Do (Q
 
 ## 📝 User Inbox
 
-*(empty — last triaged 2026-09-11; v0.82.3 release state and next E4 relay prepared)*
+*(empty — last triaged 2026-09-11 after v0.82.5 E4 hotfix merge; remaining work is queued in ROADMAP.md)*

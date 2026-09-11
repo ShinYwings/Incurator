@@ -6,6 +6,40 @@ The ordering rule the user set on 2026-08-23: *"기능을 추가하기보다는 
 안정이 우선"* — stability before features. The phases below encode that. Within a
 phase, order is free; across phases it is not.
 
+## To-Do (Queuing)
+
+`USER_REPORT.md` was checked on 2026-09-11 and is empty; there are no untriaged
+user reports. The remaining roadmap work is queued here in stability order:
+
+1. **B1/B2 state retention follow-up** — finish the fleet-safe retention policy
+   for diagnostic tables, chat sessions, tombstones, and repository-cache
+   garbage collection. Existing `wiki gc` behavior and the cross-device
+   deletion floor must remain intact.
+2. **C4 community hierarchy** — reconcile the measured flat-community failure
+   with the spec and implement the missing parent/level model.
+3. **E3 formula recovery** — unblock region association in the parser, then
+   revisit acceptance and validator provenance. This remains blocked on locating
+   omitted-image regions and on C3-era parser evidence.
+4. **E8 query-language follow-up** — close the remaining English
+   `wiki query`/MCP/plugin query classification gap without breaking translation
+   requests.
+5. **E9 read-only git-history MCP tool** — expose bounded history inspection to
+   providers that run through the CLI subprocess.
+6. **I1 retrieval/projection leftovers** — handle fragment segmentation, stale
+   CTX projections, and pre-v0.46 dead-source repair after confirming each live
+   case.
+7. **I2 PDF whole-document search** — execute the existing plan after approval;
+   fix quadratic indexing and progress-triggered search cascades first.
+8. **F1/F2 coverage** — complete PDF assistant P5 vault coverage and add
+   index-only workspace-note retrieval with the documented injection and draft
+   labeling guardrails.
+9. **F3/F4/F5 quality and UX** — establish prompt-shape fixtures, measure
+   retrieval/graph performance, and validate popover, sidechat, diff, and
+   dashboard friction against real plugin behavior.
+10. **I3 deferred product drafts** — plan vault storage governance/quota
+    visibility, native PDF annotation/assets, web search, and the popover vs
+    sidechat role split when the stability queue reaches them.
+
 | phase | what it buys | risk it carries |
 |---|---|---|
 | **A** | the system stops lying about its own state | none — no schema, no contract |
@@ -978,8 +1012,8 @@ reached native `run_command`; an absolute-path command was correctly denied by
 the narrow prefix. The configured Incurator MCP `curator_get_version` call
 returned `0.82.1` in 3.5 seconds (validation was run before the v0.82.3 release).
 No blanket grants, provider swaps, vault
-edits, or data migrations were used. Original E4 extraction draft remains
-separate.
+edits, or data migrations were used. The E4 extraction draft was retired after
+PR #206 merged; the remaining live drafts are listed under I3.
 
 ### I1. Retrieval and projection leftovers
 
@@ -1040,14 +1074,13 @@ their evidence ledgers; `git log -- .agents/plans/` has them in full.
 | kept | why |
 |---|---|
 | `formula_recovery_arena/` | E3 is its conclusion and cites it |
-| `agy_shell_out_arena/` | E4 |
 | `04_pdf_background_index.md` + arena | I2 — planned, awaiting approval, never implemented |
 | `05_pdf_reading_assistant.md` + arena | F1 — phase P5 is still open |
 
 **Walked again 2026-09-01.** `route_intent_arena/` and `07_route_empty_derivation.md`
 were deleted: both shipped (v0.47.0, v0.65.0) and nothing in this file pointed at
 them any more. The four rows above were re-checked against their live items —
-E3, E4, I2 and F1 P5 are all still open — so all four stay. `git log --
+E3, I2 and F1 P5 are still open — so those records stay. `git log --
 .agents/plans/` has the deleted pair in full.
 
 `.agents/drafts/headless_permission_automation.md` went too. It was marked
