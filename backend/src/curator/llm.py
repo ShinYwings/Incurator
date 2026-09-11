@@ -233,17 +233,29 @@ def _structured_from_envelope(stdout: str) -> str:
     structured = envelope.get("structured_output")
     response = str(envelope.get("response") or "")
 
-    # One turn means the model answered directly. More than one means it went
-    # and did something first -- which is how this failure begins: the run that
-    # died reached for `python3` to build its answer, and the unflattened schema
-    # that returns nothing also reports two turns. So a multi-turn structured
-    # call is the early signal, logged before anything else is decided.
+    # agy 1.2.0 can report exit 0 / SUCCESS for an auto-denied tool with
+    # no answer. That is a provider failure, not JSON for the repair prompt.
+    # A PRESENT structure (even an empty extraction) or recovered prose still
+    # belongs to contract validation; a denial earlier in the turn cannot erase it.
+    denied = envelope.get("denied_actions")
+    if isinstance(denied, list) and denied and structured is None and not response.strip():
+        actions = sorted({
+            str(item.get("action") or item.get("display_name") or "tool")
+            for item in denied if isinstance(item, dict)
+        })
+        raise AntigravityCliError(
+            "Antigravity tool permission denied with no answer: "
+            + ", ".join(actions or ["tool"])
+        )
+
+    # Turn count is a diagnostic only: current live graph calls can succeed in
+    # two turns, and auto-denied calls can report one. Inspect result metadata
+    # for failures instead of treating the count as proof of tool execution.
     turns = envelope.get("num_turns")
     if isinstance(turns, int) and turns > 1:
         logger.warning(
-            "Structured call took %d turns; a structured request should be "
-            "answered in one. The model may be using tools, which is what a "
-            "schema is meant to make unnecessary (SYSTEM_BEHAVIOR §11.0).",
+            "Structured call took %d turns; inspect provider metadata for tool "
+            "activity (turn count alone does not establish failure).",
             turns,
         )
 
@@ -257,9 +269,9 @@ def _structured_from_envelope(stdout: str) -> str:
     #
     # The defect this fallback exists for looks different, and `num_turns` is
     # what separates them: it took TWO turns, went and did something, and left
-    # the real answer in the response text under invented field names. One turn
-    # means the model answered directly, so an empty structure at one turn is
-    # the model's actual answer and must be returned as-is.
+    # the real answer in the response text under invented field names. Preserve
+    # this measured fallback heuristic without treating turn count as proof of
+    # tool activity; a present empty structure remains a valid answer candidate.
     #
     # Getting this wrong is not cosmetic. Returning prose where JSON is expected
     # makes `_parse` fail, burns the one-shot repair retry, and can fail a batch
@@ -303,7 +315,9 @@ def _envelope_error(stdout: str) -> str:
         return ""
     if not isinstance(envelope, dict):
         return ""
-    return str(envelope.get("error") or "")
+    return str(envelope.get("error") or (
+        "Antigravity returned status ERROR" if envelope.get("status") == "ERROR" else ""
+    ))
 
 
 
@@ -1142,8 +1156,8 @@ class AntigravityCliClient:
         return capacity_blocked_for(self.CAPACITY_KEY)
 
     # Measured (§11.0): `agy --json-schema <string> --output-format json`
-    # returns num_turns=1 and a validated object, so the model never reaches for
-    # a shell to build its answer. Requires a FLATTENED schema; a $ref schema
+    # returns a validated object. It does not disable tools or guarantee one
+    # turn. Requires a FLATTENED schema; a $ref schema
     # returns SUCCESS with an empty structure.
     supports_structured_output = True
 
@@ -1238,13 +1252,9 @@ class AntigravityCliClient:
             log_path = ""
 
         cmd = [self.CLI]
-        # Keep `--sandbox`: in print mode it auto-proceeds instead of stopping at
-        # the permission prompt, which with no stdin to answer it would hang until
-        # the 900 s timeout. It does NOT actually contain agy — v0.23.0 measured
-        # that it ignores its own containment and still creates files — so the OS
-        # sandbox below does the real work. The plugin has passed it for exactly
-        # this reason since v0.23.1; dropping `*_TRUST_WORKSPACE` here without it
-        # would have left the backend in a combination neither surface has run.
+        # Keep the CLI's terminal restrictions alongside real OS containment.
+        # This flag does not approve tool permissions: current agy can still
+        # auto-deny a command and return SUCCESS with no answer.
         cmd.append("--sandbox")
         if log_path:
             cmd.extend(["--log-file", log_path])
@@ -1315,7 +1325,7 @@ class AntigravityCliClient:
         # and `_is_capacity_error` is left with only the log file to read.
         envelope_error = _envelope_error(result.stdout) if json_schema is not None else ""
 
-        if result.returncode != 0:
+        if result.returncode != 0 or envelope_error:
             is_capacity_error = (
                 _is_capacity_error(stderr)
                 or _is_capacity_error(log_text)

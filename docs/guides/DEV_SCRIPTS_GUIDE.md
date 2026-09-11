@@ -155,3 +155,11 @@ Reference Mode and copy import require explicit fixtures:
 - one page-provenance assertion that verifies `curator_search_source` or `curator_get_pdf_page`
 
 Do not commit private Zotero libraries or personal PDFs. Use minimal public-domain PDFs or synthetic text PDFs for public fixtures.
+
+### Provider isolation in backend tests
+
+Backend pytest runs isolate HOME and block real provider CLI subprocesses.
+Provider adapter tests replay captured responses instead of starting agy; the
+former `INCURATOR_LIVE_AGY` opt-out is removed because it hid the user's existing
+login behind the temporary HOME and triggered authentication prompts. Setting
+that environment variable no longer disables the subprocess guard.
