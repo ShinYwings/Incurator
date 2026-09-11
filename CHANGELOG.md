@@ -2,6 +2,18 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.82.5] - 2026-09-11
+
+### Fixed
+
+- Antigravity structured calls now surface an empty auto-denied tool turn as a
+  provider error even when agy exits zero and reports SUCCESS. Graph extraction
+  retries the original batch and retains previously validated batches instead of
+  spending JSON repair on an empty refusal. Recovered answers and valid empty
+  extractions remain usable; explicit ERROR envelopes cannot pass as success.
+- Removed backend live agy tests and the provider-spawn guard opt-out: pytest's
+  isolated HOME hid the existing login and caused repeated authentication prompts.
+
 ## [0.82.4] - 2026-09-11
 
 ### Fixed
