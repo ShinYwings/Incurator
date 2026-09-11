@@ -26,6 +26,22 @@ describe("backend command boundary", () => {
     expect(chatSidebar).toContain("this.plugin.runBackendJsonCommand.bind(this.plugin)");
   });
 
+  it("routes plugin secrets through stdin instead of a visible argv value", () => {
+    const root = fileURLToPath(new URL("../../", import.meta.url));
+    const client = readFileSync(join(root, "src/agent/incuratorClient.ts"), "utf8");
+    const main = readFileSync(join(root, "main.ts"), "utf8");
+    const setSecret = client.slice(
+      client.indexOf("async setSecret"),
+      client.indexOf("async getSecret"),
+    );
+
+    expect(setSecret).toContain('"--value", "-"');
+    expect(setSecret).toContain("value");
+    expect(main).toContain("async runBackendCommand(");
+    expect(main).toContain("stdinData?: string");
+    expect(main).toContain("cp.stdin?.end(stdinData)");
+  });
+
   it("parses JSON stdout before treating a non-zero backend exit as opaque", () => {
     const root = fileURLToPath(new URL("../../", import.meta.url));
     const source = readFileSync(join(root, "main.ts"), "utf8");

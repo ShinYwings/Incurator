@@ -25,7 +25,7 @@ import localBuildManifest from "../generated/buildManifest.json";
 import { joinVaultPath, resolveProfileAssetSpec } from "../zotero/assetLocalization";
 import { sanitizePathSegment } from "../zotero/templateRenderer";
 
-type BackendJsonRunner = (cmdArgs: string[]) => Promise<unknown>;
+type BackendJsonRunner = (cmdArgs: string[], stdinData?: string) => Promise<unknown>;
 
 export interface DbAutosyncResult {
   ok: boolean;
@@ -911,7 +911,14 @@ export class IncuratorClient {
    *  so this uses its own name. What is shared is the encryption, not the value. */
   async setSecret(name: string, value: string): Promise<boolean> {
     if (!value.trim()) return false;
-    const result = await this.callBackendJson(["plugin", "secret", "set", "--name", name, "--value", value]);
+    // Secret values must never be command-line arguments: process listings and
+    // crash diagnostics can expose argv to other processes on the same host.
+    // The backend accepts `--value -` as a stdin sentinel, so only the sentinel
+    // appears in argv and the actual key travels through the private pipe.
+    const result = await this.callBackendJson(
+      ["plugin", "secret", "set", "--name", name, "--value", "-"],
+      value
+    );
     return Boolean(result && typeof result === "object" && (result as Record<string, unknown>).ok === true);
   }
 
@@ -974,10 +981,10 @@ export class IncuratorClient {
     return { platform, roots: parsed };
   }
 
-  private async callBackendJson(cmdArgs: string[]): Promise<unknown | null> {
+  private async callBackendJson(cmdArgs: string[], stdinData?: string): Promise<unknown | null> {
     if (!this.backendJson) return null;
     try {
-      return await this.backendJson(cmdArgs);
+      return await this.backendJson(cmdArgs, stdinData);
     } catch (err) {
       logger.warn("Backend JSON command failed:", err);
       return null;

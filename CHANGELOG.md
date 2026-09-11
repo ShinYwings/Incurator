@@ -2,6 +2,14 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.82.4] - 2026-09-11
+
+### Fixed
+
+- The Obsidian plugin no longer exposes provider API keys in the backend
+  command's process arguments. Keys are sent through stdin and encrypted by
+  the local secret store via the `--value -` sentinel.
+
 ## [0.82.3] - 2026-09-11
 
 ### Changed

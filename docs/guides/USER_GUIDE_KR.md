@@ -1251,6 +1251,8 @@ DeepSeek에서 `--api-key-env`에는 실제 `sk-...` 키 값이 아니라 환경
 `--api-key sk-...`를 넘기면 키는 shared vault 밖 backend encrypted local secret store에
 저장되고, config에는 secret reference만 기록됩니다. Secret key/store file은
 처음부터 private `0600` 권한으로 생성·유지됩니다.
+Obsidian 플러그인은 이 명령에 키를 stdin(`--value -`)으로 전달하므로 원본
+credential이 프로세스 인자 목록에 노출되지 않습니다.
 
 선택한 강도는 기기 로컬 `.cache/config/config.yml`의 `llm.primary_effort` /
 `llm.fallback_effort`에 저장되며, 비워 두면 각 CLI의 기본 강도를 사용합니다.

@@ -1033,7 +1033,10 @@ export default class ObsidianAIAgent extends Plugin {
     }
   }
 
-  async runBackendCommand(cmdArgs: string[]): Promise<{ ok: boolean; output?: string; error?: string }> {
+  async runBackendCommand(
+    cmdArgs: string[],
+    stdinData?: string,
+  ): Promise<{ ok: boolean; output?: string; error?: string }> {
     const cwd = this.vaultRoot || (this.app.vault.adapter as any).getBasePath?.() || "";
     if (!cwd) return { ok: false, error: "Not a local vault" };
     const command = await this.resolveBackendCommand();
@@ -1045,7 +1048,17 @@ export default class ObsidianAIAgent extends Plugin {
     }
     const prefixArgs = this.settings.incuratorBackendArgs || [];
     try {
-      const cp = spawn(command, [...prefixArgs, ...cmdArgs], { cwd, env: process.env });
+      // Keep secrets out of argv. The default spawn stdio is already piped for
+      // ordinary commands; make it explicit when a caller provides private
+      // stdin so the value can be written and closed before collection starts.
+      const cp = spawn(
+        command,
+        [...prefixArgs, ...cmdArgs],
+        stdinData === undefined
+          ? { cwd, env: process.env }
+          : { cwd, env: process.env, stdio: ["pipe", "pipe", "pipe"] },
+      );
+      if (stdinData !== undefined) cp.stdin?.end(stdinData);
       return await collectBackendProcess(cp, backendCommandPolicy(cmdArgs));
     } catch (error) {
       return {
@@ -1055,8 +1068,8 @@ export default class ObsidianAIAgent extends Plugin {
     }
   }
 
-  async runBackendJsonCommand(cmdArgs: string[]): Promise<any> {
-    const result = await this.runBackendCommand(cmdArgs);
+  async runBackendJsonCommand(cmdArgs: string[], stdinData?: string): Promise<any> {
+    const result = await this.runBackendCommand(cmdArgs, stdinData);
     const text = (result.output || "").trim();
     if (!text) {
       throw new Error(result.error || "Backend command returned no JSON");

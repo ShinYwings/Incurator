@@ -53,6 +53,21 @@ function settings(): PluginSettings {
 }
 
 describe("IncuratorClient", () => {
+  it("passes provider secrets through the backend runner's stdin channel", async () => {
+    const calls: Array<{ args: string[]; input?: string }> = [];
+    const backendJson = async (args: string[], input?: string) => {
+      calls.push({ args, input });
+      return { ok: true };
+    };
+    const client = new IncuratorClient(settings(), "0.82.4", backendJson);
+
+    expect(await client.setSecret("obsidian-deepseek-api-key", "sk-private")).toBe(true);
+    expect(calls).toEqual([{
+      args: ["plugin", "secret", "set", "--name", "obsidian-deepseek-api-key", "--value", "-"],
+      input: "sk-private",
+    }]);
+  });
+
   it("uses the backend JSON source status command with file hashes", async () => {
     const calls: string[][] = [];
     const backendJson = async (args: string[]) => {

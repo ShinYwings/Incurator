@@ -1321,7 +1321,8 @@ For DeepSeek, `--api-key-env` must be an environment variable name (for example
 Passing `--api-key sk-...` stores the key in the backend's encrypted local
 secret store outside the shared vault and writes only a secret reference into
 config. Secret key/store files are created and retained with private `0600`
-permissions.
+permissions. The Obsidian plugin sends the key to this command through stdin
+(`--value -`) so the raw credential is not exposed in a process argument list.
 
 The choice is stored as `llm.primary_effort` / `llm.fallback_effort` in the
 machine-local `.cache/config/config.yml`; leaving it empty uses each CLI's

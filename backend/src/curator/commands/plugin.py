@@ -88,6 +88,13 @@ def plugin_secret_set(
     """
     from .. import secret_store
 
+    # `--value -` is the plugin bridge's private-input sentinel. Reading from
+    # stdin keeps the credential out of argv, where process inspection and crash
+    # diagnostics could expose it to other local processes. Strip only line
+    # endings so a deliberate leading/trailing space is not silently rewritten.
+    if value == "-":
+        value = sys.stdin.read().rstrip("\r\n")
+
     if not value.strip():
         _print_json({"ok": False, "name": name, "error": "empty secret value"})
         return
