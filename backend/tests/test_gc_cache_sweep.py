@@ -306,7 +306,7 @@ def test_source_less_durable_history_is_retained(tmp_path: Path, kind: str) -> N
     assert state.read_bytes() == before
 
 
-@pytest.mark.parametrize("layout", ["partial", "unknown", "old_version", "changed_table"])
+@pytest.mark.parametrize("layout", ["partial", "unknown", "old_version", "changed_table", "view"])
 def test_unrecognized_schema_is_retained_without_repair(tmp_path: Path, layout: str) -> None:
     # Discovery must never manufacture the empty sources table used to justify
     # deletion, stamp an old version, or silently accept changed table contracts.
@@ -321,6 +321,8 @@ def test_unrecognized_schema_is_retained_without_repair(tmp_path: Path, layout: 
             conn.execute('INSERT INTO "retained history" VALUES (\'must survive\')')
         elif layout == "old_version":
             conn.execute("UPDATE schema_version SET version = 1")
+        elif layout == "view":
+            conn.execute("CREATE VIEW retained_query AS SELECT * FROM prompt_runs")
         else:
             conn.execute("ALTER TABLE prompt_runs ADD COLUMN retained_payload TEXT")
         conn.commit()
@@ -333,6 +335,60 @@ def test_unrecognized_schema_is_retained_without_repair(tmp_path: Path, layout: 
     with closing(sqlite3.connect(f"{state.as_uri()}?mode=ro", uri=True)) as conn:
         assert conn.execute("SELECT type, name, sql FROM sqlite_master ORDER BY name").fetchall() == schema_before
     assert found == []
+
+
+def test_repeated_inspection_leaves_empty_cache_files_unchanged(tmp_path: Path) -> None:
+    # A read-only WAL connection still creates sidecars. A preview must not
+    # turn its own empty candidate into unresolved activity on the next scan.
+    cache = tmp_path / "cache"
+    entry = _cache_dir(cache, str(tmp_path / "gone-vault"))
+    before = {p.name: p.read_bytes() for p in entry.iterdir()}
+
+    assert [item.path for item in dead_vault_caches(cache)] == [entry]
+    assert {p.name: p.read_bytes() for p in entry.iterdir()} == before
+    assert [item.path for item in dead_vault_caches(cache)] == [entry]
+
+
+def test_logical_fts_content_is_retained(tmp_path: Path) -> None:
+    # Only infrastructure of an empty logical FTS table is disposable. Index
+    # rows must not disappear just because they live through shadow tables.
+    cache = tmp_path / "cache"
+    entry = _cache_dir(cache, str(tmp_path / "gone-vault"))
+    with db.connect(entry / "state.sqlite") as conn:
+        conn.execute("INSERT INTO search_documents_fts(title, body) VALUES ('keep', 'history')")
+
+    assert dead_vault_caches(cache) == []
+
+
+@pytest.mark.parametrize("change", ["sidecar", "checkpoint"])
+def test_source_change_during_snapshot_inspection_is_retained(tmp_path: Path, monkeypatch, change: str) -> None:
+    # The private copy can already be stale by the time it is queried. Exercise
+    # both visible WAL activity and a completed/checkpointed write with no WAL
+    # left behind; neither may authorize deleting the now-populated original.
+    cache = tmp_path / "cache"
+    entry = _cache_dir(cache, str(tmp_path / "gone-vault"))
+    state = entry / "state.sqlite"
+    copyfile = shutil.copyfile
+
+    def copy_then_change(source, destination):
+        result = copyfile(source, destination)
+        if Path(source) == state:
+            if change == "sidecar":
+                (entry / "state.sqlite-wal").write_bytes(b"")
+            else:
+                with closing(sqlite3.connect(state)) as conn:
+                    conn.execute(
+                        "INSERT INTO deleted_records(table_name, record_id, deleted_at) "
+                        "VALUES ('sources', 'late-commit', '2026-09-12')"
+                    )
+                    conn.commit()
+                assert not (entry / "state.sqlite-wal").exists()
+        return result
+
+    monkeypatch.setattr("curator.gc.shutil.copyfile", copy_then_change)
+
+    assert dead_vault_caches(cache) == []
+    assert state.exists()
 
 
 @pytest.mark.parametrize("has_database", [False, True])

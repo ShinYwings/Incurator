@@ -32,9 +32,13 @@ from __future__ import annotations
 
 import shutil
 import sqlite3
+import stat
+from contextlib import closing
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from functools import cache
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from . import db, durable_io
 
@@ -61,6 +65,10 @@ class Reclaimable:
     path: Path
     bytes: int
     reason: str
+    # Preview authority belongs to these filesystem objects and marker contents,
+    # not to any replacement that later happens to occupy the same path.
+    _identity: tuple[tuple, ...] = field(default=(), repr=False)
+    _root: str = field(default="", repr=False)
 
 
 @dataclass
@@ -97,64 +105,148 @@ def _is_temp_root(root: str) -> bool:
     return any(root.startswith(prefix) for prefix in _TEMP_ROOT_PREFIXES)
 
 
-def dead_vault_caches(cache_root: Path) -> list[Reclaimable]:
-    """Per-vault cache directories that are provably debris.
+def _schema_signature(conn: sqlite3.Connection) -> tuple[list[tuple], dict[str, str]]:
+    # Classify actual FTS shadow objects, never table names resembling an FTS
+    # prefix. Unknown schema objects remain retained, even when they have no rows.
+    objects = conn.execute(
+        "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
+    ).fetchall()
+    types = {row[1]: row[2] for row in conn.execute("PRAGMA table_list") if row[0] == "main"}
+    return objects, types
 
-    THREE conditions, all required. Any one alone is unsafe:
 
-    1. the recorded `vault_root` path is absent — necessary, but only a mount test;
-    2. that root is under a temp prefix — this is what makes (1) trustworthy,
-       because a temp directory does not come back when a drive is remounted;
-    3. the cached database holds zero sources — a directory with real ingested
-       work is never debris, whatever its path says.
-    """
-    found: list[Reclaimable] = []
-    vaults = cache_root / "vaults"
-    if not vaults.is_dir():
-        return found
+@cache
+def _empty_cache_schema() -> tuple[list[tuple], dict[str, str]]:
+    # Build the trusted comparison in memory once. Applying SCHEMA_SQL to a
+    # candidate would manufacture the empty tables used to justify deleting it.
+    from .db.schema import SCHEMA_SQL
 
-    for entry in sorted(vaults.iterdir()):
-        if not entry.is_dir():
+    with closing(sqlite3.connect(":memory:")) as conn:
+        conn.executescript(SCHEMA_SQL)
+        return _schema_signature(conn)
+
+
+def _database_is_empty(state_db: Path) -> bool:
+    # Even read-only WAL readers create sidecars. Inspect only a private copy;
+    # the caller rejects original sidecars and verifies original file stability
+    # afterwards. Never clean up coordination files in the candidate namespace.
+    with TemporaryDirectory(prefix="incurator-gc-inspect-") as temporary:
+        snapshot = Path(temporary) / "state.sqlite"
+        shutil.copyfile(state_db, snapshot)
+        with closing(sqlite3.connect(snapshot.as_uri() + "?mode=ro", uri=True)) as conn:
+            return _snapshot_is_empty(conn)
+
+
+def _snapshot_is_empty(conn: sqlite3.Connection) -> bool:
+    # Compare the whole supported schema before exempting metadata. This makes
+    # unknown tables/views/triggers retained state, not disposable infrastructure.
+    conn.execute("BEGIN")
+    signature = _schema_signature(conn)
+    if signature != _empty_cache_schema() or not signature[1]:
+        return False
+    if conn.execute("SELECT version FROM schema_version").fetchall() != [(db.SCHEMA_VERSION,)]:
+        return False
+    for name, kind in signature[1].items():
+        if kind == "shadow" or name in {"schema_version", "sqlite_sequence", "sqlite_schema"}:
             continue
-        marker = entry / "vault_root"
-        try:
-            root = marker.read_text(encoding="utf-8").strip()
-        except OSError:
-            # No marker at all: cannot prove it is debris, so leave it.
-            continue
-        if not root or Path(root).exists():
-            continue
-        if not _is_temp_root(root):
-            continue
-        state_db = entry / "state.sqlite"
-        if state_db.exists():
-            try:
-                if int(db.get_stats(state_db).get("sources_total") or 0) > 0:
-                    continue
-            except Exception:
-                # A database we cannot read is not provably empty.
-                continue
-        found.append(
-            Reclaimable(
-                path=entry,
-                bytes=_dir_bytes(entry),
-                reason=f"temp vault no longer on disk: {root}",
-            )
+        quoted = '"' + name.replace('"', '""') + '"'
+        if conn.execute(f"SELECT 1 FROM {quoted} LIMIT 1").fetchone():
+            return False
+    return True
+
+
+def _cache_files(entry: Path) -> tuple[tuple[tuple, ...], int]:
+    # Include names and change stamps, not just inode identity: a producer can
+    # commit/checkpoint WAL during the copy without replacing the main file.
+    members = [("", entry.lstat()), *[(p.name, p.lstat()) for p in sorted(entry.iterdir())]]
+    if not stat.S_ISDIR(members[0][1].st_mode):
+        raise ValueError("not a real cache directory")
+    names = {name for name, _ in members[1:]}
+    if "vault_root" not in names or names - {"vault_root", "state.sqlite"}:
+        raise ValueError("unrecognized cache contents")
+    if any(not stat.S_ISREG(info.st_mode) for _, info in members[1:]):
+        raise ValueError("not a regular cache file")
+    signature = tuple(
+        (name, s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns, s.st_ctime_ns)
+        for name, s in members
+    )
+    return signature, sum(s.st_size for _, s in members[1:])
+
+
+def _absent_temp_root(root: str) -> bool:
+    # Only an actual FileNotFoundError establishes absence; permission and I/O
+    # errors must retain the namespace. Resolve traversal/symlinks before prefix.
+    if not root or not Path(root).is_absolute():
+        return False
+    resolved = Path(root).resolve()
+    if not _is_temp_root(str(resolved)):
+        return False
+    try:
+        resolved.stat()
+    except FileNotFoundError:
+        return True
+    return False
+
+
+def _inspect_cache(entry: Path) -> Reclaimable | None:
+    # Recursive deletion needs a proof for every member, not just sources.
+    # Sidecars, runtime directories, backups and logs have unresolved ownership;
+    # retain them before opening SQLite, whose cleanup can remove sidecars.
+    try:
+        identity, size = _cache_files(entry)
+        root = (entry / "vault_root").read_text(encoding="utf-8").strip()
+        if not _absent_temp_root(root):
+            return None
+        if any(row[0] == "state.sqlite" for row in identity) and not _database_is_empty(entry / "state.sqlite"):
+            return None
+        # A copy is only evidence while its original stayed unchanged. Observe
+        # membership again to catch new sidecars, and reject checkpointed writes
+        # through file/directory change stamps even if their sidecars vanished.
+        if _cache_files(entry) != (identity, size):
+            return None
+        if (entry / "vault_root").read_text(encoding="utf-8").strip() != root or not _absent_temp_root(root):
+            return None
+        return Reclaimable(
+            path=entry,
+            bytes=size,
+            reason=f"empty temp vault no longer on disk: {root}",
+            _identity=identity,
+            _root=root,
         )
-    return found
+    except (OSError, ValueError, RuntimeError, sqlite3.Error):
+        # Missing, inaccessible, malformed, looping-symlink or unreadable state
+        # is not proof of disposable contents. Never repair it during discovery.
+        return None
+
+
+def dead_vault_caches(cache_root: Path) -> list[Reclaimable]:
+    """Recognized empty temporary namespaces, preserving all retained data."""
+    vaults = cache_root / "vaults"
+    if vaults.is_symlink() or not vaults.is_dir():
+        return []
+    return [item for entry in sorted(vaults.iterdir()) if (item := _inspect_cache(entry)) is not None]
 
 
 def sweep(items: list[Reclaimable]) -> tuple[int, int]:
-    """Delete the planned items. Returns (removed, bytes_freed)."""
+    """Revalidate preview authority and delete unchanged empty namespaces.
+
+    This closes the confirmation gap; it is not a shared lifecycle lock against
+    a background producer writing after the final observation.
+    """
     removed = 0
     freed = 0
     for item in items:
+        current = _inspect_cache(item.path)
+        if current is None or not item._identity:
+            continue
+        if current._identity != item._identity or current._root != item._root:
+            continue
         try:
             shutil.rmtree(item.path)
         except OSError:
             continue
         removed += 1
-        freed += item.bytes
+        freed += current.bytes
     return removed, freed
 
 

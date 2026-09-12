@@ -47,6 +47,8 @@ Branch `fix/gc-cache-preservation`; approved Arena plan:
 schema-writing stats helper. A source-less DB with retained tombstones, or an
 unknown populated table, is classified as disposable. Repair read-only inspection,
 retained-data proof and stale-preview revalidation before adding GC controls.
+Test feedback on 2026-09-12 required inspecting a private copy: mode=ro itself
+creates WAL sidecars; before/after original signatures keep preview non-mutating.
 
 **B1/B2 follow-ups captured from this Arena (2026-09-11):**
 

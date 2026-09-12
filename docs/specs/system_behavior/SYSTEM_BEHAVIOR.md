@@ -4637,8 +4637,13 @@ Symlinks, extra files/directories, backups, logs and pre-existing SQLite sidecar
 prevent collection because their contents or active ownership are not proven
 by this collector.
 
-Candidate SQLite inspection uses a read-only connection, without schema creation,
-migration, trigger repair or version stamping. Table definitions and table types
+Candidate inspection opens only a private temporary copy through read-only
+SQLite: opening a WAL-mode candidate directly can create sidecar files even for
+a reader. Original named member identities, sizes, modification/change timestamps,
+marker contents, root absence and directory identity are checked before and after
+copy inspection; any observed change retains the original. No original sidecars
+are removed and no candidate schema creation, migration, trigger repair or version
+stamping occurs. Schema-object definitions and table types
 must match a trusted current schema constructed in memory, and the database must
 carry exactly one current schema-version record. Unknown/old/partial schemas are
 retained unchanged. Every ordinary or logical virtual application table must be

@@ -30,10 +30,11 @@ inspect(namespace):
   reject symlinks/nonregular members/unexpected file names
   read marker; resolve root; reject existing/non-temp/uncertain root
   if DB exists:
-    open mode=ro; compare tables + table types with trusted memory schema
+    copy to private temp location, then mode=ro; compare trusted schema/types
     require one matching schema_version
     reject any row in any non-infrastructure logical table
-  return size, reason, filesystem identities, marker contents
+  recheck original file membership/signatures, root, marker and directory
+  return size, reason, named filesystem signatures, marker contents
 
 discover(cache): inspect every real direct namespace
 sweep(planned): inspect again; compare identities and marker; delete only match
@@ -42,3 +43,12 @@ sweep(planned): inspect again; compare identities and marker; delete only match
 Acceptance covers tombstones, prompt/query/job rows, unknown tables/files,
 partial schemas unchanged, WAL/SHM retention, FTS populated/empty distinction,
 canonical root, symlinks, changed marker, replaced namespace and late row insertion.
+
+## Implementation feedback revision
+
+Read-only SQLite creates WAL sidecars even without logical writes. Inspecting a
+private copy prevents the collector from changing its own candidate. Original
+sidecars are rejected before copying; original membership and named stat stamps
+are rechecked afterwards. Copy failures or changes retain the namespace. This is
+a pure inspection boundary, not a repair of candidate output. SQLite documents
+this behavior at https://www.sqlite.org/wal.html#read_only_databases.

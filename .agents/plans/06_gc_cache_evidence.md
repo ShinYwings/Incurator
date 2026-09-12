@@ -30,4 +30,8 @@ semantics; do not reinitialize it or invoke its stale mutation commands.
 
 ## Validation results
 
-Pending TDD, focused checks, full checks, testbed smoke and actual review skill.
+Initial TDD baseline: 29 expected failures / 14 passes, ruff green. First
+implementation: 41/43 pass; supported collection exposed mode=ro sidecar creation.
+Private-copy revision independently reviewed, with source mutation regressions.
+Current focused cache + prompt-cap + session suite: 67 passed in 2.14 seconds;
+ruff green. Full checks, testbed smoke and actual review skill remain pending.

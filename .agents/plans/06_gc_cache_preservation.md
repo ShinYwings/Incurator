@@ -39,10 +39,14 @@ critique proved a normal writer can publish after GC commits.
 - Allow only marker plus optional state.sqlite. Preserve backups, runtime dirs,
   logs, unknown files and pre-existing SQLite sidecars; their activity/ownership
   is not established by this collector. This keeps empty fixture collection.
-- Use SQLite URI mode=ro, never immutable=1, db.connect/get_stats or candidate
-  schema setup. Build expected table definitions and table types once from the
-  trusted SCHEMA_SQL in memory. Require the candidate's table definitions/types
-  to match and its single schema_version row to match the running version.
+- Inspect a private temporary database copy with SQLite URI mode=ro, never open
+  candidate SQLite, use immutable=1, db.connect/get_stats or candidate schema setup.
+  Read-only WAL connections create sidecars, so isolation is required to leave
+  the original namespace unchanged. Require original named file signatures
+  (device/inode/size/mtime/ctime), directory identity, membership, marker and root
+  to remain unchanged before/after inspection. Reject original sidecars before
+  copying. Build expected schema-object definitions and table types once from
+  trusted SCHEMA_SQL in memory; require them and one current schema_version.
   Unknown/old/partial layouts remain untouched.
 - Probe all ordinary/logical virtual tables for any rows, except exact schema
   version and SQLite sequence infrastructure. Skip only shadow tables identified
@@ -85,3 +89,12 @@ bookkeeping was dirty when the branch was created; no user's WIP or config chang
 - **P5 — Release:** align manifests 0.82.6 and changelog, release commit, PR/CI,
   merge and remove implemented plan/branch. Retain unresolved Arena findings in
   roadmap and relay for the next independently planned B1/B2 release.
+
+## Test-Driven Revision — 2026-09-12
+
+Normal mode=ro creates persistent WAL/SHM in closed WAL-mode candidates; 41/43
+tests passed but repeated collection became a no-op. The independent reviewers
+validated a private inspection copy plus original stability checks. See
+`retention_followup_arena/04_inspection_revision.md`. No original sidecars are
+removed and no candidate journal mode is changed. Additional regression proves
+repeated preview leaves the exact original namespace file bytes unchanged.
