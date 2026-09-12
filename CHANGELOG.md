@@ -2,6 +2,19 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.82.6] - 2026-09-12
+
+### Fixed
+
+- Cache GC no longer treats zero sources as proof that a database is disposable.
+  Tombstones, prompt/query/job history and other application rows keep the cache;
+  unknown schemas, extra files, backups and SQLite sidecars are retained too.
+- Cache preview inspects a private database copy, so it neither creates schema
+  nor leaves SQLite WAL sidecars in a candidate. Existing empty temporary caches
+  remain collectible. GC rechecks file identity, contents and root eligibility
+  after inspection and before removal, rejecting stale preview candidates.
+  This does not establish exclusive ownership against later background writes.
+
 ## [0.82.5] - 2026-09-11
 
 ### Fixed
