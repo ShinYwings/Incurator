@@ -10,14 +10,20 @@ would destroy the user's knowledge base.
 
 Every one of the 25 dead directories measured on the reference machine was test
 debris under a temp root, so requiring a temp prefix costs nothing real and
-removes the whole class of catastrophic misfire. The zero-sources check is the
-third independent guard.
+protects disconnected production paths. A source-less database can still hold
+durable history, so collection additionally requires a recognized empty schema
+and a namespace containing only the marker and optional database.
 """
 
 from __future__ import annotations
 
 import hashlib
+import shutil
+import sqlite3
+from contextlib import closing
 from pathlib import Path
+
+import pytest
 
 from curator import db
 from curator.gc import dead_vault_caches, sweep
@@ -268,3 +274,224 @@ def test_wiki_gc_json_exposes_the_prompt_run_cap(tmp_path: Path, monkeypatch) ->
     payload = _json.loads(CliRunner().invoke(app, ["gc", "plan", "--json"]).stdout)
 
     assert payload["prompt_runs_prunable"] == 3
+
+
+@pytest.mark.parametrize("kind", ["tombstone", "prompt_run", "job_event"])
+def test_source_less_durable_history_is_retained(tmp_path: Path, kind: str) -> None:
+    # Deleted sources need not erase provenance: exercise both fleet deletion
+    # markers and local operational history independently of source occupancy.
+    cache = tmp_path / "cache"
+    entry = _cache_dir(cache, str(tmp_path / "gone-vault"))
+    state = entry / "state.sqlite"
+    with db.connect(state) as conn:
+        if kind == "tombstone":
+            conn.execute(
+                "INSERT INTO deleted_records(table_name, record_id, deleted_at) "
+                "VALUES ('sources', 'retained-source', '2026-09-01')"
+            )
+        elif kind == "prompt_run":
+            conn.execute(
+                "INSERT INTO prompt_runs(trace_id, prompt_id, prompt_version, family, "
+                "input_hash, created_at) VALUES ('PTR-keep', 'test', 'v1', 'query', 'h', '2026-09-01')"
+            )
+        else:
+            conn.execute("INSERT INTO ingest_jobs(id, created_at) VALUES (1, '2026-09-01')")
+            conn.execute(
+                "INSERT INTO job_events(job_id, seq, kind, data, at) "
+                "VALUES (1, 1, 'done', '{}', '2026-09-01')"
+            )
+    before = state.read_bytes()
+
+    assert dead_vault_caches(cache) == []
+    assert state.read_bytes() == before
+
+
+@pytest.mark.parametrize("layout", ["partial", "unknown", "old_version", "changed_table"])
+def test_unrecognized_schema_is_retained_without_repair(tmp_path: Path, layout: str) -> None:
+    # Discovery must never manufacture the empty sources table used to justify
+    # deletion, stamp an old version, or silently accept changed table contracts.
+    cache = tmp_path / "cache"
+    entry = _cache_dir(cache, str(tmp_path / "gone-vault"))
+    state = entry / "state.sqlite"
+    if layout == "partial":
+        state.unlink()
+    with closing(sqlite3.connect(state)) as conn:
+        if layout in {"partial", "unknown"}:
+            conn.execute('CREATE TABLE "retained history" (payload TEXT)')
+            conn.execute('INSERT INTO "retained history" VALUES (\'must survive\')')
+        elif layout == "old_version":
+            conn.execute("UPDATE schema_version SET version = 1")
+        else:
+            conn.execute("ALTER TABLE prompt_runs ADD COLUMN retained_payload TEXT")
+        conn.commit()
+        schema_before = conn.execute("SELECT type, name, sql FROM sqlite_master ORDER BY name").fetchall()
+    before = state.read_bytes()
+
+    found = dead_vault_caches(cache)
+
+    assert state.read_bytes() == before, "inspection changed a candidate database"
+    with closing(sqlite3.connect(f"{state.as_uri()}?mode=ro", uri=True)) as conn:
+        assert conn.execute("SELECT type, name, sql FROM sqlite_master ORDER BY name").fetchall() == schema_before
+    assert found == []
+
+
+@pytest.mark.parametrize("has_database", [False, True])
+@pytest.mark.parametrize("payload", ["log.md", "state.sqlite.bak-old", "runtime"])
+def test_unowned_namespace_content_is_retained(
+    tmp_path: Path, has_database: bool, payload: str
+) -> None:
+    # Recursive removal owns the whole namespace, not only state.sqlite. A
+    # missing or empty DB cannot authorize deleting unrelated history or files.
+    cache = tmp_path / "cache"
+    entry = _cache_dir(cache, str(tmp_path / "gone-vault"))
+    if not has_database:
+        (entry / "state.sqlite").unlink()
+    target = entry / payload
+    if payload == "runtime":
+        target.mkdir()
+        target = target / "pending-work.json"
+    target.write_text("retained", encoding="utf-8")
+
+    assert dead_vault_caches(cache) == []
+    assert target.read_text(encoding="utf-8") == "retained"
+
+
+@pytest.mark.parametrize("suffix", ["-wal", "-shm", "-journal"])
+def test_preexisting_sqlite_sidecars_are_retained(tmp_path: Path, suffix: str) -> None:
+    # Even empty sidecars carry an unresolved activity/recovery question. Do not
+    # open SQLite first: its connection cleanup can erase that evidence.
+    cache = tmp_path / "cache"
+    entry = _cache_dir(cache, str(tmp_path / "gone-vault"))
+    sidecar = entry / f"state.sqlite{suffix}"
+    sidecar.write_bytes(b"")
+
+    assert dead_vault_caches(cache) == []
+    assert sidecar.exists()
+
+
+def test_committed_wal_history_is_retained(tmp_path: Path) -> None:
+    # Keep the writing connection open so committed history resides in WAL.
+    # Looking only at immutable main-file bytes would miss this durable row.
+    cache = tmp_path / "cache"
+    entry = _cache_dir(cache, str(tmp_path / "gone-vault"))
+    with closing(sqlite3.connect(entry / "state.sqlite")) as writer:
+        writer.execute("PRAGMA journal_mode=WAL")
+        writer.execute(
+            "INSERT INTO deleted_records(table_name, record_id, deleted_at) "
+            "VALUES ('sources', 'wal-source', '2026-09-01')"
+        )
+        writer.commit()
+        assert (entry / "state.sqlite-wal").exists()
+        assert dead_vault_caches(cache) == []
+
+
+def test_temp_prefix_is_checked_after_root_resolution(tmp_path: Path) -> None:
+    # A lexical /tmp/ prefix is not authority when traversal resolves outside
+    # the temporary tree. No path under this marker is created by the test.
+    cache = tmp_path / "cache"
+    _cache_dir(cache, "/tmp/../incurator-gc-non-temp-vault")
+
+    assert dead_vault_caches(cache) == []
+
+
+@pytest.mark.parametrize("component", ["namespace", "marker", "database"])
+def test_symlinked_cache_components_are_retained(tmp_path: Path, component: str) -> None:
+    # A symlink can retarget the namespace proof to a different owner's file.
+    # Both the indirection and its destination must survive discovery unchanged.
+    cache = tmp_path / "cache"
+    entry = _cache_dir(cache, str(tmp_path / "gone-vault"))
+    original = {
+        "namespace": entry,
+        "marker": entry / "vault_root",
+        "database": entry / "state.sqlite",
+    }[component]
+    destination = tmp_path / f"real-{component}"
+    original.rename(destination)
+    original.symlink_to(destination, target_is_directory=component == "namespace")
+
+    assert dead_vault_caches(cache) == []
+    assert original.is_symlink()
+    assert destination.exists()
+
+
+@pytest.mark.parametrize(
+    "change", ["source", "tombstone", "root", "marker", "namespace", "database", "unknown_file"]
+)
+def test_changed_candidate_is_not_deleted_from_old_plan(tmp_path: Path, change: str) -> None:
+    # Confirmation can suspend execution while another owner changes the cache.
+    # Identical-looking replacement objects must not inherit the old authority.
+    cache = tmp_path / "cache"
+    root = tmp_path / "gone-vault"
+    entry = _cache_dir(cache, str(root))
+    found = dead_vault_caches(cache)
+    assert [item.path for item in found] == [entry]
+    if change in {"source", "tombstone"}:
+        with db.connect(entry / "state.sqlite") as conn:
+            if change == "source":
+                conn.execute(
+                    "INSERT INTO sources(relpath, content_hash, file_type, bytes, added_at) "
+                    "VALUES ('retained.md', 'h', 'md', 1, '2026-09-01')"
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO deleted_records(table_name, record_id, deleted_at) "
+                    "VALUES ('sources', 'keep', '2026-09-01')"
+                )
+    elif change == "root":
+        root.mkdir()
+    elif change == "marker":
+        (entry / "vault_root").write_text(str(tmp_path / "different-gone-vault"), encoding="utf-8")
+    elif change == "namespace":
+        original = tmp_path / "original-cache"
+        entry.rename(original)
+        shutil.copytree(original, entry)
+    elif change == "database":
+        original = tmp_path / "original.sqlite"
+        (entry / "state.sqlite").rename(original)
+        shutil.copyfile(original, entry / "state.sqlite")
+    else:
+        (entry / "new-history.md").write_text("keep", encoding="utf-8")
+
+    assert sweep(found) == (0, 0)
+    assert entry.is_dir()
+
+
+def test_marker_only_empty_namespace_remains_collectible(tmp_path: Path) -> None:
+    # No database and no other payload is still exactly the supported debris
+    # case; preservation guards must not disable collection altogether.
+    cache = tmp_path / "cache"
+    entry = _cache_dir(cache, str(tmp_path / "gone-vault"))
+    (entry / "state.sqlite").unlink()
+
+    found = dead_vault_caches(cache)
+    assert [item.path for item in found] == [entry]
+    removed, freed = sweep(found)
+    assert removed == 1
+    assert freed > 0
+    assert not entry.exists()
+
+
+def test_cli_rechecks_candidate_changed_during_confirmation(tmp_path: Path, monkeypatch) -> None:
+    # The real CLI boundary must report zero actual removals when a valid plan
+    # becomes stale while the user is deciding, even if they answer yes.
+    from typer.testing import CliRunner
+
+    from curator.cli import app
+
+    paths = _cli_vault(tmp_path)
+    cache = tmp_path / "cache"
+    root = tmp_path / "gone-vault"
+    entry = _cache_dir(cache, str(root))
+    monkeypatch.setattr("curator.commands.gc._repo_cache_root", lambda: cache)
+    monkeypatch.setenv("VAULT_ROOT", str(paths.root))
+
+    def confirm_after_recreation(*args, **kwargs):
+        root.mkdir()
+        return True
+
+    monkeypatch.setattr("curator.commands.gc.typer.confirm", confirm_after_recreation)
+    result = CliRunner().invoke(app, ["gc", "run"])
+
+    assert result.exit_code == 0, result.stdout
+    assert entry.exists()
+    assert "Nothing to reclaim" in result.stdout
