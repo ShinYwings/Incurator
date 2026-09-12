@@ -40,15 +40,14 @@ user reports. The remaining roadmap work is queued here in stability order:
     visibility, native PDF annotation/assets, web search, and the popover vs
     sidechat role split when the stability queue reaches them.
 
-### Active milestone — v0.82.6 cache preservation
+### v0.82.6 cache preservation — SHIPPED
 
-Branch `fix/gc-cache-preservation`; approved Arena plan:
-`.agents/plans/06_gc_cache_preservation.md`. Cache planning currently calls a
-schema-writing stats helper. A source-less DB with retained tombstones, or an
-unknown populated table, is classified as disposable. Repair read-only inspection,
-retained-data proof and stale-preview revalidation before adding GC controls.
-Test feedback on 2026-09-12 required inspecting a private copy: mode=ro itself
-creates WAL sidecars; before/after original signatures keep preview non-mutating.
+PR #207 merged 2026-09-12. Cache preview now inspects a private database copy,
+retains application history and unknown contents, and revalidates candidates
+before removal. Repeated preview leaves original candidate files unchanged.
+All local checks and GitHub CI passed. Three independent reviewers completed
+five review lenses after the user waived waiting for expired Claude OAuth.
+This completes the cache correctness patch, not the B1/B2 retention queue.
 
 **B1/B2 follow-ups captured from this Arena (2026-09-11):**
 
@@ -72,7 +71,9 @@ creates WAL sidecars; before/after original signatures keep preview non-mutating
   preserve as a verification lead for the prompt-lifetime plan, not a confirmed
   cache-patch requirement.
 
-Arena evidence and revisions: `.agents/plans/retention_followup_arena/`.
+Arena evidence for unresolved lifetime/session work remains in
+`.agents/plans/retention_followup_arena/`. The implemented cache master plan and
+evidence are preserved in Git history.
 
 | phase | what it buys | risk it carries |
 |---|---|---|
