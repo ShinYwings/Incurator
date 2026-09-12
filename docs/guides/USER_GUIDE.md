@@ -1077,11 +1077,18 @@ high-confidence searches stable while still recovering paraphrase-heavy misses.
 | `wiki config set gc.prompt_runs_keep <N>` | Cap the LLM call log at `N` **unreferenced** records, newest kept; `0` keeps everything (**the default**). Records still referenced by a report, knowledge unit, entity or relation are kept regardless of the cap — deleting one silently re-bills a finished L3 report. Removal applies to every device you sync with. |
 | `wiki config set gc.sessions_retention_days <N>` | Chat retention window: `30`, `90`, `180`, `365`, or `0` to keep forever (**the default**). Chats are your own writing, so nothing is removed unless you choose a window — and choosing one removes them on every device you sync with. |
 | `wiki gc plan` | Show what disk can be reclaimed, and what grows but is deliberately kept — with the reason each is kept. Most of the growth is **synced across your devices**, so deleting it locally either propagates everywhere or is undone by the next sync. |
-| `wiki gc run` | Delete the reclaimable items, any chat sessions past your retention window, and any LLM call records over your `gc.prompt_runs_keep` cap — the prompt states that chat removal applies to **every device you sync with** and cannot be undone (asks first). Only per-vault cache directories that are provably debris: the recorded vault path is gone, that path is under a temp prefix, **and** the cached database holds zero sources. All three are required — "the path is missing" alone is a mount test, not a liveness test, and an unmounted drive would look identical. |
+| `wiki gc run` | Delete the reclaimable items, any chat sessions past your retention window, and any LLM call records over your `gc.prompt_runs_keep` cap — the prompt states that chat removal applies to **every device you sync with** and cannot be undone (asks first). Only proven empty temporary-vault caches qualify: the resolved vault path is absent under a temporary root, the namespace contains only its marker and an optional recognized empty database, and inspection finds no retained application rows. Tombstones, diagnostics, job history, unknown schemas/files, backups, and existing SQLite sidecars keep the cache. Inspection does not initialize or migrate a candidate DB; identity and eligibility are checked again before removal. A missing non-temporary path may be an unmounted drive and never qualifies. |
 | `wiki inspect answer <QTR-…>` | Inspect the persisted route, **route reason**, **derivation status**, selected evidence, prompt traces, and warnings for one query answer. The derivation line distinguishes *a derivation ran and found no search terms* from *no derivation ran* — both leave an empty search query, and only the first is a normal result for a whole-corpus question. |
 | `wiki insight list [--workspace P] [--status pending]` | List provisional insight candidates. |
 | `wiki insight show <INS-…>` | Show one insight candidate. |
 | `wiki insight promote <INS-…>` | Promote a candidate to a durable `02_Wiki/` note (explicit, human-approved). |
+
+Cache inspection checks logical SQLite tables; initialized FTS shadow metadata and
+the schema-version stamp do not count as user records. A source count of zero
+alone is insufficient. Preview revalidation rejects changes observed during the
+confirmation interval; it is not an exclusive lock against a process starting a
+cache write after the final check. Saving a retention setting does not run GC.
+
 
 Insight candidates are **provisional, not human truth**. Promotion writes only to
 `02_Wiki/` and never edits source folders. The same capabilities are available to

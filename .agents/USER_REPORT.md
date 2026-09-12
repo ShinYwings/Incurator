@@ -8,4 +8,5 @@ Agents must check this document and triage the received items into the `To-Do (Q
 
 ## 📝 User Inbox
 
-*(empty — last triaged 2026-09-11 after v0.82.5 E4 hotfix merge; remaining work is queued in ROADMAP.md)*
+*(empty — inspection feedback folded into active plan and ROADMAP.md
+on 2026-09-12; private-copy design independently reviewed.)*
