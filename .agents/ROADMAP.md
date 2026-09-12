@@ -8,7 +8,7 @@ phase, order is free; across phases it is not.
 
 ## To-Do (Queuing)
 
-`USER_REPORT.md` was checked on 2026-09-11 and is empty; there are no untriaged
+`USER_REPORT.md` was checked on 2026-09-12 and is empty; there are no untriaged
 user reports. The remaining roadmap work is queued here in stability order:
 
 1. **B1/B2 state retention follow-up** — finish the fleet-safe retention policy
@@ -39,6 +39,38 @@ user reports. The remaining roadmap work is queued here in stability order:
 10. **I3 deferred product drafts** — plan vault storage governance/quota
     visibility, native PDF annotation/assets, web search, and the popover vs
     sidechat role split when the stability queue reaches them.
+
+### Active milestone — v0.82.6 cache preservation
+
+Branch `fix/gc-cache-preservation`; approved Arena plan:
+`.agents/plans/06_gc_cache_preservation.md`. Cache planning currently calls a
+schema-writing stats helper. A source-less DB with retained tombstones, or an
+unknown populated table, is classified as disposable. Repair read-only inspection,
+retained-data proof and stale-preview revalidation before adding GC controls.
+
+**B1/B2 follow-ups captured from this Arena (2026-09-11):**
+
+- `apply_prompt_run_cap` reference SELECTs run outside a transaction. A second
+  writer can commit a report reference after selection, then GC deletes the run
+  and publishes a fleet tombstone. More fundamentally, prompt creation, provider
+  completion and artifact publication commit separately: even BEGIN IMMEDIATE
+  cannot protect a successful result awaiting publication. Design a real prompt
+  lifetime/ownership protocol; do not replace it with a timing grace period.
+- The Dashboard GC tab remains absent. Backend session read/split/atomic-replace
+  can overwrite a concurrent Obsidian `adapter.process` save, and a pruned selected
+  session can leave stale sidebar messages that get copied into another session.
+  Resolve shared writer coordination and sidebar reconciliation before Run GC UI.
+  Effective backend policy JSON and explicit project-local settings writes are
+  needed for the subsequent Dashboard surface.
+- Existing prompt-run caps (v0.71.0) and session windows (v0.70.0) are shipped;
+  historical open-table proposals below are not current implementation status.
+  New job/query/compiler history windows still need product decisions. DB and
+  session tombstones remain protected without a fleet acknowledgement protocol.
+- Malformed `query_traces.prompt_trace_ids` is ignored by the reference scanner;
+  preserve as a verification lead for the prompt-lifetime plan, not a confirmed
+  cache-patch requirement.
+
+Arena evidence and revisions: `.agents/plans/retention_followup_arena/`.
 
 | phase | what it buys | risk it carries |
 |---|---|---|

@@ -4625,3 +4625,33 @@ False success is forbidden. A response must not claim that a requested
 maintenance/indexing action completed when it was skipped after an exception.
 Optional classification or suggestion failures may preserve deterministic
 fallback output, but the suppressed cause remains observable in logs.
+
+
+## 33. Temporary-Vault Cache Collection (v0.82.6)
+
+`wiki gc plan` and `wiki gc run` share the same candidate inspection. A namespace
+must be a real directory with regular `vault_root` and optional `state.sqlite`
+files only. Resolve the recorded root before checking its temporary prefix; it
+must be absent. Non-temporary, inaccessible or ambiguous roots are retained.
+Symlinks, extra files/directories, backups, logs and pre-existing SQLite sidecars
+prevent collection because their contents or active ownership are not proven
+by this collector.
+
+Candidate SQLite inspection uses a read-only connection, without schema creation,
+migration, trigger repair or version stamping. Table definitions and table types
+must match a trusted current schema constructed in memory, and the database must
+carry exactly one current schema-version record. Unknown/old/partial schemas are
+retained unchanged. Every ordinary or logical virtual application table must be
+empty: zero sources alone does not establish absence of tombstones, provenance,
+diagnostics or local job history. Only the exact recognized schema metadata,
+SQLite sequence bookkeeping and trusted FTS shadow tables are exempt. Initialized
+empty FTS metadata must not make an otherwise empty current database uncollectible.
+
+The collector retains planned directory/file identities and marker contents
+internally without changing CLI JSON. Immediately before removal it inspects
+again and skips candidates whose identity, marker, contents or root eligibility
+changed. Counts reflect only removed namespaces, with freshly observed sizes.
+This rejects stale previews; it is not an atomic lifecycle lease against a
+background process writing after the final observation. No production vault,
+retention setting, tombstone policy or prompt/session lifetime contract changes
+as part of this cache-preservation correction.
