@@ -37,6 +37,147 @@ def test_schema_version_is_14() -> None:
     assert db.SCHEMA_VERSION == 14
 
 
+def _open_for_schema_test(path: Path, entry: str) -> None:
+    if entry == "init_db":
+        db.init_db(path)
+    else:
+        with db.connect(path):
+            pass
+
+
+def _stored_schema_state(path: Path) -> tuple:
+    # Use raw SQLite: the subject under test must not initialize our observations.
+    conn = sqlite3.connect(path)
+    try:
+        return (
+            conn.execute("SELECT type, name, sql FROM sqlite_master ORDER BY name").fetchall(),
+            conn.execute("SELECT * FROM schema_version").fetchall(),
+            conn.execute("SELECT * FROM retained_history").fetchall(),
+            conn.execute("PRAGMA journal_mode").fetchone(),
+        )
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize("entry", ["init_db", "connect"])
+@pytest.mark.parametrize("journal_mode", ["delete", "wal"])
+def test_future_schema_refused_before_setup(
+    tmp_path: Path, entry: str, journal_mode: str
+) -> None:
+    path = tmp_path / "future.sqlite"
+    writer = sqlite3.connect(path)
+    try:
+        writer.execute(f"PRAGMA journal_mode={journal_mode}")
+        writer.executescript(
+            "CREATE TABLE schema_version(version INTEGER NOT NULL);"
+            "CREATE TABLE retained_history(id INTEGER PRIMARY KEY, value TEXT);"
+            "CREATE TRIGGER preserve_history AFTER INSERT ON retained_history "
+            "BEGIN UPDATE retained_history SET value = 'retained' WHERE id = NEW.id; END;"
+        )
+        # Keeping this writer open leaves the future stamp in committed WAL frames
+        # in WAL mode. A check of only the main-file header would miss the version.
+        writer.execute("INSERT INTO schema_version VALUES (?)", (db.SCHEMA_VERSION + 1,))
+        writer.execute("INSERT INTO retained_history VALUES (1, 'original')")
+        writer.commit()
+        before = _stored_schema_state(path)
+        with pytest.raises(ValueError, match=r"schema.*15.*14.*[Uu]pgrade"):
+            _open_for_schema_test(path, entry)
+        assert _stored_schema_state(path) == before
+    finally:
+        writer.close()
+
+
+@pytest.mark.parametrize("entry", ["init_db", "connect"])
+@pytest.mark.parametrize("versions", [[None], ["unknown"], [14.5], [0], [-1], [14, 15], [14, 14]])
+def test_inconsistent_schema_stamp_is_not_repaired(
+    tmp_path: Path, entry: str, versions: list
+) -> None:
+    path = tmp_path / "invalid.sqlite"
+    conn = sqlite3.connect(path)
+    try:
+        conn.executescript(
+            "CREATE TABLE schema_version(version);"
+            "CREATE TABLE retained_history(value TEXT);"
+            "INSERT INTO retained_history VALUES ('keep');"
+        )
+        conn.executemany("INSERT INTO schema_version VALUES (?)", [(v,) for v in versions])
+        conn.commit()
+    finally:
+        conn.close()
+    before = _stored_schema_state(path)
+    with pytest.raises(ValueError, match="[Ii]nvalid schema_version"):
+        _open_for_schema_test(path, entry)
+    assert _stored_schema_state(path) == before
+
+
+@pytest.mark.parametrize("entry", ["init_db", "connect"])
+def test_schema_version_view_is_not_repaired(tmp_path: Path, entry: str) -> None:
+    path = tmp_path / "view.sqlite"
+    conn = sqlite3.connect(path)
+    try:
+        conn.executescript(
+            "CREATE VIEW schema_version AS SELECT 14 AS version;"
+            "CREATE TABLE retained_history(value TEXT);"
+        )
+    finally:
+        conn.close()
+    before = _stored_schema_state(path)
+    with pytest.raises(ValueError, match="[Ii]nvalid schema_version"):
+        _open_for_schema_test(path, entry)
+    assert _stored_schema_state(path) == before
+
+
+@pytest.mark.parametrize("entry", ["init_db", "connect"])
+@pytest.mark.parametrize("version", [None, 13, 14])
+def test_compatible_schema_stamp_keeps_initialization_behavior(
+    tmp_path: Path, entry: str, version: int | None
+) -> None:
+    path = tmp_path / "compatible.sqlite"
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("CREATE TABLE schema_version(version INTEGER NOT NULL)")
+        if version is not None:
+            conn.execute("INSERT INTO schema_version VALUES (?)", (version,))
+        conn.commit()
+    finally:
+        conn.close()
+    _open_for_schema_test(path, entry)
+    with db.connect(path) as opened:
+        assert not opened.in_transaction
+        assert opened.execute("SELECT version FROM schema_version").fetchall()[0][0] == 14
+    assert db.claim_next_job(path) is None
+
+
+@pytest.mark.parametrize("entry", ["init_db", "connect"])
+@pytest.mark.parametrize("trigger_first", [True, False])
+def test_version_table_is_not_shadowed_by_same_named_trigger(
+    tmp_path: Path, entry: str, trigger_first: bool
+) -> None:
+    path = tmp_path / "shared-name.sqlite"
+    table = "CREATE TABLE schema_version(version INTEGER PRIMARY KEY);"
+    trigger = (
+        "CREATE TRIGGER schema_version AFTER INSERT ON retained_history "
+        "BEGIN UPDATE retained_history SET value = 'retained'; END;"
+    )
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("CREATE TABLE retained_history(value TEXT)")
+        conn.executescript(trigger + table if trigger_first else table + trigger)
+        conn.execute("INSERT INTO schema_version VALUES (?)", (db.SCHEMA_VERSION,))
+        conn.commit()
+    finally:
+        conn.close()
+    _open_for_schema_test(path, entry)
+    conn = sqlite3.connect(path)
+    try:
+        assert conn.execute("SELECT version FROM schema_version").fetchall() == [(db.SCHEMA_VERSION,)]
+        assert conn.execute(
+            "SELECT type FROM sqlite_master WHERE name='schema_version' ORDER BY type"
+        ).fetchall() == [("table",), ("trigger",)]
+    finally:
+        conn.close()
+
+
 def test_connect_stamps_current_schema_version_on_self_healed_db(tmp_path: Path) -> None:
     path = tmp_path / "state.sqlite"
     with db.connect(path) as conn:

@@ -3524,6 +3524,18 @@ changes. `source_spans` breaks the assumption: it has **no `updated_at`**, its
 
 ### 26.6 Current-Schema State DB Boundary
 
+From v0.82.7, both connection entry points check an existing schema stamp before
+application schema setup, trigger refresh, journal-mode changes or stamping. They
+refuse a newer version with an upgrade instruction, and refuse malformed or
+multiple version rows instead of overwriting them. Missing/empty version tables
+still initialize normally. Compatible older stamps follow the existing setup
+path; this guard adds no migration and does not change `SCHEMA_VERSION`.
+On rejection no application data/schema or journal policy is changed. SQLite
+may create/manage read coordination sidecars; this is not a filesystem inspection
+API. A production schema migration still requires quiescing existing writers
+and upgrading incompatible binaries; the guard cannot retrofit older releases
+or protect calls using a connection opened before a concurrent migration.
+
 As of v0.33.0, runtime DB initialization no longer carries the historical v8/v9
 automatic migration rehearsal path. `init_db()` and `connect()` create or open
 the current schema directly and stamp the current `SCHEMA_VERSION`; unsupported

@@ -51,7 +51,7 @@ This completes the cache correctness patch, not the B1/B2 retention queue.
 
 ### v0.82.7 schema-open guard — ACTIVE prerequisite
 
-Plan: `.agents/plans/08_schema_open_guard.md`. A runtime currently applies its
+Implemented plan: `08_schema_open_guard.md` (Git history). A runtime previously applied its
 schema and overwrites a newer DB's schema stamp with its own version. Refuse
 newer or malformed stamps before application setup, preserving existing
 compatible initialization. This patch keeps schema 14 and precedes the planned

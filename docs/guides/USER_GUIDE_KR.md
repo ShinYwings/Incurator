@@ -241,6 +241,13 @@ PDF text parsing은 pymupdf4llm의 host Tesseract OCR을 암묵적으로 실행�
   migration 명령을 제공하지 않으며, `wiki status` 같은 일반 명령에서 v0.29
   이전 absolute source row를 변환하지 않습니다. 이런 구형 device-local DB는
   현재 source/sync state로 다시 구성한 뒤 이 버전을 사용해야 합니다.
+- v0.82.7부터는 더 새로운 스키마로 작성된 DB를 열 때 버전을 덮어쓰지 않고
+  백엔드 스키마 설정 전에 오류를 반환합니다. 호환되는 백엔드 버전으로
+  업데이트하세요. 오류를 우회하려고 DB의 버전 값을 수정하지 마세요.
+  버전 기록이 일관되지 않은 경우에도 자동 복구 없이 오류를 반환합니다.
+  스키마를 변경하는 마이그레이션 전에는 기존 쓰기 프로세스를 중지하고,
+  해당 DB를 사용하는 백엔드와 플러그인을 업데이트해야 합니다. 이미 설치된
+  구버전 실행 파일에는 업데이트 전까지 이 보호가 적용되지 않습니다.
 - v0.33.0은 pre-v12 `state.sqlite` 자동 migration shim도 제거합니다. peer
   JSONL snapshot은 `export_id`, source `sync_key`, source `updated_at`을 가진
   current-schema export여야 하며, malformed legacy snapshot은 부분 import하지

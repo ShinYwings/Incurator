@@ -865,6 +865,37 @@ def _chunked(seq: list, size: int = _SQL_VAR_CHUNK):
         yield seq[start:start + size]
 
 
+def _check_schema_version(conn: sqlite3.Connection) -> None:
+    """Refuse incompatible stamps before application setup can alter the DB.
+
+    Inspect the actual connection so committed WAL frames participate. Missing
+    or empty stamps retain the existing initialization path; a present stamp
+    cannot be repaired by silently applying this runtime's schema over it.
+    Migration still requires quiescent writers, including already-open callers.
+    """
+    relation = conn.execute(
+        # SQLite permits a trigger with the same name as a table. Prefer the
+        # actual version table regardless of those objects' creation order.
+        "SELECT type FROM sqlite_master WHERE name = 'schema_version' COLLATE NOCASE "
+        "ORDER BY type = 'table' DESC"
+    ).fetchone()
+    if relation is None:
+        return
+    if relation[0] != "table":
+        raise ValueError("Invalid schema_version: expected a table; inspect the database before recovery")
+    rows = conn.execute("SELECT version, typeof(version) FROM schema_version LIMIT 2").fetchall()
+    if not rows:
+        return
+    if len(rows) != 1 or rows[0][1] != "integer" or rows[0][0] <= 0:
+        raise ValueError("Invalid schema_version: expected one positive integer; inspect the database before recovery")
+    stored_version = rows[0][0]
+    if stored_version > SCHEMA_VERSION:
+        raise ValueError(
+            f"Database schema version {stored_version} is newer than backend schema version "
+            f"{SCHEMA_VERSION}. Upgrade the backend before opening this database."
+        )
+
+
 def _stamp_schema_version(conn: sqlite3.Connection) -> None:
     row = conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
     if row is None:
@@ -922,6 +953,7 @@ def init_db(db_path: Path) -> None:
     # not outlive this call on a GC-timing-dependent schedule.
     conn = sqlite3.connect(db_path)
     try:
+        _check_schema_version(conn)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys = ON")
         conn.executescript(SCHEMA_SQL)
@@ -942,6 +974,7 @@ def connect(db_path: Path) -> Iterator[sqlite3.Connection]:
     # cannot leak the connection (and its WAL sidecars).
     try:
         conn.row_factory = sqlite3.Row
+        _check_schema_version(conn)
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys = ON")
         # Self-heal for existing empty/corrupted state DB files missing base tables.
