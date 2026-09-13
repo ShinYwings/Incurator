@@ -367,6 +367,24 @@ Rules:
 
 ## 6. SQLite State Schema Additions
 
+### 6.0 Runtime schema compatibility
+
+Before application schema setup, trigger refresh, journal-mode changes or version
+stamping, both `init_db()` and `connect()` inspect the existing `schema_version`
+table. A stored version newer than this backend is rejected with an instruction
+to upgrade the backend. A present stamp must contain one positive SQLite integer;
+multiple rows, non-integer/non-positive values, or a non-table object named
+`schema_version` are rejected rather than repaired. Missing/empty version tables
+retain the existing initialization behavior; compatible older stamps retain the
+existing current-schema setup behavior. This is not a legacy-data migration.
+
+The guard reads the actual connection, including committed WAL state, and does
+not execute application DDL/DML or change journal policy on rejection. SQLite
+may manage its own coordination sidecars during an open. This protects opening
+an already newer database, not migrating beneath existing live connections.
+Quiesce and upgrade known writers before a schema-changing migration; binaries
+older than v0.82.7 do not implement this guard. `SCHEMA_VERSION` remains 14.
+
 ### 6.1 `sources`
 
 **Path identity (v0.78.0).** `relpath` MUST be stored and compared in Unicode

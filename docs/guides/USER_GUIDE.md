@@ -282,6 +282,13 @@ Syncthing, browser download folders, or other external locations.
   JSONL snapshots must be current-schema exports with an `export_id`, source
   `sync_key`, and source `updated_at`; malformed legacy snapshots are rejected
   instead of being partially imported.
+- From v0.82.7, opening a database written with a newer schema fails before
+  backend schema setup instead of overwriting its version. Upgrade the backend
+  to a compatible release; do not edit the database's version stamp to bypass
+  the error. An inconsistent version stamp also fails without automatic repair.
+  Before a schema-changing migration, stop existing writers and upgrade the
+  backend/plugin installations that use that database. Older installed binaries
+  do not gain this protection until upgraded.
 - Automatically generated reference stubs do not include absolute PDF paths by
   default, so they can safely synchronize to another device whose external PDF
   library lives elsewhere.
