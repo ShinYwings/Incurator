@@ -8,7 +8,7 @@ phase, order is free; across phases it is not.
 
 ## To-Do (Queuing)
 
-`USER_REPORT.md` was checked on 2026-09-12 and is empty; there are no untriaged
+`USER_REPORT.md` was checked on 2026-09-13 and is empty; there are no untriaged
 user reports. The remaining roadmap work is queued here in stability order:
 
 1. **B1/B2 state retention follow-up** — finish the fleet-safe retention policy
@@ -49,8 +49,29 @@ All local checks and GitHub CI passed. Three independent reviewers completed
 five review lenses after the user waived waiting for expired Claude OAuth.
 This completes the cache correctness patch, not the B1/B2 retention queue.
 
+### v0.82.7 schema-open guard — ACTIVE prerequisite
+
+Plan: `.agents/plans/08_schema_open_guard.md`. A runtime currently applies its
+schema and overwrites a newer DB's schema stamp with its own version. Refuse
+newer or malformed stamps before application setup, preserving existing
+compatible initialization. This patch keeps schema 14 and precedes the planned
+lifetime contract. Older installed writers still require upgrade/quiescence
+before a real migration. Saved-chat/handoff Arena closure continues in parallel.
+
 **B1/B2 follow-ups captured from this Arena (2026-09-11):**
 
+- **Saved chat protection decided 2026-09-13:** "Protect saved chat links too;
+  retain diagnostics while those chats exist". Saved chat links are retention
+  owners alongside knowledge and stored query records. The active Arena at
+  `.agents/plans/prompt_lifetime_arena/` now includes recoverable session
+  save/delete ownership and delayed peer sync. Existing full replay and offline
+  session saving must remain available.
+- A private two-device reproduction confirmed that a prompt GC tombstone can
+  both reject a peer's referenced run on import and delete a locally referenced
+  run when imported. Separate recoverable retention from ordinary deletion;
+  an accepted owner needs its full diagnostic record, including through partial
+  exports. Historical missing source/span parents must not cause source
+  resurrection or lossy removal of recorded diagnostic provenance.
 - `apply_prompt_run_cap` reference SELECTs run outside a transaction. A second
   writer can commit a report reference after selection, then GC deletes the run
   and publishes a fleet tombstone. More fundamentally, prompt creation, provider

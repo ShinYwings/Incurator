@@ -9,8 +9,11 @@ prerequisite shipped as v0.82.6 / PR #207 on 2026-09-12.
 
 ## Plan Reference
 
-No implementation plan active. Unresolved prompt-lifetime and session-writer
-findings/proposals remain in `.agents/plans/retention_followup_arena/`.
+Active prerequisite plan: `.agents/plans/08_schema_open_guard.md`, v0.82.7.
+Independent review accepted pre-setup refusal of newer/malformed schema stamps.
+The prompt-lifetime Arena is underway at
+`.agents/plans/prompt_lifetime_arena/00_problem.md`. Prior prompt-lifetime and
+session-writer findings remain in `.agents/plans/retention_followup_arena/`.
 Implemented cache plan/evidence are in Git history, removed from active files.
 
 ## Analysis & Reasoning
@@ -24,9 +27,13 @@ Next correctness issue: prompt runs commit before provider completion and before
 artifact publication. A finite cap can delete a live producer's unreferenced run.
 BEGIN IMMEDIATE alone merely postpones a publisher until after deletion. Need
 an ownership/lifetime design across callers and peers, not a timing grace period.
-Session pruning separately races Obsidian's writer and stale selected-message
-state; design coordination before exposing Dashboard Run GC. Full replay and
-thumbnails remain required. Tombstones have no fleet acknowledgement floor.
+Session pruning races Obsidian's writer and stale selected-message state.
+User decided on 2026-09-13: "Protect saved chat links too; retain diagnostics
+while those chats exist". Saved chats are retention owners alongside knowledge
+records and stored query traces. Session save/delete/sync coordination is now
+a prerequisite of this lifetime contract, not a later optional protection.
+Full replay and thumbnails remain required. Tombstones have no fleet
+acknowledgement floor.
 
 ## Progress Status
 
@@ -39,6 +46,11 @@ thumbnails remain required. Tombstones have no fleet acknowledgement floor.
   This was a recorded substitution, not a successful skill invocation.
 - No production GC, migration, reindex or retention setting change. Production
   last_root remains `/Users/shin/shinywings/second_brain`.
+- Independent producer/fleet/retention proposals and cross-critiques are saved
+  in prompt_lifetime_arena. A two-device private reproduction proved both
+  directions of GC tombstone import can leave live report references dangling.
+  Latest Arena extension covers saved chat ownership, offline saving and
+  recoverable session commits. No application code changed yet.
 
 ## Critical Context/Blockers
 
@@ -50,7 +62,11 @@ job/query/compiler history windows have been selected.
 
 ## Immediate Next Action
 
-Arena the prompt-run lifetime defect using retained proposals and exact producer
-paths. Keep session writer/Dashboard and user-history policy as explicit subsequent
-work. Cache release cleanup is complete when master bookkeeping is pushed and
-merged branch/worktree pruning is verified.
+Finish saved-chat extension and synthesize the template-compliant prompt
+lifetime plan. Session writer correctness belongs in this design; Dashboard
+controls and new history-window policy remain subsequent.
+First implement and ship the independent v0.82.7 schema-open guard prerequisite
+while the saved-session/handoff design closes in parallel. It changes no schema
+version and performs no production migration.
+Cache release cleanup is complete: master bookkeeping pushed, merged branch
+pruned locally/remotely, sole worktree clean before new Arena bookkeeping.
