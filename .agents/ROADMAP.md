@@ -49,14 +49,16 @@ All local checks and GitHub CI passed. Three independent reviewers completed
 five review lenses after the user waived waiting for expired Claude OAuth.
 This completes the cache correctness patch, not the B1/B2 retention queue.
 
-### v0.82.7 schema-open guard — ACTIVE prerequisite
+### v0.82.7 schema-open guard — SHIPPED prerequisite
 
 Implemented plan: `08_schema_open_guard.md` (Git history). A runtime previously applied its
 schema and overwrites a newer DB's schema stamp with its own version. Refuse
 newer or malformed stamps before application setup, preserving existing
 compatible initialization. This patch keeps schema 14 and precedes the planned
-lifetime contract. Older installed writers still require upgrade/quiescence
-before a real migration. Saved-chat/handoff Arena closure continues in parallel.
+lifetime contract. PR #208 merged 2026-09-14 (KST), all CI green; backend 2045
+passed and plugin 1286 passed. Older installed writers still require
+upgrade/quiescence before a real migration. Saved-chat/handoff Arena closure
+continues.
 
 **B1/B2 follow-ups captured from this Arena (2026-09-11):**
 

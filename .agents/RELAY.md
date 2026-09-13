@@ -1,6 +1,6 @@
 # RELAY
 
-**Branch:** `fix/schema-open-guard`
+**Branch:** `master`
 
 ## Goal
 
@@ -56,7 +56,8 @@ acknowledgement floor.
   same-name trigger ambiguity. Final backend 2045 passed, 6 skipped, 4 xfailed;
   plugin 1286 passed, 3 skipped. Ruff/mypy/TypeScript/testbed status passed.
   D2 hash re-armed with demonstrated unchanged 141-object initialized schema;
-  consumed holdout was not rerun. Remote CI/merge/cleanup next.
+  consumed holdout was not rerun. PR #208 merged as 1d614e06 on 2026-09-14
+  (KST), all remote CI green. Completed plan removed; merged branch pruned.
 
 ## Critical Context/Blockers
 
@@ -71,8 +72,11 @@ job/query/compiler history windows have been selected.
 Finish saved-chat extension and synthesize the template-compliant prompt
 lifetime plan. Session writer correctness belongs in this design; Dashboard
 controls and new history-window policy remain subsequent.
-First implement and ship the independent v0.82.7 schema-open guard prerequisite
-while the saved-session/handoff design closes in parallel. It changes no schema
-version and performs no production migration.
+The v0.82.7 prerequisite is shipped. Close remaining implementation feasibility:
+native plugin/Python lock compatibility versus immutable session files, and
+actual AGY per-launch context forwarding. Reviews/consensus are saved as 05_*
+and 07_session_files_critique.md. Native dependency Linux locks may differ from
+Python flock; verify exact primitives. Real probes remain private. No lifetime
+code or production migration yet.
 Cache release cleanup is complete: master bookkeeping pushed, merged branch
 pruned locally/remotely, sole worktree clean before new Arena bookkeeping.
