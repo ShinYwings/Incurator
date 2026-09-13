@@ -148,6 +148,36 @@ def test_compatible_schema_stamp_keeps_initialization_behavior(
     assert db.claim_next_job(path) is None
 
 
+@pytest.mark.parametrize("entry", ["init_db", "connect"])
+@pytest.mark.parametrize("trigger_first", [True, False])
+def test_version_table_is_not_shadowed_by_same_named_trigger(
+    tmp_path: Path, entry: str, trigger_first: bool
+) -> None:
+    path = tmp_path / "shared-name.sqlite"
+    table = "CREATE TABLE schema_version(version INTEGER PRIMARY KEY);"
+    trigger = (
+        "CREATE TRIGGER schema_version AFTER INSERT ON retained_history "
+        "BEGIN UPDATE retained_history SET value = 'retained'; END;"
+    )
+    conn = sqlite3.connect(path)
+    try:
+        conn.execute("CREATE TABLE retained_history(value TEXT)")
+        conn.executescript(trigger + table if trigger_first else table + trigger)
+        conn.execute("INSERT INTO schema_version VALUES (?)", (db.SCHEMA_VERSION,))
+        conn.commit()
+    finally:
+        conn.close()
+    _open_for_schema_test(path, entry)
+    conn = sqlite3.connect(path)
+    try:
+        assert conn.execute("SELECT version FROM schema_version").fetchall() == [(db.SCHEMA_VERSION,)]
+        assert conn.execute(
+            "SELECT type FROM sqlite_master WHERE name='schema_version' ORDER BY type"
+        ).fetchall() == [("table",), ("trigger",)]
+    finally:
+        conn.close()
+
+
 def test_connect_stamps_current_schema_version_on_self_healed_db(tmp_path: Path) -> None:
     path = tmp_path / "state.sqlite"
     with db.connect(path) as conn:

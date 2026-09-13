@@ -874,7 +874,10 @@ def _check_schema_version(conn: sqlite3.Connection) -> None:
     Migration still requires quiescent writers, including already-open callers.
     """
     relation = conn.execute(
-        "SELECT type FROM sqlite_master WHERE name = 'schema_version' COLLATE NOCASE"
+        # SQLite permits a trigger with the same name as a table. Prefer the
+        # actual version table regardless of those objects' creation order.
+        "SELECT type FROM sqlite_master WHERE name = 'schema_version' COLLATE NOCASE "
+        "ORDER BY type = 'table' DESC"
     ).fetchone()
     if relation is None:
         return
