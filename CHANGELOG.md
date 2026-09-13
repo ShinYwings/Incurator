@@ -2,6 +2,17 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.82.7] - 2026-09-14
+
+### Fixed
+
+- Backend database opening now rejects newer schema versions before applying
+  its schema, refreshing triggers, changing journal mode or overwriting the
+  version stamp. Inconsistent stamps are rejected without automatic repair.
+  Existing compatible initialization and job-claim transactions still work.
+  This adds no schema migration; older installed binaries must be upgraded
+  before they receive this protection.
+
 ## [0.82.6] - 2026-09-12
 
 ### Fixed

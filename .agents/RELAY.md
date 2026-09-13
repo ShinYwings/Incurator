@@ -9,7 +9,7 @@ prerequisite shipped as v0.82.6 / PR #207 on 2026-09-12.
 
 ## Plan Reference
 
-Active prerequisite plan: `.agents/plans/08_schema_open_guard.md`, v0.82.7.
+Implemented prerequisite plan: `08_schema_open_guard.md`, v0.82.7, in Git history.
 Independent review accepted pre-setup refusal of newer/malformed schema stamps.
 The prompt-lifetime Arena is underway at
 `.agents/plans/prompt_lifetime_arena/00_problem.md`. Prior prompt-lifetime and
