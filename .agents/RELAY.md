@@ -1,6 +1,6 @@
 # RELAY
 
-**Branch:** `master`
+**Branch:** `fix/schema-open-guard`
 
 ## Goal
 
@@ -50,7 +50,13 @@ acknowledgement floor.
   in prompt_lifetime_arena. A two-device private reproduction proved both
   directions of GC tombstone import can leave live report references dangling.
   Latest Arena extension covers saved chat ownership, offline saving and
-  recoverable session commits. No application code changed yet.
+  recoverable session commits. No lifetime application code changed yet.
+- v0.82.7 prerequisite implemented on fix/schema-open-guard: reject future or
+  malformed schema stamps before application setup. Review found and fixed
+  same-name trigger ambiguity. Final backend 2045 passed, 6 skipped, 4 xfailed;
+  plugin 1286 passed, 3 skipped. Ruff/mypy/TypeScript/testbed status passed.
+  D2 hash re-armed with demonstrated unchanged 141-object initialized schema;
+  consumed holdout was not rerun. Remote CI/merge/cleanup next.
 
 ## Critical Context/Blockers
 
