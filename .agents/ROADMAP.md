@@ -60,6 +60,15 @@ passed and plugin 1286 passed. Older installed writers still require
 upgrade/quiescence before a real migration. Saved-chat/handoff Arena closure
 continues.
 
+### v0.83.0 prompt lifetime — ACTIVE
+
+Master: `.agents/plans/09_prompt_lifetime.md`. Independent final Arena review
+accepted core implementation after explicit migration refusal, receipt lifetime
+and local-versus-exported ownership amendments. Current macOS Node/Python lock
+interoperability and process-death release passed. AGY runtime context delivery
+and native supported-platform packaging remain mandatory integration gates.
+Actual production adoption remains separately authorized after private rehearsal.
+
 **B1/B2 follow-ups captured from this Arena (2026-09-11):**
 
 - **Saved chat protection decided 2026-09-13:** "Protect saved chat links too;

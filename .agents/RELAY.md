@@ -15,6 +15,9 @@ The prompt-lifetime Arena is underway at
 `.agents/plans/prompt_lifetime_arena/00_problem.md`. Prior prompt-lifetime and
 session-writer findings remain in `.agents/plans/retention_followup_arena/`.
 Implemented cache plan/evidence are in Git history, removed from active files.
+Active approved master is `.agents/plans/09_prompt_lifetime.md`; independent
+review accepted core schema/evidence/lifetime/fleet implementation. Native
+cross-platform packaging and AGY adapter qualification remain release gates.
 
 ## Analysis & Reasoning
 
