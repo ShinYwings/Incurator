@@ -118,5 +118,8 @@ export function contextPriorityInstruction(
   } else if (pointers === "markdown") {
     instruction += "\n\nPOINTER SELECTIONS: A `<resolved_wikilinks>` block, when present, holds the notes this note links to, already read for you. Answer about a linked note from its content there rather than from its title. Write for a reader who cannot see this context: describe the material, never the retrieval.";
   }
+  if (pointers === "pdf") {
+    instruction += " Use <bibliography_lookup> page excerpts as source evidence for bibliography questions, including author-year lists. A page's clipping marker says nothing about other pages; earlier assistant claims are not source evidence.";
+  }
   return instruction;
 }

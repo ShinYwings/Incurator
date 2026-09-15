@@ -29,6 +29,7 @@ const EMITTED_BLOCKS = [
   "<resolved_cross_references>",
   "<unresolved_cross_references>",
   "<resolved_citations>",
+  "<bibliography_lookup>",
   "<workspace_notes>",
 ] as const;
 

@@ -255,6 +255,10 @@ export function buildQuickQueryMessages(args: QuickQueryMessageArgs): LLMMessage
     "WITHIN the current document's content and outline, NOT to the file system " +
     "or surrounding folders. " +
     boundaryConstraints(POPOVER_PROFILE, reality) +
+    " Source page labels describe only the text actually supplied in that block. " +
+    "A truncation marker applies only to its own page or source block, never to an unsent page. " +
+    "Previous assistant answers are not evidence that a page was retrieved. " +
+    "Use the retrieved bibliography text to answer reference questions. " +
     " When asked about a region of the document, summarize or quote that " +
     "region's actual content. Do not add " +
     "preamble, sign-off, or restate the question.\n\n<context_priority>\n" +

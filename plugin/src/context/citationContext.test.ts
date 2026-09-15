@@ -3,6 +3,7 @@ import {
   buildCitationsBlock,
   forgetBibliography,
   resolveSelectionCitations,
+  resolveSelectionBibliography,
 } from "./citationContext";
 
 /**
@@ -16,6 +17,7 @@ import {
  */
 
 const PAGES: Record<number, string> = {
+  21: "body text before the tail",
   22: "body text, no bibliography here",
   23: "more body text citing [8] in passing",
   24: "References\n[1] A. One. First work. 2001.\n[2] B. Two. Second work. 2002.",
@@ -120,5 +122,86 @@ describe("buildCitationsBlock", () => {
     expect(block).toContain('<citation label="[8]">');
     expect(block).toContain("The cited paper");
     expect(block).toMatch(/Explain the cited work/);
+  });
+});
+
+describe("bibliography recovery", () => {
+  it("retries a cached negative when document extent becomes authoritative", async () => {
+    const source = { documentId: "extent7to11", pageCount: 7 };
+    await resolveSelectionBibliography("", source, async () => "Body", "References");
+    const fetch = vi.fn(async (n: number) => n === 11 ? "References\nSmith. Newly reachable bibliography." : "Body");
+    const result = await resolveSelectionBibliography("", { ...source, pageCount: 11 }, fetch, "References");
+    expect(fetch).toHaveBeenCalledWith(11);
+    expect(result.block).toContain("Newly reachable bibliography");
+  });
+
+  it("refreshes cached content when extent or outline coverage changes", async () => {
+    const source = { documentId: "extent-outline-refresh", pageCount: 7 };
+    await resolveSelectionBibliography("", source, async n => n === 7 ? "References\n[1] Original." : "Body", "References");
+    const extended = await resolveSelectionBibliography("", { ...source, pageCount: 11 },
+      async n => n === 7 ? "References\n[1] Original." : n === 8 ? "[2] Newly reachable continuation." : "", "References");
+    expect(extended.block).toContain("Newly reachable continuation");
+
+    const outlined = await resolveSelectionBibliography("", { ...source, pageCount: 11, outline: [{ title: "References", pageNum: 2 }] },
+      async n => n === 2 ? "References\n[1] Correct outline location." : "", "References");
+    expect(outlined.block).toContain("Correct outline location");
+  });
+
+  it("supplies actual author-year References page text and page coverage", async () => {
+    const fetch = vi.fn(async (n: number) => n === 11
+      ? "References\nSmith, Alice (2024). Distinctive source title." : "Body");
+    const result = await resolveSelectionBibliography("page7", { documentId: "raw11", pageCount: 11 }, fetch, "참고문헌 보여줘");
+    expect(result.block).toContain("Smith, Alice");
+    expect(result.block).toContain('page="11"');
+    expect(result.block).toContain('failed_pages=""');
+  });
+
+  it("tries an outline heading outside the tail and stops before an appendix", async () => {
+    const fetch = vi.fn(async (n: number) => n === 4
+      ? "References\nSmith (2024). Work.\nAppendix A\nPRIVATE_APPENDIX" : "");
+    const result = await resolveSelectionBibliography("", {
+      documentId: "outline4", pageCount: 100, outline: [{ title: "References", pageNum: 4 }],
+    }, fetch, "References");
+    expect(fetch.mock.calls[0][0]).toBe(4);
+    expect(result.block).toContain("Smith");
+    expect(result.block).not.toContain("PRIVATE_APPENDIX");
+  });
+
+  it("retries failed reads with the same document identity", async () => {
+    const source = { documentId: "retry11", pageCount: 11 };
+    const failed = await resolveSelectionBibliography("", source, async () => undefined, "References");
+    expect(failed.failedPages).toContain(11);
+    const result = await resolveSelectionBibliography("", source, async n => n === 11 ? "References\n[1] Restored author." : "Body", "References");
+    expect(result.block).toContain("Restored author");
+  });
+
+  it("retries a missing continuation after finding the heading", async () => {
+    const source = { documentId: "retry-continuation", pageCount: 11 };
+    await resolveSelectionBibliography("[8]", source, async n => n === 10 ? "References\n[1] First." : n === 11 ? undefined : "Body");
+    const result = await resolveSelectionBibliography("[8]", source, async n => n === 10 ? "References\n[1] First." : n === 11 ? "[8] Recovered continuation." : "Body");
+    expect(result.block).toContain("Recovered continuation");
+  });
+
+  it("matches prose reference90 before the general-list cap", async () => {
+    const result = await resolveSelectionCitations("", { documentId: "entry90", pageCount: 1 },
+      async () => "References\n" + Array.from({ length: 90 }, (_, i) => `[${i + 1}] Author${i + 1}.`).join("\n"),
+      "reference 90의 저자는?");
+    expect(result.map(c => c.num)).toEqual([90]);
+  });
+
+  it("attributes clipping to the exact fetched bibliography page", async () => {
+    const result = await resolveSelectionBibliography("", { documentId: "clip11", pageCount: 11 },
+      async n => n === 11 ? "References\nSmith " + "x".repeat(9000) : "Body", "References");
+    expect(result.block).toContain('page="11" clipped="true"');
+    expect(result.block).toContain("bibliography page 11 excerpt clipped");
+  });
+
+  it("preserves plain numbered and initialled author entries in raw excerpts", async () => {
+    const result = await resolveSelectionBibliography("", { documentId: "plain-numbered", pageCount: 1 },
+      async () => "References\n1. Alice Smith. A first paper.\n2. Bob Jones. Another paper.\nA. Zhang. A third paper.", "References");
+    expect(result.block).toContain("1. Alice Smith");
+    expect(result.block).toContain("2. Bob Jones");
+    expect(result.block).toContain("A. Zhang");
+    expect(result.citations).toEqual([]);
   });
 });

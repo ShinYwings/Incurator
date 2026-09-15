@@ -226,6 +226,7 @@ export function buildRecencyAnchor(
         // itself where the model meets it, and `contextPriorityInstruction` no longer
         // repeats it either — one telling, at the position of strongest attention.
         "A <resolved_citations> block holds the papers the selection cites — " +
+          "use <bibliography_lookup> page excerpts for bibliography questions, including author-year lists. " +
           "answer about a cited work from its entry there. A <workspace_notes> " +
           "block holds the reader's own notes — say what they concluded and " +
           "attribute it to them. " +

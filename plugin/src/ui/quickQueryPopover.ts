@@ -23,6 +23,7 @@ import {
 } from "../context/wikilinkResolver";
 import { summarizeProvenance, type ProvenanceRecord } from "../context/provenance";
 import { POPOVER_PROFILE } from "../context/promptRegistry";
+import { bibliographyFollowupQuestion } from "../context/bibliographyFollowup";
 
 /**
  * In-line Copilot — drag-to-select quick query popover.
@@ -142,6 +143,7 @@ export class QuickQueryPopover {
   private buttonEl: HTMLElement | null = null;
   private popoverEl: HTMLElement | null = null;
   private capturedSelection = "";
+  private bibliographyIntent: { documentKey: string; question: string } | undefined;
 
   /** One fetch per popover. `runQuery` is also the follow-up path and the
    *  selection does not change between turns, so the same 59-99 s retrieval
@@ -526,6 +528,7 @@ export class QuickQueryPopover {
     this.startThinkingTimer(loadingEl);
 
     const activeContext = this.plugin.refreshActiveContext();
+    const pdfReader = this.plugin.createActivePdfReader(activeContext);
     // Pin identity before any parallel work; vault evidence and document
     // references are independent, so their waits overlap instead of adding.
     const pinnedDocumentId = this.plugin.getActivePdfDocumentId();
@@ -576,18 +579,28 @@ export class QuickQueryPopover {
       // Read the identity ONCE, before the first await, and use the same value
       // for the index we write into and for every page fetch below.
       try {
+        const prepared = pdfReader ? await pdfReader.prepare() : activeContext.pdfPage;
+        const documentKey = pdfReader?.documentKey;
+        const referenceQuestion = bibliographyFollowupQuestion(
+          question, this.bibliographyIntent?.question,
+          Boolean(documentKey && documentKey === this.bibliographyIntent?.documentKey),
+        );
+        if (documentKey) this.bibliographyIntent = { documentKey, question: referenceQuestion };
         const resolution = await resolveSelectionContextAsync(
           this.capturedSelection,
           {
-            ...activeContext.pdfPage,
-            searchIndex: this.plugin.getActivePdfDocumentIndex(),
-            searchDocumentId: pinnedDocumentId,
+            ...prepared,
+            searchIndex: pdfReader?.searchIndex,
+            searchDocumentId: pdfReader?.searchDocumentId,
+            // Native paths have no content-revision invalidation. Re-read their
+            // bounded bibliography instead of trusting a previous file version.
+            cacheBibliography: Boolean(pdfReader?.searchDocumentId),
             // pinnedDocumentId is undefined whenever the active view is not the
             // custom ExternalPdfView — Obsidian's own PDF viewer populates
             // activeContext.pdfPage but has no docId, so citations were being
             // dropped there with no signal.
             documentKey:
-              activeContext.pdfPage?.fileHash ||
+              documentKey || activeContext.pdfPage?.fileHash ||
               activeContext.pdfPage?.zoteroAttachmentKey ||
               activeContext.pdfPage?.filePath ||
               undefined,
@@ -602,12 +615,12 @@ export class QuickQueryPopover {
           // an expected id is supplied), exactly as the local PDF tool runner
           // opts in (main.ts). Omitting it here was the bug.
           (pageNum) =>
-            this.plugin.fetchActivePdfPage(pageNum, pinnedDocumentId),
+            pdfReader ? pdfReader.fetchPage(pageNum) : this.plugin.fetchActivePdfPage(pageNum, pinnedDocumentId),
           undefined,
           // The typed question, not just the highlight. Asking "reference 12의
           // 제목이 뭐야?" without re-selecting the bracket used to resolve
           // nothing, and the answer was in this document's own last pages.
-          question
+          referenceQuestion
         );
         resolvedReferencesBlock = resolution.block;
         provenance = resolution.provenance;

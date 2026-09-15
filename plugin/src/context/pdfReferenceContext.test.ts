@@ -19,6 +19,16 @@ function page(pageNum: number, text: string): PdfWindowPage {
 // ── sync resolver ─────────────────────────────────────────────────────────────
 
 describe("resolveSelectionReferences", () => {
+  it("returns bibliography page text and observed page provenance through the shared bridge", async () => {
+    const result = await resolveSelectionContextAsync("Visible page seven", {
+      documentKey: "bridge-raw11", pageNum: 7, pageCount: 11,
+      windowPages: [page(7, "Visible page seven [...truncated]")],
+    }, async n => n === 11 ? "References\nAlice Smith (2024). Actual bibliography." : "Body", undefined, "참고문헌 보여줘");
+    expect(result.block).toContain("Alice Smith (2024)");
+    expect(result.block).toContain('page="11" clipped="false"');
+    expect(result.provenance.items).toContainEqual({ label: "References", origin: "bibliography", detail: "p.11" });
+  });
+
   it("returns [] when text has no references", () => {
     const result = resolveSelectionReferences("plain sentence with no refs", {
       windowPages: [page(1, "some text")],
@@ -537,6 +547,24 @@ describe("resolveSelectionContextAsync — citations and provenance join the blo
       fetch
     );
     expect(block).not.toContain("<resolved_citations");
+  });
+
+  it("bypasses old bibliography entries for a native PDF replaced in place", async () => {
+    const context = { documentKey: "native-revised", pageNum: 7, pageCount: 11,
+      outline: [{ title: "References", pageNum: 11, level: 1 }] };
+    let author = "OldAuthor";
+    const fetch = vi.fn(async (n: number) => n === 11 ? `References\n${author}. A paper. 2025.` : "body");
+    await resolveSelectionContextAsync("", context, fetch, undefined, "Show references");
+    author = "NewAuthor";
+    const fresh = { ...context, cacheBibliography: false };
+    const result = await resolveSelectionContextAsync("", fresh, fetch, undefined, "Show references");
+    expect(result.block).toContain("NewAuthor");
+    expect(result.block).not.toContain("OldAuthor");
+    author = "ThirdAuthor";
+    expect((await resolveSelectionContextAsync("", fresh, fetch, undefined, "Show references")).block).toContain("ThirdAuthor");
+    // Bypassed scans must not overwrite another caller's registered cache.
+    expect((await resolveSelectionContextAsync("", context, fetch, undefined, "Show references")).block).toContain("OldAuthor");
+    forgetBibliography("native-revised");
   });
 
   it("the string wrapper still returns exactly the block", async () => {

@@ -8,6 +8,12 @@ phase, order is free; across phases it is not.
 
 ## To-Do (Queuing)
 
+0. **v0.82.8 popover bibliography hotfix — verified, awaiting PR/CI** — plan and
+   evidence preserved in commits94b755bc/9f441c78.
+   Fetch distant References text before answering and preserve source evidence
+   on followups. Native identity/page count and failed cache defects are in
+   scope; raw user report is preserved verbatim in Arena00_problem.md.
+
 `USER_REPORT.md` was checked on 2026-09-13 and is empty; there are no untriaged
 user reports. The remaining roadmap work is queued here in stability order:
 
