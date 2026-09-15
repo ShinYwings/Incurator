@@ -9,10 +9,11 @@ describe("native popover bibliography preparation", () => {
       pdfPage: { pageNum: 7, pageCount: 7, text: "Body [...truncated]",
         windowPages: [{ pageNum: 7, text: "Body [...truncated]" }] },
     };
+    let author = "DISTINCT_AUTHOR";
     const backend = vi.fn(async (args: any) => ({
       totalPages: 11, outline: [{ title: "References", pageNum: 11, level: 0 }],
       pages: [{ pageNum: args.pageNum, text: args.pageNum === 11
-        ? "References\n[1] DISTINCT_AUTHOR. Paper title. 2026." : "Body text." }],
+        ? `References\n[1] ${author}. Paper title. 2026.` : "Body text." }],
     }));
     const streamChat = vi.fn(async () => undefined);
     const popover: any = Object.create(QuickQueryPopover.prototype);
@@ -30,8 +31,9 @@ describe("native popover bibliography preparation", () => {
     await popover.runQuery("참고문헌 알려줘", answer, {}, {});
     expect(backend.mock.calls.some(([args]) => args.pageNum === 11 && args.filePath === "/vault/A.pdf")).toBe(true);
     expect(JSON.stringify(streamChat.mock.calls[0])).toContain("DISTINCT_AUTHOR");
+    author = "REVISED_AUTHOR";
     await popover.runQuery("저자 전체 이름은?", answer, {}, {});
-    expect(JSON.stringify(streamChat.mock.calls[1])).toContain("DISTINCT_AUTHOR");
+    expect(JSON.stringify(streamChat.mock.calls[1])).toContain("REVISED_AUTHOR");
     expect(JSON.stringify(streamChat.mock.calls[1])).toContain("Previous assistant answers are not evidence");
   });
 });

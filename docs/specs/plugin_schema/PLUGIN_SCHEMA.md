@@ -3041,11 +3041,15 @@ bibliography entry in its first prompt and spends no tool round chasing it.
 - **Cache coverage includes document extent and References outline anchors.**
   A newly discovered larger page count or changed outline invalidates earlier
   positive and negative results before reuse.
-- **The result is cached per document after every requested read succeeds,
+- **Native popover scans bypass bibliography cache reads and writes.** A path
+  does not identify a content revision, so same-path replacements with unchanged
+  extent/outline must be read again. Stable followup identity is retained;
+  backend page caching remains available. External registered-document results
+  retain their existing reload invalidation.
+- **For registered external documents, the result is cached after every requested read succeeds,
   including a fruitless search.** Failed or unavailable pages and incomplete
-  continuation reads are retried on later questions. Without caching success,
-  that, every question re-fetches and re-parses several pages before the model
-  sees anything. A selection containing no resolvable bracket triggers no fetch
+  continuation reads are retried on later questions. Native scans repeat these
+  bounded reads because no reliable content revision is available. A selection containing no resolvable bracket triggers no fetch
   unless the question explicitly asks about the bibliography.
 
 - **Explicit bibliography questions receive actual heading-anchored page

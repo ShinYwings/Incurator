@@ -80,6 +80,8 @@ export function forgetBibliography(documentId: string): void {
 
 export interface CitationSource {
   documentId: string;
+  /** Path-only readers cannot prove that a cached file revision is current. */
+  cacheBibliography?: boolean;
   pageCount?: number;
   /** Pages already loaded, used before any fetch is attempted. */
   knownPages?: Array<{ pageNum: number; text: string }>;
@@ -185,7 +187,7 @@ async function loadBibliography(
   const coverageKey = JSON.stringify([lastPage, source.pageCount !== undefined,
     (source.outline ?? []).filter(item => BIBLIOGRAPHY_HEADING.test(item.title))
       .map(item => [item.title, item.pageNum])]);
-  const hit = cache.get(source.documentId);
+  const hit = source.cacheBibliography === false ? undefined : cache.get(source.documentId);
   if (hit?.coverageKey === coverageKey) return hit.result;
   const result = lastPage > 0
     ? await scanForBibliography(lastPage, texts, fetchPageText, source.outline)
@@ -193,7 +195,9 @@ async function loadBibliography(
 
   // An unavailable page is not an empty page. In particular a good heading
   // followed by a failed continuation must remain retryable on the next turn.
-  if (lastPage > 0 && result.failedPages.length === 0) cache.set(source.documentId, { coverageKey, result });
+  if (source.cacheBibliography !== false && lastPage > 0 && result.failedPages.length === 0) {
+    cache.set(source.documentId, { coverageKey, result });
+  }
   return result;
 }
 

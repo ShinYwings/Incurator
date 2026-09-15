@@ -65,6 +65,14 @@ Execution ledger:10_pdf_bibliography_evidence.md. No data rollback needed.
 
 ## 7. Execution Phases (Follow TDD and CI at each phase)
 
+Review extension: native file paths have no reliable revision identity. Native
+popover bibliography scans must bypass global bibliography cache reads AND
+writes, including pre-existing entries. Keep external registered-document caching
+and stable followup identity. Independent pdf_final_review approved this over
+mtime/size fingerprints, which miss same-size timestamp-preserving replacements.
+Regression: replace page11 text with unchanged path/count/outline; verify new
+evidence. Cost: repeated bounded native scans; backend page caching stays intact.
+
 - P0 — independent failure-path evidence and cross-critique (complete).
 - P1 — update plugin spec and English/Korean guides before logic.
 - P2 — failing reader/bibliography tests, implement pure helpers.

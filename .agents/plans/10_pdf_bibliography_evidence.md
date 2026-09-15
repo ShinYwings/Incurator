@@ -26,6 +26,13 @@ prompt includes real author text and source persists on author followup.
 Independent review found removed seen-page index/docID (restored from captured
 leaf with behavioral distant-page regression), cache extent poisoning (fixed
 with coverage signature), external reload cache invalidation (restored docID),
-and missing block announcement (fixed in both instructions). Final review pending.
+and missing block announcement (fixed in both instructions). Final five-lens
+review found native same-path stale bibliography (P2/85); failing replacement
+test confirmed it. Native scans now bypass cache reads/writes. Reviewer verified
+propagation, seeded-cache bypass, repeated replacements, no cache writes and
+actual popover followup. Finding closed, no remaining introduced finding >=80.
+Final plugin1308passed,3skipped; TypeScript and production build passed.
+Review skill substitution remains user-authorized after Claude OAuth failure;
+the skill itself was not used for this PR.
 Actual reported document/viewer was not supplied; do not claim exact incident
 reproduction or universal prevention of arbitrary model hallucinations.

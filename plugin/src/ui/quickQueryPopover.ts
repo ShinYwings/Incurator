@@ -592,6 +592,9 @@ export class QuickQueryPopover {
             ...prepared,
             searchIndex: pdfReader?.searchIndex,
             searchDocumentId: pdfReader?.searchDocumentId,
+            // Native paths have no content-revision invalidation. Re-read their
+            // bounded bibliography instead of trusting a previous file version.
+            cacheBibliography: Boolean(pdfReader?.searchDocumentId),
             // pinnedDocumentId is undefined whenever the active view is not the
             // custom ExternalPdfView — Obsidian's own PDF viewer populates
             // activeContext.pdfPage but has no docId, so citations were being

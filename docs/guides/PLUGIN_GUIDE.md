@@ -282,6 +282,11 @@ Where material is left out, the prompt says so.
   excerpts, failed reads, and text clipped for the prompt; the scan does not
   claim to have searched every page.
 
+  The native viewer repeats this bounded bibliography scan on each question:
+  a file path alone cannot prove that the PDF has not been revised in place.
+  External-view results use the viewer's document registration and reload
+  invalidation. Backend page caching remains available in either viewer.
+
   **A bracket that does not match the bibliography is ignored, silently.**
   `[8]` is ambiguous — it is also how footnotes (`[^8]`), markdown reference
   links (`[text][8]`), and array indices (`arr[8]`) are written. Rather than

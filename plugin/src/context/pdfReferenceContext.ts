@@ -58,6 +58,7 @@ export interface PdfReferenceSource {
    * it cannot perturb search behaviour.
    */
   documentKey?: string;
+  cacheBibliography?: boolean;
 }
 
 function mapPrintedPageLabel(pageLabels: string[] | undefined, printed: number): number | undefined {
@@ -567,6 +568,7 @@ export async function resolveSelectionContextAsync(
       source?.searchDocumentId || source?.documentKey
         ? {
             documentId: source.searchDocumentId ?? source.documentKey ?? "",
+            cacheBibliography: source.cacheBibliography,
             pageCount: source.pageCount,
             outline: source.outline,
             knownPages: source.windowPages?.map((page) => ({

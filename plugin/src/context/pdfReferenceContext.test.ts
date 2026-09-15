@@ -549,6 +549,24 @@ describe("resolveSelectionContextAsync — citations and provenance join the blo
     expect(block).not.toContain("<resolved_citations");
   });
 
+  it("bypasses old bibliography entries for a native PDF replaced in place", async () => {
+    const context = { documentKey: "native-revised", pageNum: 7, pageCount: 11,
+      outline: [{ title: "References", pageNum: 11, level: 1 }] };
+    let author = "OldAuthor";
+    const fetch = vi.fn(async (n: number) => n === 11 ? `References\n${author}. A paper. 2025.` : "body");
+    await resolveSelectionContextAsync("", context, fetch, undefined, "Show references");
+    author = "NewAuthor";
+    const fresh = { ...context, cacheBibliography: false };
+    const result = await resolveSelectionContextAsync("", fresh, fetch, undefined, "Show references");
+    expect(result.block).toContain("NewAuthor");
+    expect(result.block).not.toContain("OldAuthor");
+    author = "ThirdAuthor";
+    expect((await resolveSelectionContextAsync("", fresh, fetch, undefined, "Show references")).block).toContain("ThirdAuthor");
+    // Bypassed scans must not overwrite another caller's registered cache.
+    expect((await resolveSelectionContextAsync("", context, fetch, undefined, "Show references")).block).toContain("OldAuthor");
+    forgetBibliography("native-revised");
+  });
+
   it("the string wrapper still returns exactly the block", async () => {
     forgetBibliography("doc-wrap");
     const args = [
