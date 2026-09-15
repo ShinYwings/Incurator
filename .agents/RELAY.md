@@ -2,7 +2,7 @@
 
 **Branch:** `hotfix/v0.82.8-pdf-bibliography`
 
-Active side-task:10_pdf_bibliography.md. User requires actual distant reference
+Active side-task:v0.82.8 awaiting PR/CI. User requires actual distant reference
 retrieval, including same-document followups, not an unavailable-only answer.
 Independent Arena accepted captured reader+retryable bibliography evidence.
 Parent lifetime WIP52783718 lives in Incurator-lifetime-dev. Runtime original
@@ -89,3 +89,27 @@ Python flock; verify exact primitives. Real probes remain private. No lifetime
 code or production migration yet.
 Cache release cleanup is complete: master bookkeeping pushed, merged branch
 pruned locally/remotely, sole worktree clean before new Arena bookkeeping.
+
+### Update (2026-09-15, authoritative current state)
+
+Earlier progress text above is historical: v0.83 implementation IS underway,
+preserved in local commit52783718 on release/v0.83.0 at
+/Users/shin/shinywings/Incurator-lifetime-dev. It is incomplete/unshipped.
+Original checkout is master with shipped schema14. Restored .venv editable
+path and Antigravity MCP command to the original checkout. Previous /tmp runtime
+redirected config/cache resolution; its status success was not production
+validation. Verified original cache13ed51f8b06cb88e: schema14,49sources,
+5063prompt_runs,123query_traces; canonical .venv/bin/wiki status --json exit0,
+empty stderr. No migration. Temporary runtime checkout remains unused.
+
+PDF hotfix implemented and independently reviewed in94b755bc/9f441c78; completed
+plan/evidence retained in Git history. Backend2045passed,6skip,4xfail,3subtests;
+Ruff/mypy134files; plugin1308passed,3skip; TypeScript/build/private11-pagePDF/
+testbed status passed. Native7->11 actual bibliography payload and revised-file
+followup tested. Final reviewer closed native stale-cache P2; no remaining
+introduced >=80 findings. Five-lens substitution was authorized by user after
+Claude OAuth failure; code-review skill was not used. Actual incident viewer/
+document unavailable, so exact incident cause remains unconfirmed.
+
+Next: push v0.82.8 PR, green CI, merge/prune, then resume v0.83 lifetime work.
+Production data migration/deletion still needs explicit authorization.

@@ -8,7 +8,8 @@ phase, order is free; across phases it is not.
 
 ## To-Do (Queuing)
 
-0. **ACTIVE v0.82.8 popover bibliography hotfix** — plan10_pdf_bibliography.md.
+0. **v0.82.8 popover bibliography hotfix — verified, awaiting PR/CI** — plan and
+   evidence preserved in commits94b755bc/9f441c78.
    Fetch distant References text before answering and preserve source evidence
    on followups. Native identity/page count and failed cache defects are in
    scope; raw user report is preserved verbatim in Arena00_problem.md.
