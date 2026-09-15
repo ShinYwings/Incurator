@@ -19,6 +19,7 @@
  */
 import {
   asksAboutBibliography,
+  BIBLIOGRAPHY_HEADING,
   collectBibliography,
   resolveCitations,
   type ResolvedCitation,
@@ -65,11 +66,12 @@ function continuationDepth(pageCount: number | undefined): number {
 
 interface CacheEntry {
   bibliography: Map<number, string>;
-  /** Present but empty means "looked, found nothing" — do not look again. */
-  searched: true;
+  pages: Array<{ pageNum: number; text: string }>;
+  attemptedPages: number[];
+  failedPages: number[];
 }
 
-const cache = new Map<string, CacheEntry>();
+const cache = new Map<string, { coverageKey: string; result: CacheEntry }>();
 
 /** Drop a document's cached bibliography. Exported for tests and reloads. */
 export function forgetBibliography(documentId: string): void {
@@ -81,6 +83,15 @@ export interface CitationSource {
   pageCount?: number;
   /** Pages already loaded, used before any fetch is attempted. */
   knownPages?: Array<{ pageNum: number; text: string }>;
+  outline?: Array<{ title: string; pageNum?: number }>;
+}
+
+export interface BibliographyResolution {
+  citations: ResolvedCitation[];
+  block: string;
+  pages: Array<{ pageNum: number; text: string }>;
+  attemptedPages: number[];
+  failedPages: number[];
 }
 
 /**
@@ -100,7 +111,17 @@ export async function resolveSelectionCitations(
   fetchPageText: (pageNum: number) => Promise<string | undefined>,
   question?: string
 ): Promise<ResolvedCitation[]> {
-  if (!source?.documentId) return [];
+  return (await resolveSelectionBibliography(selectedText, source, fetchPageText, question)).citations;
+}
+
+export async function resolveSelectionBibliography(
+  selectedText: string,
+  source: CitationSource | undefined,
+  fetchPageText: (pageNum: number) => Promise<string | undefined>,
+  question?: string
+): Promise<BibliographyResolution> {
+  const empty: BibliographyResolution = { citations: [], block: "", pages: [], attemptedPages: [], failedPages: [] };
+  if (!source?.documentId) return empty;
 
   // The question counts, not just the selection.
   //
@@ -110,28 +131,35 @@ export async function resolveSelectionCitations(
   // had always passed its typed message; the popover passed only the highlight.
   const asksForList = asksAboutBibliography(question ?? "");
   const searchText = [selectedText || "", question || ""].filter(Boolean).join("\n");
-  if (!searchText && !asksForList) return [];
+  if (!searchText && !asksForList) return empty;
 
   // Cheapest possible early-out: if nothing here could ever be a citation, never
   // touch the document. Probing with a sentinel bibliography reuses the real
   // collision rules instead of duplicating them. Skipped when the question asks
   // for the list itself, which names no bracket by definition.
-  if (!asksForList && resolveCitations(searchText, PROBE).length === 0) return [];
+  if (!asksForList && resolveCitations(searchText, PROBE).length === 0) return empty;
 
-  const bibliography = await loadBibliography(source, fetchPageText);
-  if (bibliography.size === 0) return [];
+  const loaded = await loadBibliography(source, fetchPageText);
+  const bibliography = loaded.bibliography;
 
-  const matched = resolveCitations(searchText, bibliography);
-  if (matched.length > 0 || !asksForList) return matched;
+  // Explicit prose numbers identify the requested entry before the general-list
+  // cap. Ordinary bracket/code collision handling remains in resolveCitations.
+  const named = Array.from((question ?? "").matchAll(
+    /(?:\b(?:references?|citations?|ref)\s*\.?\s*(?:no\.?\s*)?|참\s*고\s*문\s*헌\s*|参考文献\s*の?\s*)\[?(\d{1,3})(?!\d)/gi
+  ), match => `[${match[1]}]`).join(" ");
+  const matched = resolveCitations([searchText, named].join("\n"), bibliography);
 
   // Asked about the reference list, named no bracket. Hand over the list itself
   // rather than nothing: "what is reference 12" is answerable from it, and so is
   // every other phrasing of the same request. Bounded, because a bibliography can
   // run to hundreds of entries and this rides in a popover prompt.
-  return Array.from(bibliography.entries())
+  const citations = matched.length || !asksForList ? matched : Array.from(bibliography.entries())
     .sort((a, b) => a[0] - b[0])
     .slice(0, MAX_WHOLE_BIBLIOGRAPHY_ENTRIES)
     .map(([num, entry]) => ({ num, label: `[${num}]`, entry }));
+  const raw = asksForList ? buildBibliographyPagesBlock(loaded) : "";
+  return { citations, block: [buildCitationsBlock(citations), raw].filter(Boolean).join("\n"),
+    pages: loaded.pages, attemptedPages: loaded.attemptedPages, failedPages: loaded.failedPages };
 }
 
 /**
@@ -145,49 +173,83 @@ const PROBE: Map<number, string> = new Map(
 async function loadBibliography(
   source: CitationSource,
   fetchPageText: (pageNum: number) => Promise<string | undefined>
-): Promise<Map<number, string>> {
-  const hit = cache.get(source.documentId);
-  if (hit) return hit.bibliography;
-
+): Promise<CacheEntry> {
   const texts = new Map<number, string>();
   for (const page of source.knownPages ?? []) texts.set(page.pageNum, page.text);
 
   const lastPage = source.pageCount ?? Math.max(0, ...texts.keys());
-  const bibliography = lastPage > 0
-    ? await scanForBibliography(lastPage, texts, fetchPageText)
-    : new Map<number, string>();
+  // Document identity alone cannot validate scan coverage: native DOM metadata
+  // can grow from page7 to the authoritative eleven pages, and a late outline
+  // can reveal a References heading outside the previous tail window. Invalidate
+  // positive as well as negative results when either search boundary changes.
+  const coverageKey = JSON.stringify([lastPage, source.pageCount !== undefined,
+    (source.outline ?? []).filter(item => BIBLIOGRAPHY_HEADING.test(item.title))
+      .map(item => [item.title, item.pageNum])]);
+  const hit = cache.get(source.documentId);
+  if (hit?.coverageKey === coverageKey) return hit.result;
+  const result = lastPage > 0
+    ? await scanForBibliography(lastPage, texts, fetchPageText, source.outline)
+    : { bibliography: new Map<number, string>(), pages: [], attemptedPages: [], failedPages: [] };
 
-  cache.set(source.documentId, { bibliography, searched: true });
-  return bibliography;
+  // An unavailable page is not an empty page. In particular a good heading
+  // followed by a failed continuation must remain retryable on the next turn.
+  if (lastPage > 0 && result.failedPages.length === 0) cache.set(source.documentId, { coverageKey, result });
+  return result;
 }
 
 async function scanForBibliography(
   lastPage: number,
   texts: Map<number, string>,
-  fetchPageText: (pageNum: number) => Promise<string | undefined>
-): Promise<Map<number, string>> {
+  fetchPageText: (pageNum: number) => Promise<string | undefined>,
+  outline: CitationSource["outline"]
+): Promise<CacheEntry> {
+  const attemptedPages: number[] = [];
+  const failedPages: number[] = [];
   const textOf = async (pageNum: number): Promise<string> => {
+    if (!attemptedPages.includes(pageNum)) attemptedPages.push(pageNum);
     const known = texts.get(pageNum);
     if (known !== undefined) return known;
     const fetched = await fetchPageText(pageNum).catch(() => undefined);
+    if (fetched === undefined) failedPages.push(pageNum);
     const text = fetched ?? "";
     texts.set(pageNum, text);
     return text;
   };
 
   const firstToScan = Math.max(1, lastPage - tailScanDepth(lastPage) + 1);
-  for (let start = firstToScan; start <= lastPage; start += 1) {
-    const window: string[] = [await textOf(start)];
-    // Cheap pre-check: only pay for continuation pages once this page alone
-    // yields a heading-anchored parse.
-    if (collectBibliography(window).size === 0) continue;
-
-    for (let next = start + 1; next <= Math.min(lastPage, start + continuationDepth(lastPage)); next += 1) {
-      window.push(await textOf(next));
+  const outlinePages = (outline ?? []).filter(item => BIBLIOGRAPHY_HEADING.test(item.title))
+    .map(item => item.pageNum).filter((n): n is number => Number.isInteger(n) && n! > 0 && n! <= lastPage);
+  const candidates = new Set([...outlinePages,
+    ...Array.from({ length: lastPage - firstToScan + 1 }, (_, i) => firstToScan + i)]);
+  for (const start of candidates) {
+    const first = await textOf(start);
+    const heading = BIBLIOGRAPHY_HEADING.exec(first);
+    if (!heading) continue;
+    const pages: CacheEntry["pages"] = [];
+    const window: string[] = [];
+    // Preserve exact heading-anchored source text independently of numbered
+    // parsing, so author-year lists remain answerable without invented entries.
+    for (let next = start; next <= Math.min(lastPage, start + continuationDepth(lastPage)); next += 1) {
+      const text = next === start ? first.slice(heading.index) : await textOf(next);
+      const section = /^\s*(?:appendix\b|supplementary\s+(?:material|information)\b)/im.exec(text);
+      const excerpt = section ? text.slice(0, section.index) : text;
+      window.push(excerpt);
+      if (excerpt.trim()) pages.push({ pageNum: next, text: excerpt });
+      if (section || (text === "" && !failedPages.includes(next))) break;
     }
-    return collectBibliography(window);
+    return { bibliography: collectBibliography(window), pages, attemptedPages, failedPages };
   }
-  return new Map();
+  return { bibliography: new Map(), pages: [], attemptedPages, failedPages };
+}
+
+function buildBibliographyPagesBlock(result: CacheEntry): string {
+  const pages = result.pages.map(page => {
+    const clipped = page.text.length > 6000;
+    const text = clipped ? `${page.text.slice(0, 6000)}\n[bibliography page ${page.pageNum} excerpt clipped]` : page.text;
+    return `<bibliography_page page="${page.pageNum}" clipped="${clipped}">\n${text}\n</bibliography_page>`;
+  }).join("\n");
+  return `<bibliography_lookup read_pages="${result.attemptedPages.filter(n => !result.failedPages.includes(n)).join(",")}" failed_pages="${result.failedPages.join(",")}" coverage="bounded search; not whole document">\n` +
+    pages + "\n</bibliography_lookup>";
 }
 
 /** Render resolved citations as a context block for the model. */

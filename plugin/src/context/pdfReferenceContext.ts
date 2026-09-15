@@ -8,7 +8,7 @@
  * formatted `<resolved_cross_references>` / `<unresolved_cross_references>`
  * blocks.
  */
-import { buildCitationsBlock, resolveSelectionCitations } from "./citationContext";
+import { resolveSelectionBibliography } from "./citationContext";
 import { buildProvenance, type ProvenanceRecord } from "./provenance";
 import { PdfDocumentIndexService } from "./pdfDocumentIndex";
 import {
@@ -551,7 +551,7 @@ export async function resolveSelectionContextAsync(
   // it on `searchDocumentId`, which only the custom viewer's popover path sets.
   // Citations were therefore skipped in silence for the chat sidebar and for
   // Obsidian's native PDF viewer. `documentKey` is the fallback identity.
-  const [resolved, citations] = await Promise.all([
+  const [resolved, bibliography] = await Promise.all([
     // The question counts here too, not just the selection. Asking "Fig. 4가
     // 뭐야?" without highlighting the pointer resolved nothing, while the same
     // words highlighted resolved fine. The citation path had exactly this gap and
@@ -562,12 +562,13 @@ export async function resolveSelectionContextAsync(
       fetchPageText,
       locatePages
     ),
-    resolveSelectionCitations(
+    resolveSelectionBibliography(
       selectedText,
       source?.searchDocumentId || source?.documentKey
         ? {
             documentId: source.searchDocumentId ?? source.documentKey ?? "",
             pageCount: source.pageCount,
+            outline: source.outline,
             knownPages: source.windowPages?.map((page) => ({
               pageNum: page.pageNum,
               text: page.text,
@@ -578,8 +579,19 @@ export async function resolveSelectionContextAsync(
       question
     ),
   ]);
-  const block = [buildResolvedReferencesBlock(resolved), buildCitationsBlock(citations)]
+  const block = [buildResolvedReferencesBlock(resolved), bibliography.block]
     .filter(Boolean)
     .join("\n");
-  return { block, provenance: buildProvenance(resolved, citations) };
+  const provenance = buildProvenance(resolved, bibliography.citations);
+  // Page observations come from retrieval, never from interpreting model text.
+  if (bibliography.block.includes("<bibliography_lookup")) {
+    for (const page of bibliography.pages) {
+      provenance.items.push({ label: "References", origin: "bibliography", detail: `p.${page.pageNum}` });
+    }
+    for (const pageNum of bibliography.failedPages) {
+      provenance.items.push({ label: `References p.${pageNum}`, origin: "unresolved", detail: "not retrieved" });
+    }
+    provenance.hasUnresolved ||= bibliography.failedPages.length > 0;
+  }
+  return { block, provenance };
 }

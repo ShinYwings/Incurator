@@ -2,6 +2,16 @@
 
 This document represents the most concrete layer (`spec`) of the documentation hierarchy (`philosophy` -> `guides` -> `spec`). It is the absolute behavior source of truth. It defines how the backend, plugin, MCP tools, and workspace agents interact. Schema details live in `docs/specs/curator_schema/SCHEMA.md`.
 
+Popover bibliography recovery (v0.82.8): capture a document-bound reader from
+the same content leaf as the selection before awaiting page retrieval. Native
+PDF requests use the captured absolute file path and backend page count; a
+partially rendered DOM does not define the document's end. Source evidence for
+an immediately following bibliography question remains bound to that document.
+Re-resolve from prior user intent, never treat a prior assistant answer as proof
+of a fetched page. The prompt identifies actual received pages and scopes any
+truncation marker to its source block. Retrieval is required before reporting
+that requested reference content could not be obtained.
+
 Implementation plans under `.agents/plans/` are transient and strictly subordinate to this document. If a plan conflicts with this behavior contract, update the plan or bring the conflict back to review before coding.
 
 Sections 1-22 below define the behavior contract. The system uses DB-native search, query expansion, chunk vectors, RRF, configured reranking, and durable query traces. Historical behavior definitions are tracked via git history.

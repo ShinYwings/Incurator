@@ -41,7 +41,8 @@ describe("Quick Query pins the PDF document identity", () => {
     );
     // The index we write into must be the SAME identity we fetch against,
     // otherwise foreign text still lands under this document's id.
-    expect(src).toContain("searchDocumentId: pinnedDocumentId,");
+    expect(src).toContain("const pdfReader = this.plugin.createActivePdfReader(activeContext);");
+    expect(src).not.toContain("searchIndex: this.plugin.getActivePdfDocumentIndex()");
     expect(src).not.toContain(
       "searchDocumentId: this.plugin.getActivePdfDocumentId(),"
     );

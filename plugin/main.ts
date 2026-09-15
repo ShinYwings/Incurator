@@ -46,6 +46,7 @@ import {
   type ExternalPdfState,
 } from "./src/ui/externalPdfView";
 import { asLoadedExternalPdfView } from "./src/ui/pdf/externalPdfLeaf";
+import { createPdfDocumentReader } from "./src/context/pdfDocumentReader";
 import {
   registerExternalPdfByPath,
   setExternalPdfRuntimePath,
@@ -1884,6 +1885,27 @@ export default class ObsidianAIAgent extends Plugin {
     } catch {
       return undefined;
     }
+  }
+
+  /** Bind page reads to the same leaf captured by refreshActiveContext, even
+   * when popover focus or another tab changes during the backend request. */
+  createActivePdfReader(context: ActiveContext) {
+    const view = this.lastContentLeaf ? asLoadedExternalPdfView(this.lastContentLeaf.view) : undefined;
+    const documentId = view?.getDocumentId();
+    const reader = createPdfDocumentReader(
+      context,
+      this.incuratorClient?.available
+        ? (args) => this.incuratorClient.getPdfContext(args)
+        : undefined,
+      view && documentId ? {
+        documentId,
+        getDocumentId: () => view.getDocumentId(),
+        fetchPage: (pageNum) => view.fetchPage(pageNum),
+        pageCount: context.pdfPage?.pageCount,
+      } : undefined,
+    );
+    if (!reader) return undefined;
+    return { ...reader, searchIndex: view?.getDocumentIndex(), searchDocumentId: documentId };
   }
 
   refreshActiveContext(): ActiveContext {

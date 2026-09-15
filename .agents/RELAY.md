@@ -1,6 +1,12 @@
 # RELAY
 
-**Branch:** `master`
+**Branch:** `hotfix/v0.82.8-pdf-bibliography`
+
+Active side-task:10_pdf_bibliography.md. User requires actual distant reference
+retrieval, including same-document followups, not an unavailable-only answer.
+Independent Arena accepted captured reader+retryable bibliography evidence.
+Parent lifetime WIP52783718 lives in Incurator-lifetime-dev. Runtime original
+checkout is stable master/schema14. This worktree must not alter .venv/live DB.
 
 ## Goal
 

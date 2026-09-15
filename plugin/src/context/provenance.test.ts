@@ -147,7 +147,7 @@ describe("provenance is actually wired to a surface", () => {
   it("the resolver returns the record instead of discarding it", () => {
     const src = read("context/pdfReferenceContext.ts");
     expect(src).toContain("resolveSelectionContextAsync");
-    expect(src).toContain("buildProvenance(resolved, citations)");
+    expect(src).toContain("buildProvenance(resolved, bibliography.citations)");
   });
 
   it("the popover consumes it and renders it", () => {

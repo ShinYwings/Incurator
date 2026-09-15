@@ -3017,17 +3017,18 @@ bibliography entry in its first prompt and spends no tool round chasing it.
   preceding) is an index or a reference link. A bracket inside a code span or
   fence is code. Both are dropped before any bibliography lookup.
 
-- **The scan is a bounded window at the END of the document**, because a
-  References section lives there and scanning from page 1 would read the whole
-  document to find it. It is a fixed window — the last 6 pages — walked in
-  ascending order, not an unbounded walk backward.
+- **A known References outline page is tried first; otherwise the scan is a
+  bounded window at the END of the document.** The window is 10% of the
+  authoritative document page count, with a floor of 6 and ceiling of 40 pages,
+  walked in ascending order. Continuation is bounded to 3% of the page count,
+  with a floor of 5 and ceiling of 20 pages. The native viewer's maximum rendered
+  page is not proof of the document's full length.
 
   **The bound is a real limit and is stated here rather than discovered later:**
-  a bibliography whose heading page sits more than 5 pages before the last page
-  is not found at all. Papers with long appendices, supplementary material, or
-  author biographies after the references fall outside it and get no citation
-  resolution — silently, because §4.8 drops unmatched numbers. Widening the
-  window trades directly against fetch cost on every first citation question.
+  a bibliography outside that window without a known outline target may not be
+  found. Coverage records distinguish successfully read and failed pages; they
+  never imply that the whole document was searched. Widening the window trades
+  directly against fetch cost on every first citation question.
 
 - **A bibliography spans pages and prints its heading once.** The heading is
   required on the page that *starts* the section and MUST NOT be required on
@@ -3037,10 +3038,24 @@ bibliography entry in its first prompt and spends no tool round chasing it.
   numbering restarts below the highest already seen, which is what prevents an
   appendix using bracketed enumeration from being absorbed.
 
-- **The result is cached per document, including a fruitless search.** Without
+- **Cache coverage includes document extent and References outline anchors.**
+  A newly discovered larger page count or changed outline invalidates earlier
+  positive and negative results before reuse.
+- **The result is cached per document after every requested read succeeds,
+  including a fruitless search.** Failed or unavailable pages and incomplete
+  continuation reads are retried on later questions. Without caching success,
   that, every question re-fetches and re-parses several pages before the model
-  sees anything. A selection containing no resolvable bracket MUST NOT trigger
-  any fetch at all.
+  sees anything. A selection containing no resolvable bracket triggers no fetch
+  unless the question explicitly asks about the bibliography.
+
+- **Explicit bibliography questions receive actual heading-anchored page
+  excerpts even for author-year or plain-numbered lists.** Typed reference
+  numbers are matched before the 40-entry general-list limit. Excerpts retain
+  physical PDF page labels and source-specific clipping markers; a clipped page
+  7 is not evidence that an unreturned page 11 was clipped. Known following
+  section headings stop raw bibliography excerpts. Same-document popover
+  followups retain bibliography retrieval intent and source evidence; previous
+  assistant claims never establish that another page was read.
 
 ### 13.7c Workspace Notes Are Consulted, Never Ingested (v0.57.0)
 

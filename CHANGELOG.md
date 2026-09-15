@@ -2,6 +2,21 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.82.8] - 2026-09-15
+
+### Fixed
+
+- Popover PDF reference lookup now captures the document's file identity and
+  authoritative page count, so a native viewer showing only page7 can fetch
+  References on page11. Changing focus during retrieval cannot redirect reads
+  to another document.
+- Failed bibliography scans and incomplete continuation reads can retry.
+  Explicit bibliography questions receive actual heading-anchored page text
+  even with author-year entries; named reference numbers beyond the first40
+  remain addressable. Bibliographic followups retain source evidence.
+- Retrieved bibliography pages carry their page labels and clipping boundaries.
+  Prompt guidance distinguishes received text from prior assistant claims.
+
 ## [0.82.7] - 2026-09-14
 
 ### Fixed

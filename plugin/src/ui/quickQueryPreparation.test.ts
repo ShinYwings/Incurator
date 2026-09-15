@@ -30,6 +30,7 @@ describe("popover evidence preparation", () => {
       startThinkingTimer: vi.fn(), stopThinkingTimer: vi.fn(), vaultWorkspacePath: () => "/vault",
       plugin: {
         refreshActiveContext: () => ({ pdfPage: { pageNum: 1 } }),
+        createActivePdfReader: () => undefined,
         getActivePdfDocumentId: () => "doc1", getActivePdfDocumentIndex: () => undefined,
         getPinnedContextRefs: () => [], incuratorClient: { available: true, fetchContext },
         settings: { provider: "openai", streamingEnabled: true }, llmClient: { streamChat },
@@ -60,6 +61,7 @@ describe("popover evidence preparation", () => {
       startThinkingTimer: vi.fn(), stopThinkingTimer: vi.fn(), vaultWorkspacePath: () => "/vault",
       plugin: {
         refreshActiveContext: () => ({ pdfPage: { pageNum: 1 } }),
+        createActivePdfReader: () => undefined,
         getActivePdfDocumentId: () => "doc1", getActivePdfDocumentIndex: () => undefined,
         getPinnedContextRefs: () => [],
         incuratorClient: { available: true, fetchContext },

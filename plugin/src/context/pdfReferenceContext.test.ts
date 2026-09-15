@@ -19,6 +19,16 @@ function page(pageNum: number, text: string): PdfWindowPage {
 // ── sync resolver ─────────────────────────────────────────────────────────────
 
 describe("resolveSelectionReferences", () => {
+  it("returns bibliography page text and observed page provenance through the shared bridge", async () => {
+    const result = await resolveSelectionContextAsync("Visible page seven", {
+      documentKey: "bridge-raw11", pageNum: 7, pageCount: 11,
+      windowPages: [page(7, "Visible page seven [...truncated]")],
+    }, async n => n === 11 ? "References\nAlice Smith (2024). Actual bibliography." : "Body", undefined, "참고문헌 보여줘");
+    expect(result.block).toContain("Alice Smith (2024)");
+    expect(result.block).toContain('page="11" clipped="false"');
+    expect(result.provenance.items).toContainEqual({ label: "References", origin: "bibliography", detail: "p.11" });
+  });
+
   it("returns [] when text has no references", () => {
     const result = resolveSelectionReferences("plain sentence with no refs", {
       windowPages: [page(1, "some text")],
