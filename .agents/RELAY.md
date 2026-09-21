@@ -113,3 +113,11 @@ document unavailable, so exact incident cause remains unconfirmed.
 
 Next: push v0.82.8 PR, green CI, merge/prune, then resume v0.83 lifetime work.
 Production data migration/deletion still needs explicit authorization.
+
+### Update (2026-09-21, Codex vault-read hotfix)
+
+Current checkout branch: `hotfix/v0.82.9-vault-read`, base f184c99d.
+PDF v0.82.8 already merged as PR #209; earlier awaiting-PR state is stale.
+Investigating user sandbox_apply read failure. Arena: plans/vault_read_arena.
+Preserve separate lifetime worktree and existing timeout USER_REPORT verbatim.
+No production data/config changes. Next: reproduce launch, synthesize fix, TDD.

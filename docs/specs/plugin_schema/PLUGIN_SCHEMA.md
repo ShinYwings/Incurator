@@ -924,8 +924,8 @@ claude, codex; Ollama/DeepSeek use the HTTP image-block path), `LLMClient` MUST:
   fallback. This is the only allowed temp/cache root for plugin-created chat
   images. Reference the image in
   the CLI prompt by absolute path (e.g. "Read the image file at <path> …"),
-  mirroring the backend `vision.describe_image_via_cli` pattern. The OS sandbox
-  (§ v0.23.0) still wraps every invocation.
+  mirroring the backend `vision.describe_image_via_cli` pattern. Containment remains active: Codex uses its native sandbox directly; other
+  CLIs retain the OS wrapper (§13.6).
 - **Enable scoped `Read` for image-bearing turns ONLY**: drop `Read` from the
   claude `--disallowedTools` denylist and add `--add-dir <chat_images dir>`;
   antigravity reads natively under `--add-dir`; codex reads under
@@ -940,8 +940,8 @@ claude, codex; Ollama/DeepSeek use the HTTP image-block path), `LLMClient` MUST:
   dir>` — NOT the broad allowed roots (vault + Zotero) — so the re-enabled `Read`
   cannot reach arbitrary vault/Zotero files (claude has no blanket permission
   bypass, so an out-of-add-dir `Read` would prompt/deny). This preserves the
-  v0.23.0 no-vault-read hardening for image turns. antigravity/codex keep their
-  existing broad add-dir set (they always have native file reads; OS-sandboxed).
+  v0.23.0 no-vault-read hardening for image turns. Antigravity retains its broad add-dir set. Codex reads natively, but its
+  add-dir grants WRITE access and therefore includes only vault/cache roots.
 - **Cleanup robustness.** Cleanup (below) MUST also run if pre-spawn setup
   (`getCliCwd`/`buildCliCommand`) throws synchronously before any child spawns, since
   no `close`/`error` event fires in that case.
@@ -2673,11 +2673,23 @@ the `find_mvg_text.py`-style exploit). This section governs the CLI path.
     Image-bearing turns are the one exception (§2.1.3): `Read` is re-enabled but
     `--add-dir` is confined to the per-run `chat_images` dir, so the read grant
     cannot reach the broad allowed roots.
-  - **codex** — `--sandbox read-only` (popover) / `workspace-write` + `--add-dir
-    <root>` per allowed root (sidechat).
-- **OS-level sandbox (`src/agent/sandboxWrapper.ts`)** wraps EVERY CLI subprocess,
-  generated from the allowed roots — REQUIRED for agy (its flags don't contain it),
-  defense-in-depth for the rest:
+  - **codex (v0.82.9)** — execute directly with native `--sandbox read-only`
+    (ephemeral) / `workspace-write` (sidechat). Never wrap this executable in
+    Seatbelt/bwrap: nested macOS sandbox application can fail before reads run.
+    This includes DeepSeek/Ollama CLI fallbacks using the same executable.
+    `--add-dir` means WRITE access: sidechat uses realpath-resolved vault roots
+    and its scoped image directory only, never the external Zotero reference.
+    Pin `approval_policy="never"`, `sandbox_workspace_write.writable_roots=[]`,
+    and `sandbox_workspace_write.exclude_slash_tmp=true` per launch. The cache
+    cwd and cache-local TMPDIR remain operational write locations. Reads use
+    native default read access; a denied write fails without escalation.
+    Ephemeral invocations get no additional writable roots. No global config
+    changes, full-access mode, or unsandboxed retry. A Zotero directory nested
+    inside the vault overlaps its existing write grant; it is not an external
+    read-only root. User-configured MCP services retain their trust boundary.
+- **OS-level sandbox (`src/agent/sandboxWrapper.ts`)** wraps Antigravity and
+  Claude subprocesses, generated from the allowed roots — REQUIRED for agy
+  (its flags don't contain it), defense-in-depth for Claude:
   - macOS: `sandbox-exec -p <profile>` (Seatbelt) — the profile is passed INLINE on
     the command line (no temp file → no multi-vault / concurrent-call collision). It
     denies `file-write*` everywhere, then re-allows write ONLY to: the **vault**, the
@@ -2696,16 +2708,16 @@ the `find_mvg_text.py`-style exploit). This section governs the CLI path.
     writable root (vault + CLI dirs; NOT Zotero). `/tmp` is NEVER re-bound over the
     tmpfs (that would expose the host `/tmp` read-write). If `bwrap` is absent, **agy
     is REFUSED** with a one-line install hint (`apt/dnf install bubblewrap`); Claude
-    and Codex are NOT refused — see the degradation rule below. Windows: out of scope.
+    is NOT refused — see the degradation rule below. Codex uses its native sandbox. Windows: out of scope.
   - **Unavailable-sandbox degradation** — when no OS sandbox is available (Linux
     without `bwrap`, macOS without `sandbox-exec`, Windows/other): **agy is refused**
     (its own `--sandbox` is ineffective, so it would have ZERO containment), but
-    **Claude/Codex proceed under their own flag-based containment** (Claude's tool
-    denylist / `--tools ""`; Codex's `--sandbox read-only|workspace-write`). This is a
+    **Claude proceeds under its own flag-based containment** (tool
+    denylist / `--tools ""`). Codex does not enter this wrapper or degradation path. This is a
     WEAKER posture than the OS write-deny floor (notably Claude's denylist can be
     bypassed by a tool not on the list), so the plugin emits a `console.warn` when it
     drops the OS layer. This degradation is the explicit trade-off for keeping
-    Claude/Codex usable on platforms without an OS sandbox.
+    Claude usable on platforms without an OS wrapper.
   - **Plugin CLI dir** — device-local CLI byproducts (codex output, generated
     `claude_mcp.json`, temp images) live in `<incuratorRepoPath>/.cache/cli/`.
     If the repo path is unavailable, the operation fails visibly. They never
@@ -2719,7 +2731,7 @@ the `find_mvg_text.py`-style exploit). This section governs the CLI path.
   the plugin may remove it only when its bytes begin with the exact
   Incurator-generated marker. A same-named user-authored file is preserved.
   - **Automatic** — the plugin generates the profile/binds with no manual user setup.
-    The READ/visibility set (`--add-dir`) is `allowedRoots()` = realpath-resolved
+    For Antigravity/Claude the READ/visibility set (`--add-dir`) is `allowedRoots()` = realpath-resolved
     vault + Zotero + `storage/` (empty/undefined dropped — never `--add-dir ""`); the
     WRITE set (`sandboxWriteRoots()`) is the vault only, plus the plugin CLI dir.
 - **Roots** — READ/visibility = vault + configured Zotero folder + its `storage/`

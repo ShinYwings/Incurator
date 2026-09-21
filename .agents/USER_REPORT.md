@@ -8,6 +8,4 @@ Agents must check this document and triage the received items into the `To-Do (Q
 
 ## 📝 User Inbox
 
-
-*(empty — cache-preservation PR #207 merged on 2026-09-12;
-remaining B1/B2 findings are queued in ROADMAP.md.)*
+*(triaged to ROADMAP.md on 2026-09-21; original report preserved verbatim there)*

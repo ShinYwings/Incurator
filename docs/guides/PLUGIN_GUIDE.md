@@ -385,6 +385,15 @@ Where material is left out, the prompt says so.
   open, the ability is not offered at all. CLI providers (Antigravity `agy`,
   Claude, Codex) do not get the page reader — they keep automatic
   reference-following only.
+- **Codex vault reads (v0.82.9)**: Codex runs directly with its native sandbox.
+  Wrapping it in a second OS sandbox can prevent even a file read from starting
+  on macOS (`sandbox_apply: Operation not permitted`). Vault and external
+  reference reads need no approval dialog. Sidebar commands retain
+  `workspace-write`; ephemeral calls retain `read-only`. Only the vault and CLI
+  operational cache are writable, not an external Zotero library. The launch
+  clears inherited extra writable roots, excludes broad `/tmp`, and uses the
+  plugin's cache-local temporary directory. Global Codex settings are unchanged.
+  These rules apply to every CLI fallback that executes Codex.
 - **Sandboxed CLI providers (v0.23.0)**: when your provider is a CLI agent
   (Antigravity `agy`, Claude, or Codex), that agent has its own built-in tools the
   v0.19.0 MCP isolation doesn't govern. The plugin now contains them: the popover
@@ -396,8 +405,9 @@ Where material is left out, the prompt says so.
   plugin wraps it in an OS sandbox (macOS built-in; **Linux requires `bubblewrap` —
   install it with `sudo apt install bubblewrap` or `sudo dnf install bubblewrap`**).
   If no OS sandbox is available, **Antigravity is blocked** (it would have no
-  containment at all), while **Claude and Codex still run** under their own weaker
-  built-in limits. Windows CLI sandboxing is not yet supported.
+  containment at all), while **Claude still runs** under its own weaker built-in limits. Codex uses
+  its native sandbox directly, without this wrapper on any platform. The
+  plugin-provided OS wrapper does not support Windows.
 
   Antigravity 1.1.3 and later also deny tools that need an interactive approval
   when the plugin launches `agy` in headless (`-p`) mode. The plugin therefore

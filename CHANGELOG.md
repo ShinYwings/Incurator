@@ -2,6 +2,17 @@
 
 All notable changes to Incurator are documented here.
 
+## [0.82.9] - 2026-09-21
+
+### Fixed
+
+- Codex-backed Obsidian chat now uses its native sandbox directly, avoiding
+  nested macOS sandbox initialization failures that blocked vault file reads.
+  Sidebar workspace writes and ephemeral read-only calls remain distinct.
+- Codex write grants exclude external Zotero reference directories and inherited
+  extra writable roots. Vault/reference reads need no approval dialog; broad
+  host `/tmp` is excluded while the plugin's operational cache remains available.
+
 ## [0.82.8] - 2026-09-15
 
 ### Fixed

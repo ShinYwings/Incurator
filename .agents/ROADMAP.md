@@ -8,14 +8,16 @@ phase, order is free; across phases it is not.
 
 ## To-Do (Queuing)
 
-0. **v0.82.8 popover bibliography hotfix — verified, awaiting PR/CI** — plan and
-   evidence preserved in commits94b755bc/9f441c78.
-   Fetch distant References text before answering and preserve source evidence
-   on followups. Native identity/page count and failed cache defects are in
-   scope; raw user report is preserved verbatim in Arena00_problem.md.
+0. **v0.82.9 vault-read hotfix — ACTIVE** — investigate `sandbox_apply: Operation not permitted` blocking direct vault reads; Arena: `plans/vault_read_arena/`.
 
-`USER_REPORT.md` was checked on 2026-09-13 and is empty; there are no untriaged
-user reports. The remaining roadmap work is queued here in stability order:
+   v0.82.8 PDF bibliography shipped in PR #209 (f184c99d).
+
+`USER_REPORT.md` was checked on 2026-09-21. The pre-existing timeout/topic-shift
+report is preserved below without adopting its proposed mitigation prematurely.
+The immediate user-reported vault-read failure takes the hotfix slot above.
+Provider read parity (Claude native Read and AGY source-read prompt) follows the
+Codex fix as a separate capability plan; do not claim all providers fixed.
+The remaining roadmap work is queued here in stability order:
 
 1. **B1/B2 state retention follow-up** — finish the fleet-safe retention policy
    for diagnostic tables, chat sessions, tombstones, and repository-cache
@@ -1166,3 +1168,20 @@ call through. A draft whose review is done is not a briefing.
 The ordering matters and is the thing that went wrong before: the folders were
 once deleted as "finished" and had to be restored, because nobody had walked them
 first. Walk, fold, then delete.
+
+### Queued user report — timeout/topic-shift (verbatim, 2026-09-21 triage)
+
+- [사용자 보고 / Hotfix, 2026-09-15] **Bug Report: LLM Hallucination caused by Semantic Inertia & Session Desync after Timeout**
+  - **Component:** Multi-turn Context Manager / Agentic Chat Pipeline
+  - **Reproduction Conditions:**
+    1. Execute multi-turn chat involving heavy LaTeX mathematical derivations (Plücker line geometry).
+    2. Trigger a 5m execution timeout (`print timeout after 5m0s with turn in progress; returning partial output`).
+    3. User shifts the topic drastically within the same thread (from 3D Plücker lines to 2D Dual Conic $C^*$ projection), while the active document (`2026-09-14_Summarize Plucker Coords Usage.md`) remains unchanged.
+  - **Expected Behavior:** The model should detect the semantic topic shift (Dual Conic $C^*$, Ellipse constraint, $d=C^*_{ww}$), prioritize the user's latest prompt snippet over historical mathematical context, and propose the requested note edits.
+  - **Actual Behavior:** The model suffered from severe Semantic Inertia:
+    - Ignored the user's explicit request regarding Conic/Ellipse boundaries.
+    - Pattern-matched generic trigger words ("유도", "관련성") against the pre-timeout conversation history.
+    - Regurgitated the vector triple product derivation ($\mathbf{m} = \mathbf{x} \times \mathbf{d} = a_0\mathbf{n}_b - b_0\mathbf{n}_a$) repeatedly, causing complete context disconnect.
+  - **Proposed Mitigation:**
+    1. **Turn Buffer Flush on Timeout**: When a turn hits a 5-minute timeout or returns truncated partial output, the generation cache must be cleared, and subsequent turns must re-evaluate user intent from scratch without carrying over intermediate token momentum.
+    2. **Dynamic Topic-Shift Detection**: Add an intent classification layer before generation that compares the embedding of the user's latest query against the immediate previous conversation turns. If cosine similarity drops below threshold (e.g., Plücker vs Conic), downweight historical conversational tokens and suppress stale active-document priors.
