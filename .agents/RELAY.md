@@ -135,3 +135,17 @@ introduced issue, using standing recorded substitution permission.
 Next: push final release commit, green CI, merge/prune, deploy v0.82.9 bundle.
 Production notes/DB/config unchanged. Separate lifetime WIP remains untouched.
 Claude/AGY read parity is separately queued, not claimed fixed by this patch.
+
+### Update (2026-09-22, vault-read hotfix SHIPPED)
+
+Current original checkout is master. PR #210 merged82aeceec after all6final CI
+checks passed. v0.82.9 bundle deployed to second_brain's incurator-obsidian-agent;
+manifest/main.js/styles.css byte-match local verified build. Old0.82.8 bundle
+backup at .cache/vault-read-plugin-backup. Obsidian reload remains necessary to
+activate newly installed code; no forced reload of user UI was performed.
+Merged hotfix branch pruned locally/remotely, fetch --prune done. No task-owned
+worktree created. Separate lifetime worktree preserved. Original notes/DB/global
+CLI config unchanged; last_root still second_brain. Private probe environment
+snapshots and auth symlink removed. Arena/evidence/reviews remain in Git5a20a43d.
+Current user's configured Codex sandbox incident complete; other provider read
+parity and prior timeout report remain queued, not claimed implemented.

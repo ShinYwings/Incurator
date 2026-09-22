@@ -8,10 +8,11 @@ phase, order is free; across phases it is not.
 
 ## To-Do (Queuing)
 
-0. **v0.82.9 vault-read hotfix — VERIFIED, final CI/merge pending (PR #210)** —
-   native Codex reads restored; actual vault/reference reads and write boundaries
-   passed. Plan/Arena/review evidence preserved in commit5a20a43d.
-   Follow-up: Claude/AGY direct vault-read parity remains queued separately.
+0. **Provider direct vault-read parity — queued follow-up** — Claude native
+   Read and AGY source-read prompt need their own capability plan. Current
+   Codex incident is fixed and deployed: v0.82.9, PR #210 merged82aeceec on
+   2026-09-22; all checks passed, actual reads/write boundaries verified.
+   Plan/Arena/review evidence preserved in commit5a20a43d.
 
    v0.82.8 PDF bibliography shipped in PR #209 (f184c99d).
 
