@@ -2957,9 +2957,9 @@ export class LLMClient {
 
     if (plan.unavailable) {
       // agy's own --sandbox is INEFFECTIVE (P0), so without the OS sandbox it has no
-      // containment → refuse. claude/codex DO self-contain via their flags (claude's
-      // tool denylist / codex's workspace-write), so they degrade to that weaker
-      // flag-based posture rather than being refused — but warn so the drop is visible.
+      // containment → refuse. Claude retains its tool denylist, so it degrades
+      // to that weaker flag-based posture with a warning. Codex never enters
+      // this wrapper: its native sandbox remains responsible for tool execution.
       if (provider === "antigravity") {
         throw new Error(
           `Antigravity (agy) cannot be safely sandboxed here, so it is blocked from tool ` +
