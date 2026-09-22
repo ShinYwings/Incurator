@@ -8,7 +8,10 @@ phase, order is free; across phases it is not.
 
 ## To-Do (Queuing)
 
-0. **v0.82.9 vault-read hotfix — ACTIVE** — investigate `sandbox_apply: Operation not permitted` blocking direct vault reads; Arena: `plans/vault_read_arena/`.
+0. **v0.82.9 vault-read hotfix — VERIFIED, final CI/merge pending (PR #210)** —
+   native Codex reads restored; actual vault/reference reads and write boundaries
+   passed. Plan/Arena/review evidence preserved in commit5a20a43d.
+   Follow-up: Claude/AGY direct vault-read parity remains queued separately.
 
    v0.82.8 PDF bibliography shipped in PR #209 (f184c99d).
 
