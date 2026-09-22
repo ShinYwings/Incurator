@@ -113,3 +113,25 @@ document unavailable, so exact incident cause remains unconfirmed.
 
 Next: push v0.82.8 PR, green CI, merge/prune, then resume v0.83 lifetime work.
 Production data migration/deletion still needs explicit authorization.
+
+### Update (2026-09-21, Codex vault-read hotfix)
+
+Current checkout branch: `hotfix/v0.82.9-vault-read`, base f184c99d.
+PDF v0.82.8 already merged as PR #209; earlier awaiting-PR state is stale.
+Investigating user sandbox_apply read failure. Arena: plans/vault_read_arena.
+Preserve separate lifetime worktree and existing timeout USER_REPORT verbatim.
+No production data/config changes. Next: reproduce launch, synthesize fix, TDD.
+
+### Update (2026-09-22, Codex vault-read release)
+
+Current branch `hotfix/v0.82.9-vault-read`, PR #210. Root fix complete: native
+Codex containment only, vault-only write grants, external reference reads intact.
+Actual auto/read-only/inherited-root exec probes passed; backend2045passed,
+plugin1313passed, TypeScript/Ruff/mypy/build/testbed status passed. All6remote
+checks passed on a44962fb. Review/evidence archived in commit5a20a43d; completed
+plans removed in release commit. Actual Claude code-review invocation failed
+expired OAuth; two independent reviews (including five lenses) found no>=80
+introduced issue, using standing recorded substitution permission.
+Next: push final release commit, green CI, merge/prune, deploy v0.82.9 bundle.
+Production notes/DB/config unchanged. Separate lifetime WIP remains untouched.
+Claude/AGY read parity is separately queued, not claimed fixed by this patch.

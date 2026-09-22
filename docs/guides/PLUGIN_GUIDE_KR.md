@@ -356,6 +356,14 @@ LLM이 제안 생성 → Diff 표시 → Accept / Reject
   가져온 뒤 멈춥니다. PDF가 열려 있지 않으면 이 능력은 아예 제공되지 않습니다.
   CLI 제공자(Antigravity `agy`, Claude, Codex)는 페이지 리더를 받지 않고 자동 참조
   따라가기만 유지합니다.
+- **Codex vault 읽기 (v0.82.9)**: Codex는 자체 샌드박스로 직접 실행됩니다.
+  OS 샌드박스로 한 번 더 감싸면 macOS에서 파일 읽기조차 시작되지 않을 수 있습니다
+  (`sandbox_apply: Operation not permitted`). vault와 외부 참고자료 읽기에는
+  승인 대화상자가 필요하지 않습니다. 사이드바는 `workspace-write`, 일시적 호출은
+  `read-only`를 유지합니다. 쓰기는 vault와 CLI 실행 캐시에만 허용되며 외부 Zotero
+  라이브러리에는 허용되지 않습니다. 호출 시 상속된 추가 쓰기 경로를 비우고 광범위한
+  `/tmp`를 제외하며 플러그인 캐시 안의 임시 디렉터리를 사용합니다. 전역 Codex 설정은
+  변경하지 않습니다. Codex를 실행하는 모든 CLI 폴백에 같은 규칙이 적용됩니다.
 - **CLI 제공자 샌드박싱 (v0.23.0)**: 제공자가 CLI 에이전트(Antigravity `agy`,
   Claude, Codex)이면 그 에이전트는 v0.19.0의 MCP 격리가 통제하지 못하는 자체 내장
   도구를 가집니다. 이제 플러그인이 이를 가둡니다: 팝오버는 CLI를 **도구 없이**
@@ -367,8 +375,9 @@ LLM이 제안 생성 → Diff 표시 → Accept / Reject
   감쌉니다(macOS 내장; **Linux는 `bubblewrap`이 필요 —
   `sudo apt install bubblewrap` 또는 `sudo dnf install bubblewrap`으로 설치**).
   OS 샌드박스를 쓸 수 없으면 **Antigravity는 차단**되고(컨테인먼트가 전혀 없으므로),
-  **Claude와 Codex는** 자체 내장 제한(더 약함) 하에서 계속 실행됩니다. Windows CLI
-  샌드박싱은 아직 미지원입니다.
+  **Claude는** 자체 내장 제한(더 약함) 하에서 계속 실행됩니다. Codex는 모든 플랫폼에서
+  이 래퍼 없이 자체 샌드박스를 직접 사용합니다. 플러그인의 OS 래퍼는 Windows를
+  지원하지 않습니다.
 
   Antigravity 1.1.3 이상은 플러그인이 `agy`를 headless(`-p`) 모드로 실행할 때
   대화형 승인이 필요한 도구도 거부합니다. 따라서 플러그인은 기존 Antigravity CLI

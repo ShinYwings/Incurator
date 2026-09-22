@@ -971,6 +971,44 @@ describe("complete() per-call model override (v0.21.0 Convert-to-LaTeX fast mode
   });
 });
 
+describe("Codex native vault access", () => {
+  function commandFor(provider: PluginSettings["provider"], policy: ToolPolicy, image = false) {
+    const client = new LLMClient({ ...DEFAULT_SETTINGS, provider }, {} as never) as any;
+    // Stub configuration I/O, not sandbox dispatch: the real wrapper must never
+    // be reached by a Codex command, even when no external wrapper is available.
+    client.syncCodexMcpConfig = () => undefined;
+    client.allowedRoots = () => ["/vault with spaces", "/external Zotero", "/external Zotero/storage"];
+    client.sandboxWriteRoots = () => ["/vault with spaces"];
+    client._chatImagePaths = image ? ["/cache/chat_images/run/image.png"] : [];
+    client._chatImageRunDir = image ? "/cache/chat_images/run" : null;
+    client.wrapWithOsSandbox = () => { throw new Error("nested sandbox reached"); };
+    return client.buildCliCommand("read original notes", "/cache/answer", provider, true, policy);
+  }
+
+  it.each(["openai", "deepseek", "ollama"] as const)("launches %s Codex directly with vault-only write grants", (provider) => {
+    const command = commandFor(provider, "auto", true);
+    expect(command.command).toBe("codex");
+    expect(command.args).toContain("workspace-write");
+    const roots = command.args.flatMap((arg: string, i: number) => arg === "--add-dir" ? [command.args[i + 1]] : []);
+    expect(roots).toEqual(["/vault with spaces", "/cache/chat_images/run"]);
+    expect(command.args).not.toContain("/external Zotero");
+    expect(command.args).toContain('approval_policy="never"');
+    expect(command.args).toContain("sandbox_workspace_write.writable_roots=[]");
+    expect(command.args).toContain("sandbox_workspace_write.exclude_slash_tmp=true");
+    expect(command.args).not.toContain("danger-full-access");
+    expect(command.stdin).toBe("read original notes");
+    expect(command.args).toContain("--output-last-message");
+  });
+
+  it.each(["none", "local-only"] as const)("keeps %s read-only even with images", (policy) => {
+    const command = commandFor("openai", policy, true);
+    expect(command.command).toBe("codex");
+    expect(command.args).toContain("read-only");
+    expect(command.args).not.toContain("--add-dir");
+    expect(command.args).not.toContain("workspace-write");
+  });
+});
+
 describe("CLI tool-scope sandbox source contract (v0.23.0)", () => {
   const source = readFileSync(
     join(fileURLToPath(new URL(".", import.meta.url)), "llm", "LLMClient.ts"),
@@ -1001,7 +1039,7 @@ describe("CLI tool-scope sandbox source contract (v0.23.0)", () => {
     expect(source).toContain('ephemeral ? "read-only" : "workspace-write"');
   });
 
-  it("threads toolPolicy and OS-sandbox-wraps every CLI command", () => {
+  it("threads toolPolicy and retains OS wrapping for non-Codex CLIs", () => {
     expect(source).toContain("toolPolicy: ToolPolicy = \"auto\"");
     expect(source).toContain("return this.wrapWithOsSandbox(base, p);");
     expect(source).toContain("buildSandboxPlan({");

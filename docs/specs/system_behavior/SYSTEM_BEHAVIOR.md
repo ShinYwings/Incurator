@@ -3142,8 +3142,10 @@ rendered page instead.
   This grants the model scoped `Read` over the existing add-dir set (vault + Zotero +
   image dir) **for image-bearing turns ONLY**; text-only turns keep the hardened
   no-`Read` denylist verbatim. DB-scoped MCP curator tools remain available (denylist
-  mode, not `--allowedTools`). All invocations stay inside the OS sandbox (§ v0.23.0
-  CLI Provider Tool-Scope Sandbox). Temp PNGs are removed in a `finally`
+  mode, not `--allowedTools`). Codex uses its native sandbox directly; other
+  CLIs retain the OS wrapper (§13.6 in PLUGIN_SCHEMA). Nested Codex/OS sandbox
+  initialization can fail before a vault read starts, so the plugin must not
+  add that second layer. Codex write roots exclude external Zotero references. Temp PNGs are removed in a `finally`
   (guaranteed on success, error, and abort); stale `chat_images/*` dirs are swept on
   startup. No temp image survives a completed send.
 - **Always-on when configured (per source).** When `vision_model` is set, each

@@ -2737,7 +2737,14 @@ export class LLMClient {
           extraEnv["OPENAI_API_KEY"] = "ollama";
         }
 
-        // Popover: read-only. Sidechat: workspace-write scoped to the allowed roots.
+        // Codex applies its own OS sandbox to tools. An outer Seatbelt write
+        // deny prevents nested sandbox_apply before even a vault read can run.
+        // Its --add-dir grants WRITES, so external Zotero read roots must not
+        // enter this list. Native reads need no additional writable grant.
+        const codexWriteDirs = ephemeral
+          ? []
+          : this.sandboxWriteRoots().flatMap((root) => ["--add-dir", root]);
+        if (!ephemeral && imageRunDir) codexWriteDirs.push("--add-dir", imageRunDir);
         const codexEffortArgs = this.settings.codexReasoningEffort
           ? ["-c", `model_reasoning_effort=${JSON.stringify(this.settings.codexReasoningEffort)}`]
           : [];
@@ -2748,7 +2755,12 @@ export class LLMClient {
             "exec",
             "-m", model,
             "--sandbox", ephemeral ? "read-only" : "workspace-write",
-            ...addDirs, // empty in ephemeral (read-only popover) mode
+            // Keep this headless launch scoped independently of global config:
+            // clear inherited write roots and exclude the broad host /tmp.
+            "-c", 'approval_policy="never"',
+            "-c", "sandbox_workspace_write.writable_roots=[]",
+            "-c", "sandbox_workspace_write.exclude_slash_tmp=true",
+            ...codexWriteDirs,
             "--skip-git-repo-check",
             "--json",
             ...codexEffortArgs,
@@ -2758,7 +2770,7 @@ export class LLMClient {
           env: extraEnv,
           stdin: preferStdin ? prompt : undefined,
         };
-        break;
+        return base; // Native Codex containment only; never nest the OS wrapper.
       }
       default:
         throw new Error(`Provider "${p}" does not support CLI mode.`);
@@ -2872,7 +2884,8 @@ export class LLMClient {
 
   /**
    * Roots the CLI tools may READ/reference (vault + Zotero library + its `storage/`),
-   * surfaced to the agent via `--add-dir`. Reads are allowed broadly by the OS sandbox
+   * surfaced to Antigravity/Claude via `--add-dir`. Codex builds separate WRITE
+   * grants because its --add-dir is writable. Reads are allowed broadly by the OS sandbox
    * regardless; this is the visibility set, NOT the writable set.
    */
   private allowedRoots(): string[] {
@@ -2913,7 +2926,8 @@ export class LLMClient {
 
   /**
    * OS-sandbox the CLI command. agy MUST be contained this way (its own --sandbox is
-   * ineffective); claude/codex use it as defense-in-depth on top of their flags. The
+   * ineffective); Claude uses it as defense-in-depth. Codex uses native containment
+   * and never calls this wrapper. The
    * macOS profile is passed INLINE via `sandbox-exec -p` (no temp file → no
    * multi-vault / concurrent-call collision). Returns the wrapped command, or refuses
    * (throws) when agy can't be sandboxed.
@@ -2943,9 +2957,9 @@ export class LLMClient {
 
     if (plan.unavailable) {
       // agy's own --sandbox is INEFFECTIVE (P0), so without the OS sandbox it has no
-      // containment → refuse. claude/codex DO self-contain via their flags (claude's
-      // tool denylist / codex's workspace-write), so they degrade to that weaker
-      // flag-based posture rather than being refused — but warn so the drop is visible.
+      // containment → refuse. Claude retains its tool denylist, so it degrades
+      // to that weaker flag-based posture with a warning. Codex never enters
+      // this wrapper: its native sandbox remains responsible for tool execution.
       if (provider === "antigravity") {
         throw new Error(
           `Antigravity (agy) cannot be safely sandboxed here, so it is blocked from tool ` +
